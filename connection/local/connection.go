@@ -12,30 +12,21 @@ import (
 	"github.com/kballard/go-shellquote"
 )
 
-const hostname = "localhost"
+const name = "[local] localhost"
 
 // Connection is a direct localhost connection
 type Connection struct {
-	name string
-}
-
-// NewConnection returns a new connection
-func NewConnection() *Connection {
-	return &Connection{}
-}
-
-// SetName sets the connection's printable name
-func (c *Connection) SetName(n string) {
-	c.name = n
+	Enabled bool `yaml:"enabled" validate:"required,eq=true" default:"true"`
+	name    string
 }
 
 // String returns the connection's printable name
 func (c *Connection) String() string {
-	if c.name == "" {
-		return hostname
-	}
+	return name
+}
 
-	return c.name
+func (c *Connection) IsConnected() bool {
+	return true
 }
 
 // IsWindows is true when SetWindows(true) has been used
@@ -57,7 +48,7 @@ func (c *Connection) Exec(cmd string, opts ...exec.Option) error {
 	command := c.command(cmd)
 
 	if o.Stdin != "" {
-		o.LogStdin(hostname)
+		o.LogStdin(name)
 
 		command.Stdin = strings.NewReader(o.Stdin)
 	}
@@ -74,12 +65,12 @@ func (c *Connection) Exec(cmd string, opts ...exec.Option) error {
 	multiReader := io.MultiReader(stdout, stderr)
 	outputScanner := bufio.NewScanner(multiReader)
 
-	o.LogCmd(hostname, cmd)
+	o.LogCmd(name, cmd)
 
 	command.Start()
 
 	for outputScanner.Scan() {
-		o.AddOutput(hostname, outputScanner.Text()+"\n")
+		o.AddOutput(name, outputScanner.Text()+"\n")
 	}
 
 	return command.Wait()

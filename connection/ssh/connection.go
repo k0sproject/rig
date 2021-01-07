@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
 	"os"
 	"sync"
@@ -15,16 +16,16 @@ import (
 
 	"github.com/acarl005/stripansi"
 	"github.com/k0sproject/rig/exec"
-	"github.com/k0sproject/rig/util"
-	log "github.com/sirupsen/logrus"
+
+	"github.com/mitchellh/go-homedir"
 )
 
 // Connection describes an SSH connection
 type Connection struct {
-	Address string
-	User    string
-	Port    int
-	KeyPath string
+	Address string `yaml:"address" validate:"required,hostname|ip"`
+	User    string `yaml:"user" validate:"omitempty,gt=2" default:"root"`
+	Port    int    `yaml:"port" default:"22" validate:"gt=0,lte=65535"`
+	KeyPath string `yaml:"keyPath" validate:"omitempty,file" default:"~/.ssh/id_rsa"`
 
 	name string
 
@@ -33,18 +34,27 @@ type Connection struct {
 	client    *ssh.Client
 }
 
-// SetName sets the connection's printable name
-func (c *Connection) SetName(n string) {
-	c.name = n
+func (c *Connection) SetDefaults() error {
+	k, err := homedir.Expand(c.KeyPath)
+	if err != nil {
+		return err
+	}
+	c.KeyPath = k
+
+	return nil
 }
 
 // String returns the connection's printable name
 func (c *Connection) String() string {
 	if c.name == "" {
-		return fmt.Sprintf("%s:%d", c.Address, c.Port)
+		c.name = fmt.Sprintf("[ssh] %s:%d", c.Address, c.Port)
 	}
 
 	return c.name
+}
+
+func (c *Connection) IsConnected() bool {
+	return c.client != nil
 }
 
 // Disconnect closes the SSH connection
@@ -65,7 +75,7 @@ func (c *Connection) IsWindows() bool {
 
 // Connect opens the SSH connection
 func (c *Connection) Connect() error {
-	key, err := util.LoadExternalFile(c.KeyPath)
+	key, err := ioutil.ReadFile(c.KeyPath)
 	if err != nil {
 		return err
 	}
@@ -74,7 +84,7 @@ func (c *Connection) Connect() error {
 		User:            c.User,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
-	address := fmt.Sprintf("%s:%d", c.Address, c.Port)
+	dst := fmt.Sprintf("%s:%d", c.Address, c.Port)
 
 	sshAgentSock := os.Getenv("SSH_AUTH_SOCK")
 	signer, err := ssh.ParsePrivateKey(key)
@@ -90,11 +100,10 @@ func (c *Connection) Connect() error {
 		if err != nil {
 			return fmt.Errorf("cannot connect to SSH agent auth socket %s: %s", sshAgentSock, err)
 		}
-		log.Tracef("using SSH auth sock %s", sshAgentSock)
 		config.Auth = append(config.Auth, ssh.PublicKeysCallback(agent.NewClient(sshAgent).Signers))
 	}
 
-	client, err := ssh.Dial("tcp", address, config)
+	client, err := ssh.Dial("tcp", dst, config)
 	if err != nil {
 		return err
 	}
@@ -154,7 +163,6 @@ func (c *Connection) Exec(cmd string, opts ...exec.Option) error {
 		if err := outputScanner.Err(); err != nil {
 			o.LogErrorf("%s: %s", c, err.Error())
 		}
-		log.Tracef("%s: stdout loop exited", c)
 	}()
 
 	gotErrors := false
@@ -173,12 +181,9 @@ func (c *Connection) Exec(cmd string, opts ...exec.Option) error {
 			gotErrors = true
 			o.LogErrorf("%s: %s", c, err.Error())
 		}
-		log.Tracef("%s: stderr loop exited", c)
 	}()
 
-	log.Tracef("%s: waiting for command exit", c)
 	err = session.Wait()
-	log.Tracef("%s: waiting for syncgroup done", c)
 	wg.Wait()
 
 	if err != nil {
@@ -206,7 +211,6 @@ func termSizeWNCH() []byte {
 	fd := int(os.Stdin.Fd())
 	rows, cols, err := terminal.GetSize(fd)
 	if err != nil {
-		log.Tracef("error getting window size: %s", err.Error())
 		binary.BigEndian.PutUint32(size, 40)
 		binary.BigEndian.PutUint32(size[4:], 80)
 	} else {
@@ -241,7 +245,6 @@ func (c *Connection) ExecInteractive(cmd string) error {
 		return err
 	}
 
-	log.Tracef("requesting pty")
 	modes := ssh.TerminalModes{ssh.ECHO: 1}
 	err = session.RequestPty("xterm", cols, rows, modes)
 	if err != nil {
@@ -254,7 +257,6 @@ func (c *Connection) ExecInteractive(cmd string) error {
 	}
 	go func() {
 		io.Copy(stdinpipe, os.Stdin)
-		log.Tracef("stdin closed")
 	}()
 
 	c.captureSignals(stdinpipe, session)
