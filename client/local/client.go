@@ -14,36 +14,36 @@ import (
 
 const name = "[local] localhost"
 
-// Connection is a direct localhost connection
-type Connection struct {
+// Client is a direct localhost connection
+type Client struct {
 	Enabled bool `yaml:"enabled" validate:"required,eq=true" default:"true"`
 	name    string
 }
 
 // String returns the connection's printable name
-func (c *Connection) String() string {
+func (c *Client) String() string {
 	return name
 }
 
-func (c *Connection) IsConnected() bool {
+func (c *Client) IsConnected() bool {
 	return true
 }
 
 // IsWindows is true when SetWindows(true) has been used
-func (c *Connection) IsWindows() bool {
+func (c *Client) IsWindows() bool {
 	return runtime.GOOS == "windows"
 }
 
 // Connect on local connection does nothing
-func (c *Connection) Connect() error {
+func (c *Client) Connect() error {
 	return nil
 }
 
 // Disconnect on local connection does nothing
-func (c *Connection) Disconnect() {}
+func (c *Client) Disconnect() {}
 
 // Exec executes a command on the host
-func (c *Connection) Exec(cmd string, opts ...exec.Option) error {
+func (c *Client) Exec(cmd string, opts ...exec.Option) error {
 	o := exec.Build(opts...)
 	command := c.command(cmd)
 
@@ -76,7 +76,7 @@ func (c *Connection) Exec(cmd string, opts ...exec.Option) error {
 	return command.Wait()
 }
 
-func (c *Connection) command(cmd string) *osexec.Cmd {
+func (c *Client) command(cmd string) *osexec.Cmd {
 	if c.IsWindows() {
 		return osexec.Command(cmd)
 	}
@@ -85,7 +85,7 @@ func (c *Connection) command(cmd string) *osexec.Cmd {
 }
 
 // Upload copies a larger file to another path on the host.
-func (c *Connection) Upload(src, dst string) error {
+func (c *Client) Upload(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
@@ -102,7 +102,7 @@ func (c *Connection) Upload(src, dst string) error {
 }
 
 // ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host
-func (c *Connection) ExecInteractive(cmd string) error {
+func (c *Client) ExecInteractive(cmd string) error {
 	if cmd == "" {
 		cmd = os.Getenv("SHELL") + " -l"
 	}

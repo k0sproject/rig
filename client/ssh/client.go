@@ -20,8 +20,8 @@ import (
 	"github.com/mitchellh/go-homedir"
 )
 
-// Connection describes an SSH connection
-type Connection struct {
+// Client describes an SSH connection
+type Client struct {
 	Address string `yaml:"address" validate:"required,hostname|ip"`
 	User    string `yaml:"user" validate:"omitempty,gt=2" default:"root"`
 	Port    int    `yaml:"port" default:"22" validate:"gt=0,lte=65535"`
@@ -31,10 +31,11 @@ type Connection struct {
 
 	isWindows bool
 	knowOs    bool
-	client    *ssh.Client
+
+	client *ssh.Client
 }
 
-func (c *Connection) SetDefaults() error {
+func (c *Client) SetDefaults() error {
 	k, err := homedir.Expand(c.KeyPath)
 	if err != nil {
 		return err
@@ -45,7 +46,7 @@ func (c *Connection) SetDefaults() error {
 }
 
 // String returns the connection's printable name
-func (c *Connection) String() string {
+func (c *Client) String() string {
 	if c.name == "" {
 		c.name = fmt.Sprintf("[ssh] %s:%d", c.Address, c.Port)
 	}
@@ -53,17 +54,17 @@ func (c *Connection) String() string {
 	return c.name
 }
 
-func (c *Connection) IsConnected() bool {
+func (c *Client) IsConnected() bool {
 	return c.client != nil
 }
 
 // Disconnect closes the SSH connection
-func (c *Connection) Disconnect() {
+func (c *Client) Disconnect() {
 	c.client.Close()
 }
 
 // IsWindows is true when the host is running windows
-func (c *Connection) IsWindows() bool {
+func (c *Client) IsWindows() bool {
 	if !c.knowOs {
 		c.knowOs = true
 
@@ -74,7 +75,7 @@ func (c *Connection) IsWindows() bool {
 }
 
 // Connect opens the SSH connection
-func (c *Connection) Connect() error {
+func (c *Client) Connect() error {
 	key, err := ioutil.ReadFile(c.KeyPath)
 	if err != nil {
 		return err
@@ -112,7 +113,7 @@ func (c *Connection) Connect() error {
 }
 
 // Exec executes a command on the host
-func (c *Connection) Exec(cmd string, opts ...exec.Option) error {
+func (c *Client) Exec(cmd string, opts ...exec.Option) error {
 	o := exec.Build(opts...)
 	session, err := c.client.NewSession()
 	if err != nil {
@@ -199,7 +200,7 @@ func (c *Connection) Exec(cmd string, opts ...exec.Option) error {
 
 // Upload uploads a larger file to the host.
 // Use instead of configurer.WriteFile when it seems appropriate
-func (c *Connection) Upload(src, dst string) error {
+func (c *Client) Upload(src, dst string) error {
 	if c.IsWindows() {
 		return c.uploadWindows(src, dst)
 	}
@@ -222,7 +223,7 @@ func termSizeWNCH() []byte {
 }
 
 // ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host
-func (c *Connection) ExecInteractive(cmd string) error {
+func (c *Client) ExecInteractive(cmd string) error {
 	session, err := c.client.NewSession()
 	if err != nil {
 		return err

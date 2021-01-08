@@ -13,8 +13,8 @@ import (
 	"github.com/masterzen/winrm"
 )
 
-// Connection describes a WinRM connection with its configuration options
-type Connection struct {
+// Client describes a WinRM connection with its configuration options
+type Client struct {
 	Address       string `yaml:"address" validate:"required,hostname|ip"`
 	User          string `yaml:"user" validate:"omitempty,gt=2" default:"Administrator"`
 	Port          int    `yaml:"port" default:"5985" validate:"gt=0,lte=65535"`
@@ -37,7 +37,7 @@ type Connection struct {
 }
 
 // String returns the connection's printable name
-func (c *Connection) String() string {
+func (c *Client) String() string {
 	if c.name == "" {
 		c.name = fmt.Sprintf("[winrm] %s:%d", c.Address, c.Port)
 	}
@@ -45,16 +45,16 @@ func (c *Connection) String() string {
 	return c.name
 }
 
-func (c *Connection) IsConnected() bool {
+func (c *Client) IsConnected() bool {
 	return c.client != nil
 }
 
 // IsWindows is here to satisfy the interface, WinRM hosts are expected to always run windows
-func (c *Connection) IsWindows() bool {
+func (c *Client) IsWindows() bool {
 	return true
 }
 
-func (c *Connection) loadCertificates() error {
+func (c *Client) loadCertificates() error {
 	c.caCert = nil
 	if c.CACertPath != "" {
 		ca, err := ioutil.ReadFile(c.CACertPath)
@@ -86,7 +86,7 @@ func (c *Connection) loadCertificates() error {
 }
 
 // Connect opens the WinRM connection
-func (c *Connection) Connect() error {
+func (c *Client) Connect() error {
 	if err := c.loadCertificates(); err != nil {
 		return fmt.Errorf("%s: failed to load certificates: %s", c, err)
 	}
@@ -134,12 +134,12 @@ func (c *Connection) Connect() error {
 }
 
 // Disconnect closes the WinRM connection
-func (c *Connection) Disconnect() {
+func (c *Client) Disconnect() {
 	c.client = nil
 }
 
 // Exec executes a command on the host
-func (c *Connection) Exec(cmd string, opts ...exec.Option) error {
+func (c *Client) Exec(cmd string, opts ...exec.Option) error {
 	o := exec.Build(opts...)
 	shell, err := c.client.CreateShell()
 	if err != nil {
@@ -216,7 +216,7 @@ func (c *Connection) Exec(cmd string, opts ...exec.Option) error {
 }
 
 // ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host
-func (c *Connection) ExecInteractive(cmd string) error {
+func (c *Client) ExecInteractive(cmd string) error {
 	if cmd == "" {
 		cmd = "cmd"
 	}
