@@ -4,8 +4,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
-
-	log "github.com/sirupsen/logrus"
 )
 
 // PipeHasEnded string is used during the base64+sha265 upload process
@@ -58,7 +56,6 @@ func EncodeCmd(psCmd string) string {
 func Cmd(psCmd string) string {
 	encodedCmd := EncodeCmd(psCmd)
 
-	log.Debugf("encoded powershell command: %s", psCmd)
 	// Create the powershell.exe command line to execute the script
 	return fmt.Sprintf("powershell.exe -NonInteractive -NoProfile -EncodedCommand %s", encodedCmd)
 }
