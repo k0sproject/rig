@@ -12,52 +12,43 @@ import (
 	"github.com/kballard/go-shellquote"
 )
 
-const hostname = "localhost"
+const name = "[local] localhost"
 
-// Connection is a direct localhost connection
-type Connection struct {
-	name string
-}
-
-// NewConnection returns a new connection
-func NewConnection() *Connection {
-	return &Connection{}
-}
-
-// SetName sets the connection's printable name
-func (c *Connection) SetName(n string) {
-	c.name = n
+// Client is a direct localhost connection
+type Client struct {
+	Enabled bool `yaml:"enabled" validate:"required,eq=true" default:"true"`
+	name    string
 }
 
 // String returns the connection's printable name
-func (c *Connection) String() string {
-	if c.name == "" {
-		return hostname
-	}
+func (c *Client) String() string {
+	return name
+}
 
-	return c.name
+func (c *Client) IsConnected() bool {
+	return true
 }
 
 // IsWindows is true when SetWindows(true) has been used
-func (c *Connection) IsWindows() bool {
+func (c *Client) IsWindows() bool {
 	return runtime.GOOS == "windows"
 }
 
 // Connect on local connection does nothing
-func (c *Connection) Connect() error {
+func (c *Client) Connect() error {
 	return nil
 }
 
 // Disconnect on local connection does nothing
-func (c *Connection) Disconnect() {}
+func (c *Client) Disconnect() {}
 
 // Exec executes a command on the host
-func (c *Connection) Exec(cmd string, opts ...exec.Option) error {
+func (c *Client) Exec(cmd string, opts ...exec.Option) error {
 	o := exec.Build(opts...)
 	command := c.command(cmd)
 
 	if o.Stdin != "" {
-		o.LogStdin(hostname)
+		o.LogStdin(name)
 
 		command.Stdin = strings.NewReader(o.Stdin)
 	}
@@ -74,18 +65,18 @@ func (c *Connection) Exec(cmd string, opts ...exec.Option) error {
 	multiReader := io.MultiReader(stdout, stderr)
 	outputScanner := bufio.NewScanner(multiReader)
 
-	o.LogCmd(hostname, cmd)
+	o.LogCmd(name, cmd)
 
 	command.Start()
 
 	for outputScanner.Scan() {
-		o.AddOutput(hostname, outputScanner.Text()+"\n")
+		o.AddOutput(name, outputScanner.Text()+"\n")
 	}
 
 	return command.Wait()
 }
 
-func (c *Connection) command(cmd string) *osexec.Cmd {
+func (c *Client) command(cmd string) *osexec.Cmd {
 	if c.IsWindows() {
 		return osexec.Command(cmd)
 	}
@@ -94,7 +85,7 @@ func (c *Connection) command(cmd string) *osexec.Cmd {
 }
 
 // Upload copies a larger file to another path on the host.
-func (c *Connection) Upload(src, dst string) error {
+func (c *Client) Upload(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
@@ -111,7 +102,7 @@ func (c *Connection) Upload(src, dst string) error {
 }
 
 // ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host
-func (c *Connection) ExecInteractive(cmd string) error {
+func (c *Client) ExecInteractive(cmd string) error {
 	if cmd == "" {
 		cmd = os.Getenv("SHELL") + " -l"
 	}

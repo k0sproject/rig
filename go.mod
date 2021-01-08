@@ -6,6 +6,7 @@ require (
 	github.com/AlecAivazis/survey/v2 v2.2.7
 	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d
 	github.com/alessio/shellescape v1.4.1
+	github.com/creasty/defaults v1.5.1
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/masterzen/winrm v0.0.0-20201030141608-56ca5c5f2380
 	github.com/mattn/go-isatty v0.0.8
