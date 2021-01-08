@@ -13,7 +13,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/alessio/shellescape"
 	ps "github.com/k0sproject/rig/powershell"
@@ -111,7 +110,6 @@ func (c *Client) uploadWindows(src, dst string) error {
 	ended := false
 
 	for {
-		lastStart := time.Now()
 		var n int
 		n, err = fd.Read(buffer)
 		bufferLength += n
@@ -128,8 +126,6 @@ func (c *Client) uploadWindows(src, dst string) error {
 			}
 			b, err := hostIn.Write(base64LineBuffer)
 			realSent += uint64(b)
-			chunkDuration := time.Since(lastStart).Seconds()
-			chunkSpeed := float64(b) / chunkDuration
 			if ended {
 				hostIn.Close()
 			}
