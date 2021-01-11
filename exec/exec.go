@@ -8,15 +8,30 @@ import (
 	"sync"
 
 	"github.com/AlecAivazis/survey/v2"
+	"github.com/k0sproject/rig/log"
 	"github.com/mattn/go-isatty"
-	log "github.com/sirupsen/logrus"
 )
 
 var (
 	// DisableRedact will make redact not redact anything
 	DisableRedact = false
-	// Confirm will make all command execs ask for confirmation
+	// Confirm will make all command execs ask for confirmation - this is a simplistic way for auditing what will be executed
 	Confirm = false
+
+	// DebugFunc can be replaced to direct the output of exec logging into your own function (standard sprintf interface)
+	DebugFunc = func(s string, args ...interface{}) {
+		log.Debugf(s, args...)
+	}
+
+	// InfoFunc can be replaced to direct the output of exec logging into your own function (standard sprintf interface)
+	InfoFunc = func(s string, args ...interface{}) {
+		log.Infof(s, args...)
+	}
+
+	// ErrorFunc can be replaced to direct the output of exec logging into your own function (standard sprintf interface)
+	ErrorFunc = func(s string, args ...interface{}) {
+		log.Errorf(s, args...)
+	}
 
 	mutex sync.Mutex
 )
@@ -41,7 +56,7 @@ type Options struct {
 func (o *Options) LogCmd(prefix, cmd string) {
 	if Confirm {
 		if !isatty.IsTerminal(os.Stdout.Fd()) {
-			os.Stderr.WriteString("--confirm requires an interactive terminal")
+			os.Stderr.WriteString("confirmation mode requires an interactive terminal")
 			os.Exit(1)
 		}
 
@@ -63,9 +78,9 @@ func (o *Options) LogCmd(prefix, cmd string) {
 	}
 
 	if o.LogCommand {
-		log.Debugf("%s: executing `%s`", prefix, o.Redact(cmd))
+		DebugFunc("%s: executing `%s`", prefix, o.Redact(cmd))
 	} else {
-		log.Debugf("%s: executing [REDACTED]", prefix)
+		DebugFunc("%s: executing [REDACTED]", prefix)
 	}
 }
 
@@ -85,40 +100,37 @@ func (o *Options) LogStdin(prefix string) {
 // LogDebugf is a conditional debug logger
 func (o *Options) LogDebugf(s string, args ...interface{}) {
 	if o.LogDebug {
-		log.Debugf(s, args...)
+		DebugFunc(s, args...)
 	}
 }
 
 // LogInfof is a conditional info logger
 func (o *Options) LogInfof(s string, args ...interface{}) {
 	if o.LogInfo {
-		log.Infof(s, args...)
+		InfoFunc(s, args...)
 	}
 }
 
 // LogErrorf is a conditional error logger
 func (o *Options) LogErrorf(s string, args ...interface{}) {
 	if o.LogError {
-		log.Errorf(s, args...)
+		ErrorFunc(s, args...)
 	}
 }
 
 // AddOutput is for appending / displaying output of the command
 func (o *Options) AddOutput(prefix, s string) {
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	if o.Output != nil {
 		*o.Output += s
 	}
 
 	if o.StreamOutput {
-		mutex.Lock()
-		defer mutex.Unlock()
-		log.Infof("%s: %s", prefix, o.Redact(s))
+		InfoFunc("%s: %s", prefix, o.Redact(s))
 	} else {
-		if log.IsLevelEnabled(log.DebugLevel) {
-			mutex.Lock()
-			defer mutex.Unlock()
-		}
-		o.LogDebugf("%s: %s", prefix, o.Redact(s))
+		DebugFunc("%s: %s", prefix, o.Redact(s))
 	}
 }
 
