@@ -167,3 +167,8 @@ func (c *Windows) CleanupEnvironment(env map[string]string) error {
 func (c *Windows) CommandExist(cmd string) bool {
 	return c.Host.Execf("where /q %s", cmd) == nil
 }
+
+// Reboot executes the reboot command
+func (c *Windows) Reboot() error {
+	return c.Host.Exec("shutdown /r")
+}

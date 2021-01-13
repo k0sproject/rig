@@ -9,6 +9,5 @@ type InitSystem interface {
 	EnableService(string) error
 	ServiceIsRunning(string) bool
 	ServiceScriptPath(string) (string, error)
-	RebootCommand() string
 	Reload() error
 }

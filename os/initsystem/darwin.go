@@ -48,8 +48,3 @@ func (i *Darwin) DisableService(s string) error {
 func (i *Darwin) ServiceIsRunning(s string) bool {
 	return i.Host.Execf(`sudo launchctl list %s | grep -q '"PID"'`, s) == nil
 }
-
-// RebootCommand returns the system reboot command
-func (i *Darwin) RebootCommand() string {
-	return "sudo reboot"
-}

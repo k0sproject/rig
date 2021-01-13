@@ -178,3 +178,8 @@ func (c *Linux) CleanupEnvironment(env map[string]string) error {
 func (c *Linux) CommandExist(cmd string) bool {
 	return c.Host.Execf("sudo command -v %s", cmd) == nil
 }
+
+// Reboot executes the reboot command
+func (c *Linux) Reboot() error {
+	return c.Host.Exec("sudo reboot")
+}

@@ -44,8 +44,3 @@ func (i *OpenRC) DisableService(s string) error {
 func (i *OpenRC) ServiceIsRunning(s string) bool {
 	return i.Host.Execf(`sudo rc-service %s status | grep -q "status: started"`, s) == nil
 }
-
-// RebootCommand returns a command to reboot the host
-func (i *OpenRC) RebootCommand() string {
-	return "sudo shutdown -r now"
-}

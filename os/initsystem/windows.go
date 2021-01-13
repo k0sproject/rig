@@ -50,8 +50,3 @@ func (i *Windows) DisableService(s string) error {
 func (i *Windows) ServiceIsRunning(s string) bool {
 	return i.Host.Execf(`sc.exe query "%s" | findstr "RUNNING"`, s) == nil
 }
-
-// RebootCommand returns the OS reboot command
-func (i *Windows) RebootCommand() string {
-	return "shutdown /r"
-}
