@@ -12,8 +12,3 @@ type Os struct {
 func (o *Os) String() string {
 	return o.Name
 }
-
-type OsSupport interface {
-	InstallPackage(...string) error
-	CheckPrivilege() error
-}
