@@ -127,7 +127,7 @@ func (w DarwinResolver) Resolve(c *Connection) (os OSVersion, err error) {
 	}
 
 	var name string
-	if n, err := c.ExecWithOutput(`grep "SOFTWARE LICENSE AGREEMENT FOR " "/System/Library/CoreServices/Setup Assistant.app/Contents/Resources/en.lproj/OSXSoftwareLicense.rtf" | sed -E "s/^.*SOFTWARE LICENSE AGREEMENT FOR (.+)\\\/\1/"`); err != nil {
+	if n, err := c.ExecWithOutput(`grep "SOFTWARE LICENSE AGREEMENT FOR " "/System/Library/CoreServices/Setup Assistant.app/Contents/Resources/en.lproj/OSXSoftwareLicense.rtf" | sed -E "s/^.*SOFTWARE LICENSE AGREEMENT FOR (.+)\\\/\1/"`); err == nil {
 		name = fmt.Sprintf("%s %s", n, version)
 	}
 

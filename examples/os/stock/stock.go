@@ -27,17 +27,17 @@ type os interface {
 type Host struct {
 	rig.Connection
 
-	Os os
+	OS os
 }
 
 // LoadOS is a function that assigns a OS support package to the host and typecasts it to a proper interface
 func (h *Host) LoadOS() error {
-	bf, err := registry.GetOSModuleBuilder(h.OsInfo)
+	bf, err := registry.GetOSModuleBuilder(h.OSVersion)
 	if err != nil {
 		return err
 	}
 
-	h.Os = bf(h).(os)
+	h.OS = bf(h).(os)
 
 	return nil
 }
@@ -59,5 +59,7 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Printf("%s: host pwd:%s\n", h.String(), h.Os.Pwd())
+	fmt.Println("OS Info:")
+	fmt.Printf("%+v\n", h.OSVersion)
+	fmt.Printf("Host PWD:\n%s\n", h.OS.Pwd())
 }

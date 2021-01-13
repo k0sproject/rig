@@ -8,7 +8,7 @@ import (
 )
 
 type buildFunc = func(os.Host) interface{}
-type matchFunc = func(*rig.OSVersion) bool
+type matchFunc = func(rig.OSVersion) bool
 
 type osFactory struct {
 	MatchFunc matchFunc
@@ -24,7 +24,7 @@ func RegisterOSModule(mf matchFunc, bf buildFunc) {
 }
 
 // GetOSModuleBuilder returns a suitable OS support module from rig's registry
-func GetOSModuleBuilder(os *rig.OSVersion) (buildFunc, error) {
+func GetOSModuleBuilder(os rig.OSVersion) (buildFunc, error) {
 	for _, of := range osModules {
 		if of.MatchFunc(os) {
 			return of.BuildFunc, nil

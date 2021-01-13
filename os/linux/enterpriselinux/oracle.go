@@ -14,7 +14,7 @@ type OracleLinux struct {
 
 func init() {
 	registry.RegisterOSModule(
-		func(os *rig.OSVersion) bool {
+		func(os rig.OSVersion) bool {
 			return os.ID == "ol"
 		},
 		func(h os.Host) interface{} {

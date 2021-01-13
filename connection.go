@@ -28,7 +28,7 @@ type Connection struct {
 	SSH       *ssh.Client   `yaml:"ssh,omitempty"`
 	Localhost *local.Client `yaml:"localhost,omitempty"`
 
-	OsInfo *OSVersion `yaml:"-"`
+	OSVersion OSVersion `yaml:"-"`
 
 	client Client `yaml:"-"`
 }
@@ -110,7 +110,10 @@ func (c *Connection) Connect() error {
 	}
 
 	o, err := r.Resolve(c)
-	c.OsInfo = &o
+	if err != nil {
+		return err
+	}
+	c.OSVersion = o
 
 	return nil
 }
