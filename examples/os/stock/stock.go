@@ -1,5 +1,15 @@
 package main
 
+/*
+  This example shows how the OS support mechanism can be used to add utility functions for
+	multiple target operating systems.
+
+	The reason "host.Os" does not come out of the box with rig.Connection is that most likely you
+	want to write functions of your own and have a certain set of operating systems to
+	support. This way, you are free to have a "host.Os" that implements your own interface
+	and you will have type checking and code completion in full effect.
+*/
+
 import (
 	"fmt"
 
