@@ -1,6 +1,8 @@
 package rig
 
 import (
+	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/creasty/defaults"
@@ -26,11 +28,14 @@ type Connection struct {
 	SSH       *ssh.Client   `yaml:"ssh,omitempty"`
 	Localhost *local.Client `yaml:"localhost,omitempty"`
 
+	OsInfo    *Os `yaml:"-"`
+	OsBuilder func() interface{}
+
 	client Client `yaml:"-"`
 }
 
 // SetDefaults sets a connection
-func (c *Connection) SetDefaults() error {
+func (c *Connection) SetDefaults() {
 	if c.client == nil {
 		c.client = c.configuredClient()
 		if c.client == nil {
@@ -38,7 +43,7 @@ func (c *Connection) SetDefaults() error {
 		}
 	}
 
-	return defaults.Set(c.client)
+	defaults.Set(c.client)
 }
 
 func (c *Connection) IsConnected() bool {
@@ -88,7 +93,7 @@ func (c *Connection) ExecWithOutput(cmd string, opts ...exec.Option) (string, er
 	return strings.TrimSpace(output), err
 }
 
-// Connect to the host
+// Connect to the host and identify operating system
 func (c *Connection) Connect() error {
 	if c.client == nil {
 		defaults.Set(c)
@@ -99,7 +104,39 @@ func (c *Connection) Connect() error {
 		return err
 	}
 
+	r, err := GetResolver(c)
+	if err != nil {
+		return err
+	}
+
+	o, err := r.Resolve(c)
+	c.OsInfo = &o
+
 	return nil
+}
+
+func splitArgs(params ...interface{}) (opts []exec.Option, args []interface{}) {
+	sample := reflect.TypeOf(exec.HideCommand())
+	for _, v := range params {
+		if reflect.TypeOf(v) == sample {
+			opts = append(opts, v.(exec.Option))
+		} else {
+			args = append(args, v)
+		}
+	}
+	return
+}
+
+// Execf is like exec but with sprintf templating
+func (c *Connection) Execf(s string, args ...interface{}) error {
+	o, a := splitArgs(args)
+	return c.Exec(fmt.Sprintf(s, a...), o...)
+}
+
+// ExecWithOutputf is like ExecWithOutput but with sprintf templating
+func (c *Connection) ExecWithOutputf(s string, args ...interface{}) (string, error) {
+	o, a := splitArgs(args)
+	return c.ExecWithOutput(fmt.Sprintf(s, a...), o...)
 }
 
 // Disconnect the host
