@@ -10,7 +10,7 @@ type Logger interface {
 }
 
 // Log can be assigned a proper logger, such as logrus configured to your liking.
-var Log logger
+var Log Logger
 
 // Debugf logs a debug level log message
 func Debugf(t string, args ...interface{}) {
