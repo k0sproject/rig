@@ -13,7 +13,7 @@ type Windows2019 struct {
 
 func init() {
 	registry.RegisterOSModule(
-		func(os *rig.Os) bool {
+		func(os *rig.OSVersion) bool {
 			return os.ID == "windows-10.0.17763"
 		},
 		func(h os.Host) interface{} {

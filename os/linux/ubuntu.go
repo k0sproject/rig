@@ -15,7 +15,7 @@ type Ubuntu struct {
 
 func init() {
 	registry.RegisterOSModule(
-		func(os *rig.Os) bool {
+		func(os *rig.OSVersion) bool {
 			return os.ID == "ubuntu"
 		},
 		func(h os.Host) interface{} {

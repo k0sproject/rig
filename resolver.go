@@ -11,7 +11,7 @@ import (
 
 // Resolver interface
 type Resolver interface {
-	Resolve(*Connection) (Os, error)
+	Resolve(*Connection) (OSVersion, error)
 }
 
 // GetResolver returns an OS version resolver
@@ -41,7 +41,7 @@ type WindowsResolver struct{}
 type DarwinResolver struct{}
 
 // Resolve resolves OS release information
-func (w LinuxResolver) Resolve(c *Connection) (os Os, err error) {
+func (w LinuxResolver) Resolve(c *Connection) (os OSVersion, err error) {
 	output, err := c.ExecWithOutput("cat /etc/os-release || cat /usr/lib/os-release")
 	if err != nil {
 		return
@@ -52,7 +52,7 @@ func (w LinuxResolver) Resolve(c *Connection) (os Os, err error) {
 	return
 }
 
-func parseOSReleaseFile(s string, os *Os) error {
+func parseOSReleaseFile(s string, os *OSVersion) error {
 	scanner := bufio.NewScanner(strings.NewReader(s))
 	for scanner.Scan() {
 		fields := strings.SplitN(scanner.Text(), "=", 2)
@@ -88,7 +88,7 @@ func parseOSReleaseFile(s string, os *Os) error {
 }
 
 // Resolve resolves OS release information
-func (w WindowsResolver) Resolve(c *Connection) (os Os, err error) {
+func (w WindowsResolver) Resolve(c *Connection) (os OSVersion, err error) {
 	osName, err := c.ExecWithOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").ProductName`))
 	if err != nil {
 		return
@@ -109,7 +109,7 @@ func (w WindowsResolver) Resolve(c *Connection) (os Os, err error) {
 		return
 	}
 
-	os = Os{
+	os = OSVersion{
 		ID:      "windows",
 		IDLike:  "windows",
 		Version: fmt.Sprintf("%s.%s.%s", osMajor, osMinor, osBuild),
@@ -120,7 +120,7 @@ func (w WindowsResolver) Resolve(c *Connection) (os Os, err error) {
 }
 
 // Resolve resolves OS release information
-func (w DarwinResolver) Resolve(c *Connection) (os Os, err error) {
+func (w DarwinResolver) Resolve(c *Connection) (os OSVersion, err error) {
 	version, err := c.ExecWithOutput("sw_vers -productVersion")
 	if err != nil {
 		return
@@ -131,7 +131,7 @@ func (w DarwinResolver) Resolve(c *Connection) (os Os, err error) {
 		name = fmt.Sprintf("%s %s", n, version)
 	}
 
-	os = Os{
+	os = OSVersion{
 		ID:      "darwin",
 		IDLike:  "darwin",
 		Version: version,

@@ -36,7 +36,7 @@ func (c *Darwin) InstallPackage(s ...string) error {
 
 func init() {
 	registry.RegisterOSModule(
-		func(os *rig.Os) bool {
+		func(os *rig.OSVersion) bool {
 			return os.ID == "darwin"
 		},
 		func(h os.Host) interface{} {

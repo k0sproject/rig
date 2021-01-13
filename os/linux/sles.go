@@ -20,7 +20,7 @@ func (c *SLES) InstallPackage(s ...string) error {
 
 func init() {
 	registry.RegisterOSModule(
-		func(os *rig.Os) bool {
+		func(os *rig.OSVersion) bool {
 			return os.ID == "sles"
 		},
 		func(h os.Host) interface{} {

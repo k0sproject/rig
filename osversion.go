@@ -1,7 +1,7 @@
 package rig
 
-// Os host operating system version information
-type Os struct {
+// OSVersion host operating system version information
+type OSVersion struct {
 	ID      string
 	IDLike  string
 	Name    string
@@ -9,6 +9,6 @@ type Os struct {
 }
 
 // String implements Stringer
-func (o *Os) String() string {
+func (o *OSVersion) String() string {
 	return o.Name
 }

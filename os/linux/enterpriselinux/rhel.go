@@ -14,7 +14,7 @@ type RHEL struct {
 
 func init() {
 	registry.RegisterOSModule(
-		func(os *rig.Os) bool {
+		func(os *rig.OSVersion) bool {
 			return os.ID == "rhel"
 		},
 		func(h os.Host) interface{} {
