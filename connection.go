@@ -114,28 +114,16 @@ func (c *Connection) Connect() error {
 	return nil
 }
 
-func splitArgs(params ...interface{}) (opts []exec.Option, args []interface{}) {
-	sample := reflect.TypeOf(exec.HideCommand())
-	for _, v := range params {
-		if reflect.TypeOf(v) == sample {
-			opts = append(opts, v.(exec.Option))
-		} else {
-			args = append(args, v)
-		}
-	}
-	return
-}
-
 // Execf is like exec but with sprintf templating
-func (c *Connection) Execf(s string, args ...interface{}) error {
-	o, a := splitArgs(args)
-	return c.Exec(fmt.Sprintf(s, a...), o...)
+func (c *Connection) Execf(s string, params ...interface{}) error {
+	opts, args := groupParams(params)
+	return c.Exec(fmt.Sprintf(s, args...), opts...)
 }
 
 // ExecWithOutputf is like ExecWithOutput but with sprintf templating
-func (c *Connection) ExecWithOutputf(s string, args ...interface{}) (string, error) {
-	o, a := splitArgs(args)
-	return c.ExecWithOutput(fmt.Sprintf(s, a...), o...)
+func (c *Connection) ExecWithOutputf(s string, params ...interface{}) (string, error) {
+	opts, args := groupParams(params)
+	return c.ExecWithOutput(fmt.Sprintf(s, args...), opts...)
 }
 
 // Disconnect the host
@@ -177,4 +165,17 @@ func DefaultClient() Client {
 	c := &ssh.Client{}
 	defaults.Set(c)
 	return c
+}
+
+// separates exec.Options from sprintf templating args
+func groupParams(params ...interface{}) (opts []exec.Option, args []interface{}) {
+	sample := reflect.TypeOf(exec.HideCommand())
+	for _, v := range params {
+		if reflect.TypeOf(v) == sample {
+			opts = append(opts, v.(exec.Option))
+		} else {
+			args = append(args, v)
+		}
+	}
+	return
 }
