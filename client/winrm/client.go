@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/k0sproject/rig/exec"
+	"github.com/mitchellh/go-homedir"
 
 	"github.com/masterzen/winrm"
 )
@@ -34,6 +35,21 @@ type Client struct {
 	cert   []byte
 
 	client *winrm.Client
+}
+
+// SetDefaults sets various default values
+func (c *Client) SetDefaults() {
+	if p, err := homedir.Expand(c.CACertPath); err == nil {
+		c.CACertPath = p
+	}
+
+	if p, err := homedir.Expand(c.CertPath); err == nil {
+		c.CertPath = p
+	}
+
+	if p, err := homedir.Expand(c.KeyPath); err == nil {
+		c.KeyPath = p
+	}
 }
 
 // String returns the connection's printable name
