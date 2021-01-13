@@ -28,8 +28,7 @@ type Connection struct {
 	SSH       *ssh.Client   `yaml:"ssh,omitempty"`
 	Localhost *local.Client `yaml:"localhost,omitempty"`
 
-	OsInfo    *Os `yaml:"-"`
-	OsBuilder func() interface{}
+	OsInfo *Os `yaml:"-"`
 
 	client Client `yaml:"-"`
 }
