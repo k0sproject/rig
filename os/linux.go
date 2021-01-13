@@ -9,16 +9,19 @@ import (
 	"github.com/k0sproject/rig/os/initsystem"
 )
 
+// Linux is a base module for various linux OS support packages
 type Linux struct {
 	Host Host
 
 	initSystem InitSystem
 }
 
+// Kind returns "linux"
 func (c *Linux) Kind() string {
 	return "linux"
 }
 
+// InitSystem is an accessor to the init system (systemd, openrc)
 func (c *Linux) InitSystem() InitSystem {
 	if c.initSystem == nil {
 		initctl, err := c.Host.ExecWithOutput("basename $(command -v rc-service systemd)")
@@ -60,7 +63,7 @@ func (c *Linux) JoinPath(parts ...string) string {
 }
 
 // Hostname resolves the short hostname
-func (c *Linux) ResolveHostname() string {
+func (c *Linux) Hostname() string {
 	hostname, _ := c.Host.ExecWithOutput("hostname -s")
 
 	return hostname
@@ -171,6 +174,7 @@ func (c *Linux) CleanupEnvironment(env map[string]string) error {
 	return c.Host.Exec(`sudo sed -i '/^$/d' /etc/environment`)
 }
 
+// CommandExist returns true if the command exists
 func (c *Linux) CommandExist(cmd string) bool {
 	return c.Host.Execf("sudo command -v %s", cmd) == nil
 }

@@ -6,8 +6,9 @@ import (
 	ps "github.com/k0sproject/rig/powershell"
 )
 
+// Windows init system (start service, stop service, ...)
 type Windows struct {
-	Host Host
+	Host host
 }
 
 // StartService starts a a service
@@ -50,6 +51,7 @@ func (i *Windows) ServiceIsRunning(s string) bool {
 	return i.Host.Execf(`sc.exe query "%s" | findstr "RUNNING"`, s) == nil
 }
 
+// RebootCommand returns the OS reboot command
 func (i *Windows) RebootCommand() string {
 	return "shutdown /r"
 }

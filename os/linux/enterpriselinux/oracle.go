@@ -7,6 +7,7 @@ import (
 	"github.com/k0sproject/rig/os/registry"
 )
 
+// OracleLinux provides OS support for Oracle Linuc
 type OracleLinux struct {
 	linux.EnterpriseLinux
 }

@@ -4,7 +4,7 @@ import (
 	"github.com/k0sproject/rig/exec"
 )
 
-// Connection is an interface to remote host connections
+// Client is an interface to a remote host connection
 type Client interface {
 	Connect() error
 	Disconnect()

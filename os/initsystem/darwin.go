@@ -4,8 +4,9 @@ import (
 	"fmt"
 )
 
+// Darwin init system (start service, stop service, ...)
 type Darwin struct {
-	Host Host
+	Host host
 }
 
 // StartService starts a a service
@@ -48,6 +49,7 @@ func (i *Darwin) ServiceIsRunning(s string) bool {
 	return i.Host.Execf(`sudo launchctl list %s | grep -q '"PID"'`, s) == nil
 }
 
+// RebootCommand returns the system reboot command
 func (i *Darwin) RebootCommand() string {
 	return "sudo reboot"
 }

@@ -1,7 +1,8 @@
 package initsystem
 
+// OpenRC is found on some linux systems, often installed on Alpine for example.
 type OpenRC struct {
-	Host Host
+	Host host
 }
 
 // StartService starts a a service
@@ -14,7 +15,7 @@ func (i *OpenRC) StopService(s string) error {
 	return i.Host.Execf("sudo rc-service %s stop", s)
 }
 
-// ScriptPath returns the path to a service configuration file
+// ServiceScriptPath returns the path to a service configuration file
 func (i *OpenRC) ServiceScriptPath(s string) (string, error) {
 	return i.Host.ExecWithOutputf("sudo rc-service -r %s 2> /dev/null", s)
 }
@@ -44,6 +45,7 @@ func (i *OpenRC) ServiceIsRunning(s string) bool {
 	return i.Host.Execf(`sudo rc-service %s status | grep -q "status: started"`, s) == nil
 }
 
+// RebootCommand returns a command to reboot the host
 func (i *OpenRC) RebootCommand() string {
 	return "sudo shutdown -r now"
 }

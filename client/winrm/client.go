@@ -45,6 +45,7 @@ func (c *Client) String() string {
 	return c.name
 }
 
+// IsConnected returns true if the client is connected
 func (c *Client) IsConnected() bool {
 	return c.client != nil
 }

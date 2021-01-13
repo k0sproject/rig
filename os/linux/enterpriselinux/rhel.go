@@ -7,6 +7,7 @@ import (
 	"github.com/k0sproject/rig/os/registry"
 )
 
+// RHEL provides OS support for RedHat Enterprise Linux
 type RHEL struct {
 	linux.EnterpriseLinux
 }

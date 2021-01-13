@@ -23,12 +23,14 @@ type os interface {
 	Pwd() string
 }
 
+// Host is a host that utilizes rig for connections
 type Host struct {
 	rig.Connection
 
 	Os os
 }
 
+// LoadOS is a function that assigns a OS support package to the host and typecasts it to a proper interface
 func (h *Host) LoadOS() error {
 	bf, err := registry.GetOSModuleBuilder(h.OsInfo)
 	if err != nil {

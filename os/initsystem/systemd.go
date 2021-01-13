@@ -1,7 +1,8 @@
 package initsystem
 
+// Systemd is found by default on most linux distributions today
 type Systemd struct {
-	Host Host
+	Host host
 }
 
 // StartService starts a a service
@@ -44,6 +45,7 @@ func (i *Systemd) ServiceScriptPath(s string) (string, error) {
 	return i.Host.ExecWithOutputf(`systemctl show -p FragmentPath %s.service 2> /dev/null | cut -d"=" -f2)`, s)
 }
 
+// RebootCommand returns a command for rebooting the host
 func (i *Systemd) RebootCommand() string {
 	return "sudo systemctl start reboot.target"
 }

@@ -9,11 +9,13 @@ import (
 	ps "github.com/k0sproject/rig/powershell"
 )
 
+// Windows is the base packge for windows OS support
 type Windows struct {
 	Host       Host
 	initSystem InitSystem
 }
 
+// InitSystem is an accessor to the OS init system
 func (c *Windows) InitSystem() InitSystem {
 	if c.initSystem == nil {
 		c.initSystem = &initsystem.Windows{Host: c.Host}
@@ -21,6 +23,7 @@ func (c *Windows) InitSystem() InitSystem {
 	return c.initSystem
 }
 
+// Kind returns "windows"
 func (c *Windows) Kind() string {
 	return "windows"
 }
@@ -36,6 +39,7 @@ func (c *Windows) CheckPrivilege() error {
 	return nil
 }
 
+// InstallPackage enables an optional windows feature
 func (c *Windows) InstallPackage(s ...string) error {
 	for _, n := range s {
 		err := c.Host.Exec(ps.Cmd(fmt.Sprintf("Enable-WindowsOptionalFeature -Online -FeatureName %s -All", n)))
@@ -71,7 +75,7 @@ func (c *Windows) Hostname() string {
 }
 
 // LongHostname resolves the FQDN (long) hostname
-func (c *Windows) ResolveLongHostname() string {
+func (c *Windows) LongHostname() string {
 	output, err := c.Host.ExecWithOutput("powershell ([System.Net.Dns]::GetHostByName(($env:COMPUTERNAME))).Hostname")
 	if err != nil {
 		return "localhost.localdomain"
@@ -159,6 +163,7 @@ func (c *Windows) CleanupEnvironment(env map[string]string) error {
 	return nil
 }
 
+// CommandExist returns true if the provided command exists
 func (c *Windows) CommandExist(cmd string) bool {
 	return c.Host.Execf("where /q %s", cmd) == nil
 }

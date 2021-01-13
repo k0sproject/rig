@@ -7,6 +7,7 @@ import (
 	"github.com/k0sproject/rig/os/registry"
 )
 
+// CentOS provides OS support for CentOS
 type CentOS struct {
 	linux.EnterpriseLinux
 }

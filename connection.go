@@ -45,6 +45,7 @@ func (c *Connection) SetDefaults() {
 	defaults.Set(c.client)
 }
 
+// IsConnected returns true if the client is assumed to be connected (the client library may have become inoperable but rig won't know that)
 func (c *Connection) IsConnected() bool {
 	if c.client == nil {
 		return false

@@ -9,10 +9,12 @@ import (
 	ps "github.com/k0sproject/rig/powershell"
 )
 
+// Resolver interface
 type Resolver interface {
 	Resolve(*Connection) (Os, error)
 }
 
+// GetResolver returns an OS version resolver
 func GetResolver(c *Connection) (Resolver, error) {
 	isWin, err := c.IsWindows()
 	if err != nil {
@@ -20,18 +22,25 @@ func GetResolver(c *Connection) (Resolver, error) {
 	}
 	if isWin {
 		return WindowsResolver{}, nil
-	} else {
-		if err := c.Exec("uname | grep -q Darwin"); err == nil {
-			return DarwinResolver{}, nil
-		}
-		return LinuxResolver{}, nil
 	}
+
+	if err := c.Exec("uname | grep -q Darwin"); err == nil {
+		return DarwinResolver{}, nil
+	}
+
+	return LinuxResolver{}, nil
 }
 
+// LinuxResolver resolves linux versions
 type LinuxResolver struct{}
+
+// WindowsResolver resolves windows versions
 type WindowsResolver struct{}
+
+// DarwinResolver resolves mac versions
 type DarwinResolver struct{}
 
+// Resolve resolves OS release information
 func (w LinuxResolver) Resolve(c *Connection) (os Os, err error) {
 	output, err := c.ExecWithOutput("cat /etc/os-release || cat /usr/lib/os-release")
 	if err != nil {
@@ -78,6 +87,7 @@ func parseOSReleaseFile(s string, os *Os) error {
 	return nil
 }
 
+// Resolve resolves OS release information
 func (w WindowsResolver) Resolve(c *Connection) (os Os, err error) {
 	osName, err := c.ExecWithOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").ProductName`))
 	if err != nil {
@@ -109,6 +119,7 @@ func (w WindowsResolver) Resolve(c *Connection) (os Os, err error) {
 	return
 }
 
+// Resolve resolves OS release information
 func (w DarwinResolver) Resolve(c *Connection) (os Os, err error) {
 	version, err := c.ExecWithOutput("sw_vers -productVersion")
 	if err != nil {

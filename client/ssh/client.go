@@ -35,6 +35,7 @@ type Client struct {
 	client *ssh.Client
 }
 
+// SetDefaults sets various default values
 func (c *Client) SetDefaults() {
 	if k, err := homedir.Expand(c.KeyPath); err == nil {
 		c.KeyPath = k
@@ -50,6 +51,7 @@ func (c *Client) String() string {
 	return c.name
 }
 
+// IsConnected returns true if the client is connected
 func (c *Client) IsConnected() bool {
 	return c.client != nil
 }
