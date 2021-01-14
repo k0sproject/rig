@@ -58,28 +58,16 @@ func parseOSReleaseFile(s string, os *OSVersion) error {
 		fields := strings.SplitN(scanner.Text(), "=", 2)
 		switch fields[0] {
 		case "ID":
-			id, err := strconv.Unquote(fields[1])
-			if err != nil {
-				return err
-			}
+			id, _ := strconv.Unquote(fields[1])
 			os.ID = id
 		case "ID_LIKE":
-			idlike, err := strconv.Unquote(fields[1])
-			if err != nil {
-				return err
-			}
+			idlike, _ := strconv.Unquote(fields[1])
 			os.IDLike = idlike
 		case "VERSION_ID":
-			version, err := strconv.Unquote(fields[1])
-			if err != nil {
-				return err
-			}
+			version, _ := strconv.Unquote(fields[1])
 			os.Version = version
 		case "PRETTY_NAME":
-			name, err := strconv.Unquote(fields[1])
-			if err != nil {
-				return err
-			}
+			name, _ := strconv.Unquote(fields[1])
 			os.Name = name
 		}
 	}
