@@ -17,7 +17,7 @@ func (i *OpenRC) StopService(s string) error {
 
 // ServiceScriptPath returns the path to a service configuration file
 func (i *OpenRC) ServiceScriptPath(s string) (string, error) {
-	return i.Host.ExecWithOutputf("sudo rc-service -r %s 2> /dev/null", s)
+	return i.Host.ExecOutputf("sudo rc-service -r %s 2> /dev/null", s)
 }
 
 // RestartService restarts a a service

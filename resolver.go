@@ -42,7 +42,7 @@ type DarwinResolver struct{}
 
 // Resolve resolves OS release information
 func (w LinuxResolver) Resolve(c *Connection) (os OSVersion, err error) {
-	output, err := c.ExecWithOutput("cat /etc/os-release || cat /usr/lib/os-release")
+	output, err := c.ExecOutput("cat /etc/os-release || cat /usr/lib/os-release")
 	if err != nil {
 		return
 	}
@@ -89,22 +89,22 @@ func parseOSReleaseFile(s string, os *OSVersion) error {
 
 // Resolve resolves OS release information
 func (w WindowsResolver) Resolve(c *Connection) (os OSVersion, err error) {
-	osName, err := c.ExecWithOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").ProductName`))
+	osName, err := c.ExecOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").ProductName`))
 	if err != nil {
 		return
 	}
 
-	osMajor, err := c.ExecWithOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").CurrentMajorVersionNumber`))
+	osMajor, err := c.ExecOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").CurrentMajorVersionNumber`))
 	if err != nil {
 		return
 	}
 
-	osMinor, err := c.ExecWithOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").CurrentMinorVersionNumber`))
+	osMinor, err := c.ExecOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").CurrentMinorVersionNumber`))
 	if err != nil {
 		return
 	}
 
-	osBuild, err := c.ExecWithOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").CurrentBuild`))
+	osBuild, err := c.ExecOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").CurrentBuild`))
 	if err != nil {
 		return
 	}
@@ -121,13 +121,13 @@ func (w WindowsResolver) Resolve(c *Connection) (os OSVersion, err error) {
 
 // Resolve resolves OS release information
 func (w DarwinResolver) Resolve(c *Connection) (os OSVersion, err error) {
-	version, err := c.ExecWithOutput("sw_vers -productVersion")
+	version, err := c.ExecOutput("sw_vers -productVersion")
 	if err != nil {
 		return
 	}
 
 	var name string
-	if n, err := c.ExecWithOutput(`grep "SOFTWARE LICENSE AGREEMENT FOR " "/System/Library/CoreServices/Setup Assistant.app/Contents/Resources/en.lproj/OSXSoftwareLicense.rtf" | sed -E "s/^.*SOFTWARE LICENSE AGREEMENT FOR (.+)\\\/\1/"`); err == nil {
+	if n, err := c.ExecOutput(`grep "SOFTWARE LICENSE AGREEMENT FOR " "/System/Library/CoreServices/Setup Assistant.app/Contents/Resources/en.lproj/OSXSoftwareLicense.rtf" | sed -E "s/^.*SOFTWARE LICENSE AGREEMENT FOR (.+)\\\/\1/"`); err == nil {
 		name = fmt.Sprintf("%s %s", n, version)
 	}
 

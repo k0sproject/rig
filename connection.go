@@ -16,13 +16,15 @@ type rigError struct {
 	Connection *Connection
 }
 
-// NotConnectedError is returned when attempting to perform remote operations on Host when it is not connected
+// NotConnectedError is returned when attempting to perform remote operations
+// on Host when it is not connected
 type NotConnectedError rigError
 
 // Error returns the error message
 func (e *NotConnectedError) Error() string { return e.Connection.String() + ": not connected" }
 
-// Connection is a Struct you can embed into a host which then can be connected to via winrm, ssh or using the "localhost" connection
+// Connection is a Struct you can embed into your application's "Host" types
+// to give them multi-protocol connectivity.
 type Connection struct {
 	WinRM     *winrm.Client `yaml:"winRM,omitempty"`
 	SSH       *ssh.Client   `yaml:"ssh,omitempty"`
@@ -38,14 +40,18 @@ func (c *Connection) SetDefaults() {
 	if c.client == nil {
 		c.client = c.configuredClient()
 		if c.client == nil {
-			c.client = DefaultClient()
+			c.client = defaultClient()
 		}
 	}
 
 	defaults.Set(c.client)
 }
 
-// IsConnected returns true if the client is assumed to be connected (the client library may have become inoperable but rig won't know that)
+// IsConnected returns true if the client is assumed to be connected.
+// "Assumed" - as in `Connect()` has been called and no error was returned.
+// The underlying client may actually have disconnected and has become
+// inoperable, but rig won't know that until you try to execute commands on
+// the connection.
 func (c *Connection) IsConnected() bool {
 	if c.client == nil {
 		return false
@@ -54,7 +60,8 @@ func (c *Connection) IsConnected() bool {
 	return c.client.IsConnected()
 }
 
-// String implements the Stringer interface for logging purposes
+// String returns a printable representation of the connection, which will look
+// like: `[ssh] address:port`
 func (c *Connection) String() string {
 	if !c.IsConnected() {
 		defaults.Set(c)
@@ -72,7 +79,7 @@ func (c *Connection) IsWindows() (bool, error) {
 	return c.client.IsWindows(), nil
 }
 
-// Exec a command on the host
+// Exec runs a command on the host
 func (c *Connection) Exec(cmd string, opts ...exec.Option) error {
 	if !c.IsConnected() {
 		return &NotConnectedError{c}
@@ -81,8 +88,8 @@ func (c *Connection) Exec(cmd string, opts ...exec.Option) error {
 	return c.client.Exec(cmd, opts...)
 }
 
-// ExecWithOutput executes a command on the host and returns it's output
-func (c *Connection) ExecWithOutput(cmd string, opts ...exec.Option) (string, error) {
+// ExecOutput runs a command on the host and returns the output as a String
+func (c *Connection) ExecOutput(cmd string, opts ...exec.Option) (string, error) {
 	if !c.IsConnected() {
 		return "", &NotConnectedError{c}
 	}
@@ -93,7 +100,7 @@ func (c *Connection) ExecWithOutput(cmd string, opts ...exec.Option) (string, er
 	return strings.TrimSpace(output), err
 }
 
-// Connect to the host and identify operating system
+// Connect to the host and identify the operating system
 func (c *Connection) Connect() error {
 	if c.client == nil {
 		defaults.Set(c)
@@ -118,19 +125,30 @@ func (c *Connection) Connect() error {
 	return nil
 }
 
-// Execf is like exec but with sprintf templating
+// Execf is just like `Exec` but you can use Sprintf templating for the command
 func (c *Connection) Execf(s string, params ...interface{}) error {
 	opts, args := groupParams(params)
 	return c.Exec(fmt.Sprintf(s, args...), opts...)
 }
 
-// ExecWithOutputf is like ExecWithOutput but with sprintf templating
-func (c *Connection) ExecWithOutputf(s string, params ...interface{}) (string, error) {
+// ExecOutputf is like ExecOutput but you can use Sprintf
+// templating for the command
+func (c *Connection) ExecOutputf(s string, params ...interface{}) (string, error) {
 	opts, args := groupParams(params)
-	return c.ExecWithOutput(fmt.Sprintf(s, args...), opts...)
+	return c.ExecOutput(fmt.Sprintf(s, args...), opts...)
 }
 
-// Disconnect the host
+// ExecInteractive executes a command on the host and passes control of
+// local input to the remote command
+func (c *Connection) ExecInteractive(cmd string) error {
+	if !c.IsConnected() {
+		return &NotConnectedError{c}
+	}
+
+	return c.client.ExecInteractive(cmd)
+}
+
+// Disconnect from the host
 func (c *Connection) Disconnect() {
 	if c.client != nil {
 		c.client.Disconnect()
@@ -138,8 +156,8 @@ func (c *Connection) Disconnect() {
 	c.client = nil
 }
 
-// Upload copies a file to the host. Shortcut to connection.Upload
-// Use for larger files instead of configurer.WriteFile when it seems appropriate
+// Upload copies a file from a local path src to the remote host path dst. For
+// smaller files you should probably use os.WriteFile
 func (c *Connection) Upload(src, dst string) error {
 	if !c.IsConnected() {
 		return &NotConnectedError{c}
@@ -164,8 +182,7 @@ func (c *Connection) configuredClient() Client {
 	return nil
 }
 
-// DefaultClient returns a default rig connection client (SSH with default settings)
-func DefaultClient() Client {
+func defaultClient() Client {
 	c := &ssh.Client{}
 	defaults.Set(c)
 	return c

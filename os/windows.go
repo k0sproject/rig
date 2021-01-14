@@ -53,7 +53,7 @@ func (c *Windows) InstallPackage(s ...string) error {
 
 // Pwd returns the current working directory
 func (c *Windows) Pwd() string {
-	pwd, err := c.Host.ExecWithOutput("echo %cd%")
+	pwd, err := c.Host.ExecOutput("echo %cd%")
 	if err != nil {
 		return ""
 	}
@@ -67,7 +67,7 @@ func (c *Windows) JoinPath(parts ...string) string {
 
 // Hostname resolves the short hostname
 func (c *Windows) Hostname() string {
-	output, err := c.Host.ExecWithOutput("powershell $env:COMPUTERNAME")
+	output, err := c.Host.ExecOutput("powershell $env:COMPUTERNAME")
 	if err != nil {
 		return "localhost"
 	}
@@ -76,7 +76,7 @@ func (c *Windows) Hostname() string {
 
 // LongHostname resolves the FQDN (long) hostname
 func (c *Windows) LongHostname() string {
-	output, err := c.Host.ExecWithOutput("powershell ([System.Net.Dns]::GetHostByName(($env:COMPUTERNAME))).Hostname")
+	output, err := c.Host.ExecOutput("powershell ([System.Net.Dns]::GetHostByName(($env:COMPUTERNAME))).Hostname")
 	if err != nil {
 		return "localhost.localdomain"
 	}
@@ -109,11 +109,11 @@ func (c *Windows) WriteFile(path string, data string, permissions string) error 
 		return fmt.Errorf("empty path in WriteFile")
 	}
 
-	tempFile, err := c.Host.ExecWithOutput("powershell -Command \"New-TemporaryFile | Write-Host\"")
+	tempFile, err := c.Host.ExecOutput("powershell -Command \"New-TemporaryFile | Write-Host\"")
 	if err != nil {
 		return err
 	}
-	defer c.Host.ExecWithOutput(fmt.Sprintf("del \"%s\"", tempFile))
+	defer c.Host.ExecOutput(fmt.Sprintf("del \"%s\"", tempFile))
 
 	err = c.Host.Exec(fmt.Sprintf(`powershell -Command "$Input | Out-File -FilePath %s"`, ps.SingleQuote(tempFile)), exec.Stdin(data))
 	if err != nil {
@@ -130,7 +130,7 @@ func (c *Windows) WriteFile(path string, data string, permissions string) error 
 
 // ReadFile reads a files contents from the host.
 func (c *Windows) ReadFile(path string) (string, error) {
-	return c.Host.ExecWithOutput(fmt.Sprintf(`type %s`, ps.DoubleQuote(path)))
+	return c.Host.ExecOutput(fmt.Sprintf(`type %s`, ps.DoubleQuote(path)))
 }
 
 // DeleteFile deletes a file from the host.
