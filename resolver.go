@@ -11,7 +11,8 @@ import (
 
 type resolveFunc func(*Connection) (OSVersion, error)
 
-// Resolvers exposes an array of resolve functions where you can add your own if you need to detect some more obscure system
+// Resolvers exposes an array of resolve functions where you can add your own if you need to detect some OS rig doesn't already know about
+// (consider making a PR)
 var Resolvers []resolveFunc
 
 func GetOSVersion(c *Connection) (OSVersion, error) {
