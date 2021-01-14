@@ -72,35 +72,26 @@ func resolveDarwin(c *Connection) (os OSVersion, err error) {
 	return
 }
 
+func unquote(s string) string {
+	if u, err := strconv.Unquote(s); err == nil {
+		return u
+	}
+	return s
+}
+
 func parseOSReleaseFile(s string, os *OSVersion) error {
 	scanner := bufio.NewScanner(strings.NewReader(s))
 	for scanner.Scan() {
 		fields := strings.SplitN(scanner.Text(), "=", 2)
 		switch fields[0] {
 		case "ID":
-			id, err := strconv.Unquote(fields[1])
-			if err != nil {
-				return err
-			}
-			os.ID = id
+			os.ID = unquote(fields[1])
 		case "ID_LIKE":
-			idlike, err := strconv.Unquote(fields[1])
-			if err != nil {
-				return err
-			}
-			os.IDLike = idlike
+			os.IDLike = unquote(fields[1])
 		case "VERSION_ID":
-			version, err := strconv.Unquote(fields[1])
-			if err != nil {
-				return err
-			}
-			os.Version = version
+			os.Version = unquote(fields[1])
 		case "PRETTY_NAME":
-			name, err := strconv.Unquote(fields[1])
-			if err != nil {
-				return err
-			}
-			os.Name = name
+			os.Name = unquote(fields[1])
 		}
 	}
 
