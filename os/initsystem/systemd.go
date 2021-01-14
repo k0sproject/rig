@@ -30,8 +30,8 @@ func (i *Systemd) RestartService(s string) error {
 	return i.Host.Execf("sudo systemctl restart %s", s)
 }
 
-// Reload reloads init system configuration
-func (i *Systemd) Reload() error {
+// DaemonReload reloads init system configuration
+func (i *Systemd) DaemonReload() error {
 	return i.Host.Execf("sudo systemctl daemon-reload")
 }
 
@@ -42,5 +42,5 @@ func (i *Systemd) ServiceIsRunning(s string) bool {
 
 // ServiceScriptPath returns the path to a service configuration file
 func (i *Systemd) ServiceScriptPath(s string) (string, error) {
-	return i.Host.ExecWithOutputf(`systemctl show -p FragmentPath %s.service 2> /dev/null | cut -d"=" -f2)`, s)
+	return i.Host.ExecOutputf(`systemctl show -p FragmentPath %s.service 2> /dev/null | cut -d"=" -f2)`, s)
 }

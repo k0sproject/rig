@@ -1,7 +1,7 @@
 package main
 
 /*
-  This example shows how the OS support mechanism can be used to add utility
+	This example shows how the OS support mechanism can be used to add utility
 	functions for multiple target operating systems.
 
 	The reason "host.Os" does not come out of the box with rig.Connection is that
@@ -15,7 +15,6 @@ import (
 	"fmt"
 
 	"github.com/k0sproject/rig"
-	"github.com/k0sproject/rig/client/local"
 	"github.com/k0sproject/rig/os/registry"
 	_ "github.com/k0sproject/rig/os/support"
 )
@@ -47,7 +46,7 @@ func (h *Host) LoadOS() error {
 func main() {
 	h := Host{
 		Connection: rig.Connection{
-			Localhost: &local.Client{
+			Localhost: &rig.Localhost{
 				Enabled: true,
 			},
 		},

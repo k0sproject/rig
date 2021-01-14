@@ -5,22 +5,12 @@ import (
 	"strings"
 
 	"github.com/k0sproject/rig/exec"
-	"github.com/k0sproject/rig/os/initsystem"
 	ps "github.com/k0sproject/rig/powershell"
 )
 
 // Windows is the base packge for windows OS support
 type Windows struct {
-	Host       Host
-	initSystem InitSystem
-}
-
-// InitSystem is an accessor to the OS init system
-func (c *Windows) InitSystem() InitSystem {
-	if c.initSystem == nil {
-		c.initSystem = &initsystem.Windows{Host: c.Host}
-	}
-	return c.initSystem
+	Host Host
 }
 
 // Kind returns "windows"
@@ -53,7 +43,7 @@ func (c *Windows) InstallPackage(s ...string) error {
 
 // Pwd returns the current working directory
 func (c *Windows) Pwd() string {
-	pwd, err := c.Host.ExecWithOutput("echo %cd%")
+	pwd, err := c.Host.ExecOutput("echo %cd%")
 	if err != nil {
 		return ""
 	}
@@ -67,7 +57,7 @@ func (c *Windows) JoinPath(parts ...string) string {
 
 // Hostname resolves the short hostname
 func (c *Windows) Hostname() string {
-	output, err := c.Host.ExecWithOutput("powershell $env:COMPUTERNAME")
+	output, err := c.Host.ExecOutput("powershell $env:COMPUTERNAME")
 	if err != nil {
 		return "localhost"
 	}
@@ -76,7 +66,7 @@ func (c *Windows) Hostname() string {
 
 // LongHostname resolves the FQDN (long) hostname
 func (c *Windows) LongHostname() string {
-	output, err := c.Host.ExecWithOutput("powershell ([System.Net.Dns]::GetHostByName(($env:COMPUTERNAME))).Hostname")
+	output, err := c.Host.ExecOutput("powershell ([System.Net.Dns]::GetHostByName(($env:COMPUTERNAME))).Hostname")
 	if err != nil {
 		return "localhost.localdomain"
 	}
@@ -109,11 +99,11 @@ func (c *Windows) WriteFile(path string, data string, permissions string) error 
 		return fmt.Errorf("empty path in WriteFile")
 	}
 
-	tempFile, err := c.Host.ExecWithOutput("powershell -Command \"New-TemporaryFile | Write-Host\"")
+	tempFile, err := c.Host.ExecOutput("powershell -Command \"New-TemporaryFile | Write-Host\"")
 	if err != nil {
 		return err
 	}
-	defer c.Host.ExecWithOutput(fmt.Sprintf("del \"%s\"", tempFile))
+	defer c.Host.ExecOutput(fmt.Sprintf("del \"%s\"", tempFile))
 
 	err = c.Host.Exec(fmt.Sprintf(`powershell -Command "$Input | Out-File -FilePath %s"`, ps.SingleQuote(tempFile)), exec.Stdin(data))
 	if err != nil {
@@ -130,7 +120,7 @@ func (c *Windows) WriteFile(path string, data string, permissions string) error 
 
 // ReadFile reads a files contents from the host.
 func (c *Windows) ReadFile(path string) (string, error) {
-	return c.Host.ExecWithOutput(fmt.Sprintf(`type %s`, ps.DoubleQuote(path)))
+	return c.Host.ExecOutput(fmt.Sprintf(`type %s`, ps.DoubleQuote(path)))
 }
 
 // DeleteFile deletes a file from the host.
@@ -171,4 +161,44 @@ func (c *Windows) CommandExist(cmd string) bool {
 // Reboot executes the reboot command
 func (c *Windows) Reboot() error {
 	return c.Host.Exec("shutdown /r")
+}
+
+// StartService starts a a service
+func (c *Windows) StartService(s string) error {
+	return c.Host.Execf(`sc start "%s"`, s)
+}
+
+// StopService stops a a service
+func (c *Windows) StopService(s string) error {
+	return c.Host.Execf(`sc stop "%s"`, s)
+}
+
+// ServiceScriptPath returns the path to a service configuration file
+func (c *Windows) ServiceScriptPath(s string) (string, error) {
+	return "", fmt.Errorf("not available on windows")
+}
+
+// RestartService restarts a a service
+func (c *Windows) RestartService(s string) error {
+	return c.Host.Execf(ps.Cmd(fmt.Sprintf(`Restart-Service "%s"`, s)))
+}
+
+// DaemonReload reloads init system configuration
+func (c *Windows) DaemonReload() error {
+	return nil
+}
+
+// EnableService enables a a service
+func (c *Windows) EnableService(s string) error {
+	return c.Host.Execf(`sc.exe config "%s" start=disabled`, s)
+}
+
+// DisableService disables a a service
+func (c *Windows) DisableService(s string) error {
+	return c.Host.Execf(`sc.exe config "%s" start=enabled`, s)
+}
+
+// ServiceIsRunning returns true if a service is running
+func (c *Windows) ServiceIsRunning(s string) bool {
+	return c.Host.Execf(`sc.exe query "%s" | findstr "RUNNING"`, s) == nil
 }

@@ -1,21 +1,29 @@
-package winrm
+package rig
 
 import (
 	"bufio"
+	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/k0sproject/rig/exec"
+	ps "github.com/k0sproject/rig/powershell"
 	"github.com/mitchellh/go-homedir"
 
 	"github.com/masterzen/winrm"
 )
 
-// Client describes a WinRM connection with its configuration options
-type Client struct {
+// WinRM describes a WinRM connection with its configuration options
+type WinRM struct {
 	Address       string `yaml:"address" validate:"required,hostname|ip"`
 	User          string `yaml:"user" validate:"omitempty,gt=2" default:"Administrator"`
 	Port          int    `yaml:"port" default:"5985" validate:"gt=0,lte=65535"`
@@ -38,7 +46,7 @@ type Client struct {
 }
 
 // SetDefaults sets various default values
-func (c *Client) SetDefaults() {
+func (c *WinRM) SetDefaults() {
 	if p, err := homedir.Expand(c.CACertPath); err == nil {
 		c.CACertPath = p
 	}
@@ -53,7 +61,7 @@ func (c *Client) SetDefaults() {
 }
 
 // String returns the connection's printable name
-func (c *Client) String() string {
+func (c *WinRM) String() string {
 	if c.name == "" {
 		c.name = fmt.Sprintf("[winrm] %s:%d", c.Address, c.Port)
 	}
@@ -62,16 +70,16 @@ func (c *Client) String() string {
 }
 
 // IsConnected returns true if the client is connected
-func (c *Client) IsConnected() bool {
+func (c *WinRM) IsConnected() bool {
 	return c.client != nil
 }
 
-// IsWindows is here to satisfy the interface, WinRM hosts are expected to always run windows
-func (c *Client) IsWindows() bool {
+// IsWindows always returns true on winrm
+func (c *WinRM) IsWindows() bool {
 	return true
 }
 
-func (c *Client) loadCertificates() error {
+func (c *WinRM) loadCertificates() error {
 	c.caCert = nil
 	if c.CACertPath != "" {
 		ca, err := ioutil.ReadFile(c.CACertPath)
@@ -103,7 +111,7 @@ func (c *Client) loadCertificates() error {
 }
 
 // Connect opens the WinRM connection
-func (c *Client) Connect() error {
+func (c *WinRM) Connect() error {
 	if err := c.loadCertificates(); err != nil {
 		return fmt.Errorf("%s: failed to load certificates: %s", c, err)
 	}
@@ -151,12 +159,12 @@ func (c *Client) Connect() error {
 }
 
 // Disconnect closes the WinRM connection
-func (c *Client) Disconnect() {
+func (c *WinRM) Disconnect() {
 	c.client = nil
 }
 
 // Exec executes a command on the host
-func (c *Client) Exec(cmd string, opts ...exec.Option) error {
+func (c *WinRM) Exec(cmd string, opts ...exec.Option) error {
 	o := exec.Build(opts...)
 	shell, err := c.client.CreateShell()
 	if err != nil {
@@ -233,10 +241,157 @@ func (c *Client) Exec(cmd string, opts ...exec.Option) error {
 }
 
 // ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host
-func (c *Client) ExecInteractive(cmd string) error {
+func (c *WinRM) ExecInteractive(cmd string) error {
 	if cmd == "" {
 		cmd = "cmd"
 	}
 	_, err := c.client.RunWithInput(cmd, os.Stdout, os.Stderr, os.Stdin)
 	return err
+}
+
+// Upload uploads a file from local src path to remote dst path
+func (c *WinRM) Upload(src, dst string) error {
+	psCmd := ps.UploadCmd(dst)
+	stat, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	sha256DigestLocalObj := sha256.New()
+	sha256DigestLocal := ""
+	sha256DigestRemote := ""
+	srcSize := uint64(stat.Size())
+	bytesSent := uint64(0)
+	realSent := uint64(0)
+	fdClosed := false
+	fd, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if !fdClosed {
+			_ = fd.Close()
+			fdClosed = true
+		}
+	}()
+	shell, err := c.client.CreateShell()
+	if err != nil {
+		return err
+	}
+	defer shell.Close()
+	cmd, err := shell.Execute("powershell -ExecutionPolicy Unrestricted -EncodedCommand " + psCmd)
+	if err != nil {
+		return err
+	}
+
+	// Create a dummy request to get its length
+	dummy := winrm.NewSendInputRequest("dummydummydummy", "dummydummydummy", "dummydummydummy", []byte(""), false, winrm.DefaultParameters)
+	maxInput := len(dummy.String()) - 100
+	bufferCapacity := (winrm.DefaultParameters.EnvelopeSize - maxInput) / 4 * 3
+	base64LineBufferCapacity := bufferCapacity/3*4 + 2
+	base64LineBuffer := make([]byte, base64LineBufferCapacity)
+	base64LineBuffer[base64LineBufferCapacity-2] = '\r'
+	base64LineBuffer[base64LineBufferCapacity-1] = '\n'
+	buffer := make([]byte, bufferCapacity)
+	bufferLength := 0
+	ended := false
+
+	for {
+		var n int
+		n, err = fd.Read(buffer)
+		bufferLength += n
+		if err != nil {
+			break
+		}
+		if bufferLength == bufferCapacity {
+			base64.StdEncoding.Encode(base64LineBuffer, buffer)
+			bytesSent += uint64(bufferLength)
+			_, _ = sha256DigestLocalObj.Write(buffer)
+			if bytesSent >= srcSize {
+				ended = true
+				sha256DigestLocal = hex.EncodeToString(sha256DigestLocalObj.Sum(nil))
+			}
+			b, err := cmd.Stdin.Write(base64LineBuffer)
+			realSent += uint64(b)
+			if ended {
+				cmd.Stdin.Close()
+			}
+
+			bufferLength = 0
+			if err != nil {
+				return err
+			}
+		}
+	}
+	_ = fd.Close()
+	fdClosed = true
+	if err == io.EOF {
+		err = nil
+	}
+	if err != nil {
+		cmd.Close()
+		return err
+	}
+	if !ended {
+		_, _ = sha256DigestLocalObj.Write(buffer[:bufferLength])
+		sha256DigestLocal = hex.EncodeToString(sha256DigestLocalObj.Sum(nil))
+		base64.StdEncoding.Encode(base64LineBuffer, buffer[:bufferLength])
+		i := base64.StdEncoding.EncodedLen(bufferLength)
+		base64LineBuffer[i] = '\r'
+		base64LineBuffer[i+1] = '\n'
+		_, err = cmd.Stdin.Write(base64LineBuffer[:i+2])
+		if err != nil {
+			if !strings.Contains(err.Error(), ps.PipeHasEnded) && !strings.Contains(err.Error(), ps.PipeIsBeingClosed) {
+				cmd.Close()
+				return err
+			}
+			// ignore pipe errors that results from passing true to cmd.SendInput
+		}
+		cmd.Stdin.Close()
+		ended = true
+		bytesSent += uint64(bufferLength)
+		realSent += uint64(bufferLength)
+		bufferLength = 0
+	}
+	var wg sync.WaitGroup
+	wg.Add(2)
+	var stderr bytes.Buffer
+	var stdout bytes.Buffer
+	go func() {
+		defer wg.Done()
+		_, err = io.Copy(&stderr, cmd.Stderr)
+		if err != nil {
+			stderr.Reset()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(cmd.Stdout)
+		for scanner.Scan() {
+			var output struct {
+				Sha256 string `json:"sha256"`
+			}
+			if json.Unmarshal(scanner.Bytes(), &output) == nil {
+				sha256DigestRemote = output.Sha256
+			} else {
+				_, _ = stdout.Write(scanner.Bytes())
+				_, _ = stdout.WriteString("\n")
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			stdout.Reset()
+		}
+	}()
+	cmd.Wait()
+	wg.Wait()
+
+	if cmd.ExitCode() != 0 {
+		return fmt.Errorf("non-zero exit code")
+	}
+	if sha256DigestRemote == "" {
+		return fmt.Errorf("copy file command did not output the expected JSON to stdout but exited with code 0")
+	} else if sha256DigestRemote != sha256DigestLocal {
+		return fmt.Errorf("copy file checksum mismatch (local = %s, remote = %s)", sha256DigestLocal, sha256DigestRemote)
+	}
+
+	return nil
 }

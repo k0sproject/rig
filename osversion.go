@@ -8,7 +8,10 @@ type OSVersion struct {
 	Version string
 }
 
-// String implements Stringer
+// String returns a human readable representation of OSVersion
 func (o *OSVersion) String() string {
-	return o.Name
+	if o.Name != "" {
+		return o.Name
+	}
+	return o.ID + " " + o.Version
 }

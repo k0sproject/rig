@@ -9,45 +9,93 @@ import (
 	ps "github.com/k0sproject/rig/powershell"
 )
 
-// Resolver interface
-type Resolver interface {
-	Resolve(*Connection) (OSVersion, error)
+type resolveFunc func(*Connection) (OSVersion, error)
+
+// Resolvers exposes an array of resolve functions where you can add your own if you need to detect some OS rig doesn't already know about
+// (consider making a PR)
+var Resolvers []resolveFunc
+
+// GetOSVersion runs through the Resolvers and tries to figure out the OS version information
+func GetOSVersion(c *Connection) (OSVersion, error) {
+	for _, r := range Resolvers {
+		if os, err := r(c); err == nil {
+			return os, nil
+		}
+	}
+	return OSVersion{}, fmt.Errorf("unable to determine host os")
 }
 
-// GetResolver returns an OS version resolver
-func GetResolver(c *Connection) (Resolver, error) {
-	isWin, err := c.IsWindows()
-	if err != nil {
-		return nil, err
-	}
-	if isWin {
-		return WindowsResolver{}, nil
-	}
-
-	if err := c.Exec("uname | grep -q Darwin"); err == nil {
-		return DarwinResolver{}, nil
-	}
-
-	return LinuxResolver{}, nil
+func init() {
+	Resolvers = append(Resolvers, resolveLinux, resolveWindows, resolveDarwin)
 }
 
-// LinuxResolver resolves linux versions
-type LinuxResolver struct{}
+func resolveLinux(c *Connection) (os OSVersion, err error) {
+	if err = c.Exec("uname | grep -q Linux"); err != nil {
+		return
+	}
 
-// WindowsResolver resolves windows versions
-type WindowsResolver struct{}
-
-// DarwinResolver resolves mac versions
-type DarwinResolver struct{}
-
-// Resolve resolves OS release information
-func (w LinuxResolver) Resolve(c *Connection) (os OSVersion, err error) {
-	output, err := c.ExecWithOutput("cat /etc/os-release || cat /usr/lib/os-release")
+	output, err := c.ExecOutput("cat /etc/os-release || cat /usr/lib/os-release")
 	if err != nil {
 		return
 	}
 
 	err = parseOSReleaseFile(output, &os)
+
+	return
+}
+
+func resolveWindows(c *Connection) (os OSVersion, err error) {
+	osName, err := c.ExecOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").ProductName`))
+	if err != nil {
+		return
+	}
+
+	osMajor, err := c.ExecOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").CurrentMajorVersionNumber`))
+	if err != nil {
+		return
+	}
+
+	osMinor, err := c.ExecOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").CurrentMinorVersionNumber`))
+	if err != nil {
+		return
+	}
+
+	osBuild, err := c.ExecOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").CurrentBuild`))
+	if err != nil {
+		return
+	}
+
+	os = OSVersion{
+		ID:      "windows",
+		IDLike:  "windows",
+		Version: fmt.Sprintf("%s.%s.%s", osMajor, osMinor, osBuild),
+		Name:    osName,
+	}
+
+	return
+}
+
+func resolveDarwin(c *Connection) (os OSVersion, err error) {
+	if err = c.Exec("uname | grep -q Darwin"); err != nil {
+		return
+	}
+
+	version, err := c.ExecOutput("sw_vers -productVersion")
+	if err != nil {
+		return
+	}
+
+	var name string
+	if n, err := c.ExecOutput(`grep "SOFTWARE LICENSE AGREEMENT FOR " "/System/Library/CoreServices/Setup Assistant.app/Contents/Resources/en.lproj/OSXSoftwareLicense.rtf" | sed -E "s/^.*SOFTWARE LICENSE AGREEMENT FOR (.+)\\\/\1/"`); err == nil {
+		name = fmt.Sprintf("%s %s", n, version)
+	}
+
+	os = OSVersion{
+		ID:      "darwin",
+		IDLike:  "darwin",
+		Version: version,
+		Name:    name,
+	}
 
 	return
 }
@@ -75,59 +123,9 @@ func parseOSReleaseFile(s string, os *OSVersion) error {
 		}
 	}
 
+	if os.ID == "" || os.Version == "" {
+		return fmt.Errorf("invalid or incomplete os-release file contents, at least ID and VERSION_ID required")
+	}
+
 	return nil
-}
-
-// Resolve resolves OS release information
-func (w WindowsResolver) Resolve(c *Connection) (os OSVersion, err error) {
-	osName, err := c.ExecWithOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").ProductName`))
-	if err != nil {
-		return
-	}
-
-	osMajor, err := c.ExecWithOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").CurrentMajorVersionNumber`))
-	if err != nil {
-		return
-	}
-
-	osMinor, err := c.ExecWithOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").CurrentMinorVersionNumber`))
-	if err != nil {
-		return
-	}
-
-	osBuild, err := c.ExecWithOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").CurrentBuild`))
-	if err != nil {
-		return
-	}
-
-	os = OSVersion{
-		ID:      "windows",
-		IDLike:  "windows",
-		Version: fmt.Sprintf("%s.%s.%s", osMajor, osMinor, osBuild),
-		Name:    osName,
-	}
-
-	return
-}
-
-// Resolve resolves OS release information
-func (w DarwinResolver) Resolve(c *Connection) (os OSVersion, err error) {
-	version, err := c.ExecWithOutput("sw_vers -productVersion")
-	if err != nil {
-		return
-	}
-
-	var name string
-	if n, err := c.ExecWithOutput(`grep "SOFTWARE LICENSE AGREEMENT FOR " "/System/Library/CoreServices/Setup Assistant.app/Contents/Resources/en.lproj/OSXSoftwareLicense.rtf" | sed -E "s/^.*SOFTWARE LICENSE AGREEMENT FOR (.+)\\\/\1/"`); err == nil {
-		name = fmt.Sprintf("%s %s", n, version)
-	}
-
-	os = OSVersion{
-		ID:      "darwin",
-		IDLike:  "darwin",
-		Version: version,
-		Name:    name,
-	}
-
-	return
 }

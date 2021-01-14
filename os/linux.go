@@ -13,7 +13,19 @@ import (
 type Linux struct {
 	Host Host
 
-	initSystem InitSystem
+	isys initSystem
+}
+
+// initSystem interface defines an init system - the OS's system to manage services (systemd, openrc for example)
+type initSystem interface {
+	StartService(string) error
+	StopService(string) error
+	RestartService(string) error
+	DisableService(string) error
+	EnableService(string) error
+	ServiceIsRunning(string) bool
+	ServiceScriptPath(string) (string, error)
+	DaemonReload() error
 }
 
 // Kind returns "linux"
@@ -21,22 +33,62 @@ func (c *Linux) Kind() string {
 	return "linux"
 }
 
-// InitSystem is an accessor to the init system (systemd, openrc)
-func (c *Linux) InitSystem() InitSystem {
-	if c.initSystem == nil {
-		initctl, err := c.Host.ExecWithOutput("basename $(command -v rc-service systemd)")
+// memoizing accessor to the init system (systemd, openrc)
+func (c *Linux) is() initSystem {
+	if c.isys == nil {
+		initctl, err := c.Host.ExecOutput("basename $(command -v rc-service systemd)")
 		if err != nil {
 			return nil
 		}
 		switch initctl {
 		case "systemd":
-			c.initSystem = &initsystem.Systemd{Host: c.Host}
+			c.isys = &initsystem.Systemd{Host: c.Host}
 		case "rc-service":
-			c.initSystem = &initsystem.OpenRC{Host: c.Host}
+			c.isys = &initsystem.OpenRC{Host: c.Host}
 		}
 	}
 
-	return c.initSystem
+	return c.isys
+}
+
+// StartService starts a service on the host
+func (c *Linux) StartService(s string) error {
+	return c.is().StartService(s)
+}
+
+// StopService stops a service on the host
+func (c *Linux) StopService(s string) error {
+	return c.is().StopService(s)
+}
+
+// RestartService restarts a service on the host
+func (c *Linux) RestartService(s string) error {
+	return c.is().RestartService(s)
+}
+
+// DisableService disables a service on the host
+func (c *Linux) DisableService(s string) error {
+	return c.is().DisableService(s)
+}
+
+// EnableService enables a service on the host
+func (c *Linux) EnableService(s string) error {
+	return c.is().EnableService(s)
+}
+
+// ServiceIsRunning returns true if the service is running on the host
+func (c *Linux) ServiceIsRunning(s string) bool {
+	return c.is().ServiceIsRunning(s)
+}
+
+// ServiceScriptPath returns the service definition file path on the host
+func (c *Linux) ServiceScriptPath(s string) (string, error) {
+	return c.is().ServiceScriptPath(s)
+}
+
+// DaemonReload performs an init system config reload
+func (c *Linux) DaemonReload() error {
+	return c.is().DaemonReload()
 }
 
 // CheckPrivilege returns an error if the user does not have passwordless sudo enabled
@@ -50,7 +102,7 @@ func (c *Linux) CheckPrivilege() error {
 
 // Pwd returns the current working directory of the session
 func (c *Linux) Pwd() string {
-	pwd, err := c.Host.ExecWithOutput("pwd")
+	pwd, err := c.Host.ExecOutput("pwd")
 	if err != nil {
 		return ""
 	}
@@ -64,14 +116,14 @@ func (c *Linux) JoinPath(parts ...string) string {
 
 // Hostname resolves the short hostname
 func (c *Linux) Hostname() string {
-	hostname, _ := c.Host.ExecWithOutput("hostname -s")
+	hostname, _ := c.Host.ExecOutput("hostname -s")
 
 	return hostname
 }
 
 // LongHostname resolves the FQDN (long) hostname
 func (c *Linux) LongHostname() string {
-	longHostname, _ := c.Host.ExecWithOutput("hostname")
+	longHostname, _ := c.Host.ExecOutput("hostname")
 
 	return longHostname
 }
@@ -91,7 +143,7 @@ func (c *Linux) FixContainer() error {
 
 // SELinuxEnabled is true when SELinux is enabled
 func (c *Linux) SELinuxEnabled() bool {
-	if output, err := c.Host.ExecWithOutput("sudo getenforce"); err == nil {
+	if output, err := c.Host.ExecOutput("sudo getenforce"); err == nil {
 		return strings.ToLower(strings.TrimSpace(output)) == "enforcing"
 	}
 
@@ -108,7 +160,7 @@ func (c *Linux) WriteFile(path string, data string, permissions string) error {
 		return fmt.Errorf("empty path in WriteFile")
 	}
 
-	tempFile, err := c.Host.ExecWithOutput("mktemp")
+	tempFile, err := c.Host.ExecOutput("mktemp")
 	if err != nil {
 		return err
 	}
@@ -123,7 +175,7 @@ func (c *Linux) WriteFile(path string, data string, permissions string) error {
 
 // ReadFile reads a files contents from the host.
 func (c *Linux) ReadFile(path string) (string, error) {
-	return c.Host.ExecWithOutput(fmt.Sprintf("sudo cat %s", escape.Quote(path)))
+	return c.Host.ExecOutput(fmt.Sprintf("sudo cat %s", escape.Quote(path)))
 }
 
 // DeleteFile deletes a file from the host.

@@ -4,8 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/k0sproject/rig/client/local"
 )
 
 type Host struct {
@@ -15,7 +13,7 @@ type Host struct {
 func TestHostFunctions(t *testing.T) {
 	h := Host{
 		Connection: Connection{
-			Localhost: &local.Client{
+			Localhost: &Localhost{
 				Enabled: true,
 			},
 		},
