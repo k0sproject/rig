@@ -1,3 +1,5 @@
+// Package rig provides an easy way to add multi-protocol connectivity and
+// multi-os operation support to your application's Host objects
 package rig
 
 import (
