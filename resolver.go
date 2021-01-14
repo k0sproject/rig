@@ -9,7 +9,29 @@ import (
 	ps "github.com/k0sproject/rig/powershell"
 )
 
+type resolveFunc func(*Connection) (OSVersion, error)
+
+// Resolvers exposes an array of resolve functions where you can add your own if you need to detect some more obscure system
+var Resolvers []resolveFunc
+
+func GetOSVersion(c *Connection) (OSVersion, error) {
+	for _, r := range Resolvers {
+		if os, err := r(c); err == nil {
+			return os, nil
+		}
+	}
+	return OSVersion{}, fmt.Errorf("unable to determine host os")
+}
+
+func init() {
+	Resolvers = append(Resolvers, resolveLinux, resolveWindows, resolveDarwin)
+}
+
 func resolveLinux(c *Connection) (os OSVersion, err error) {
+	if err = c.Exec("uname | grep -q Linux"); err != nil {
+		return
+	}
+
 	output, err := c.ExecOutput("cat /etc/os-release || cat /usr/lib/os-release")
 	if err != nil {
 		return
@@ -52,6 +74,10 @@ func resolveWindows(c *Connection) (os OSVersion, err error) {
 }
 
 func resolveDarwin(c *Connection) (os OSVersion, err error) {
+	if err = c.Exec("uname | grep -q Darwin"); err != nil {
+		return
+	}
+
 	version, err := c.ExecOutput("sw_vers -productVersion")
 	if err != nil {
 		return
@@ -93,6 +119,10 @@ func parseOSReleaseFile(s string, os *OSVersion) error {
 		case "PRETTY_NAME":
 			os.Name = unquote(fields[1])
 		}
+	}
+
+	if os.ID == "" || os.Version == "" {
+		return fmt.Errorf("invalid or incomplete os-release file contents, at least ID and VERSION_ID required")
 	}
 
 	return nil

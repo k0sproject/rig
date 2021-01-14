@@ -100,28 +100,6 @@ func (c *Connection) ExecOutput(cmd string, opts ...exec.Option) (string, error)
 	return strings.TrimSpace(output), err
 }
 
-type resolveFunc func(*Connection) (OSVersion, error)
-
-// GetResolver returns an OS version resolver
-func (c *Connection) resolver() resolveFunc {
-	isWin, err := c.IsWindows()
-	if err != nil {
-		return func(_ *Connection) (OSVersion, error) {
-			return OSVersion{}, err
-		}
-	}
-
-	if isWin {
-		return resolveWindows
-	}
-
-	if err := c.Exec("uname | grep -q Darwin"); err == nil {
-		return resolveDarwin
-	}
-
-	return resolveLinux
-}
-
 // Connect to the host and identify the operating system
 func (c *Connection) Connect() error {
 	if c.client == nil {
@@ -133,9 +111,7 @@ func (c *Connection) Connect() error {
 		return err
 	}
 
-	r := c.resolver()
-
-	o, err := r(c)
+	o, err := GetOSVersion(c)
 	if err != nil {
 		return err
 	}
