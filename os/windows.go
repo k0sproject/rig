@@ -5,22 +5,12 @@ import (
 	"strings"
 
 	"github.com/k0sproject/rig/exec"
-	"github.com/k0sproject/rig/os/initsystem"
 	ps "github.com/k0sproject/rig/powershell"
 )
 
 // Windows is the base packge for windows OS support
 type Windows struct {
-	Host       Host
-	initSystem InitSystem
-}
-
-// InitSystem is an accessor to the OS init system
-func (c *Windows) InitSystem() InitSystem {
-	if c.initSystem == nil {
-		c.initSystem = &initsystem.Windows{Host: c.Host}
-	}
-	return c.initSystem
+	Host Host
 }
 
 // Kind returns "windows"
