@@ -25,8 +25,8 @@ func (i *OpenRC) RestartService(s string) error {
 	return i.Host.Execf("sudo rc-service %s restart", s)
 }
 
-// Reload reloads init system configuration
-func (i *OpenRC) Reload() error {
+// DaemonReload reloads init system configuration
+func (i *OpenRC) DaemonReload() error {
 	return nil
 }
 

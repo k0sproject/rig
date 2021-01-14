@@ -183,8 +183,8 @@ func (c *Windows) RestartService(s string) error {
 	return c.Host.Execf(ps.Cmd(fmt.Sprintf(`Restart-Service "%s"`, s)))
 }
 
-// Reload reloads init system configuration
-func (c *Windows) Reload() error {
+// DaemonReload reloads init system configuration
+func (c *Windows) DaemonReload() error {
 	return nil
 }
 

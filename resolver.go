@@ -15,6 +15,7 @@ type resolveFunc func(*Connection) (OSVersion, error)
 // (consider making a PR)
 var Resolvers []resolveFunc
 
+// GetOSVersion runs through the Resolvers and tries to figure out the OS version information
 func GetOSVersion(c *Connection) (OSVersion, error) {
 	for _, r := range Resolvers {
 		if os, err := r(c); err == nil {

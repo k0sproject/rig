@@ -30,8 +30,8 @@ func (i *Systemd) RestartService(s string) error {
 	return i.Host.Execf("sudo systemctl restart %s", s)
 }
 
-// Reload reloads init system configuration
-func (i *Systemd) Reload() error {
+// DaemonReload reloads init system configuration
+func (i *Systemd) DaemonReload() error {
 	return i.Host.Execf("sudo systemctl daemon-reload")
 }
 

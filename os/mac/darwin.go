@@ -39,8 +39,8 @@ func (c *Darwin) RestartService(s string) error {
 	return c.Host.Execf(`sudo launchctl kickstart -k %s`, s)
 }
 
-// Reload reloads init system configuration
-func (c *Darwin) Reload() error {
+// DaemonReload reloads init system configuration
+func (c *Darwin) DaemonReload() error {
 	return nil
 }
 

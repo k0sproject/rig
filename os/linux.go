@@ -25,7 +25,7 @@ type initSystem interface {
 	EnableService(string) error
 	ServiceIsRunning(string) bool
 	ServiceScriptPath(string) (string, error)
-	Reload() error
+	DaemonReload() error
 }
 
 // Kind returns "linux"
@@ -56,32 +56,39 @@ func (c *Linux) StartService(s string) error {
 	return c.is().StartService(s)
 }
 
+// StopService stops a service on the host
 func (c *Linux) StopService(s string) error {
 	return c.is().StopService(s)
 }
 
+// RestartService restarts a service on the host
 func (c *Linux) RestartService(s string) error {
 	return c.is().RestartService(s)
 }
 
+// DisableService disables a service on the host
 func (c *Linux) DisableService(s string) error {
 	return c.is().DisableService(s)
 }
 
+// EnableService enables a service on the host
 func (c *Linux) EnableService(s string) error {
 	return c.is().EnableService(s)
 }
 
+// ServiceIsRunning returns true if the service is running on the host
 func (c *Linux) ServiceIsRunning(s string) bool {
 	return c.is().ServiceIsRunning(s)
 }
 
+// ServiceScriptPath returns the service definition file path on the host
 func (c *Linux) ServiceScriptPath(s string) (string, error) {
 	return c.is().ServiceScriptPath(s)
 }
 
-func (c *Linux) Reload() error {
-	return c.is().Reload()
+// DaemonReload performs an init system config reload
+func (c *Linux) DaemonReload() error {
+	return c.is().DaemonReload()
 }
 
 // CheckPrivilege returns an error if the user does not have passwordless sudo enabled

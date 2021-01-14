@@ -29,7 +29,7 @@ import (
 	"github.com/mitchellh/go-homedir"
 )
 
-// Client describes an SSH connection
+// SSH describes an SSH connection
 type SSH struct {
 	Address string `yaml:"address" validate:"required,hostname|ip"`
 	User    string `yaml:"user" validate:"omitempty,gt=2" default:"root"`
