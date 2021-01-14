@@ -23,6 +23,17 @@ type NotConnectedError rigError
 // Error returns the error message
 func (e *NotConnectedError) Error() string { return e.Connection.String() + ": not connected" }
 
+type client interface {
+	Connect() error
+	Disconnect()
+	Upload(source string, destination string) error
+	IsWindows() bool
+	Exec(string, ...exec.Option) error
+	ExecInteractive(string) error
+	String() string
+	IsConnected() bool
+}
+
 // Connection is a Struct you can embed into your application's "Host" types
 // to give them multi-protocol connectivity.
 type Connection struct {
@@ -32,7 +43,7 @@ type Connection struct {
 
 	OSVersion OSVersion `yaml:"-"`
 
-	client Client `yaml:"-"`
+	client client `yaml:"-"`
 }
 
 // SetDefaults sets a connection
@@ -161,7 +172,7 @@ func (c *Connection) Upload(src, dst string) error {
 	return c.client.Upload(src, dst)
 }
 
-func (c *Connection) configuredClient() Client {
+func (c *Connection) configuredClient() client {
 	if c.WinRM != nil {
 		return c.WinRM
 	}
@@ -177,7 +188,7 @@ func (c *Connection) configuredClient() Client {
 	return nil
 }
 
-func defaultClient() Client {
+func defaultClient() client {
 	c := &ssh.Client{}
 	defaults.Set(c)
 	return c
