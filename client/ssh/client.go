@@ -35,14 +35,11 @@ type Client struct {
 	client *ssh.Client
 }
 
-func (c *Client) SetDefaults() error {
-	k, err := homedir.Expand(c.KeyPath)
-	if err != nil {
-		return err
+// SetDefaults sets various default values
+func (c *Client) SetDefaults() {
+	if k, err := homedir.Expand(c.KeyPath); err == nil {
+		c.KeyPath = k
 	}
-	c.KeyPath = k
-
-	return nil
 }
 
 // String returns the connection's printable name
@@ -54,6 +51,7 @@ func (c *Client) String() string {
 	return c.name
 }
 
+// IsConnected returns true if the client is connected
 func (c *Client) IsConnected() bool {
 	return c.client != nil
 }

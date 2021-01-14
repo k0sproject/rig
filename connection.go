@@ -1,6 +1,8 @@
 package rig
 
 import (
+	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/creasty/defaults"
@@ -26,11 +28,13 @@ type Connection struct {
 	SSH       *ssh.Client   `yaml:"ssh,omitempty"`
 	Localhost *local.Client `yaml:"localhost,omitempty"`
 
+	OSVersion OSVersion `yaml:"-"`
+
 	client Client `yaml:"-"`
 }
 
 // SetDefaults sets a connection
-func (c *Connection) SetDefaults() error {
+func (c *Connection) SetDefaults() {
 	if c.client == nil {
 		c.client = c.configuredClient()
 		if c.client == nil {
@@ -38,9 +42,10 @@ func (c *Connection) SetDefaults() error {
 		}
 	}
 
-	return defaults.Set(c.client)
+	defaults.Set(c.client)
 }
 
+// IsConnected returns true if the client is assumed to be connected (the client library may have become inoperable but rig won't know that)
 func (c *Connection) IsConnected() bool {
 	if c.client == nil {
 		return false
@@ -88,7 +93,7 @@ func (c *Connection) ExecWithOutput(cmd string, opts ...exec.Option) (string, er
 	return strings.TrimSpace(output), err
 }
 
-// Connect to the host
+// Connect to the host and identify operating system
 func (c *Connection) Connect() error {
 	if c.client == nil {
 		defaults.Set(c)
@@ -99,7 +104,30 @@ func (c *Connection) Connect() error {
 		return err
 	}
 
+	r, err := GetResolver(c)
+	if err != nil {
+		return err
+	}
+
+	o, err := r.Resolve(c)
+	if err != nil {
+		return err
+	}
+	c.OSVersion = o
+
 	return nil
+}
+
+// Execf is like exec but with sprintf templating
+func (c *Connection) Execf(s string, params ...interface{}) error {
+	opts, args := groupParams(params)
+	return c.Exec(fmt.Sprintf(s, args...), opts...)
+}
+
+// ExecWithOutputf is like ExecWithOutput but with sprintf templating
+func (c *Connection) ExecWithOutputf(s string, params ...interface{}) (string, error) {
+	opts, args := groupParams(params)
+	return c.ExecWithOutput(fmt.Sprintf(s, args...), opts...)
 }
 
 // Disconnect the host
@@ -141,4 +169,17 @@ func DefaultClient() Client {
 	c := &ssh.Client{}
 	defaults.Set(c)
 	return c
+}
+
+// separates exec.Options from sprintf templating args
+func groupParams(params ...interface{}) (opts []exec.Option, args []interface{}) {
+	sample := reflect.TypeOf(exec.HideCommand())
+	for _, v := range params {
+		if reflect.TypeOf(v) == sample {
+			opts = append(opts, v.(exec.Option))
+		} else {
+			args = append(args, v)
+		}
+	}
+	return
 }

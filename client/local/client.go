@@ -25,6 +25,7 @@ func (c *Client) String() string {
 	return name
 }
 
+// IsConnected for local connections is always true
 func (c *Client) IsConnected() bool {
 	return true
 }

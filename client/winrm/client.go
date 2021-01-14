@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/k0sproject/rig/exec"
+	"github.com/mitchellh/go-homedir"
 
 	"github.com/masterzen/winrm"
 )
@@ -36,6 +37,21 @@ type Client struct {
 	client *winrm.Client
 }
 
+// SetDefaults sets various default values
+func (c *Client) SetDefaults() {
+	if p, err := homedir.Expand(c.CACertPath); err == nil {
+		c.CACertPath = p
+	}
+
+	if p, err := homedir.Expand(c.CertPath); err == nil {
+		c.CertPath = p
+	}
+
+	if p, err := homedir.Expand(c.KeyPath); err == nil {
+		c.KeyPath = p
+	}
+}
+
 // String returns the connection's printable name
 func (c *Client) String() string {
 	if c.name == "" {
@@ -45,6 +61,7 @@ func (c *Client) String() string {
 	return c.name
 }
 
+// IsConnected returns true if the client is connected
 func (c *Client) IsConnected() bool {
 	return c.client != nil
 }

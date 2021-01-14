@@ -21,7 +21,6 @@ func TestHostFunctions(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, h.SetDefaults())
 	require.NoError(t, h.Connect())
 	require.Equal(t, "[local] localhost", h.String())
 	require.True(t, h.IsConnected())
