@@ -172,3 +172,43 @@ func (c *Windows) CommandExist(cmd string) bool {
 func (c *Windows) Reboot() error {
 	return c.Host.Exec("shutdown /r")
 }
+
+// StartService starts a a service
+func (c *Windows) StartService(s string) error {
+	return c.Host.Execf(`sc start "%s"`, s)
+}
+
+// StopService stops a a service
+func (c *Windows) StopService(s string) error {
+	return c.Host.Execf(`sc stop "%s"`, s)
+}
+
+// ServiceScriptPath returns the path to a service configuration file
+func (c *Windows) ServiceScriptPath(s string) (string, error) {
+	return "", fmt.Errorf("not available on windows")
+}
+
+// RestartService restarts a a service
+func (c *Windows) RestartService(s string) error {
+	return c.Host.Execf(ps.Cmd(fmt.Sprintf(`Restart-Service "%s"`, s)))
+}
+
+// Reload reloads init system configuration
+func (c *Windows) Reload() error {
+	return nil
+}
+
+// EnableService enables a a service
+func (c *Windows) EnableService(s string) error {
+	return c.Host.Execf(`sc.exe config "%s" start=disabled`, s)
+}
+
+// DisableService disables a a service
+func (c *Windows) DisableService(s string) error {
+	return c.Host.Execf(`sc.exe config "%s" start=enabled`, s)
+}
+
+// ServiceIsRunning returns true if a service is running
+func (c *Windows) ServiceIsRunning(s string) bool {
+	return c.Host.Execf(`sc.exe query "%s" | findstr "RUNNING"`, s) == nil
+}
