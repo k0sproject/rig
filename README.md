@@ -1,6 +1,6 @@
 ### Rig
 
-A toolkit library for interacting with hosts and orchestrating cluster-spanning operations.
+A toolkit library for interacting with hosts running various operating systems over multiple protocols.
 
 #### Design goals
 
