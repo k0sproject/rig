@@ -1,7 +1,7 @@
 package main
 
 /*
-  This example shows how the OS support mechanism can be used to add utility
+	This example shows how the OS support mechanism can be used to add utility
 	functions for multiple target operating systems.
 
 	The reason "host.Os" does not come out of the box with rig.Connection is that
