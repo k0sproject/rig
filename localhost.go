@@ -30,7 +30,7 @@ func (c *Localhost) IsConnected() bool {
 	return true
 }
 
-// IsWindows is true when SetWindows(true) has been used
+// IsWindows is true when running on a windows host
 func (c *Localhost) IsWindows() bool {
 	return runtime.GOOS == "windows"
 }

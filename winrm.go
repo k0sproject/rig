@@ -74,7 +74,7 @@ func (c *WinRM) IsConnected() bool {
 	return c.client != nil
 }
 
-// IsWindows is here to satisfy the interface, WinRM hosts are expected to always run windows
+// IsWindows always returns true on winrm
 func (c *WinRM) IsWindows() bool {
 	return true
 }
