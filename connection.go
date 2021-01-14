@@ -6,9 +6,6 @@ import (
 	"strings"
 
 	"github.com/creasty/defaults"
-	"github.com/k0sproject/rig/client/local"
-	"github.com/k0sproject/rig/client/ssh"
-	"github.com/k0sproject/rig/client/winrm"
 	"github.com/k0sproject/rig/exec"
 )
 
@@ -36,10 +33,40 @@ type client interface {
 
 // Connection is a Struct you can embed into your application's "Host" types
 // to give them multi-protocol connectivity.
+//
+// All of the important fields have YAML tags.
+//
+// If you have a host like this:
+//
+// 		type Host struct {
+// 		  rig.Connection `yaml:"connection"`
+// 		}
+//
+// and a YAML like this:
+//
+//     hosts:
+//       - connection:
+//           ssh:
+//             address: 10.0.0.1
+//             port: 8022
+//
+// you can then simply do this:
+//
+//     var hosts []*Host
+//     if err := yaml.Unmarshal(data, &hosts); err != nil {
+//       panic(err)
+//     }
+//     for _, h := range hosts {
+//       err := h.Connect()
+//       if err != nil {
+//         panic(err)
+//       }
+//       output, err := h.ExecOutput("echo hello")
+//     }
 type Connection struct {
-	WinRM     *winrm.Client `yaml:"winRM,omitempty"`
-	SSH       *ssh.Client   `yaml:"ssh,omitempty"`
-	Localhost *local.Client `yaml:"localhost,omitempty"`
+	WinRM     *WinRM     `yaml:"winRM,omitempty"`
+	SSH       *SSH       `yaml:"ssh,omitempty"`
+	Localhost *Localhost `yaml:"localhost,omitempty"`
 
 	OSVersion OSVersion `yaml:"-"`
 
@@ -189,7 +216,7 @@ func (c *Connection) configuredClient() client {
 }
 
 func defaultClient() client {
-	c := &ssh.Client{}
+	c := &SSH{}
 	defaults.Set(c)
 	return c
 }

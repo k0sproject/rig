@@ -2,7 +2,6 @@ package main
 
 import (
 	"github.com/k0sproject/rig"
-	"github.com/k0sproject/rig/client/local"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
 )
@@ -14,6 +13,6 @@ func main() {
 	log.Infof("Testing INFO level logging: %s", "Hello")
 	log.Errorf("Testing ERROR level logging: %s", "Hello")
 
-	c := &local.Client{Enabled: true}
+	c := &rig.Localhost{Enabled: true}
 	c.Exec("echo Hello, world", exec.StreamOutput())
 }

@@ -15,7 +15,6 @@ import (
 	"fmt"
 
 	"github.com/k0sproject/rig"
-	"github.com/k0sproject/rig/client/local"
 	"github.com/k0sproject/rig/os/registry"
 	_ "github.com/k0sproject/rig/os/support"
 )
@@ -47,7 +46,7 @@ func (h *Host) LoadOS() error {
 func main() {
 	h := Host{
 		Connection: rig.Connection{
-			Localhost: &local.Client{
+			Localhost: &rig.Localhost{
 				Enabled: true,
 			},
 		},

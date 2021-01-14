@@ -1,6 +1,6 @@
 // +build windows
 
-package ssh
+package rig
 
 import (
 	"fmt"
@@ -11,7 +11,7 @@ import (
 	ssh "golang.org/x/crypto/ssh"
 )
 
-func (c *Client) captureSignals(stdin io.WriteCloser, session *ssh.Session) {
+func captureSignals(stdin io.WriteCloser, session *ssh.Session) {
 	ch := make(chan os.Signal)
 	signal.Notify(ch, os.Interrupt)
 
