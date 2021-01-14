@@ -52,23 +52,26 @@ func (w LinuxResolver) Resolve(c *Connection) (os OSVersion, err error) {
 	return
 }
 
+func unquote(s string) string {
+	if u, err := strconv.Unquote(s); err == nil {
+		return u
+	}
+	return s
+}
+
 func parseOSReleaseFile(s string, os *OSVersion) error {
 	scanner := bufio.NewScanner(strings.NewReader(s))
 	for scanner.Scan() {
 		fields := strings.SplitN(scanner.Text(), "=", 2)
 		switch fields[0] {
 		case "ID":
-			id, _ := strconv.Unquote(fields[1])
-			os.ID = id
+			os.ID = unquote(fields[1])
 		case "ID_LIKE":
-			idlike, _ := strconv.Unquote(fields[1])
-			os.IDLike = idlike
+			os.IDLike = unquote(fields[1])
 		case "VERSION_ID":
-			version, _ := strconv.Unquote(fields[1])
-			os.Version = version
+			os.Version = unquote(fields[1])
 		case "PRETTY_NAME":
-			name, _ := strconv.Unquote(fields[1])
-			os.Name = name
+			os.Name = unquote(fields[1])
 		}
 	}
 
