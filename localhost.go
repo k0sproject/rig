@@ -68,7 +68,9 @@ func (c *Localhost) Exec(cmd string, opts ...exec.Option) error {
 
 	o.LogCmd(name, cmd)
 
-	command.Start()
+	if err := command.Start(); err != nil {
+		return err
+	}
 
 	for outputScanner.Scan() {
 		o.AddOutput(name, outputScanner.Text()+"\n")

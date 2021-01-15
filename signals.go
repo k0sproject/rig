@@ -26,7 +26,10 @@ func captureSignals(stdin io.WriteCloser, session *ssh.Session) {
 			case syscall.SIGTSTP:
 				fmt.Fprintf(stdin, "\x1a")
 			case syscall.SIGWINCH:
-				session.SendRequest("window-change", false, termSizeWNCH())
+				_, err := session.SendRequest("window-change", false, termSizeWNCH())
+				if err != nil {
+					println("failed to relay window-change event: " + err.Error())
+				}
 			}
 		}
 	}()

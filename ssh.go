@@ -151,7 +151,9 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error {
 
 	if len(o.Stdin) > 0 {
 		o.LogStdin(c.String())
-		io.WriteString(stdin, o.Stdin)
+		if _, err := io.WriteString(stdin, o.Stdin); err != nil {
+			return err
+		}
 	}
 	stdin.Close()
 
@@ -231,7 +233,9 @@ func (c *SSH) ExecInteractive(cmd string) error {
 		return err
 	}
 
-	defer terminal.Restore(fd, old)
+	defer func(fd int, old *terminal.State) {
+		_ = terminal.Restore(fd, old)
+	}(fd, old)
 
 	rows, cols, err := terminal.GetSize(fd)
 	if err != nil {
