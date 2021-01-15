@@ -76,7 +76,7 @@ type Connection struct {
 }
 
 func (c *Connection) Testing() error {
-	return fmt.Errorf("test error")
+	return fmt.Errorf("test error 2")
 }
 
 // SetDefaults sets a connection
