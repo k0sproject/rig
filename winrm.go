@@ -187,9 +187,7 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error {
 		go func() {
 			defer wg.Done()
 			defer command.Stdin.Close()
-			_, err := command.Stdin.Write([]byte(o.Stdin))
-			if err != nil {
-			}
+			_, _ = command.Stdin.Write([]byte(o.Stdin))
 		}()
 	}
 
@@ -260,9 +258,9 @@ func (c *WinRM) Upload(src, dst string) error {
 	sha256DigestLocal := ""
 	sha256DigestRemote := ""
 	srcSize := uint64(stat.Size())
-	bytesSent := uint64(0)
-	realSent := uint64(0)
-	fdClosed := false
+	var bytesSent uint64
+	var realSent uint64
+	var fdClosed bool
 	fd, err := os.Open(src)
 	if err != nil {
 		return err
@@ -292,8 +290,9 @@ func (c *WinRM) Upload(src, dst string) error {
 	base64LineBuffer[base64LineBufferCapacity-2] = '\r'
 	base64LineBuffer[base64LineBufferCapacity-1] = '\n'
 	buffer := make([]byte, bufferCapacity)
-	bufferLength := 0
-	ended := false
+	var bufferLength int
+
+	var ended bool
 
 	for {
 		var n int
@@ -347,10 +346,6 @@ func (c *WinRM) Upload(src, dst string) error {
 			// ignore pipe errors that results from passing true to cmd.SendInput
 		}
 		cmd.Stdin.Close()
-		ended = true
-		bytesSent += uint64(bufferLength)
-		realSent += uint64(bufferLength)
-		bufferLength = 0
 	}
 	var wg sync.WaitGroup
 	wg.Add(2)

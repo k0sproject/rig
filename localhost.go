@@ -17,7 +17,6 @@ const name = "[local] localhost"
 // Localhost is a direct localhost connection
 type Localhost struct {
 	Enabled bool `yaml:"enabled" validate:"required,eq=true" default:"true"`
-	name    string
 }
 
 // String returns the connection's printable name
@@ -68,7 +67,9 @@ func (c *Localhost) Exec(cmd string, opts ...exec.Option) error {
 
 	o.LogCmd(name, cmd)
 
-	command.Start()
+	if err := command.Start(); err != nil {
+		return err
+	}
 
 	for outputScanner.Scan() {
 		o.AddOutput(name, outputScanner.Text()+"\n")
@@ -94,10 +95,10 @@ func (c *Localhost) Upload(src, dst string) error {
 	defer in.Close()
 
 	out, err := os.Create(dst)
-	defer out.Close()
 	if err != nil {
 		return err
 	}
+	defer out.Close()
 	_, err = io.Copy(out, in)
 	return err
 }

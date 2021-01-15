@@ -84,7 +84,7 @@ func (c *Connection) SetDefaults() {
 		}
 	}
 
-	defaults.Set(c.client)
+	_ = defaults.Set(c.client)
 }
 
 // IsConnected returns true if the client is assumed to be connected.
@@ -104,7 +104,7 @@ func (c *Connection) IsConnected() bool {
 // like: `[ssh] address:port`
 func (c *Connection) String() string {
 	if !c.IsConnected() {
-		defaults.Set(c)
+		_ = defaults.Set(c)
 	}
 
 	return c.client.String()
@@ -143,7 +143,7 @@ func (c *Connection) ExecOutput(cmd string, opts ...exec.Option) (string, error)
 // Connect to the host and identify the operating system
 func (c *Connection) Connect() error {
 	if c.client == nil {
-		defaults.Set(c)
+		_ = defaults.Set(c)
 	}
 
 	if err := c.client.Connect(); err != nil {
@@ -218,8 +218,8 @@ func (c *Connection) configuredClient() client {
 }
 
 func defaultClient() client {
-	c := &SSH{}
-	defaults.Set(c)
+	c := &Localhost{Enabled: true}
+	_ = defaults.Set(c)
 	return c
 }
 

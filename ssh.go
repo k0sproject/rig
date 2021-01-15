@@ -151,7 +151,9 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error {
 
 	if len(o.Stdin) > 0 {
 		o.LogStdin(c.String())
-		io.WriteString(stdin, o.Stdin)
+		if _, err := io.WriteString(stdin, o.Stdin); err != nil {
+			return err
+		}
 	}
 	stdin.Close()
 
@@ -231,7 +233,9 @@ func (c *SSH) ExecInteractive(cmd string) error {
 		return err
 	}
 
-	defer terminal.Restore(fd, old)
+	defer func(fd int, old *terminal.State) {
+		_ = terminal.Restore(fd, old)
+	}(fd, old)
 
 	rows, cols, err := terminal.GetSize(fd)
 	if err != nil {
@@ -249,7 +253,7 @@ func (c *SSH) ExecInteractive(cmd string) error {
 		return err
 	}
 	go func() {
-		io.Copy(stdinpipe, os.Stdin)
+		_, _ = io.Copy(stdinpipe, os.Stdin)
 	}()
 
 	captureSignals(stdinpipe, session)
@@ -295,7 +299,9 @@ func (c *SSH) uploadLinux(src, dst string) error {
 		return err
 	}
 
-	io.Copy(gw, in)
+	if _, err := io.Copy(gw, in); err != nil {
+		return err
+	}
 	gw.Close()
 	hostIn.Close()
 
@@ -312,9 +318,9 @@ func (c *SSH) uploadWindows(src, dst string) error {
 	sha256DigestLocal := ""
 	sha256DigestRemote := ""
 	srcSize := uint64(stat.Size())
-	bytesSent := uint64(0)
-	realSent := uint64(0)
-	fdClosed := false
+	var bytesSent uint64
+	var realSent uint64
+	var fdClosed bool
 	fd, err := os.Open(src)
 	if err != nil {
 		return err
@@ -355,8 +361,9 @@ func (c *SSH) uploadWindows(src, dst string) error {
 	base64LineBuffer[base64LineBufferCapacity-2] = '\r'
 	base64LineBuffer[base64LineBufferCapacity-1] = '\n'
 	buffer := make([]byte, bufferCapacity)
-	bufferLength := 0
-	ended := false
+	var bufferLength int
+
+	var ended bool
 
 	for {
 		var n int
@@ -408,10 +415,6 @@ func (c *SSH) uploadWindows(src, dst string) error {
 			// ignore pipe errors that results from passing true to cmd.SendInput
 		}
 		hostIn.Close()
-		ended = true
-		bytesSent += uint64(bufferLength)
-		realSent += uint64(bufferLength)
-		bufferLength = 0
 	}
 	var wg sync.WaitGroup
 	var stderr bytes.Buffer
@@ -420,7 +423,7 @@ func (c *SSH) uploadWindows(src, dst string) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		io.Copy(&stderr, hostErr)
+		_, _ = io.Copy(&stderr, hostErr)
 	}()
 
 	wg.Add(1)
@@ -442,7 +445,11 @@ func (c *SSH) uploadWindows(src, dst string) error {
 			stdout.Reset()
 		}
 	}()
-	session.Wait()
+
+	if err := session.Wait(); err != nil {
+		return err
+	}
+
 	wg.Wait()
 
 	if sha256DigestRemote == "" {

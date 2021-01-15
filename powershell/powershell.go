@@ -1,4 +1,4 @@
-package util
+package powershell
 
 import (
 	"encoding/base64"

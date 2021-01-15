@@ -1,15 +1,14 @@
 package exec
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"regexp"
 	"strings"
 	"sync"
 
-	"github.com/AlecAivazis/survey/v2"
 	"github.com/k0sproject/rig/log"
-	"github.com/mattn/go-isatty"
 )
 
 var (
@@ -31,6 +30,16 @@ var (
 	// ErrorFunc can be replaced to direct the output of exec logging into your own function (standard sprintf interface)
 	ErrorFunc = func(s string, args ...interface{}) {
 		log.Errorf(s, args...)
+	}
+
+	// ConfirmFunc is called to ask for confirmation
+	ConfirmFunc = func(s string) bool {
+		fmt.Println(s)
+		fmt.Print("Allow? [Y/n]: ")
+		reader := bufio.NewReader(os.Stdin)
+		text, _ := reader.ReadString('\n')
+		text = strings.TrimSpace(text)
+		return text == "" || text == "Y" || text == "y"
 	}
 
 	mutex sync.Mutex
@@ -55,25 +64,12 @@ type Options struct {
 // LogCmd is for logging the command to be executed
 func (o *Options) LogCmd(prefix, cmd string) {
 	if Confirm {
-		if !isatty.IsTerminal(os.Stdout.Fd()) {
-			os.Stderr.WriteString("confirmation mode requires an interactive terminal")
-			os.Exit(1)
-		}
 
 		mutex.Lock()
-
-		confirmed := false
-		fmt.Printf("\nHost: %s\nCommand: %s\n", prefix, o.Redact(cmd))
-		prompt := &survey.Confirm{
-			Message: fmt.Sprintf("Run this command?"),
-			Default: true,
-		}
-		survey.AskOne(prompt, &confirmed)
-		if !confirmed {
+		if !ConfirmFunc(fmt.Sprintf("\nHost: %s\nCommand: %s", prefix, o.Redact(cmd))) {
 			os.Stderr.WriteString("aborted\n")
 			os.Exit(1)
 		}
-
 		mutex.Unlock()
 	}
 
