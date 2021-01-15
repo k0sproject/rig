@@ -19,7 +19,7 @@ Currently rig comes with the most common ways to connect to hosts:
 
 #### Usage
 
-Rig provides a struct that can be embedded into your host objects to give them multi-protocol connectivity and multi-os operation support.
+The intended way to use rig is to embed the `rig.Connection` struct into your own.
 
 Example:
 
@@ -50,6 +50,26 @@ func main() {
     panic(err)
   }
   println(output)
+}
+```
+
+But of course you can use it directly on it's own too:
+
+```go
+package main
+
+import "github.com/k0sproject/rig"
+
+func main() {
+  h := rig.Connection{
+    SSH: &rig.SSH{
+      Address: 10.0.0.1
+    }
+  }
+
+  if err := h.Connect(); err != nil {
+    panic(err)
+  }
 }
 ```
 
