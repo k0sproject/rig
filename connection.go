@@ -75,6 +75,10 @@ type Connection struct {
 	client client `yaml:"-"`
 }
 
+func (c *Connection) Testing() error {
+	return nil
+}
+
 // SetDefaults sets a connection
 func (c *Connection) SetDefaults() {
 	if c.client == nil {
