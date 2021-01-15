@@ -53,4 +53,6 @@ func main() {
 }
 ```
 
-See more usage examples in the [examples/](tree/main/examples) directory.
+See more usage examples in the [examples/](examples/) directory.
+
+https://github.com/k0sproject/rig/tree/main/examples
