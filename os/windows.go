@@ -154,8 +154,14 @@ func (c *Windows) UpdateEnvironment(env map[string]string) error {
 // CleanupEnvironment removes environment variable configuration
 func (c *Windows) CleanupEnvironment(env map[string]string) error {
 	for k := range env {
-		c.Host.Exec(fmt.Sprintf(`powershell "[Environment]::SetEnvironmentVariable(%s, $null, 'User')"`, ps.SingleQuote(k)))
-		c.Host.Exec(fmt.Sprintf(`powershell "[Environment]::SetEnvironmentVariable(%s, $null, 'Machine')"`, ps.SingleQuote(k)))
+		err := c.Host.Exec(fmt.Sprintf(`powershell "[Environment]::SetEnvironmentVariable(%s, $null, 'User')"`, ps.SingleQuote(k)))
+		if err != nil {
+			return err
+		}
+		err = c.Host.Exec(fmt.Sprintf(`powershell "[Environment]::SetEnvironmentVariable(%s, $null, 'Machine')"`, ps.SingleQuote(k)))
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
