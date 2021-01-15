@@ -218,7 +218,7 @@ func (c *Connection) configuredClient() client {
 }
 
 func defaultClient() client {
-	c := &SSH{}
+	c := &Localhost{Enabled: true}
 	_ = defaults.Set(c)
 	return c
 }
