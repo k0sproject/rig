@@ -1,6 +1,6 @@
 ### Rig
 
-A toolkit library for interacting with hosts running various operating systems over multiple protocols.
+A golang package for adding multi-protocol connectivity and multi-os operation functionality to your application's Host objects.
 
 #### Design goals
 
@@ -19,7 +19,7 @@ Currently rig comes with the most common ways to connect to hosts:
 
 #### Usage
 
-Rig provides a struct that can be embedded into your host objects to give them multi-protocol connectivity and multi-os oeration support.
+Rig provides a struct that can be embedded into your host objects to give them multi-protocol connectivity and multi-os operation support.
 
 Example:
 
