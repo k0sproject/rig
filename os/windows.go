@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/log"
 	ps "github.com/k0sproject/rig/powershell"
 )
 
@@ -103,7 +104,7 @@ func (c *Windows) WriteFile(path string, data string, permissions string) error 
 	if err != nil {
 		return err
 	}
-	defer c.Host.ExecOutput(fmt.Sprintf("del \"%s\"", tempFile))
+	defer c.deleteTempFile(tempFile)
 
 	err = c.Host.Exec(fmt.Sprintf(`powershell -Command "$Input | Out-File -FilePath %s"`, ps.SingleQuote(tempFile)), exec.Stdin(data))
 	if err != nil {
@@ -126,6 +127,12 @@ func (c *Windows) ReadFile(path string) (string, error) {
 // DeleteFile deletes a file from the host.
 func (c *Windows) DeleteFile(path string) error {
 	return c.Host.Exec(fmt.Sprintf(`del /f %s`, ps.DoubleQuote(path)))
+}
+
+func (c *Windows) deleteTempFile(path string) {
+	if err := c.DeleteFile(path); err != nil {
+		log.Debugf("failed to delete temporary file %s: %s", path, err.Error())
+	}
 }
 
 // FileExist checks if a file exists on the host
