@@ -17,7 +17,6 @@ const name = "[local] localhost"
 // Localhost is a direct localhost connection
 type Localhost struct {
 	Enabled bool `yaml:"enabled" validate:"required,eq=true" default:"true"`
-	name    string
 }
 
 // String returns the connection's printable name

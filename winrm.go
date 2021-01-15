@@ -260,9 +260,9 @@ func (c *WinRM) Upload(src, dst string) error {
 	sha256DigestLocal := ""
 	sha256DigestRemote := ""
 	srcSize := uint64(stat.Size())
-	bytesSent := uint64(0)
-	realSent := uint64(0)
-	fdClosed := false
+	var bytesSent uint64
+	var realSent uint64
+	var fdClosed bool
 	fd, err := os.Open(src)
 	if err != nil {
 		return err
@@ -292,8 +292,9 @@ func (c *WinRM) Upload(src, dst string) error {
 	base64LineBuffer[base64LineBufferCapacity-2] = '\r'
 	base64LineBuffer[base64LineBufferCapacity-1] = '\n'
 	buffer := make([]byte, bufferCapacity)
-	bufferLength := 0
-	ended := false
+	var bufferLength int
+
+	var ended bool
 
 	for {
 		var n int
