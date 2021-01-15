@@ -95,10 +95,10 @@ func (c *Localhost) Upload(src, dst string) error {
 	defer in.Close()
 
 	out, err := os.Create(dst)
-	defer out.Close()
 	if err != nil {
 		return err
 	}
+	defer out.Close()
 	_, err = io.Copy(out, in)
 	return err
 }

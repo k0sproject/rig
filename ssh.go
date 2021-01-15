@@ -415,10 +415,6 @@ func (c *SSH) uploadWindows(src, dst string) error {
 			// ignore pipe errors that results from passing true to cmd.SendInput
 		}
 		hostIn.Close()
-		ended = true
-		bytesSent += uint64(bufferLength)
-		realSent += uint64(bufferLength)
-		bufferLength = 0
 	}
 	var wg sync.WaitGroup
 	var stderr bytes.Buffer

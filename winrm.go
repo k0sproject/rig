@@ -187,9 +187,7 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error {
 		go func() {
 			defer wg.Done()
 			defer command.Stdin.Close()
-			_, err := command.Stdin.Write([]byte(o.Stdin))
-			if err != nil {
-			}
+			_, _ = command.Stdin.Write([]byte(o.Stdin))
 		}()
 	}
 
@@ -348,10 +346,6 @@ func (c *WinRM) Upload(src, dst string) error {
 			// ignore pipe errors that results from passing true to cmd.SendInput
 		}
 		cmd.Stdin.Close()
-		ended = true
-		bytesSent += uint64(bufferLength)
-		realSent += uint64(bufferLength)
-		bufferLength = 0
 	}
 	var wg sync.WaitGroup
 	wg.Add(2)

@@ -219,7 +219,7 @@ func (c *Connection) configuredClient() client {
 
 func defaultClient() client {
 	c := &SSH{}
-	defaults.Set(c)
+	_ = defaults.Set(c)
 	return c
 }
 
