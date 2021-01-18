@@ -230,7 +230,12 @@ func groupParams(params ...interface{}) (opts []exec.Option, args []interface{})
 		if reflect.TypeOf(v) == sample {
 			opts = append(opts, v.(exec.Option))
 		} else {
-			args = append(args, v)
+			switch vv := v.(type) {
+			case []interface{}:
+				args = append(args, vv...)
+			default:
+				args = append(args, v)
+			}
 		}
 	}
 	return
