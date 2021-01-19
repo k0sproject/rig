@@ -42,5 +42,5 @@ func (i *Systemd) ServiceIsRunning(s string) bool {
 
 // ServiceScriptPath returns the path to a service configuration file
 func (i *Systemd) ServiceScriptPath(s string) (string, error) {
-	return i.Host.ExecOutputf(`systemctl show -p FragmentPath %s.service 2> /dev/null | cut -d"=" -f2)`, s)
+	return i.Host.ExecOutputf(`systemctl show -p FragmentPath %s.service 2> /dev/null | cut -d"=" -f2`, s)
 }
