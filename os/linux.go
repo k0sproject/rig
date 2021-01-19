@@ -166,7 +166,7 @@ func (c *Linux) WriteFile(path string, data string, permissions string) error {
 	}
 	tempFile = escape.Quote(tempFile)
 
-	err = c.Host.Exec(fmt.Sprintf("cat > %s && (sudo install -D -m %s %s %s || (rm %s; exit 1))", tempFile, permissions, tempFile, path, tempFile), exec.Stdin(data))
+	err = c.Host.Exec(fmt.Sprintf("cat > %s && (sudo install -D -m %s %s %s || (rm %s; exit 1))", tempFile, permissions, tempFile, path, tempFile), exec.Stdin(data), exec.RedactString(data))
 	if err != nil {
 		return err
 	}
@@ -175,7 +175,7 @@ func (c *Linux) WriteFile(path string, data string, permissions string) error {
 
 // ReadFile reads a files contents from the host.
 func (c *Linux) ReadFile(path string) (string, error) {
-	return c.Host.ExecOutput(fmt.Sprintf("sudo cat %s", escape.Quote(path)))
+	return c.Host.ExecOutput(fmt.Sprintf("sudo cat %s", escape.Quote(path)), exec.HideOutput())
 }
 
 // DeleteFile deletes a file from the host.

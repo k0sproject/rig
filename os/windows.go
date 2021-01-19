@@ -106,7 +106,7 @@ func (c *Windows) WriteFile(path string, data string, permissions string) error 
 	}
 	defer c.deleteTempFile(tempFile)
 
-	err = c.Host.Exec(fmt.Sprintf(`powershell -Command "$Input | Out-File -FilePath %s"`, ps.SingleQuote(tempFile)), exec.Stdin(data))
+	err = c.Host.Exec(fmt.Sprintf(`powershell -Command "$Input | Out-File -FilePath %s"`, ps.SingleQuote(tempFile)), exec.Stdin(data), exec.RedactString(data))
 	if err != nil {
 		return err
 	}
@@ -121,7 +121,7 @@ func (c *Windows) WriteFile(path string, data string, permissions string) error 
 
 // ReadFile reads a files contents from the host.
 func (c *Windows) ReadFile(path string) (string, error) {
-	return c.Host.ExecOutput(fmt.Sprintf(`type %s`, ps.DoubleQuote(path)))
+	return c.Host.ExecOutput(fmt.Sprintf(`type %s`, ps.DoubleQuote(path)), exec.HideOutput())
 }
 
 // DeleteFile deletes a file from the host.
