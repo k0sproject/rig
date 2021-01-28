@@ -102,12 +102,17 @@ func (c *Connection) IsConnected() bool {
 
 // String returns a printable representation of the connection, which will look
 // like: `[ssh] address:port`
-func (c *Connection) String() string {
-	if !c.IsConnected() {
+func (c Connection) String() string {
+	client := c.client
+	if client == nil {
+		client = c.configuredClient()
 		_ = defaults.Set(c)
 	}
+	if client == nil {
+		client = defaultClient()
+	}
 
-	return c.client.String()
+	return client.String()
 }
 
 // IsWindows returns true on windows hosts
@@ -120,18 +125,18 @@ func (c *Connection) IsWindows() (bool, error) {
 }
 
 // Exec runs a command on the host
-func (c *Connection) Exec(cmd string, opts ...exec.Option) error {
+func (c Connection) Exec(cmd string, opts ...exec.Option) error {
 	if !c.IsConnected() {
-		return &NotConnectedError{c}
+		return &NotConnectedError{&c}
 	}
 
 	return c.client.Exec(cmd, opts...)
 }
 
 // ExecOutput runs a command on the host and returns the output as a String
-func (c *Connection) ExecOutput(cmd string, opts ...exec.Option) (string, error) {
+func (c Connection) ExecOutput(cmd string, opts ...exec.Option) (string, error) {
 	if !c.IsConnected() {
-		return "", &NotConnectedError{c}
+		return "", &NotConnectedError{&c}
 	}
 
 	var output string
@@ -161,23 +166,23 @@ func (c *Connection) Connect() error {
 }
 
 // Execf is just like `Exec` but you can use Sprintf templating for the command
-func (c *Connection) Execf(s string, params ...interface{}) error {
+func (c Connection) Execf(s string, params ...interface{}) error {
 	opts, args := groupParams(params)
 	return c.Exec(fmt.Sprintf(s, args...), opts...)
 }
 
 // ExecOutputf is like ExecOutput but you can use Sprintf
 // templating for the command
-func (c *Connection) ExecOutputf(s string, params ...interface{}) (string, error) {
+func (c Connection) ExecOutputf(s string, params ...interface{}) (string, error) {
 	opts, args := groupParams(params)
 	return c.ExecOutput(fmt.Sprintf(s, args...), opts...)
 }
 
 // ExecInteractive executes a command on the host and passes control of
 // local input to the remote command
-func (c *Connection) ExecInteractive(cmd string) error {
+func (c Connection) ExecInteractive(cmd string) error {
 	if !c.IsConnected() {
-		return &NotConnectedError{c}
+		return &NotConnectedError{&c}
 	}
 
 	return c.client.ExecInteractive(cmd)
@@ -193,9 +198,9 @@ func (c *Connection) Disconnect() {
 
 // Upload copies a file from a local path src to the remote host path dst. For
 // smaller files you should probably use os.WriteFile
-func (c *Connection) Upload(src, dst string) error {
+func (c Connection) Upload(src, dst string) error {
 	if !c.IsConnected() {
-		return &NotConnectedError{c}
+		return &NotConnectedError{&c}
 	}
 
 	return c.client.Upload(src, dst)

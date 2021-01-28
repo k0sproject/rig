@@ -11,7 +11,7 @@ import (
 
 // Linux is a base module for various linux OS support packages
 type Linux struct {
-	Host Host
+	Base
 
 	isys initSystem
 }
@@ -36,15 +36,15 @@ func (c Linux) Kind() string {
 // memoizing accessor to the init system (systemd, openrc)
 func (c Linux) is() initSystem {
 	if c.isys == nil {
-		initctl, err := c.Host.ExecOutput("basename $(command -v rc-service systemd)")
+		initctl, err := c.Host().ExecOutput("basename $(command -v rc-service systemd)")
 		if err != nil {
 			return nil
 		}
 		switch initctl {
 		case "systemd":
-			c.isys = &initsystem.Systemd{Host: c.Host}
+			c.isys = &initsystem.Systemd{Host: c.Host()}
 		case "rc-service":
-			c.isys = &initsystem.OpenRC{Host: c.Host}
+			c.isys = &initsystem.OpenRC{Host: c.Host()}
 		}
 	}
 
@@ -93,7 +93,7 @@ func (c Linux) DaemonReload() error {
 
 // CheckPrivilege returns an error if the user does not have passwordless sudo enabled
 func (c Linux) CheckPrivilege() error {
-	if c.Host.Exec("sudo -n true") != nil {
+	if c.Host().Exec("sudo -n true") != nil {
 		return fmt.Errorf("user does not have passwordless sudo access")
 	}
 
@@ -102,7 +102,7 @@ func (c Linux) CheckPrivilege() error {
 
 // Pwd returns the current working directory of the session
 func (c Linux) Pwd() string {
-	pwd, err := c.Host.ExecOutput("pwd")
+	pwd, err := c.Host().ExecOutput("pwd")
 	if err != nil {
 		return ""
 	}
@@ -116,34 +116,34 @@ func (c Linux) JoinPath(parts ...string) string {
 
 // Hostname resolves the short hostname
 func (c Linux) Hostname() string {
-	hostname, _ := c.Host.ExecOutput("hostname -s")
+	hostname, _ := c.Host().ExecOutput("hostname -s")
 
 	return hostname
 }
 
 // LongHostname resolves the FQDN (long) hostname
 func (c Linux) LongHostname() string {
-	longHostname, _ := c.Host.ExecOutput("hostname")
+	longHostname, _ := c.Host().ExecOutput("hostname")
 
 	return longHostname
 }
 
 // IsContainer returns true if the host is actually a container
 func (c Linux) IsContainer() bool {
-	return c.Host.Exec("grep 'container=docker' /proc/1/environ") == nil
+	return c.Host().Exec("grep 'container=docker' /proc/1/environ") == nil
 }
 
 // FixContainer makes a container work like a real host
 func (c Linux) FixContainer() error {
 	if c.IsContainer() {
-		return c.Host.Exec("sudo mount --make-rshared /")
+		return c.Host().Exec("sudo mount --make-rshared /")
 	}
 	return nil
 }
 
 // SELinuxEnabled is true when SELinux is enabled
 func (c Linux) SELinuxEnabled() bool {
-	if output, err := c.Host.ExecOutput("sudo getenforce"); err == nil {
+	if output, err := c.Host().ExecOutput("sudo getenforce"); err == nil {
 		return strings.ToLower(strings.TrimSpace(output)) == "enforcing"
 	}
 
@@ -160,13 +160,13 @@ func (c Linux) WriteFile(path string, data string, permissions string) error {
 		return fmt.Errorf("empty path in WriteFile")
 	}
 
-	tempFile, err := c.Host.ExecOutput("mktemp")
+	tempFile, err := c.Host().ExecOutput("mktemp")
 	if err != nil {
 		return err
 	}
 	tempFile = escape.Quote(tempFile)
 
-	err = c.Host.Exec(fmt.Sprintf("cat > %s && (sudo install -D -m %s %s %s || (rm %s; exit 1))", tempFile, permissions, tempFile, path, tempFile), exec.Stdin(data), exec.RedactString(data))
+	err = c.Host().Exec(fmt.Sprintf("cat > %s && (sudo install -D -m %s %s %s || (rm %s; exit 1))", tempFile, permissions, tempFile, path, tempFile), exec.Stdin(data), exec.RedactString(data))
 	if err != nil {
 		return err
 	}
@@ -175,24 +175,24 @@ func (c Linux) WriteFile(path string, data string, permissions string) error {
 
 // ReadFile reads a files contents from the host.
 func (c Linux) ReadFile(path string) (string, error) {
-	return c.Host.ExecOutput(fmt.Sprintf("sudo cat %s", escape.Quote(path)), exec.HideOutput())
+	return c.Host().ExecOutput(fmt.Sprintf("sudo cat %s", escape.Quote(path)), exec.HideOutput())
 }
 
 // DeleteFile deletes a file from the host.
 func (c Linux) DeleteFile(path string) error {
-	return c.Host.Exec(fmt.Sprintf(`sudo rm -f %s`, escape.Quote(path)))
+	return c.Host().Exec(fmt.Sprintf(`sudo rm -f %s`, escape.Quote(path)))
 }
 
 // FileExist checks if a file exists on the host
 func (c Linux) FileExist(path string) bool {
-	return c.Host.Exec(fmt.Sprintf(`sudo test -e %s`, escape.Quote(path))) == nil
+	return c.Host().Exec(fmt.Sprintf(`sudo test -e %s`, escape.Quote(path))) == nil
 }
 
 // LineIntoFile tries to find a matching line in a file and replace it with a new entry
 // TODO refactor this into go because it's too magical.
 func (c Linux) LineIntoFile(path, matcher, newLine string) error {
 	if c.FileExist(path) {
-		err := c.Host.Exec(fmt.Sprintf(`file=%s; match=%s; line=%s; sudo grep -q "${match}" "$file" && sudo sed -i "/${match}/c ${line}" "$file" || (echo "$line" | sudo tee -a "$file" > /dev/null)`, escape.Quote(path), escape.Quote(matcher), escape.Quote(newLine)))
+		err := c.Host().Exec(fmt.Sprintf(`file=%s; match=%s; line=%s; sudo grep -q "${match}" "$file" && sudo sed -i "/${match}/c ${line}" "$file" || (echo "$line" | sudo tee -a "$file" > /dev/null)`, escape.Quote(path), escape.Quote(matcher), escape.Quote(newLine)))
 		if err != nil {
 			return err
 		}
@@ -211,7 +211,7 @@ func (c Linux) UpdateEnvironment(env map[string]string) error {
 	}
 
 	// Update current session environment from the /etc/environment
-	return c.Host.Exec(`while read -r pair; do if [[ $pair == ?* && $pair != \#* ]]; then export "$pair" || exit 2; fi; done < /etc/environment`)
+	return c.Host().Exec(`while read -r pair; do if [[ $pair == ?* && $pair != \#* ]]; then export "$pair" || exit 2; fi; done < /etc/environment`)
 }
 
 // CleanupEnvironment removes environment variable configuration
@@ -223,15 +223,15 @@ func (c Linux) CleanupEnvironment(env map[string]string) error {
 		}
 	}
 	// remove empty lines
-	return c.Host.Exec(`sudo sed -i '/^$/d' /etc/environment`)
+	return c.Host().Exec(`sudo sed -i '/^$/d' /etc/environment`)
 }
 
 // CommandExist returns true if the command exists
 func (c Linux) CommandExist(cmd string) bool {
-	return c.Host.Execf("sudo command -v %s", cmd) == nil
+	return c.Host().Execf("sudo command -v %s", cmd) == nil
 }
 
 // Reboot executes the reboot command
 func (c Linux) Reboot() error {
-	return c.Host.Exec("sudo reboot")
+	return c.Host().Exec("sudo reboot")
 }

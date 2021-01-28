@@ -2,7 +2,6 @@ package enterpriselinux
 
 import (
 	"github.com/k0sproject/rig"
-	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/os/linux"
 	"github.com/k0sproject/rig/os/registry"
 )
@@ -17,14 +16,8 @@ func init() {
 		func(os rig.OSVersion) bool {
 			return os.ID == "centos"
 		},
-		func(h os.Host) interface{} {
-			return &CentOS{
-				EnterpriseLinux: linux.EnterpriseLinux{
-					Linux: os.Linux{
-						Host: h,
-					},
-				},
-			}
+		func() interface{} {
+			return CentOS{}
 		},
 	)
 }

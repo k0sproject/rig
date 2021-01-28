@@ -16,12 +16,8 @@ func init() {
 		func(os rig.OSVersion) bool {
 			return os.ID == "windows-10.0.17763"
 		},
-		func(h os.Host) interface{} {
-			return &Windows2019{
-				Windows: os.Windows{
-					Host: h,
-				},
-			}
+		func() interface{} {
+			return Windows2019{}
 		},
 	)
 }
