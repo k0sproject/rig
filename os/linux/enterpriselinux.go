@@ -12,6 +12,6 @@ type EnterpriseLinux struct {
 }
 
 // InstallPackage installs packages via yum
-func (c EnterpriseLinux) InstallPackage(s ...string) error {
-	return c.Host().Execf("sudo yum install -y %s", strings.Join(s, " "))
+func (c EnterpriseLinux) InstallPackage(h os.Host, s ...string) error {
+	return h.Execf("sudo yum install -y %s", strings.Join(s, " "))
 }

@@ -15,19 +15,20 @@ import (
 	"fmt"
 
 	"github.com/k0sproject/rig"
+	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/os/registry"
 	_ "github.com/k0sproject/rig/os/support"
 )
 
-type os interface {
-	Pwd() string
+type configurer interface {
+	Pwd(os.Host) string
 }
 
 // Host is a host that utilizes rig for connections
 type Host struct {
 	rig.Connection
 
-	OS os
+	Configurer configurer
 }
 
 // LoadOS is a function that assigns a OS support package to the host and
@@ -38,7 +39,7 @@ func (h *Host) LoadOS() error {
 		return err
 	}
 
-	h.OS = bf(h).(os)
+	h.Configurer = bf().(configurer)
 
 	return nil
 }
@@ -62,5 +63,5 @@ func main() {
 
 	fmt.Println("OS Info:")
 	fmt.Printf("%+v\n", h.OSVersion)
-	fmt.Printf("Host PWD:\n%s\n", h.OS.Pwd())
+	fmt.Printf("Host PWD:\n%s\n", h.Configurer.Pwd(h))
 }
