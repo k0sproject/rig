@@ -34,12 +34,12 @@ func (c Linux) Kind() string {
 // memoizing accessor to the init system (systemd, openrc)
 func (c Linux) is(h Host) initSystem {
 	if c.isys == nil {
-		initctl, err := h.ExecOutput("basename $(command -v rc-service systemd)")
+		initctl, err := h.ExecOutput("basename $(command -v rc-service systemctl)")
 		if err != nil {
 			return nil
 		}
 		switch initctl {
-		case "systemd":
+		case "systemctl":
 			c.isys = &initsystem.Systemd{}
 		case "rc-service":
 			c.isys = &initsystem.OpenRC{}
