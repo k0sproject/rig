@@ -9,7 +9,7 @@ import (
 	ps "github.com/k0sproject/rig/powershell"
 )
 
-// Windows is the base packge for windows OS support
+// Windows is the base package for windows OS support
 type Windows struct{}
 
 // Kind returns "windows"
