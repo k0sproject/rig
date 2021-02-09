@@ -19,6 +19,16 @@ type Localhost struct {
 	Enabled bool `yaml:"enabled" validate:"required,eq=true" default:"true"`
 }
 
+// Protocol returns the protocol name, "Local"
+func (c *Localhost) Protocol() string {
+	return "Local"
+}
+
+// IPAddress returns the connection address
+func (c *Localhost) IPAddress() string {
+	return "127.0.0.1"
+}
+
 // String returns the connection's printable name
 func (c *Localhost) String() string {
 	return name
