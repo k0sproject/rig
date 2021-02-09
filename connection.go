@@ -30,6 +30,8 @@ type client interface {
 	Exec(string, ...exec.Option) error
 	ExecInteractive(string) error
 	String() string
+	Protocol() string
+	IPAddress() string
 	IsConnected() bool
 }
 
@@ -85,6 +87,24 @@ func (c *Connection) SetDefaults() {
 	}
 
 	_ = defaults.Set(c.client)
+}
+
+// Protocol returns the connection protocol name
+func (c *Connection) Protocol() string {
+	if !c.IsConnected() {
+		return "NC"
+	}
+
+	return c.client.Protocol()
+}
+
+// Address returns the connection address
+func (c *Connection) Address() string {
+	if !c.IsConnected() {
+		return ""
+	}
+
+	return c.client.IPAddress()
 }
 
 // IsConnected returns true if the client is assumed to be connected.

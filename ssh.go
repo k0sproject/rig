@@ -51,6 +51,16 @@ func (c *SSH) SetDefaults() {
 	}
 }
 
+// Protocol returns the protocol name, "SSH"
+func (c *SSH) Protocol() string {
+	return "SSH"
+}
+
+// IPAddress returns the connection address
+func (c *SSH) IPAddress() string {
+	return c.Address
+}
+
 // String returns the connection's printable name
 func (c *SSH) String() string {
 	if c.name == "" {

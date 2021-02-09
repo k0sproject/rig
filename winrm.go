@@ -60,6 +60,16 @@ func (c *WinRM) SetDefaults() {
 	}
 }
 
+// Protocol returns the protocol name, "WinRM"
+func (c *WinRM) Protocol() string {
+	return "WinRM"
+}
+
+// IPAddress returns the connection address
+func (c *WinRM) IPAddress() string {
+	return c.Address
+}
+
 // String returns the connection's printable name
 func (c *WinRM) String() string {
 	if c.name == "" {
