@@ -219,7 +219,7 @@ func (c Linux) CleanupEnvironment(h Host, env map[string]string) error {
 
 // CommandExist returns true if the command exists
 func (c Linux) CommandExist(h Host, cmd string) bool {
-	return h.Execf("sudo command -v %s", cmd) == nil
+	return h.Execf(`sudo -i command -v "%s"`, cmd) == nil
 }
 
 // Reboot executes the reboot command
