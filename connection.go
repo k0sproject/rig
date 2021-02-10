@@ -91,20 +91,28 @@ func (c *Connection) SetDefaults() {
 
 // Protocol returns the connection protocol name
 func (c *Connection) Protocol() string {
-	if !c.IsConnected() {
-		return "NC"
+	if c.client != nil {
+		return c.client.Protocol()
 	}
 
-	return c.client.Protocol()
+	if client := c.configuredClient(); client != nil {
+		return client.Protocol()
+	}
+
+	return ""
 }
 
 // Address returns the connection address
 func (c *Connection) Address() string {
-	if !c.IsConnected() {
-		return ""
+	if c.client != nil {
+		return c.client.IPAddress()
 	}
 
-	return c.client.IPAddress()
+	if client := c.configuredClient(); client != nil {
+		return client.IPAddress()
+	}
+
+	return ""
 }
 
 // IsConnected returns true if the client is assumed to be connected.
