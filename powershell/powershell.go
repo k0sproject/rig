@@ -41,6 +41,7 @@ func UploadCmd(path string) string {
 
 // EncodeCmd base64-encodes a string in a way that is accepted by PowerShell -EncodedCommand
 func EncodeCmd(psCmd string) string {
+	psCmd = "$ProgressPreference='SilentlyContinue'; " + psCmd
 	// 2 byte chars to make PowerShell happy
 	wideCmd := ""
 	for _, b := range []byte(psCmd) {
@@ -57,7 +58,7 @@ func Cmd(psCmd string) string {
 	encodedCmd := EncodeCmd(psCmd)
 
 	// Create the powershell.exe command line to execute the script
-	return fmt.Sprintf("powershell.exe -NonInteractive -NoProfile -EncodedCommand %s", encodedCmd)
+	return fmt.Sprintf("powershell.exe -NonInteractive -ExecutionPolicy Bypass -NoProfile -EncodedCommand %s", encodedCmd)
 }
 
 // SingleQuote quotes and escapes a string in a format that is accepted by powershell scriptlets
