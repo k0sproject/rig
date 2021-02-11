@@ -172,7 +172,7 @@ func (c Windows) CommandExist(h Host, cmd string) bool {
 
 // Reboot executes the reboot command
 func (c Windows) Reboot(h Host) error {
-	return h.Exec("shutdown /r")
+	return h.Exec("shutdown /r /t 5")
 }
 
 // StartService starts a a service
