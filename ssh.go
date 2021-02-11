@@ -82,10 +82,10 @@ func (c *SSH) Disconnect() {
 
 // IsWindows is true when the host is running windows
 func (c *SSH) IsWindows() bool {
-	if !c.knowOs {
+	if !c.knowOs && c.client != nil {
+		c.isWindows = c.Exec("cmd /c exit 0") == nil
 		c.knowOs = true
 
-		c.isWindows = c.Exec("cmd /c exit 0") == nil
 	}
 
 	return c.isWindows

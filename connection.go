@@ -144,12 +144,13 @@ func (c Connection) String() string {
 }
 
 // IsWindows returns true on windows hosts
-func (c *Connection) IsWindows() (bool, error) {
+func (c *Connection) IsWindows() bool {
 	if !c.IsConnected() {
-		return false, &NotConnectedError{c}
+		if client := c.configuredClient(); client != nil {
+			return client.IsWindows()
+		}
 	}
-
-	return c.client.IsWindows(), nil
+	return c.client.IsWindows()
 }
 
 // Exec runs a command on the host
