@@ -15,4 +15,9 @@ func main() {
 
 	c := &rig.Localhost{Enabled: true}
 	c.Exec("echo Hello, world", exec.StreamOutput())
+
+	log.Infof("testing without HideOutput()")
+	c.Exec("ls")
+	log.Infof("testing with HideOutput()")
+	c.Exec("ls", exec.HideOutput())
 }
