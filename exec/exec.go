@@ -56,6 +56,7 @@ type Options struct {
 	LogDebug       bool
 	LogError       bool
 	LogCommand     bool
+	LogOutput      bool
 	StreamOutput   bool
 	RedactFunc     func(string) string
 	Output         *string
@@ -124,9 +125,9 @@ func (o *Options) AddOutput(prefix, s string) {
 	}
 
 	if o.StreamOutput {
-		InfoFunc("%s: %s", prefix, o.Redact(s))
-	} else {
-		DebugFunc("%s: %s", prefix, o.Redact(s))
+		InfoFunc("%s: %s", prefix, strings.TrimSpace(o.Redact(s)))
+	} else if o.LogOutput {
+		DebugFunc("%s: %s", prefix, strings.TrimSpace(o.Redact(s)))
 	}
 }
 
@@ -176,7 +177,7 @@ func HideCommand() Option {
 // HideOutput exec option for hiding the command output from logs
 func HideOutput() Option {
 	return func(o *Options) {
-		o.LogDebug = false
+		o.LogOutput = false
 	}
 }
 
@@ -228,6 +229,7 @@ func Build(opts ...Option) *Options {
 		LogCommand:   true,
 		LogDebug:     true,
 		LogError:     true,
+		LogOutput:    true,
 		StreamOutput: false,
 		Output:       nil,
 	}
