@@ -41,7 +41,9 @@ func UploadCmd(path string) string {
 
 // EncodeCmd base64-encodes a string in a way that is accepted by PowerShell -EncodedCommand
 func EncodeCmd(psCmd string) string {
-	psCmd = "$ProgressPreference='SilentlyContinue'; " + psCmd
+	if !strings.Contains(psCmd, "begin {") {
+		psCmd = "$ProgressPreference='SilentlyContinue'; " + psCmd
+	}
 	// 2 byte chars to make PowerShell happy
 	wideCmd := ""
 	for _, b := range []byte(psCmd) {
