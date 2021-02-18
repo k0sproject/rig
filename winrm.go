@@ -58,6 +58,10 @@ func (c *WinRM) SetDefaults() {
 	if p, err := homedir.Expand(c.KeyPath); err == nil {
 		c.KeyPath = p
 	}
+
+	if c.Port == 5985 && c.UseHTTPS {
+		c.Port = 5986
+	}
 }
 
 // Protocol returns the protocol name, "WinRM"
