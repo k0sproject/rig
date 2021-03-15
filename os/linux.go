@@ -34,7 +34,7 @@ func (c Linux) Kind() string {
 // memoizing accessor to the init system (systemd, openrc)
 func (c Linux) is(h Host) initSystem {
 	if c.isys == nil {
-		initctl, err := h.ExecOutput("basename $(command -v rc-service systemctl)")
+		initctl, err := h.ExecOutput("basename $(sudo -i command -v rc-service systemctl)")
 		if err != nil {
 			return nil
 		}
