@@ -222,7 +222,14 @@ func (c Linux) CommandExist(h Host, cmd string) bool {
 	return h.Execf(`sudo -i command -v "%s"`, cmd) == nil
 }
 
+type rebootisys interface {
+	Reboot(h Host) error
+}
+
 // Reboot executes the reboot command
 func (c Linux) Reboot(h Host) error {
-	return h.Exec("sudo reboot")
+	if is, ok := c.is(h).(rebootisys); ok {
+		return is.Reboot(h)
+	}
+	return h.Exec("sudo -i shutdown --reboot 0 && exit")
 }

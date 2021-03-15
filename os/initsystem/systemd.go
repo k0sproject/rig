@@ -42,3 +42,7 @@ func (i Systemd) ServiceIsRunning(h Host, s string) bool {
 func (i Systemd) ServiceScriptPath(h Host, s string) (string, error) {
 	return h.ExecOutputf(`systemctl show -p FragmentPath %s.service 2> /dev/null | cut -d"=" -f2`, s)
 }
+
+func (i Systemd) Reboot(h Host) error {
+	return i.StartService(h, "reboot.target")
+}
