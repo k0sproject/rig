@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	osexec "os/exec"
+	"os/user"
 	"runtime"
 	"strings"
 
@@ -93,7 +94,11 @@ func (c *Localhost) command(cmd string) *osexec.Cmd {
 		return osexec.Command(cmd)
 	}
 
-	return osexec.Command("bash", "-c", "--", cmd)
+	if user, err := user.Current(); err == nil {
+		return osexec.Command("exec", "sudo", "-n", "su", "-l", "-c", cmd, user.Username)
+	}
+
+	return osexec.Command("exec", "bash", "-c", "--", cmd)
 }
 
 // Upload copies a larger file to another path on the host.
