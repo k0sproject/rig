@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	osexec "os/exec"
+	"os/user"
 	"runtime"
 	"strings"
 
@@ -17,6 +18,9 @@ const name = "[local] localhost"
 // Localhost is a direct localhost connection
 type Localhost struct {
 	Enabled bool `yaml:"enabled" validate:"required,eq=true" default:"true"`
+
+	cansudo bool
+	user    string
 }
 
 // Protocol returns the protocol name, "Local"
@@ -46,6 +50,12 @@ func (c *Localhost) IsWindows() bool {
 
 // Connect on local connection does nothing
 func (c *Localhost) Connect() error {
+	if !c.IsWindows() && c.Exec("sudo -n true") == nil {
+		c.cansudo = true
+	}
+	if user, err := user.Current(); err == nil {
+		c.user = user.Username
+	}
 	return nil
 }
 
@@ -91,6 +101,10 @@ func (c *Localhost) Exec(cmd string, opts ...exec.Option) error {
 func (c *Localhost) command(cmd string) *osexec.Cmd {
 	if c.IsWindows() {
 		return osexec.Command(cmd)
+	}
+
+	if c.cansudo && c.user != "" {
+		return osexec.Command("sudo", "-n", "-i", "--", "su", "-l", "-c", cmd, c.user)
 	}
 
 	return osexec.Command("bash", "-c", "--", cmd)
