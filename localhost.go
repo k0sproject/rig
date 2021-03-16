@@ -20,6 +20,7 @@ type Localhost struct {
 	Enabled bool `yaml:"enabled" validate:"required,eq=true" default:"true"`
 
 	cansudo bool
+	user    string
 }
 
 // Protocol returns the protocol name, "Local"
@@ -51,6 +52,9 @@ func (c *Localhost) IsWindows() bool {
 func (c *Localhost) Connect() error {
 	if !c.IsWindows() && c.Exec("sudo -n true") == nil {
 		c.cansudo = true
+	}
+	if user, err := user.Current(); err == nil {
+		c.user = user.Username
 	}
 	return nil
 }
@@ -99,10 +103,8 @@ func (c *Localhost) command(cmd string) *osexec.Cmd {
 		return osexec.Command(cmd)
 	}
 
-	if c.cansudo {
-		if user, err := user.Current(); err == nil {
-			return osexec.Command("exec", "sudo", "-n", "su", "-l", "-c", cmd, user.Username)
-		}
+	if c.cansudo && c.user != "" {
+		return osexec.Command("sudo", "-n", "-i", "--", "su", "-l", "-c", cmd, c.user)
 	}
 
 	return osexec.Command("bash", "-c", "--", cmd)
