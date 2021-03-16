@@ -18,6 +18,8 @@ const name = "[local] localhost"
 // Localhost is a direct localhost connection
 type Localhost struct {
 	Enabled bool `yaml:"enabled" validate:"required,eq=true" default:"true"`
+
+	cansudo bool
 }
 
 // Protocol returns the protocol name, "Local"
@@ -47,6 +49,9 @@ func (c *Localhost) IsWindows() bool {
 
 // Connect on local connection does nothing
 func (c *Localhost) Connect() error {
+	if !c.IsWindows() && c.Exec("sudo -n true") == nil {
+		c.cansudo = true
+	}
 	return nil
 }
 
@@ -94,11 +99,13 @@ func (c *Localhost) command(cmd string) *osexec.Cmd {
 		return osexec.Command(cmd)
 	}
 
-	if user, err := user.Current(); err == nil {
-		return osexec.Command("exec", "sudo", "-n", "su", "-l", "-c", cmd, user.Username)
+	if c.cansudo {
+		if user, err := user.Current(); err == nil {
+			return osexec.Command("exec", "sudo", "-n", "su", "-l", "-c", cmd, user.Username)
+		}
 	}
 
-	return osexec.Command("exec", "bash", "-c", "--", cmd)
+	return osexec.Command("bash", "-c", "--", cmd)
 }
 
 // Upload copies a larger file to another path on the host.
