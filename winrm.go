@@ -211,7 +211,7 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error {
 		outputScanner := bufio.NewScanner(command.Stdout)
 
 		for outputScanner.Scan() {
-			o.AddOutput(c.String(), outputScanner.Text()+"\n")
+			o.AddOutput(c.String(), outputScanner.Text()+"\n", "")
 		}
 
 		if err := outputScanner.Err(); err != nil {
@@ -229,7 +229,7 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error {
 
 		for outputScanner.Scan() {
 			gotErrors = true
-			o.AddOutput(c.String()+" (stderr)", outputScanner.Text()+"\n")
+			o.AddOutput(c.String(), "", outputScanner.Text()+"\n")
 		}
 
 		if err := outputScanner.Err(); err != nil {

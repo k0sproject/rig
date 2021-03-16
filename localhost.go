@@ -8,6 +8,7 @@ import (
 	"os/user"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/k0sproject/rig/exec"
 	"github.com/kballard/go-shellquote"
@@ -82,20 +83,36 @@ func (c *Localhost) Exec(cmd string, opts ...exec.Option) error {
 		return err
 	}
 
-	multiReader := io.MultiReader(stdout, stderr)
-	outputScanner := bufio.NewScanner(multiReader)
-
 	o.LogCmd(name, cmd)
 
 	if err := command.Start(); err != nil {
 		return err
 	}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		outputScanner := bufio.NewScanner(stdout)
 
-	for outputScanner.Scan() {
-		o.AddOutput(name, outputScanner.Text()+"\n")
-	}
+		for outputScanner.Scan() {
+			o.AddOutput(name, outputScanner.Text()+"\n", "")
+		}
 
-	return command.Wait()
+		wg.Done()
+	}()
+	wg.Add(1)
+	go func() {
+		outputScanner := bufio.NewScanner(stderr)
+
+		for outputScanner.Scan() {
+			o.AddOutput(name, "", outputScanner.Text()+"\n")
+		}
+
+		wg.Done()
+	}()
+
+	err = command.Wait()
+	wg.Wait()
+	return err
 }
 
 func (c *Localhost) command(cmd string) *osexec.Cmd {

@@ -177,7 +177,7 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error {
 		for outputScanner.Scan() {
 			text := outputScanner.Text()
 			stripped := stripansi.Strip(text)
-			o.AddOutput(c.String(), stripped+"\n")
+			o.AddOutput(c.String(), stripped+"\n", "")
 		}
 
 		if err := outputScanner.Err(); err != nil {
@@ -194,7 +194,7 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error {
 
 		for outputScanner.Scan() {
 			gotErrors = true
-			o.AddOutput(c.String()+" (stderr)", outputScanner.Text()+"\n")
+			o.AddOutput(c.String(), "", outputScanner.Text()+"\n")
 		}
 
 		if err := outputScanner.Err(); err != nil {
