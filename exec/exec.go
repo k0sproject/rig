@@ -116,18 +116,26 @@ func (o *Options) LogErrorf(s string, args ...interface{}) {
 }
 
 // AddOutput is for appending / displaying output of the command
-func (o *Options) AddOutput(prefix, s string) {
+func (o *Options) AddOutput(prefix, stdout, stderr string) {
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	if o.Output != nil {
-		*o.Output += s
+	if o.Output != nil && stdout != "" {
+		*o.Output += stdout
 	}
 
 	if o.StreamOutput {
-		InfoFunc("%s: %s", prefix, strings.TrimSpace(o.Redact(s)))
+		if stdout != "" {
+			InfoFunc("%s: %s", prefix, strings.TrimSpace(o.Redact(stdout)))
+		} else if stderr != "" {
+			ErrorFunc("%s: %s", prefix, strings.TrimSpace(o.Redact(stderr)))
+		}
 	} else if o.LogOutput {
-		DebugFunc("%s: %s", prefix, strings.TrimSpace(o.Redact(s)))
+		if stdout != "" {
+			DebugFunc("%s: %s", prefix, strings.TrimSpace(o.Redact(stdout)))
+		} else if stderr != "" {
+			DebugFunc("%s: (stderr) %s", prefix, strings.TrimSpace(o.Redact(stderr)))
+		}
 	}
 }
 
