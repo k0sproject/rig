@@ -100,7 +100,7 @@ func (c Linux) CheckPrivilege(h Host) error {
 
 // Pwd returns the current working directory of the session
 func (c Linux) Pwd(h Host) string {
-	pwd, err := h.ExecOutput("pwd")
+	pwd, err := h.ExecOutput("pwd 2> /dev/null")
 	if err != nil {
 		return ""
 	}
@@ -114,31 +114,31 @@ func (c Linux) JoinPath(parts ...string) string {
 
 // Hostname resolves the short hostname
 func (c Linux) Hostname(h Host) string {
-	n, _ := h.ExecOutput("hostname -s")
+	n, _ := h.ExecOutput("hostname -s 2> /dev/null")
 
 	return n
 }
 
 // LongHostname resolves the FQDN (long) hostname
 func (c Linux) LongHostname(h Host) string {
-	n, _ := h.ExecOutput("hostname")
+	n, _ := h.ExecOutput("hostname 2> /dev/null")
 
 	return n
 }
 
 // IsContainer returns true if the host is actually a container
 func (c Linux) IsContainer(h Host) bool {
-	return h.Exec("grep 'container=docker' /proc/1/environ") == nil
+	return h.Exec("grep 'container=docker' /proc/1/environ 2> /dev/null") == nil
 }
 
 // FixContainer makes a container work like a real host
 func (c Linux) FixContainer(h Host) error {
-	return h.Exec("sudo mount --make-rshared /")
+	return h.Exec("sudo mount --make-rshared / 2> /dev/null")
 }
 
 // SELinuxEnabled is true when SELinux is enabled
 func (c Linux) SELinuxEnabled(h Host) bool {
-	return h.Exec("sudo getenforce | grep -iq enforcing") == nil
+	return h.Exec("sudo getenforce | grep -iq enforcing 2> /dev/null") == nil
 }
 
 // WriteFile writes file to host with given contents. Do not use for large files.
@@ -151,7 +151,7 @@ func (c Linux) WriteFile(h Host, path string, data string, permissions string) e
 		return fmt.Errorf("empty path in WriteFile")
 	}
 
-	tempFile, err := h.ExecOutput("mktemp")
+	tempFile, err := h.ExecOutput("mktemp 2> /dev/null")
 	if err != nil {
 		return err
 	}
@@ -166,17 +166,17 @@ func (c Linux) WriteFile(h Host, path string, data string, permissions string) e
 
 // ReadFile reads a files contents from the host.
 func (c Linux) ReadFile(h Host, path string) (string, error) {
-	return h.ExecOutput(fmt.Sprintf("sudo cat %s", escape.Quote(path)), exec.HideOutput())
+	return h.ExecOutput(fmt.Sprintf("sudo cat %s 2> /dev/null", escape.Quote(path)), exec.HideOutput())
 }
 
 // DeleteFile deletes a file from the host.
 func (c Linux) DeleteFile(h Host, path string) error {
-	return h.Exec(fmt.Sprintf(`sudo rm -f %s`, escape.Quote(path)))
+	return h.Exec(fmt.Sprintf(`sudo rm -f %s 2> /dev/null`, escape.Quote(path)))
 }
 
 // FileExist checks if a file exists on the host
 func (c Linux) FileExist(h Host, path string) bool {
-	return h.Exec(fmt.Sprintf(`sudo test -e %s`, escape.Quote(path))) == nil
+	return h.Exec(fmt.Sprintf(`sudo test -e %s 2> /dev/null`, escape.Quote(path))) == nil
 }
 
 // LineIntoFile tries to find a matching line in a file and replace it with a new entry
