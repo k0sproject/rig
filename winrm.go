@@ -167,6 +167,11 @@ func (c *WinRM) Connect() error {
 		return err
 	}
 
+	_, err = client.Run("echo ok", ioutil.Discard, ioutil.Discard)
+	if err != nil {
+		return err
+	}
+
 	c.client = client
 
 	return nil
