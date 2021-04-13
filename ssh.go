@@ -169,6 +169,9 @@ func (c *SSH) Connect() error {
 			return err
 		}
 		bconn, err := c.Bastion.client.Dial("tcp", dst)
+		if err != nil {
+			return err
+		}
 		c, chans, reqs, err := ssh.NewClientConn(bconn, dst, config)
 		if err != nil {
 			return err
