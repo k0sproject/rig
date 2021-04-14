@@ -34,18 +34,27 @@ type SSH struct {
 	Address string `yaml:"address" validate:"required,hostname|ip"`
 	User    string `yaml:"user" validate:"omitempty,gt=2" default:"root"`
 	Port    int    `yaml:"port" default:"22" validate:"gt=0,lte=65535"`
-	KeyPath string `yaml:"keyPath" validate:"omitempty,file" default:"~/.ssh/id_rsa"`
+	KeyPath string `yaml:"keyPath" validate:"omitempty,file"`
+	HostKey string `yaml:"hostKey,omitempty"`
+	Bastion *SSH
 
 	name string
 
-	isWindows bool
-	knowOs    bool
+	isWindows      bool
+	knowOs         bool
+	keypathDefault bool
 
 	client *ssh.Client
 }
 
+const DefaultKeypath = "~/.ssh/id_rsa"
+
 // SetDefaults sets various default values
 func (c *SSH) SetDefaults() {
+	if c.KeyPath == "" {
+		c.KeyPath = DefaultKeypath
+		c.keypathDefault = true
+	}
 	if k, err := homedir.Expand(c.KeyPath); err == nil {
 		c.KeyPath = k
 	}
@@ -91,27 +100,54 @@ func (c *SSH) IsWindows() bool {
 	return c.isWindows
 }
 
+// create human-readable SSH-key strings
+func keyString(k ssh.PublicKey) string {
+	return k.Type() + " " + base64.StdEncoding.EncodeToString(k.Marshal()) // e.g. "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTY...."
+}
+
+func trustedHostKeyCallback(trustedKey string) ssh.HostKeyCallback {
+	return func(_ string, _ net.Addr, k ssh.PublicKey) error {
+		ks := keyString(k)
+		if trustedKey != ks {
+			return fmt.Errorf("SSH host key verification failed")
+		}
+
+		return nil
+	}
+}
+
 // Connect opens the SSH connection
 func (c *SSH) Connect() error {
-	key, err := ioutil.ReadFile(c.KeyPath)
-	if err != nil {
-		return err
-	}
-
 	config := &ssh.ClientConfig{
-		User:            c.User,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		User: c.User,
 	}
-	dst := fmt.Sprintf("%s:%d", c.Address, c.Port)
 
-	sshAgentSock := os.Getenv("SSH_AUTH_SOCK")
-	signer, err := ssh.ParsePrivateKey(key)
-	if err != nil && sshAgentSock == "" {
+	if c.HostKey == "" {
+		config.HostKeyCallback = ssh.InsecureIgnoreHostKey()
+	} else {
+		config.HostKeyCallback = trustedHostKeyCallback(c.HostKey)
+	}
+
+	_, err := os.Stat(c.KeyPath)
+	if err != nil && !c.keypathDefault {
 		return err
 	}
 	if err == nil {
+		var key []byte
+		key, err = ioutil.ReadFile(c.KeyPath)
+		if err != nil {
+			return err
+		}
+		signer, err := ssh.ParsePrivateKey(key)
+		if err != nil {
+			return err
+		}
 		config.Auth = append(config.Auth, ssh.PublicKeys(signer))
 	}
+
+	dst := fmt.Sprintf("%s:%d", c.Address, c.Port)
+
+	sshAgentSock := os.Getenv("SSH_AUTH_SOCK")
 
 	if sshAgentSock != "" {
 		sshAgent, err := net.Dial("unix", sshAgentSock)
@@ -121,10 +157,28 @@ func (c *SSH) Connect() error {
 		config.Auth = append(config.Auth, ssh.PublicKeysCallback(agent.NewClient(sshAgent).Signers))
 	}
 
-	client, err := ssh.Dial("tcp", dst, config)
-	if err != nil {
-		return err
+	var client *ssh.Client
+
+	if c.Bastion == nil {
+		client, err = ssh.Dial("tcp", dst, config)
+		if err != nil {
+			return err
+		}
+	} else {
+		if err := c.Bastion.Connect(); err != nil {
+			return err
+		}
+		bconn, err := c.Bastion.client.Dial("tcp", dst)
+		if err != nil {
+			return err
+		}
+		c, chans, reqs, err := ssh.NewClientConn(bconn, dst, config)
+		if err != nil {
+			return err
+		}
+		client = ssh.NewClient(c, chans, reqs)
 	}
+
 	c.client = client
 	return nil
 }
