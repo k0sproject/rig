@@ -35,6 +35,7 @@ type WinRM struct {
 	CertPath      string `yaml:"certPath,omitempty" validate:"omitempty,file"`
 	KeyPath       string `yaml:"keyPath,omitempty" validate:"omitempty,file"`
 	TLSServerName string `yaml:"tlsServerName,omitempty" validate:"omitempty,hostname|ip"`
+	Bastion       *SSH   `yaml:"bastion"`
 
 	name string
 
@@ -152,6 +153,14 @@ func (c *WinRM) Connect() error {
 	}
 
 	params := winrm.DefaultParameters
+
+	if c.Bastion != nil {
+		err := c.Bastion.Connect()
+		if err != nil {
+			return err
+		}
+		params.Dial = c.Bastion.client.Dial
+	}
 
 	if c.UseNTLM {
 		params.TransportDecorator = func() winrm.Transporter { return &winrm.ClientNTLM{} }
