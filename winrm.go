@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/log"
 	ps "github.com/k0sproject/rig/powershell"
 	"github.com/mitchellh/go-homedir"
 
@@ -175,6 +176,13 @@ func (c *WinRM) Connect() error {
 	if err != nil {
 		return err
 	}
+
+	log.Debugf("%s: testing connection", c)
+	_, err = client.Run("echo ok", ioutil.Discard, ioutil.Discard)
+	if err != nil {
+		return err
+	}
+	log.Debugf("%s: test passed", c)
 
 	c.client = client
 
