@@ -14,7 +14,7 @@ type Windows2019 struct {
 func init() {
 	registry.RegisterOSModule(
 		func(os rig.OSVersion) bool {
-			return os.ID == "windows-10.0.17763"
+			return os.ID == "windows" && os.Version == "10.0.17763"
 		},
 		func() interface{} {
 			return Windows2019{}
