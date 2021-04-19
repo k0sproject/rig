@@ -253,7 +253,7 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error {
 			gotErrors = true
 			o.LogErrorf("%s: %s", c, err.Error())
 		}
-		command.Stdout.Close()
+		command.Stderr.Close()
 	}()
 
 	command.Wait()
