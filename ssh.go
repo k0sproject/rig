@@ -36,7 +36,7 @@ type SSH struct {
 	Port    int    `yaml:"port" default:"22" validate:"gt=0,lte=65535"`
 	KeyPath string `yaml:"keyPath" validate:"omitempty"`
 	HostKey string `yaml:"hostKey,omitempty"`
-	Bastion *SSH
+	Bastion *SSH   `yaml:"bastion,omitempty"`
 
 	name string
 
