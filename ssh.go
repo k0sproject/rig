@@ -357,8 +357,8 @@ func (c *SSH) uploadLinux(src, dst string) error {
 	if err != nil {
 		return err
 	}
-
-	err = session.Start(fmt.Sprintf(`gzip -d > %s`, shellescape.Quote(dst)))
+	cmd := fmt.Sprintf(`gzip -d | sudo tee %s > /dev/null`, shellescape.Quote(dst))
+	err = session.Start(cmd)
 	if err != nil {
 		return err
 	}
