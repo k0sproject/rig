@@ -342,6 +342,13 @@ func (c *SSH) uploadLinux(src, dst string) error {
 	}
 	defer in.Close()
 
+	var tmpFile string
+	if err := c.Exec("mktemp 2> /dev/null", exec.Output(&tmpFile)); err != nil {
+		return err
+	}
+	defer func() { _ = c.Exec(fmt.Sprintf("rm -f %s", shellescape.Quote(tmpFile))) }()
+	tmpFile = strings.TrimSpace(tmpFile)
+
 	session, err := c.client.NewSession()
 	if err != nil {
 		return err
@@ -358,7 +365,7 @@ func (c *SSH) uploadLinux(src, dst string) error {
 		return err
 	}
 
-	err = session.Start(fmt.Sprintf(`gzip -d > %s`, shellescape.Quote(dst)))
+	err = session.Start(fmt.Sprintf(`gzip -d > %s`, shellescape.Quote(tmpFile)))
 	if err != nil {
 		return err
 	}
@@ -369,7 +376,11 @@ func (c *SSH) uploadLinux(src, dst string) error {
 	gw.Close()
 	hostIn.Close()
 
-	return session.Wait()
+	if err := session.Wait(); err != nil {
+		return err
+	}
+
+	return c.Exec(fmt.Sprintf("sudo install -D %s %s", shellescape.Quote(tmpFile), shellescape.Quote(dst)))
 }
 
 func (c *SSH) uploadWindows(src, dst string) error {
