@@ -128,6 +128,16 @@ func (c *SSH) Connect() error {
 		config.HostKeyCallback = trustedHostKeyCallback(c.HostKey)
 	}
 
+	sshAgentSock := os.Getenv("SSH_AUTH_SOCK")
+
+	if sshAgentSock != "" {
+		sshAgent, err := net.Dial("unix", sshAgentSock)
+		if err != nil {
+			return fmt.Errorf("cannot connect to SSH agent auth socket %s: %s", sshAgentSock, err)
+		}
+		config.Auth = append(config.Auth, ssh.PublicKeysCallback(agent.NewClient(sshAgent).Signers))
+	}
+
 	_, err := os.Stat(c.KeyPath)
 	if err != nil && !c.keypathDefault {
 		return err
@@ -139,23 +149,13 @@ func (c *SSH) Connect() error {
 			return err
 		}
 		signer, err := ssh.ParsePrivateKey(key)
-		if err != nil {
+		if err != nil && sshAgentSock == "" {
 			return err
 		}
 		config.Auth = append(config.Auth, ssh.PublicKeys(signer))
 	}
 
 	dst := fmt.Sprintf("%s:%d", c.Address, c.Port)
-
-	sshAgentSock := os.Getenv("SSH_AUTH_SOCK")
-
-	if sshAgentSock != "" {
-		sshAgent, err := net.Dial("unix", sshAgentSock)
-		if err != nil {
-			return fmt.Errorf("cannot connect to SSH agent auth socket %s: %s", sshAgentSock, err)
-		}
-		config.Auth = append(config.Auth, ssh.PublicKeysCallback(agent.NewClient(sshAgent).Signers))
-	}
 
 	var client *ssh.Client
 
