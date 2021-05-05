@@ -34,7 +34,7 @@ func (c Linux) Kind() string {
 // memoizing accessor to the init system (systemd, openrc)
 func (c Linux) is(h Host) initSystem {
 	if c.isys == nil {
-		initctl, err := h.ExecOutput("basename $(sudo -i command -v rc-service systemctl 2>/dev/null) 2>/dev/null")
+		initctl, err := h.ExecOutput("basename $(sudo -s command -v rc-service systemctl 2>/dev/null) 2>/dev/null")
 		if err != nil {
 			return nil
 		}
@@ -219,10 +219,10 @@ func (c Linux) CleanupEnvironment(h Host, env map[string]string) error {
 
 // CommandExist returns true if the command exists
 func (c Linux) CommandExist(h Host, cmd string) bool {
-	return h.Execf(`sudo -i command -v "%s" 2> /dev/null`, cmd) == nil
+	return h.Execf(`sudo -s command -v "%s" 2> /dev/null`, cmd) == nil
 }
 
 // Reboot executes the reboot command
 func (c Linux) Reboot(h Host) error {
-	return h.Exec("sudo -i shutdown --reboot 0 2> /dev/null && exit")
+	return h.Exec("sudo -s shutdown --reboot 0 2> /dev/null && exit")
 }
