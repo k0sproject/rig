@@ -121,7 +121,7 @@ func (c *Localhost) command(cmd string) *osexec.Cmd {
 	}
 
 	if c.cansudo && c.user != "" {
-		return osexec.Command("sudo", "-n", "-i", "--", "su", "-l", "-c", cmd, c.user)
+		return osexec.Command("sudo", "-n", "-s", "--", "su", "-l", "-c", cmd, c.user)
 	}
 
 	return osexec.Command("bash", "-c", "--", cmd)
