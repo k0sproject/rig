@@ -51,8 +51,8 @@ func TestOutputWriter(t *testing.T) {
 			},
 		},
 	}
-	defaults.Set(&h)
-	h.Connect()
+	require.NoError(t, defaults.Set(&h))
+	require.NoError(t, h.Connect())
 	var buf []byte
 	writer := bytes.NewBuffer(buf)
 	require.NoError(t, h.Exec("echo hello world", exec.Writer(writer)))
