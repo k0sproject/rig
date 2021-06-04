@@ -225,16 +225,22 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		outputScanner := bufio.NewScanner(command.Stdout)
+		if o.Writer == nil {
+			outputScanner := bufio.NewScanner(command.Stdout)
 
-		for outputScanner.Scan() {
-			o.AddOutput(c.String(), outputScanner.Text()+"\n", "")
-		}
+			for outputScanner.Scan() {
+				o.AddOutput(c.String(), outputScanner.Text()+"\n", "")
+			}
 
-		if err := outputScanner.Err(); err != nil {
-			o.LogErrorf("%s: %s", c, err.Error())
+			if err := outputScanner.Err(); err != nil {
+				o.LogErrorf("%s: %s", c, err.Error())
+			}
+			command.Stdout.Close()
+		} else {
+			if _, err := io.Copy(o.Writer, command.Stdout); err != nil {
+				o.LogErrorf("%s: failed to stream stdout", c, err.Error())
+			}
 		}
-		command.Stdout.Close()
 	}()
 
 	gotErrors := false

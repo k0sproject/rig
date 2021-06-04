@@ -3,6 +3,7 @@ package exec
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"strings"
@@ -60,6 +61,7 @@ type Options struct {
 	StreamOutput   bool
 	RedactFunc     func(string) string
 	Output         *string
+	Writer         io.Writer
 }
 
 // LogCmd is for logging the command to be executed
@@ -229,6 +231,13 @@ func RedactString(s ...string) Option {
 	}
 }
 
+// Writer exec option for sending command stdout to an io.Writer
+func Writer(w io.Writer) Option {
+	return func(o *Options) {
+		o.Writer = w
+	}
+}
+
 // Build returns an instance of Options
 func Build(opts ...Option) *Options {
 	options := &Options{
@@ -240,6 +249,7 @@ func Build(opts ...Option) *Options {
 		LogOutput:    true,
 		StreamOutput: false,
 		Output:       nil,
+		Writer:       nil,
 	}
 
 	for _, o := range opts {
