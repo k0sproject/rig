@@ -226,16 +226,22 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		outputScanner := bufio.NewScanner(stdout)
+		if o.Writer == nil {
+			outputScanner := bufio.NewScanner(stdout)
 
-		for outputScanner.Scan() {
-			text := outputScanner.Text()
-			stripped := stripansi.Strip(text)
-			o.AddOutput(c.String(), stripped+"\n", "")
-		}
+			for outputScanner.Scan() {
+				text := outputScanner.Text()
+				stripped := stripansi.Strip(text)
+				o.AddOutput(c.String(), stripped+"\n", "")
+			}
 
-		if err := outputScanner.Err(); err != nil {
-			o.LogErrorf("%s: %s", c, err.Error())
+			if err := outputScanner.Err(); err != nil {
+				o.LogErrorf("%s: %s", c, err.Error())
+			}
+		} else {
+			if _, err := io.Copy(o.Writer, stdout); err != nil {
+				o.LogErrorf("%s: failed to stream stdout", c, err.Error())
+			}
 		}
 	}()
 

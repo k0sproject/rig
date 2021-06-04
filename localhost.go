@@ -91,23 +91,29 @@ func (c *Localhost) Exec(cmd string, opts ...exec.Option) error {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
-		outputScanner := bufio.NewScanner(stdout)
+		defer wg.Done()
 
-		for outputScanner.Scan() {
-			o.AddOutput(name, outputScanner.Text()+"\n", "")
+		if o.Writer == nil {
+			outputScanner := bufio.NewScanner(stdout)
+
+			for outputScanner.Scan() {
+				o.AddOutput(name, outputScanner.Text()+"\n", "")
+			}
+		} else {
+			if _, err := io.Copy(o.Writer, stdout); err != nil {
+				o.LogErrorf("%s: failed to stream stdout", c, err.Error())
+			}
 		}
-
-		wg.Done()
 	}()
 	wg.Add(1)
 	go func() {
+		defer wg.Done()
+
 		outputScanner := bufio.NewScanner(stderr)
 
 		for outputScanner.Scan() {
 			o.AddOutput(name, "", outputScanner.Text()+"\n")
 		}
-
-		wg.Done()
 	}()
 
 	err = command.Wait()
