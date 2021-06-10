@@ -51,7 +51,7 @@ func (c *Localhost) IsWindows() bool {
 
 // Connect on local connection does nothing
 func (c *Localhost) Connect() error {
-	if !c.IsWindows() && c.Exec("sudo -n true") == nil {
+	if !c.IsWindows() && c.Exec(`[ "$(id -u)" = "0" ] || sudo -n true || doas -n true`) == nil {
 		c.cansudo = true
 	}
 	if user, err := user.Current(); err == nil {
@@ -66,7 +66,7 @@ func (c *Localhost) Disconnect() {}
 // Exec executes a command on the host
 func (c *Localhost) Exec(cmd string, opts ...exec.Option) error {
 	o := exec.Build(opts...)
-	command := c.command(cmd)
+	command := c.command(cmd, o)
 
 	if o.Stdin != "" {
 		o.LogStdin(name)
@@ -121,12 +121,12 @@ func (c *Localhost) Exec(cmd string, opts ...exec.Option) error {
 	return err
 }
 
-func (c *Localhost) command(cmd string) *osexec.Cmd {
+func (c *Localhost) command(cmd string, o *exec.Options) *osexec.Cmd {
 	if c.IsWindows() {
 		return osexec.Command(cmd)
 	}
 
-	if c.cansudo && c.user != "" {
+	if c.cansudo && c.user != "" && o.Sudo {
 		return osexec.Command("sudo", "-n", "-s", "--", "su", "-l", "-c", cmd, c.user)
 	}
 

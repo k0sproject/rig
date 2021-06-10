@@ -192,6 +192,8 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error {
 	}
 	defer session.Close()
 
+	cmd = o.Command(cmd)
+
 	if len(o.Stdin) == 0 && c.knowOs && !c.isWindows {
 		// Only request a PTY when there's no STDIN data, because
 		// then you would need to send a CTRL-D after input to signal
@@ -386,7 +388,7 @@ func (c *SSH) uploadLinux(src, dst string) error {
 		return err
 	}
 
-	return c.Exec(fmt.Sprintf("sudo install -D %s %s", shellescape.Quote(tmpFile), shellescape.Quote(dst)))
+	return c.Exec(fmt.Sprintf("install -D %s %s", shellescape.Quote(tmpFile), shellescape.Quote(dst)), exec.Sudo())
 }
 
 func (c *SSH) uploadWindows(src, dst string) error {

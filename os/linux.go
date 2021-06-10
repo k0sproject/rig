@@ -91,8 +91,8 @@ func (c Linux) DaemonReload(h Host) error {
 
 // CheckPrivilege returns an error if the user does not have passwordless sudo enabled
 func (c Linux) CheckPrivilege(h Host) error {
-	if h.Exec("sudo -n true") != nil {
-		return fmt.Errorf("user does not have passwordless sudo access")
+	if h.Exec(`[ "$(id -u)" = "0" ] || sudo -n true || doas -n true`) != nil {
+		return fmt.Errorf("user is not root and does not have passwordless sudo access")
 	}
 
 	return nil
@@ -133,12 +133,12 @@ func (c Linux) IsContainer(h Host) bool {
 
 // FixContainer makes a container work like a real host
 func (c Linux) FixContainer(h Host) error {
-	return h.Exec("sudo mount --make-rshared / 2> /dev/null")
+	return h.Exec("mount --make-rshared / 2> /dev/null", exec.Sudo())
 }
 
 // SELinuxEnabled is true when SELinux is enabled
 func (c Linux) SELinuxEnabled(h Host) bool {
-	return h.Exec("sudo getenforce | grep -iq enforcing 2> /dev/null") == nil
+	return h.Exec("getenforce | grep -iq enforcing 2> /dev/null", exec.Sudo()) == nil
 }
 
 // WriteFile writes file to host with given contents. Do not use for large files.
@@ -157,7 +157,7 @@ func (c Linux) WriteFile(h Host, path string, data string, permissions string) e
 	}
 	tempFile = escape.Quote(tempFile)
 
-	err = h.Exec(fmt.Sprintf("cat > %s && (sudo install -D -m %s %s %s || (rm %s; exit 1))", tempFile, permissions, tempFile, path, tempFile), exec.Stdin(data), exec.RedactString(data))
+	err = h.Exec(fmt.Sprintf(`/bin/bash -c -- "cat > %s && (install -D -m %s %s %s || (rm %s; exit 1))"`, tempFile, permissions, tempFile, path, tempFile), exec.Stdin(data), exec.RedactString(data), exec.Sudo())
 	if err != nil {
 		return err
 	}
@@ -166,24 +166,24 @@ func (c Linux) WriteFile(h Host, path string, data string, permissions string) e
 
 // ReadFile reads a files contents from the host.
 func (c Linux) ReadFile(h Host, path string) (string, error) {
-	return h.ExecOutput(fmt.Sprintf("sudo cat %s 2> /dev/null", escape.Quote(path)), exec.HideOutput())
+	return h.ExecOutput(fmt.Sprintf("cat %s 2> /dev/null", escape.Quote(path)), exec.HideOutput(), exec.Sudo())
 }
 
 // DeleteFile deletes a file from the host.
 func (c Linux) DeleteFile(h Host, path string) error {
-	return h.Exec(fmt.Sprintf(`sudo rm -f %s 2> /dev/null`, escape.Quote(path)))
+	return h.Exec(fmt.Sprintf(`rm -f %s 2> /dev/null`, escape.Quote(path)), exec.Sudo())
 }
 
 // FileExist checks if a file exists on the host
 func (c Linux) FileExist(h Host, path string) bool {
-	return h.Exec(fmt.Sprintf(`sudo test -e %s 2> /dev/null`, escape.Quote(path))) == nil
+	return h.Exec(fmt.Sprintf(`test -e %s 2> /dev/null`, escape.Quote(path)), exec.Sudo()) == nil
 }
 
 // LineIntoFile tries to find a matching line in a file and replace it with a new entry
 // TODO refactor this into go because it's too magical.
 func (c Linux) LineIntoFile(h Host, path, matcher, newLine string) error {
 	if c.FileExist(h, path) {
-		err := h.Exec(fmt.Sprintf(`file=%s; match=%s; line=%s; sudo grep -q "${match}" "$file" && sudo sed -i "/${match}/c ${line}" "$file" || (echo "$line" | sudo tee -a "$file" > /dev/null)`, escape.Quote(path), escape.Quote(matcher), escape.Quote(newLine)))
+		err := h.Exec(fmt.Sprintf(`/bin/bash -c -- 'file=%s; match=%s; line=%s; grep -q "${match}" "$file" && sed -i "/${match}/c ${line}" "$file" || (echo "$line" | tee -a "$file" > /dev/null)'`, escape.Quote(path), escape.Quote(matcher), escape.Quote(newLine)))
 		if err != nil {
 			return err
 		}
@@ -214,15 +214,15 @@ func (c Linux) CleanupEnvironment(h Host, env map[string]string) error {
 		}
 	}
 	// remove empty lines
-	return h.Exec(`sudo sed -i '/^$/d' /etc/environment`)
+	return h.Exec(`sed -i '/^$/d' /etc/environment`, exec.Sudo())
 }
 
 // CommandExist returns true if the command exists
 func (c Linux) CommandExist(h Host, cmd string) bool {
-	return h.Execf(`sudo -s command -v "%s" 2> /dev/null`, cmd) == nil
+	return h.Execf(`command -v "%s" 2> /dev/null`, cmd, exec.Sudo()) == nil
 }
 
 // Reboot executes the reboot command
 func (c Linux) Reboot(h Host) error {
-	return h.Exec("sudo -s shutdown --reboot 0 2> /dev/null && exit")
+	return h.Exec("shutdown --reboot 0 2> /dev/null && exit", exec.Sudo())
 }

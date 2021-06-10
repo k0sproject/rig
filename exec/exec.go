@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig/log"
 )
 
@@ -59,9 +60,19 @@ type Options struct {
 	LogCommand     bool
 	LogOutput      bool
 	StreamOutput   bool
+	Sudo           bool
 	RedactFunc     func(string) string
 	Output         *string
 	Writer         io.Writer
+}
+
+func (o *Options) Command(cmd string) string {
+	if !o.Sudo {
+		return cmd
+	}
+
+	escaped := shellescape.Quote(cmd)
+	return fmt.Sprintf(`([ "$(id -u)" = "0" ] && %s) || (sudo -n true && sudo -s -- %s) || (doas -n true && doas -s -- %s)`, cmd, escaped, escaped)
 }
 
 // LogCmd is for logging the command to be executed
@@ -201,6 +212,13 @@ func Sensitive() Option {
 	}
 }
 
+// Sudo exec option for running the command with elevated permissions
+func Sudo() Option {
+	return func(o *Options) {
+		o.Sudo = true
+	}
+}
+
 // Redact exec option for defining a redact regexp pattern that will be replaced with [REDACTED] in the logs
 func Redact(rexp string) Option {
 	return func(o *Options) {
@@ -248,6 +266,7 @@ func Build(opts ...Option) *Options {
 		LogError:     true,
 		LogOutput:    true,
 		StreamOutput: false,
+		Sudo:         false,
 		Output:       nil,
 		Writer:       nil,
 	}

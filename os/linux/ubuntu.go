@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/k0sproject/rig"
+	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/os/registry"
 )
@@ -26,5 +27,5 @@ func init() {
 
 // InstallPackage installs packages via apt-get
 func (c Ubuntu) InstallPackage(h os.Host, s ...string) error {
-	return h.Execf("sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q %s", strings.Join(s, " "))
+	return h.Execf("apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q %s", strings.Join(s, " "), exec.Sudo())
 }
