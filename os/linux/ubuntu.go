@@ -27,5 +27,8 @@ func init() {
 
 // InstallPackage installs packages via apt-get
 func (c Ubuntu) InstallPackage(h os.Host, s ...string) error {
-	return h.Execf("apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q %s", strings.Join(s, " "), exec.Sudo())
+	if err := h.Execf("apt-get update", exec.Sudo(h)); err != nil {
+		return err
+	}
+	return h.Execf("DEBIAN_FRONTEND=noninteractive apt-get install -y -q %s", strings.Join(s, " "), exec.Sudo(h))
 }

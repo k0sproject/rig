@@ -285,7 +285,7 @@ func (c *WinRM) ExecInteractive(cmd string) error {
 }
 
 // Upload uploads a file from local src path to remote dst path
-func (c *WinRM) Upload(src, dst string) error {
+func (c *WinRM) Upload(_ func(string) string, src, dst string) error {
 	psCmd := ps.UploadCmd(dst)
 	stat, err := os.Stat(src)
 	if err != nil {

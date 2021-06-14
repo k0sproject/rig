@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	osexec "os/exec"
-	"os/user"
 	"runtime"
 	"strings"
 	"sync"
@@ -19,9 +18,6 @@ const name = "[local] localhost"
 // Localhost is a direct localhost connection
 type Localhost struct {
 	Enabled bool `yaml:"enabled" validate:"required,eq=true" default:"true"`
-
-	cansudo bool
-	user    string
 }
 
 // Protocol returns the protocol name, "Local"
@@ -51,12 +47,6 @@ func (c *Localhost) IsWindows() bool {
 
 // Connect on local connection does nothing
 func (c *Localhost) Connect() error {
-	if !c.IsWindows() && c.Exec(`[ "$(id -u)" = "0" ] || sudo -n true || doas -n true`) == nil {
-		c.cansudo = true
-	}
-	if user, err := user.Current(); err == nil {
-		c.user = user.Username
-	}
 	return nil
 }
 
@@ -66,7 +56,10 @@ func (c *Localhost) Disconnect() {}
 // Exec executes a command on the host
 func (c *Localhost) Exec(cmd string, opts ...exec.Option) error {
 	o := exec.Build(opts...)
-	command := c.command(cmd, o)
+	command, err := c.command(cmd, o)
+	if err != nil {
+		return err
+	}
 
 	if o.Stdin != "" {
 		o.LogStdin(name)
@@ -121,20 +114,21 @@ func (c *Localhost) Exec(cmd string, opts ...exec.Option) error {
 	return err
 }
 
-func (c *Localhost) command(cmd string, o *exec.Options) *osexec.Cmd {
+func (c *Localhost) command(cmd string, o *exec.Options) (*osexec.Cmd, error) {
+	cmd, err := o.Command(cmd)
+	if err != nil {
+		return nil, err
+	}
+
 	if c.IsWindows() {
-		return osexec.Command(cmd)
+		return osexec.Command(cmd), nil
 	}
 
-	if c.cansudo && c.user != "" && o.Sudo {
-		return osexec.Command("sudo", "-n", "-s", "--", "su", "-l", "-c", cmd, c.user)
-	}
-
-	return osexec.Command("bash", "-c", "--", cmd)
+	return osexec.Command("bash", "-c", "--", cmd), nil
 }
 
 // Upload copies a larger file to another path on the host.
-func (c *Localhost) Upload(src, dst string) error {
+func (c *Localhost) Upload(_ func(string) string, src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err

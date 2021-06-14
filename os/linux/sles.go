@@ -16,7 +16,7 @@ type SLES struct {
 
 // InstallPackage installs packages via zypper
 func (c SLES) InstallPackage(h os.Host, s ...string) error {
-	return h.Execf("zypper refresh && sudo zypper -n install -y %s", strings.Join(s, " "), exec.Sudo())
+	return h.Execf("zypper refresh && sudo zypper -n install -y %s", strings.Join(s, " "), exec.Sudo(h))
 }
 
 func init() {

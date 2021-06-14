@@ -192,7 +192,10 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error {
 	}
 	defer session.Close()
 
-	cmd = o.Command(cmd)
+	cmd, err = o.Command(cmd)
+	if err != nil {
+		return err
+	}
 
 	if len(o.Stdin) == 0 && c.knowOs && !c.isWindows {
 		// Only request a PTY when there's no STDIN data, because
@@ -281,11 +284,11 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error {
 
 // Upload uploads a larger file to the host.
 // Use instead of configurer.WriteFile when it seems appropriate
-func (c *SSH) Upload(src, dst string) error {
+func (c *SSH) Upload(sf func(string) string, src, dst string) error {
 	if c.IsWindows() {
-		return c.uploadWindows(src, dst)
+		return c.uploadWindows(sf, src, dst)
 	}
-	return c.uploadLinux(src, dst)
+	return c.uploadLinux(sf, src, dst)
 }
 
 // ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host
@@ -343,7 +346,7 @@ func (c *SSH) ExecInteractive(cmd string) error {
 	return session.Wait()
 }
 
-func (c *SSH) uploadLinux(src, dst string) error {
+func (c *SSH) uploadLinux(sf func(string) string, src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
@@ -388,10 +391,10 @@ func (c *SSH) uploadLinux(src, dst string) error {
 		return err
 	}
 
-	return c.Exec(fmt.Sprintf("install -D %s %s", shellescape.Quote(tmpFile), shellescape.Quote(dst)), exec.Sudo())
+	return c.Exec(sf(fmt.Sprintf("install -D %s %s", shellescape.Quote(tmpFile), shellescape.Quote(dst))))
 }
 
-func (c *SSH) uploadWindows(src, dst string) error {
+func (c *SSH) uploadWindows(_ func(string) string, src, dst string) error {
 	psCmd := ps.UploadCmd(dst)
 	stat, err := os.Stat(src)
 	if err != nil {
