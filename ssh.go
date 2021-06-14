@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"os"
 	"strings"
@@ -144,7 +143,7 @@ func (c *SSH) Connect() error {
 	}
 	if err == nil {
 		var key []byte
-		key, err = ioutil.ReadFile(c.KeyPath)
+		key, err = os.ReadFile(c.KeyPath)
 		if err != nil {
 			return err
 		}
