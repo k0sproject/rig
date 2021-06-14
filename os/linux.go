@@ -93,6 +93,10 @@ func (c Linux) Pwd(h Host) string {
 	return pwd
 }
 
+func (c Linux) CheckPrivilege(h Host) error {
+	return h.Exec("true", exec.Sudo(h))
+}
+
 // JoinPath joins a path
 func (c Linux) JoinPath(parts ...string) string {
 	return strings.Join(parts, "/")
@@ -141,14 +145,20 @@ func (c Linux) WriteFile(h Host, path string, data string, permissions string) e
 	if err != nil {
 		return err
 	}
-	tempFile = escape.Quote(tempFile)
 
-	installCmd, err := h.Sudo(fmt.Sprintf("install -D -m %s %s %s", permissions, tempFile, path))
-	if err != nil {
+	if err := h.Execf(`cat > %s`, tempFile, exec.Stdin(data), exec.RedactString(data)); err != nil {
 		return err
 	}
 
-	return h.Execf(`cat > %s && (%s || (rm %s; exit 1))`, tempFile, installCmd, tempFile, exec.Stdin(data), exec.RedactString(data))
+	if err := c.InstallFile(h, tempFile, path, permissions); err != nil {
+		_ = c.DeleteFile(h, tempFile)
+	}
+
+	return nil
+}
+
+func (c Linux) InstallFile(h Host, src, dst, permissions string) error {
+	return h.Execf("install -D -m %s %s %s", permissions, src, dst, exec.Sudo(h))
 }
 
 // ReadFile reads a files contents from the host.
