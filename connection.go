@@ -25,7 +25,7 @@ func (e *NotConnectedError) Error() string { return e.Connection.String() + ": n
 type client interface {
 	Connect() error
 	Disconnect()
-	Upload(sf func(string) string, source string, destination string) error
+	Upload(source string) (string, error)
 	IsWindows() bool
 	Exec(string, ...exec.Option) error
 	ExecInteractive(string) error
@@ -205,21 +205,24 @@ func (c *Connection) configureSudo() {
 	default:
 		if c.Exec(`[ "$(id -u)" = 0 ]`) == nil {
 			c.sudofunc = func(cmd string) string {
+				println("id=0")
 				return cmd
 			}
 		} else if c.Exec("sudo -n true") == nil {
 			c.sudofunc = func(cmd string) string {
+				println("sudo -s " + cmd)
 				return "sudo -s " + cmd
 			}
 		} else if c.Exec("doas -n true") == nil {
 			c.sudofunc = func(cmd string) string {
+				println("doas -s " + cmd)
 				return "doas -s " + cmd
 			}
 		}
 	}
 }
 
-func (c *Connection) Sudo(cmd string) (string, error) {
+func (c Connection) Sudo(cmd string) (string, error) {
 	if c.sudofunc == nil {
 		return "", fmt.Errorf("user is not root and passwordless sudo has not been configured")
 	}
@@ -258,14 +261,14 @@ func (c *Connection) Disconnect() {
 	c.client = nil
 }
 
-// Upload copies a file from a local path src to the remote host path dst. For
+// Upload copies a file from a local path src to the remote host tempfile and returns the path to the new file. For
 // smaller files you should probably use os.WriteFile
-func (c Connection) Upload(src, dst string) error {
+func (c Connection) Upload(src string) (string, error) {
 	if !c.IsConnected() {
-		return &NotConnectedError{&c}
+		return "", &NotConnectedError{&c}
 	}
 
-	return c.client.Upload(c.sudofunc, src, dst)
+	return c.client.Upload(src)
 }
 
 func (c *Connection) configuredClient() client {

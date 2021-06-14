@@ -2,6 +2,7 @@ package rig
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"os"
 	osexec "os/exec"
@@ -10,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/k0sproject/rig/exec"
+	ps "github.com/k0sproject/rig/powershell"
 	"github.com/kballard/go-shellquote"
 )
 
@@ -128,20 +130,40 @@ func (c *Localhost) command(cmd string, o *exec.Options) (*osexec.Cmd, error) {
 }
 
 // Upload copies a larger file to another path on the host.
-func (c *Localhost) Upload(_ func(string) string, src, dst string) error {
+func (c *Localhost) Upload(src string) (string, error) {
+	var tmpFile string
+	var err error
+	if c.IsWindows() {
+		if err := c.Exec(ps.Cmd("(New-TemporaryFile).FullPath"), exec.Output(&tmpFile)); err != nil {
+			return tmpFile, err
+		}
+	} else {
+		if err := c.Exec("mktemp 2> /dev/null", exec.Output(&tmpFile)); err != nil {
+			return tmpFile, err
+		}
+	}
+	defer func() {
+		if err != nil {
+			if c.IsWindows() {
+				_ = c.Exec(fmt.Sprintf(`del "%s"`, tmpFile))
+			} else {
+				_ = c.Exec(fmt.Sprintf(`rm -f "%s"`, tmpFile))
+			}
+		}
+	}()
 	in, err := os.Open(src)
 	if err != nil {
-		return err
+		return tmpFile, err
 	}
 	defer in.Close()
 
-	out, err := os.Create(dst)
+	out, err := os.Create(tmpFile)
 	if err != nil {
-		return err
+		return tmpFile, err
 	}
 	defer out.Close()
 	_, err = io.Copy(out, in)
-	return err
+	return tmpFile, err
 }
 
 // ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host

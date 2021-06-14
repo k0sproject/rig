@@ -284,12 +284,22 @@ func (c *WinRM) ExecInteractive(cmd string) error {
 	return err
 }
 
-// Upload uploads a file from local src path to remote dst path
-func (c *WinRM) Upload(_ func(string) string, src, dst string) error {
+// Upload uploads a file from local src path to remote temp file, returning the tempfile path or error
+func (c *WinRM) Upload(src string) (string, error) {
+	var dst string
+	var err error
+	if err := c.Exec(ps.Cmd("(New-TemporaryFile).FullPath"), exec.Output(&dst)); err != nil {
+		return "", err
+	}
+	defer func() {
+		if err != nil {
+			_ = c.Exec(fmt.Sprintf(`del "%s"`, dst))
+		}
+	}()
 	psCmd := ps.UploadCmd(dst)
 	stat, err := os.Stat(src)
 	if err != nil {
-		return err
+		return dst, err
 	}
 	sha256DigestLocalObj := sha256.New()
 	sha256DigestLocal := ""
@@ -300,7 +310,7 @@ func (c *WinRM) Upload(_ func(string) string, src, dst string) error {
 	var fdClosed bool
 	fd, err := os.Open(src)
 	if err != nil {
-		return err
+		return dst, err
 	}
 	defer func() {
 		if !fdClosed {
@@ -310,12 +320,12 @@ func (c *WinRM) Upload(_ func(string) string, src, dst string) error {
 	}()
 	shell, err := c.client.CreateShell()
 	if err != nil {
-		return err
+		return dst, err
 	}
 	defer shell.Close()
 	cmd, err := shell.Execute("powershell -ExecutionPolicy Unrestricted -EncodedCommand " + psCmd)
 	if err != nil {
-		return err
+		return dst, err
 	}
 
 	// Create a dummy request to get its length
@@ -354,7 +364,7 @@ func (c *WinRM) Upload(_ func(string) string, src, dst string) error {
 
 			bufferLength = 0
 			if err != nil {
-				return err
+				return dst, err
 			}
 		}
 	}
@@ -365,7 +375,7 @@ func (c *WinRM) Upload(_ func(string) string, src, dst string) error {
 	}
 	if err != nil {
 		cmd.Close()
-		return err
+		return dst, err
 	}
 	if !ended {
 		_, _ = sha256DigestLocalObj.Write(buffer[:bufferLength])
@@ -378,7 +388,7 @@ func (c *WinRM) Upload(_ func(string) string, src, dst string) error {
 		if err != nil {
 			if !strings.Contains(err.Error(), ps.PipeHasEnded) && !strings.Contains(err.Error(), ps.PipeIsBeingClosed) {
 				cmd.Close()
-				return err
+				return dst, err
 			}
 			// ignore pipe errors that results from passing true to cmd.SendInput
 		}
@@ -417,13 +427,13 @@ func (c *WinRM) Upload(_ func(string) string, src, dst string) error {
 	wg.Wait()
 
 	if cmd.ExitCode() != 0 {
-		return fmt.Errorf("non-zero exit code")
+		return dst, fmt.Errorf("non-zero exit code")
 	}
 	if sha256DigestRemote == "" {
-		return fmt.Errorf("copy file command did not output the expected JSON to stdout but exited with code 0")
+		return dst, fmt.Errorf("copy file command did not output the expected JSON to stdout but exited with code 0")
 	} else if sha256DigestRemote != sha256DigestLocal {
-		return fmt.Errorf("copy file checksum mismatch (local = %s, remote = %s)", sha256DigestLocal, sha256DigestRemote)
+		return dst, fmt.Errorf("copy file checksum mismatch (local = %s, remote = %s)", sha256DigestLocal, sha256DigestRemote)
 	}
 
-	return nil
+	return dst, nil
 }

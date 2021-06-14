@@ -282,13 +282,13 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error {
 	return nil
 }
 
-// Upload uploads a larger file to the host.
+// Upload uploads a file from local src path to remote temp file, returning the tempfile path or error
 // Use instead of configurer.WriteFile when it seems appropriate
-func (c *SSH) Upload(sf func(string) string, src, dst string) error {
+func (c *SSH) Upload(src string) (string, error) {
 	if c.IsWindows() {
-		return c.uploadWindows(sf, src, dst)
+		return c.uploadWindows(src)
 	}
-	return c.uploadLinux(sf, src, dst)
+	return c.uploadLinux(src)
 }
 
 // ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host
@@ -346,59 +346,73 @@ func (c *SSH) ExecInteractive(cmd string) error {
 	return session.Wait()
 }
 
-func (c *SSH) uploadLinux(sf func(string) string, src, dst string) error {
+func (c *SSH) uploadLinux(src string) (string, error) {
 	in, err := os.Open(src)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer in.Close()
 
 	var tmpFile string
 	if err := c.Exec("mktemp 2> /dev/null", exec.Output(&tmpFile)); err != nil {
-		return err
+		return tmpFile, err
 	}
-	defer func() { _ = c.Exec(fmt.Sprintf("rm -f %s", shellescape.Quote(tmpFile))) }()
+	defer func() {
+		if err != nil {
+			c.Exec(fmt.Sprintf("rm -f %s", shellescape.Quote(tmpFile)))
+		}
+	}()
 	tmpFile = strings.TrimSpace(tmpFile)
 
 	session, err := c.client.NewSession()
 	if err != nil {
-		return err
+		return tmpFile, err
 	}
 	defer session.Close()
 
 	hostIn, err := session.StdinPipe()
 	if err != nil {
-		return err
+		return tmpFile, err
 	}
 
 	gw, err := gzip.NewWriterLevel(hostIn, gzip.BestSpeed)
 	if err != nil {
-		return err
+		return tmpFile, err
 	}
 
 	err = session.Start(fmt.Sprintf(`gzip -d > %s`, shellescape.Quote(tmpFile)))
 	if err != nil {
-		return err
+		return tmpFile, err
 	}
 
 	if _, err := io.Copy(gw, in); err != nil {
-		return err
+		return tmpFile, err
 	}
 	gw.Close()
 	hostIn.Close()
 
 	if err := session.Wait(); err != nil {
-		return err
+		return tmpFile, err
 	}
 
-	return c.Exec(sf(fmt.Sprintf("install -D %s %s", shellescape.Quote(tmpFile), shellescape.Quote(dst))))
+	return tmpFile, nil
 }
 
-func (c *SSH) uploadWindows(_ func(string) string, src, dst string) error {
+func (c *SSH) uploadWindows(src string) (string, error) {
+	var dst string
+	err := c.Exec(ps.Cmd("(New-TemporaryFile).FullPath"), exec.Output(&dst))
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if err != nil {
+			_ = c.Exec(fmt.Sprintf(`del "%s"`, dst))
+		}
+	}()
 	psCmd := ps.UploadCmd(dst)
 	stat, err := os.Stat(src)
 	if err != nil {
-		return err
+		return dst, err
 	}
 	sha256DigestLocalObj := sha256.New()
 	sha256DigestLocal := ""
@@ -409,7 +423,7 @@ func (c *SSH) uploadWindows(_ func(string) string, src, dst string) error {
 	var fdClosed bool
 	fd, err := os.Open(src)
 	if err != nil {
-		return err
+		return dst, err
 	}
 	defer func() {
 		if !fdClosed {
@@ -419,26 +433,26 @@ func (c *SSH) uploadWindows(_ func(string) string, src, dst string) error {
 	}()
 	session, err := c.client.NewSession()
 	if err != nil {
-		return err
+		return dst, err
 	}
 	defer session.Close()
 
 	hostIn, err := session.StdinPipe()
 	if err != nil {
-		return err
+		return dst, err
 	}
 	hostOut, err := session.StdoutPipe()
 	if err != nil {
-		return err
+		return dst, err
 	}
 	hostErr, err := session.StderrPipe()
 	if err != nil {
-		return err
+		return dst, err
 	}
 
 	psRunCmd := "powershell -ExecutionPolicy Unrestricted -EncodedCommand " + psCmd
 	if err := session.Start(psRunCmd); err != nil {
-		return err
+		return dst, err
 	}
 
 	bufferCapacity := 262143 // use 256kb chunks
@@ -474,7 +488,7 @@ func (c *SSH) uploadWindows(_ func(string) string, src, dst string) error {
 
 			bufferLength = 0
 			if err != nil {
-				return err
+				return dst, err
 			}
 		}
 	}
@@ -484,7 +498,7 @@ func (c *SSH) uploadWindows(_ func(string) string, src, dst string) error {
 		err = nil
 	}
 	if err != nil {
-		return err
+		return dst, err
 	}
 	if !ended {
 		_, _ = sha256DigestLocalObj.Write(buffer[:bufferLength])
@@ -496,7 +510,7 @@ func (c *SSH) uploadWindows(_ func(string) string, src, dst string) error {
 		_, err = hostIn.Write(base64LineBuffer[:i+2])
 		if err != nil {
 			if !strings.Contains(err.Error(), ps.PipeHasEnded) && !strings.Contains(err.Error(), ps.PipeIsBeingClosed) {
-				return err
+				return dst, err
 			}
 			// ignore pipe errors that results from passing true to cmd.SendInput
 		}
@@ -533,16 +547,16 @@ func (c *SSH) uploadWindows(_ func(string) string, src, dst string) error {
 	}()
 
 	if err := session.Wait(); err != nil {
-		return err
+		return dst, err
 	}
 
 	wg.Wait()
 
 	if sha256DigestRemote == "" {
-		return fmt.Errorf("copy file command did not output the expected JSON to stdout but exited with code 0")
+		return dst, fmt.Errorf("copy file command did not output the expected JSON to stdout but exited with code 0")
 	} else if sha256DigestRemote != sha256DigestLocal {
-		return fmt.Errorf("copy file checksum mismatch (local = %s, remote = %s)", sha256DigestLocal, sha256DigestRemote)
+		return dst, fmt.Errorf("copy file checksum mismatch (local = %s, remote = %s)", sha256DigestLocal, sha256DigestRemote)
 	}
 
-	return nil
+	return dst, nil
 }
