@@ -359,7 +359,7 @@ func (c *SSH) uploadLinux(src string) (string, error) {
 	}
 	defer func() {
 		if err != nil {
-			c.Exec(fmt.Sprintf("rm -f %s", shellescape.Quote(tmpFile)))
+			_ = c.Exec(fmt.Sprintf("rm -f %s", shellescape.Quote(tmpFile)))
 		}
 	}()
 	tmpFile = strings.TrimSpace(tmpFile)
