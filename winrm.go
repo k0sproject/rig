@@ -178,7 +178,7 @@ func (c *WinRM) Connect() error {
 	}
 
 	log.Debugf("%s: testing connection", c)
-	_, err = client.Run("echo ok", ioutil.Discard, ioutil.Discard)
+	_, err = client.Run("echo ok", io.Discard, io.Discard)
 	if err != nil {
 		return err
 	}
@@ -288,9 +288,10 @@ func (c *WinRM) ExecInteractive(cmd string) error {
 func (c *WinRM) Upload(src string) (string, error) {
 	var dst string
 	var err error
-	if err := c.Exec(ps.Cmd("(New-TemporaryFile).FullPath"), exec.Output(&dst)); err != nil {
+	if err := c.Exec(ps.Cmd("(New-TemporaryFile).FullName"), exec.Output(&dst)); err != nil {
 		return "", err
 	}
+	dst = strings.TrimSpace(dst)
 	defer func() {
 		if err != nil {
 			_ = c.Exec(fmt.Sprintf(`del "%s"`, dst))
@@ -427,7 +428,7 @@ func (c *WinRM) Upload(src string) (string, error) {
 	wg.Wait()
 
 	if cmd.ExitCode() != 0 {
-		return dst, fmt.Errorf("non-zero exit code")
+		return dst, fmt.Errorf("non-zero exit code: %d during upload", cmd.ExitCode())
 	}
 	if sha256DigestRemote == "" {
 		return dst, fmt.Errorf("copy file command did not output the expected JSON to stdout but exited with code 0")
