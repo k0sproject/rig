@@ -23,6 +23,7 @@ import (
 	"github.com/acarl005/stripansi"
 	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/log"
 	ps "github.com/k0sproject/rig/powershell"
 
 	"github.com/mitchellh/go-homedir"
@@ -127,14 +128,20 @@ func (c *SSH) Connect() error {
 		config.HostKeyCallback = trustedHostKeyCallback(c.HostKey)
 	}
 
+	var pubkeySigners []ssh.Signer
+
 	sshAgentSock := os.Getenv("SSH_AUTH_SOCK")
 
 	if sshAgentSock != "" {
 		sshAgent, err := net.Dial("unix", sshAgentSock)
 		if err != nil {
-			return fmt.Errorf("cannot connect to SSH agent auth socket %s: %s", sshAgentSock, err)
+			log.Errorf("can't connect to SSH agent auth socket %s: %s", sshAgentSock, err)
+		} else {
+			signers, err := agent.NewClient(sshAgent).Signers()
+			if err == nil {
+				pubkeySigners = append(pubkeySigners, signers...)
+			}
 		}
-		config.Auth = append(config.Auth, ssh.PublicKeysCallback(agent.NewClient(sshAgent).Signers))
 	}
 
 	_, err := os.Stat(c.KeyPath)
@@ -148,10 +155,15 @@ func (c *SSH) Connect() error {
 			return err
 		}
 		signer, err := ssh.ParsePrivateKey(key)
-		if err != nil && sshAgentSock == "" {
-			return err
+		if err != nil {
+			log.Errorf("can't parse keyfile %s: %s", c.KeyPath, err.Error())
+		} else {
+			pubkeySigners = append(pubkeySigners, signer)
 		}
-		config.Auth = append(config.Auth, ssh.PublicKeys(signer))
+	}
+
+	if len(pubkeySigners) > 0 {
+		config.Auth = append(config.Auth, ssh.PublicKeys(pubkeySigners...))
 	}
 
 	dst := fmt.Sprintf("%s:%d", c.Address, c.Port)
