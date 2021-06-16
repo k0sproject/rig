@@ -130,20 +130,6 @@ func (c *SSH) Connect() error {
 
 	var pubkeySigners []ssh.Signer
 
-	sshAgentSock := os.Getenv("SSH_AUTH_SOCK")
-
-	if sshAgentSock != "" {
-		sshAgent, err := net.Dial("unix", sshAgentSock)
-		if err != nil {
-			log.Errorf("can't connect to SSH agent auth socket %s: %s", sshAgentSock, err)
-		} else {
-			signers, err := agent.NewClient(sshAgent).Signers()
-			if err == nil {
-				pubkeySigners = append(pubkeySigners, signers...)
-			}
-		}
-	}
-
 	_, err := os.Stat(c.KeyPath)
 	if err != nil && !c.keypathDefault {
 		return err
@@ -159,6 +145,19 @@ func (c *SSH) Connect() error {
 			log.Errorf("can't parse keyfile %s: %s", c.KeyPath, err.Error())
 		} else {
 			pubkeySigners = append(pubkeySigners, signer)
+		}
+	}
+
+	sshAgentSock := os.Getenv("SSH_AUTH_SOCK")
+	if sshAgentSock != "" {
+		sshAgent, err := net.Dial("unix", sshAgentSock)
+		if err != nil {
+			log.Errorf("can't connect to SSH agent auth socket %s: %s", sshAgentSock, err)
+		} else {
+			signers, err := agent.NewClient(sshAgent).Signers()
+			if err == nil {
+				pubkeySigners = append(pubkeySigners, signers...)
+			}
 		}
 	}
 
