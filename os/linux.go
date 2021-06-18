@@ -34,14 +34,9 @@ func (c Linux) Kind() string {
 // memoizing accessor to the init system (systemd, openrc)
 func (c Linux) is(h Host) initSystem {
 	if c.isys == nil {
-		initctl, err := h.ExecOutput("basename $(sudo -s command -v rc-service systemctl 2>/dev/null) 2>/dev/null")
-		if err != nil {
-			return nil
-		}
-		switch initctl {
-		case "systemctl":
+		if h.Exec("command -v systemctl > /dev/null 2&>1", exec.Sudo(h)) == nil {
 			c.isys = &initsystem.Systemd{}
-		case "rc-service":
+		} else if h.Exec("command -v rc-service > /dev/null 2&>1", exec.Sudo(h)) == nil {
 			c.isys = &initsystem.OpenRC{}
 		}
 	}
@@ -89,15 +84,6 @@ func (c Linux) DaemonReload(h Host) error {
 	return c.is(h).DaemonReload(h)
 }
 
-// CheckPrivilege returns an error if the user does not have passwordless sudo enabled
-func (c Linux) CheckPrivilege(h Host) error {
-	if h.Exec("sudo -n true") != nil {
-		return fmt.Errorf("user does not have passwordless sudo access")
-	}
-
-	return nil
-}
-
 // Pwd returns the current working directory of the session
 func (c Linux) Pwd(h Host) string {
 	pwd, err := h.ExecOutput("pwd 2> /dev/null")
@@ -105,6 +91,10 @@ func (c Linux) Pwd(h Host) string {
 		return ""
 	}
 	return pwd
+}
+
+func (c Linux) CheckPrivilege(h Host) error {
+	return h.Exec("true", exec.Sudo(h))
 }
 
 // JoinPath joins a path
@@ -133,12 +123,12 @@ func (c Linux) IsContainer(h Host) bool {
 
 // FixContainer makes a container work like a real host
 func (c Linux) FixContainer(h Host) error {
-	return h.Exec("sudo mount --make-rshared / 2> /dev/null")
+	return h.Exec("mount --make-rshared / 2> /dev/null", exec.Sudo(h))
 }
 
 // SELinuxEnabled is true when SELinux is enabled
 func (c Linux) SELinuxEnabled(h Host) bool {
-	return h.Exec("sudo getenforce | grep -iq enforcing 2> /dev/null") == nil
+	return h.Exec("getenforce | grep -iq enforcing 2> /dev/null", exec.Sudo(h)) == nil
 }
 
 // WriteFile writes file to host with given contents. Do not use for large files.
@@ -155,35 +145,42 @@ func (c Linux) WriteFile(h Host, path string, data string, permissions string) e
 	if err != nil {
 		return err
 	}
-	tempFile = escape.Quote(tempFile)
 
-	err = h.Exec(fmt.Sprintf("cat > %s && (sudo install -D -m %s %s %s || (rm %s; exit 1))", tempFile, permissions, tempFile, path, tempFile), exec.Stdin(data), exec.RedactString(data))
-	if err != nil {
+	if err := h.Execf(`cat > %s`, tempFile, exec.Stdin(data), exec.RedactString(data)); err != nil {
 		return err
 	}
+
+	if err := c.InstallFile(h, tempFile, path, permissions); err != nil {
+		_ = c.DeleteFile(h, tempFile)
+	}
+
 	return nil
+}
+
+func (c Linux) InstallFile(h Host, src, dst, permissions string) error {
+	return h.Execf("install -D -m %s %s %s", permissions, src, dst, exec.Sudo(h))
 }
 
 // ReadFile reads a files contents from the host.
 func (c Linux) ReadFile(h Host, path string) (string, error) {
-	return h.ExecOutput(fmt.Sprintf("sudo cat %s 2> /dev/null", escape.Quote(path)), exec.HideOutput())
+	return h.ExecOutputf("cat %s 2> /dev/null", escape.Quote(path), exec.HideOutput(), exec.Sudo(h))
 }
 
 // DeleteFile deletes a file from the host.
 func (c Linux) DeleteFile(h Host, path string) error {
-	return h.Exec(fmt.Sprintf(`sudo rm -f %s 2> /dev/null`, escape.Quote(path)))
+	return h.Execf(`rm -f %s 2> /dev/null`, escape.Quote(path), exec.Sudo(h))
 }
 
 // FileExist checks if a file exists on the host
 func (c Linux) FileExist(h Host, path string) bool {
-	return h.Exec(fmt.Sprintf(`sudo test -e %s 2> /dev/null`, escape.Quote(path))) == nil
+	return h.Execf(`test -e %s 2> /dev/null`, escape.Quote(path), exec.Sudo(h)) == nil
 }
 
 // LineIntoFile tries to find a matching line in a file and replace it with a new entry
 // TODO refactor this into go because it's too magical.
 func (c Linux) LineIntoFile(h Host, path, matcher, newLine string) error {
 	if c.FileExist(h, path) {
-		err := h.Exec(fmt.Sprintf(`file=%s; match=%s; line=%s; sudo grep -q "${match}" "$file" && sudo sed -i "/${match}/c ${line}" "$file" || (echo "$line" | sudo tee -a "$file" > /dev/null)`, escape.Quote(path), escape.Quote(matcher), escape.Quote(newLine)))
+		err := h.Exec(fmt.Sprintf(`/bin/bash -c -- 'file=%s; match=%s; line=%s; grep -q "${match}" "$file" && sed -i "/${match}/c ${line}" "$file" || (echo "$line" | tee -a "$file" > /dev/null)'`, escape.Quote(path), escape.Quote(matcher), escape.Quote(newLine)))
 		if err != nil {
 			return err
 		}
@@ -214,15 +211,19 @@ func (c Linux) CleanupEnvironment(h Host, env map[string]string) error {
 		}
 	}
 	// remove empty lines
-	return h.Exec(`sudo sed -i '/^$/d' /etc/environment`)
+	return h.Exec(`sed -i '/^$/d' /etc/environment`, exec.Sudo(h))
 }
 
 // CommandExist returns true if the command exists
 func (c Linux) CommandExist(h Host, cmd string) bool {
-	return h.Execf(`sudo -s command -v "%s" 2> /dev/null`, cmd) == nil
+	return h.Execf(`command -v "%s" 2> /dev/null`, cmd, exec.Sudo(h)) == nil
 }
 
 // Reboot executes the reboot command
 func (c Linux) Reboot(h Host) error {
-	return h.Exec("sudo -s shutdown --reboot 0 2> /dev/null && exit")
+	cmd, err := h.Sudo("shutdown --reboot 0 2> /dev/null")
+	if err != nil {
+		return err
+	}
+	return h.Execf("%s && exit", cmd)
 }

@@ -21,12 +21,12 @@ func (c Darwin) Kind() string {
 
 // StartService starts a a service
 func (c Darwin) StartService(h os.Host, s string) error {
-	return h.Execf(`sudo launchctl start %s`, s)
+	return h.Execf(`launchctl start %s`, s)
 }
 
 // StopService stops a a service
 func (c Darwin) StopService(h os.Host, s string) error {
-	return h.Execf(`sudo launchctl stop %s`, s)
+	return h.Execf(`launchctl stop %s`, s)
 }
 
 // ServiceScriptPath returns the path to a service configuration file
@@ -36,7 +36,7 @@ func (c Darwin) ServiceScriptPath(s string) (string, error) {
 
 // RestartService restarts a a service
 func (c Darwin) RestartService(h os.Host, s string) error {
-	return h.Execf(`sudo launchctl kickstart -k %s`, s)
+	return h.Execf(`launchctl kickstart -k %s`, s)
 }
 
 // DaemonReload reloads init system configuration
@@ -46,17 +46,17 @@ func (c Darwin) DaemonReload(_ os.Host) error {
 
 // EnableService enables a a service
 func (c Darwin) EnableService(h os.Host, s string) error {
-	return h.Execf(`sudo launchctl enable %s`, s)
+	return h.Execf(`launchctl enable %s`, s)
 }
 
 // DisableService disables a a service
 func (c Darwin) DisableService(h os.Host, s string) error {
-	return h.Execf(`sudo launchctl disable %s`, s)
+	return h.Execf(`launchctl disable %s`, s)
 }
 
 // ServiceIsRunning returns true if a service is running
 func (c Darwin) ServiceIsRunning(h os.Host, s string) bool {
-	return h.Execf(`sudo launchctl list %s | grep -q '"PID"'`, s) == nil
+	return h.Execf(`launchctl list %s | grep -q '"PID"'`, s) == nil
 }
 
 // InstallPackage installs a package using brew

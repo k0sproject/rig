@@ -2,15 +2,16 @@ package rig
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"os"
 	osexec "os/exec"
-	"os/user"
 	"runtime"
 	"strings"
 	"sync"
 
 	"github.com/k0sproject/rig/exec"
+	ps "github.com/k0sproject/rig/powershell"
 	"github.com/kballard/go-shellquote"
 )
 
@@ -19,9 +20,6 @@ const name = "[local] localhost"
 // Localhost is a direct localhost connection
 type Localhost struct {
 	Enabled bool `yaml:"enabled" validate:"required,eq=true" default:"true"`
-
-	cansudo bool
-	user    string
 }
 
 // Protocol returns the protocol name, "Local"
@@ -51,12 +49,6 @@ func (c *Localhost) IsWindows() bool {
 
 // Connect on local connection does nothing
 func (c *Localhost) Connect() error {
-	if !c.IsWindows() && c.Exec("sudo -n true") == nil {
-		c.cansudo = true
-	}
-	if user, err := user.Current(); err == nil {
-		c.user = user.Username
-	}
 	return nil
 }
 
@@ -66,7 +58,10 @@ func (c *Localhost) Disconnect() {}
 // Exec executes a command on the host
 func (c *Localhost) Exec(cmd string, opts ...exec.Option) error {
 	o := exec.Build(opts...)
-	command := c.command(cmd)
+	command, err := c.command(cmd, o)
+	if err != nil {
+		return err
+	}
 
 	if o.Stdin != "" {
 		o.LogStdin(name)
@@ -121,33 +116,54 @@ func (c *Localhost) Exec(cmd string, opts ...exec.Option) error {
 	return err
 }
 
-func (c *Localhost) command(cmd string) *osexec.Cmd {
+func (c *Localhost) command(cmd string, o *exec.Options) (*osexec.Cmd, error) {
+	cmd, err := o.Command(cmd)
+	if err != nil {
+		return nil, err
+	}
+
 	if c.IsWindows() {
-		return osexec.Command(cmd)
+		return osexec.Command(cmd), nil
 	}
 
-	if c.cansudo && c.user != "" {
-		return osexec.Command("sudo", "-n", "-s", "--", "su", "-l", "-c", cmd, c.user)
-	}
-
-	return osexec.Command("bash", "-c", "--", cmd)
+	return osexec.Command("bash", "-c", "--", cmd), nil
 }
 
 // Upload copies a larger file to another path on the host.
-func (c *Localhost) Upload(src, dst string) error {
+func (c *Localhost) Upload(src string) (string, error) {
+	var tmpFile string
+	var err error
+	if c.IsWindows() {
+		if err := c.Exec(ps.Cmd("(New-TemporaryFile).FullPath"), exec.Output(&tmpFile)); err != nil {
+			return tmpFile, err
+		}
+	} else {
+		if err := c.Exec("mktemp 2> /dev/null", exec.Output(&tmpFile)); err != nil {
+			return tmpFile, err
+		}
+	}
+	defer func() {
+		if err != nil {
+			if c.IsWindows() {
+				_ = c.Exec(fmt.Sprintf(`del "%s"`, tmpFile))
+			} else {
+				_ = c.Exec(fmt.Sprintf(`rm -f "%s"`, tmpFile))
+			}
+		}
+	}()
 	in, err := os.Open(src)
 	if err != nil {
-		return err
+		return tmpFile, err
 	}
 	defer in.Close()
 
-	out, err := os.Create(dst)
+	out, err := os.Create(tmpFile)
 	if err != nil {
-		return err
+		return tmpFile, err
 	}
 	defer out.Close()
 	_, err = io.Copy(out, in)
-	return err
+	return tmpFile, err
 }
 
 // ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host

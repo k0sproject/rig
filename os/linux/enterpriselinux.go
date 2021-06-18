@@ -3,6 +3,7 @@ package linux
 import (
 	"strings"
 
+	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/os"
 )
 
@@ -13,5 +14,5 @@ type EnterpriseLinux struct {
 
 // InstallPackage installs packages via yum
 func (c EnterpriseLinux) InstallPackage(h os.Host, s ...string) error {
-	return h.Execf("sudo yum install -y %s", strings.Join(s, " "))
+	return h.Execf("yum install -y %s", strings.Join(s, " "), exec.Sudo(h))
 }
