@@ -10,9 +10,7 @@ import (
 )
 
 // Linux is a base module for various linux OS support packages
-type Linux struct {
-	isys initSystem
-}
+type Linux struct{}
 
 // initSystem interface defines an init system - the OS's system to manage services (systemd, openrc for example)
 type initSystem interface {
@@ -31,62 +29,109 @@ func (c Linux) Kind() string {
 	return "linux"
 }
 
+func (c Linux) hasSystemd(h Host) bool {
+	return h.Exec("sudo stat /run/systemd/system") == nil
+}
+
+func (c Linux) hasUpstart(h Host) bool {
+	return h.Exec(`sudo stat /sbin/upstart-udev-bridge > /dev/null 2>&1 || \
+    ( sudo stat /sbin/initctl > /dev/null 2>&1 && \
+      sudo /sbin/initctl --version 2> /dev/null | grep -q "\(upstart" )`) == nil
+}
+
+func (c Linux) hasOpenRC(h Host) bool {
+	return h.Exec(`sudo -s command -v openrc-init > /dev/null 2>&1 || \
+    ( sudo stat /etc/inittab > /dev/null 2>&1 && \
+		  (sudo grep ::sysinit: /etc/inittab | grep -q openrc) )`) == nil
+}
+
+func (c Linux) hasSysV(h Host) bool {
+	return h.Exec(`sudo -s command -v service 2>&1 && sudo stat /etc/init.d > /dev/null 2>&1`) == nil
+}
+
 // memoizing accessor to the init system (systemd, openrc)
-func (c Linux) is(h Host) initSystem {
-	if c.isys == nil {
-		initctl, err := h.ExecOutput("basename $(sudo -s command -v rc-service systemctl 2>/dev/null) 2>/dev/null")
-		if err != nil {
-			return nil
-		}
-		switch initctl {
-		case "systemctl":
-			c.isys = &initsystem.Systemd{}
-		case "rc-service":
-			c.isys = &initsystem.OpenRC{}
-		}
+func (c Linux) is(h Host) (initSystem, error) {
+	if c.hasSystemd(h) {
+		return &initsystem.Systemd{}, nil
 	}
 
-	return c.isys
+	if c.hasOpenRC(h) || c.hasUpstart(h) || c.hasSysV(h) {
+		return &initsystem.OpenRC{}, nil
+	}
+
+	return nil, fmt.Errorf("failed to detect OS init system")
 }
 
 // StartService starts a service on the host
 func (c Linux) StartService(h Host, s string) error {
-	return c.is(h).StartService(h, s)
+	is, err := c.is(h)
+	if err != nil {
+		return err
+	}
+	return is.StartService(h, s)
 }
 
 // StopService stops a service on the host
 func (c Linux) StopService(h Host, s string) error {
-	return c.is(h).StopService(h, s)
+	is, err := c.is(h)
+	if err != nil {
+		return err
+	}
+	return is.StopService(h, s)
 }
 
 // RestartService restarts a service on the host
 func (c Linux) RestartService(h Host, s string) error {
-	return c.is(h).RestartService(h, s)
+	is, err := c.is(h)
+	if err != nil {
+		return err
+	}
+	return is.RestartService(h, s)
 }
 
 // DisableService disables a service on the host
 func (c Linux) DisableService(h Host, s string) error {
-	return c.is(h).DisableService(h, s)
+	is, err := c.is(h)
+	if err != nil {
+		return err
+	}
+	return is.DisableService(h, s)
 }
 
 // EnableService enables a service on the host
 func (c Linux) EnableService(h Host, s string) error {
-	return c.is(h).EnableService(h, s)
+	is, err := c.is(h)
+	if err != nil {
+		return err
+	}
+	return is.EnableService(h, s)
 }
 
 // ServiceIsRunning returns true if the service is running on the host
 func (c Linux) ServiceIsRunning(h Host, s string) bool {
-	return c.is(h).ServiceIsRunning(h, s)
+	is, err := c.is(h)
+	if err != nil {
+		return false
+	}
+	return is.ServiceIsRunning(h, s)
 }
 
 // ServiceScriptPath returns the service definition file path on the host
 func (c Linux) ServiceScriptPath(h Host, s string) (string, error) {
-	return c.is(h).ServiceScriptPath(h, s)
+	is, err := c.is(h)
+	if err != nil {
+		return "", err
+	}
+	return is.ServiceScriptPath(h, s)
 }
 
 // DaemonReload performs an init system config reload
 func (c Linux) DaemonReload(h Host) error {
-	return c.is(h).DaemonReload(h)
+	is, err := c.is(h)
+	if err != nil {
+		return err
+	}
+	return is.DaemonReload(h)
 }
 
 // CheckPrivilege returns an error if the user does not have passwordless sudo enabled
