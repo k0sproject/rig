@@ -150,6 +150,11 @@ func (c Windows) UpdateEnvironment(h Host, env map[string]string) error {
 	return nil
 }
 
+// UpdateServiceEnvironment does nothing on windows
+func (c Windows) UpdateServiceEnvironment(_ Host, _ string, _ map[string]string) error {
+	return nil
+}
+
 // CleanupEnvironment removes environment variable configuration
 func (c Windows) CleanupEnvironment(h Host, env map[string]string) error {
 	for k := range env {
@@ -162,6 +167,11 @@ func (c Windows) CleanupEnvironment(h Host, env map[string]string) error {
 			return err
 		}
 	}
+	return nil
+}
+
+// CleanupServiceEnvironment does nothing on windows
+func (c Windows) CleanupServiceEnvironment(_ Host, _ string) error {
 	return nil
 }
 
