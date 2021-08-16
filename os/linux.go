@@ -22,6 +22,8 @@ type initSystem interface {
 	ServiceIsRunning(initsystem.Host, string) bool
 	ServiceScriptPath(initsystem.Host, string) (string, error)
 	DaemonReload(initsystem.Host) error
+	ServiceEnvironmentPath(initsystem.Host, string) (string, error)
+	ServiceEnvironmentContent(map[string]string) string
 }
 
 // Kind returns "linux"
@@ -250,6 +252,19 @@ func (c Linux) UpdateEnvironment(h Host, env map[string]string) error {
 	return h.Exec(`while read -r pair; do if [[ $pair == ?* && $pair != \#* ]]; then export "$pair" || exit 2; fi; done < /etc/environment`)
 }
 
+// UpdateServiceEnvironment updates environment variables for a service
+func (c Linux) UpdateServiceEnvironment(h Host, s string, env map[string]string) error {
+	is, err := c.is(h)
+	if err != nil {
+		return err
+	}
+	fp, err := is.ServiceEnvironmentPath(h, s)
+	if err != nil {
+		return err
+	}
+	return c.WriteFile(h, fp, is.ServiceEnvironmentContent(env), "0660")
+}
+
 // CleanupEnvironment removes environment variable configuration
 func (c Linux) CleanupEnvironment(h Host, env map[string]string) error {
 	for k := range env {
@@ -260,6 +275,19 @@ func (c Linux) CleanupEnvironment(h Host, env map[string]string) error {
 	}
 	// remove empty lines
 	return h.Exec(`sudo sed -i '/^$/d' /etc/environment`)
+}
+
+// CleanupServiceEnvironment updates environment variables for a service
+func (c Linux) CleanupServiceEnvironment(h Host, s string) error {
+	is, err := c.is(h)
+	if err != nil {
+		return err
+	}
+	fp, err := is.ServiceEnvironmentPath(h, s)
+	if err != nil {
+		return err
+	}
+	return c.DeleteFile(h, fp)
 }
 
 // CommandExist returns true if the command exists

@@ -1,5 +1,12 @@
 package initsystem
 
+import (
+	"fmt"
+	"path"
+	"strconv"
+	"strings"
+)
+
 // OpenRC is found on some linux systems, often installed on Alpine for example.
 type OpenRC struct{}
 
@@ -41,4 +48,19 @@ func (i OpenRC) DisableService(h Host, s string) error {
 // ServiceIsRunning returns true if a service is running
 func (i OpenRC) ServiceIsRunning(h Host, s string) bool {
 	return h.Execf(`sudo rc-service %s status | grep -q "status: started"`, s) == nil
+}
+
+// ServiceEnvironmentPath returns a path to an environment override file path
+func (i OpenRC) ServiceEnvironmentPath(h Host, s string) (string, error) {
+	return path.Join("/etc/conf.d", s), nil
+}
+
+// ServiceEnvironmentContent returns a formatted string for a service environment override file
+func (i OpenRC) ServiceEnvironmentContent(env map[string]string) string {
+	var b strings.Builder
+	for k, v := range env {
+		_, _ = fmt.Fprintf(&b, `%s=%s\n`, k, strconv.Quote(v))
+	}
+
+	return b.String()
 }
