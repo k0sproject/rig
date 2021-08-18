@@ -25,7 +25,7 @@ func (e *NotConnectedError) Error() string { return e.Connection.String() + ": n
 type client interface {
 	Connect() error
 	Disconnect()
-	Upload(source string, destination string) error
+	Upload(source, destination string, opts ...exec.Option) error
 	IsWindows() bool
 	Exec(string, ...exec.Option) error
 	ExecInteractive(string) error
@@ -74,7 +74,8 @@ type Connection struct {
 
 	OSVersion OSVersion `yaml:"-"`
 
-	client client `yaml:"-"`
+	client   client `yaml:"-"`
+	sudofunc func(string) string
 }
 
 // SetDefaults sets a connection
@@ -174,7 +175,7 @@ func (c Connection) ExecOutput(cmd string, opts ...exec.Option) (string, error) 
 	return strings.TrimSpace(output), err
 }
 
-// Connect to the host and identify the operating system
+// Connect to the host and identify the operating system and sudo capability
 func (c *Connection) Connect() error {
 	if c.client == nil {
 		_ = defaults.Set(c)
@@ -190,8 +191,40 @@ func (c *Connection) Connect() error {
 		return err
 	}
 	c.OSVersion = o
+	c.configureSudo()
 
 	return nil
+}
+
+func (c *Connection) configureSudo() {
+	switch c.OSVersion.ID {
+	case "windows":
+		c.sudofunc = func(cmd string) string {
+			return "runas /user:Administrator " + cmd
+		}
+	default:
+		if c.Exec(`[ "$(id -u)" = 0 ]`) == nil {
+			c.sudofunc = func(cmd string) string {
+				return cmd
+			}
+		} else if c.Exec("sudo -n true") == nil {
+			c.sudofunc = func(cmd string) string {
+				return "sudo -s " + cmd
+			}
+		} else if c.Exec("doas -n true") == nil {
+			c.sudofunc = func(cmd string) string {
+				return "doas -s " + cmd
+			}
+		}
+	}
+}
+
+func (c Connection) Sudo(cmd string) (string, error) {
+	if c.sudofunc == nil {
+		return "", fmt.Errorf("user is not an administrator and passwordless access elevation has not been configured")
+	}
+
+	return c.sudofunc(cmd), nil
 }
 
 // Execf is just like `Exec` but you can use Sprintf templating for the command
@@ -227,12 +260,12 @@ func (c *Connection) Disconnect() {
 
 // Upload copies a file from a local path src to the remote host path dst. For
 // smaller files you should probably use os.WriteFile
-func (c Connection) Upload(src, dst string) error {
+func (c Connection) Upload(src, dst string, opts ...exec.Option) error {
 	if !c.IsConnected() {
 		return &NotConnectedError{&c}
 	}
 
-	return c.client.Upload(src, dst)
+	return c.client.Upload(src, dst, opts...)
 }
 
 func (c *Connection) configuredClient() client {

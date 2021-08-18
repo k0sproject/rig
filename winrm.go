@@ -283,8 +283,14 @@ func (c *WinRM) ExecInteractive(cmd string) error {
 	return err
 }
 
-// Upload uploads a file from local src path to remote dst path
-func (c *WinRM) Upload(src, dst string) error {
+// Upload uploads a file from local src path to remote path dst
+func (c *WinRM) Upload(src, dst string, opts ...exec.Option) error {
+	var err error
+	defer func() {
+		if err != nil {
+			_ = c.Exec(fmt.Sprintf(`del %s`, ps.DoubleQuote(dst)), opts...)
+		}
+	}()
 	psCmd := ps.UploadCmd(dst)
 	stat, err := os.Stat(src)
 	if err != nil {
@@ -312,7 +318,13 @@ func (c *WinRM) Upload(src, dst string) error {
 		return err
 	}
 	defer shell.Close()
-	cmd, err := shell.Execute("powershell -ExecutionPolicy Unrestricted -EncodedCommand " + psCmd)
+	o := exec.Build(opts...)
+	upcmd, err := o.Command("powershell -ExecutionPolicy Unrestricted -EncodedCommand " + psCmd)
+	if err != nil {
+		return err
+	}
+
+	cmd, err := shell.Execute(upcmd)
 	if err != nil {
 		return err
 	}
@@ -416,7 +428,7 @@ func (c *WinRM) Upload(src, dst string) error {
 	wg.Wait()
 
 	if cmd.ExitCode() != 0 {
-		return fmt.Errorf("non-zero exit code")
+		return fmt.Errorf("non-zero exit code: %d during upload", cmd.ExitCode())
 	}
 	if sha256DigestRemote == "" {
 		return fmt.Errorf("copy file command did not output the expected JSON to stdout but exited with code 0")

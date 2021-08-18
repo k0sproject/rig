@@ -40,6 +40,10 @@ func (c Windows) InstallPackage(h Host, s ...string) error {
 	return nil
 }
 
+func (c Windows) InstallFile(h Host, src, dst, _ string) error {
+	return h.Execf("move /y %s %s", ps.DoubleQuote(src), ps.DoubleQuote(dst), exec.Sudo(h))
+}
+
 // Pwd returns the current working directory
 func (c Windows) Pwd(h Host) string {
 	if pwd, err := h.ExecOutput("echo %cd%"); err == nil {

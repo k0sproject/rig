@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/k0sproject/rig"
+	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/os/registry"
 )
@@ -26,5 +27,5 @@ func init() {
 
 // InstallPackage installs packages via pacman
 func (c Archlinux) InstallPackage(h os.Host, s ...string) error {
-	return h.Execf("sudo pacman -S --noconfirm --noprogressbar %s", strings.Join(s, " "))
+	return h.Execf("pacman -S --noconfirm --noprogressbar %s", strings.Join(s, " "), exec.Sudo(h))
 }

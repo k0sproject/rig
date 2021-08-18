@@ -202,6 +202,11 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error {
 	}
 	defer session.Close()
 
+	cmd, err = o.Command(cmd)
+	if err != nil {
+		return err
+	}
+
 	if len(o.Stdin) == 0 && c.knowOs && !c.isWindows {
 		// Only request a PTY when there's no STDIN data, because
 		// then you would need to send a CTRL-D after input to signal
@@ -287,13 +292,12 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error {
 	return nil
 }
 
-// Upload uploads a larger file to the host.
-// Use instead of configurer.WriteFile when it seems appropriate
-func (c *SSH) Upload(src, dst string) error {
+// Upload uploads a file from local src path to remote dst
+func (c *SSH) Upload(src, dst string, opts ...exec.Option) error {
 	if c.IsWindows() {
-		return c.uploadWindows(src, dst)
+		return c.uploadWindows(src, dst, opts...)
 	}
-	return c.uploadLinux(src, dst)
+	return c.uploadLinux(src, dst, opts...)
 }
 
 // ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host
@@ -351,19 +355,18 @@ func (c *SSH) ExecInteractive(cmd string) error {
 	return session.Wait()
 }
 
-func (c *SSH) uploadLinux(src, dst string) error {
+func (c *SSH) uploadLinux(src, dst string, opts ...exec.Option) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
 
-	var tmpFile string
-	if err := c.Exec("mktemp 2> /dev/null", exec.Output(&tmpFile)); err != nil {
-		return err
-	}
-	defer func() { _ = c.Exec(fmt.Sprintf("rm -f %s", shellescape.Quote(tmpFile))) }()
-	tmpFile = strings.TrimSpace(tmpFile)
+	defer func() {
+		if err != nil {
+			_ = c.Exec(fmt.Sprintf("rm -f %s", shellescape.Quote(dst)), opts...)
+		}
+	}()
 
 	session, err := c.client.NewSession()
 	if err != nil {
@@ -381,7 +384,13 @@ func (c *SSH) uploadLinux(src, dst string) error {
 		return err
 	}
 
-	err = session.Start(fmt.Sprintf(`gzip -d > %s`, shellescape.Quote(tmpFile)))
+	o := exec.Build(opts...)
+	teeCmd, err := o.Command(fmt.Sprintf("tee %s > /dev/null", shellescape.Quote(dst)))
+	if err != nil {
+		return err
+	}
+
+	err = session.Start(fmt.Sprintf("gzip -d | %s", teeCmd))
 	if err != nil {
 		return err
 	}
@@ -396,10 +405,16 @@ func (c *SSH) uploadLinux(src, dst string) error {
 		return err
 	}
 
-	return c.Exec(fmt.Sprintf("sudo install -D %s %s", shellescape.Quote(tmpFile), shellescape.Quote(dst)))
+	return nil
 }
 
-func (c *SSH) uploadWindows(src, dst string) error {
+func (c *SSH) uploadWindows(src, dst string, opts ...exec.Option) error {
+	var err error
+	defer func() {
+		if err != nil {
+			_ = c.Exec(fmt.Sprintf(`del %s`, ps.DoubleQuote(dst)))
+		}
+	}()
 	psCmd := ps.UploadCmd(dst)
 	stat, err := os.Stat(src)
 	if err != nil {
@@ -441,7 +456,11 @@ func (c *SSH) uploadWindows(src, dst string) error {
 		return err
 	}
 
-	psRunCmd := "powershell -ExecutionPolicy Unrestricted -EncodedCommand " + psCmd
+	o := exec.Build(opts...)
+	psRunCmd, err := o.Command("powershell -ExecutionPolicy Unrestricted -EncodedCommand " + psCmd)
+	if err != nil {
+		return err
+	}
 	if err := session.Start(psRunCmd); err != nil {
 		return err
 	}

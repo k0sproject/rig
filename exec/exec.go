@@ -59,9 +59,24 @@ type Options struct {
 	LogCommand     bool
 	LogOutput      bool
 	StreamOutput   bool
+	Sudo           bool
 	RedactFunc     func(string) string
 	Output         *string
 	Writer         io.Writer
+
+	host host
+}
+
+type host interface {
+	Sudo(string) (string, error)
+}
+
+func (o *Options) Command(cmd string) (string, error) {
+	if !o.Sudo {
+		return cmd, nil
+	}
+
+	return o.host.Sudo(cmd)
 }
 
 // LogCmd is for logging the command to be executed
@@ -201,6 +216,14 @@ func Sensitive() Option {
 	}
 }
 
+// Sudo exec option for running the command with elevated permissions
+func Sudo(h host) Option {
+	return func(o *Options) {
+		o.host = h
+		o.Sudo = true
+	}
+}
+
 // Redact exec option for defining a redact regexp pattern that will be replaced with [REDACTED] in the logs
 func Redact(rexp string) Option {
 	return func(o *Options) {
@@ -248,8 +271,10 @@ func Build(opts ...Option) *Options {
 		LogError:     true,
 		LogOutput:    true,
 		StreamOutput: false,
+		Sudo:         false,
 		Output:       nil,
 		Writer:       nil,
+		host:         nil,
 	}
 
 	for _, o := range opts {
