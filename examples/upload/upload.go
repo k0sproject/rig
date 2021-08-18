@@ -66,7 +66,6 @@ func main() {
 					Address: *dh,
 					Port:    *dp,
 					User:    *usr,
-					KeyPath: "/Users/kimmo/.ssh/id_rsa",
 				},
 			},
 		}
