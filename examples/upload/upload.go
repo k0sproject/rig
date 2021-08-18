@@ -6,7 +6,9 @@ import (
 	"fmt"
 	goos "os"
 
+	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig"
+	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/os/registry"
 	_ "github.com/k0sproject/rig/os/support"
@@ -41,7 +43,9 @@ func (h *Host) LoadOS() error {
 func main() {
 	dh := flag.String("host", "127.0.0.1", "target host")
 	dp := flag.Int("port", 9022, "target host port")
-	df := flag.String("src", "tmpfile", "source file")
+	sf := flag.String("src", "tmpfile", "source file")
+	df := flag.String("dst", "/tmp/tempfile", "destination file")
+	sudo := flag.Bool("sudo", false, "use sudo when uploading")
 	usr := flag.String("user", "root", "user name")
 	pwd := flag.String("pass", "", "password")
 	proto := flag.String("proto", "ssh", "ssh/winrm")
@@ -90,20 +94,25 @@ func main() {
 		panic(err)
 	}
 
-	path, err := h.Upload(*df)
+	var opts []exec.Option
+	if *sudo {
+		opts = append(opts, exec.Sudo(h))
+	}
+
+	err := h.Upload(*sf, *df, opts...)
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Println("Done, file now at", path)
+	fmt.Println("Done, file now at", *df)
 	var md5 string
 	if h.IsWindows() {
-		md5, err = h.ExecOutputf("certutil -hashfile %s MD5", ps.DoubleQuote(path))
+		md5, err = h.ExecOutputf("certutil -hashfile %s MD5", ps.DoubleQuote(*df))
 		if err != nil {
 			panic(err)
 		}
 	} else {
-		md5, err = h.ExecOutputf("md5sum %s", path)
+		md5, err = h.ExecOutputf("md5sum %s", shellescape.Quote(*df))
 		if err != nil {
 			panic(err)
 		}

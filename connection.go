@@ -25,7 +25,7 @@ func (e *NotConnectedError) Error() string { return e.Connection.String() + ": n
 type client interface {
 	Connect() error
 	Disconnect()
-	Upload(source string) (string, error)
+	Upload(source, destination string, opts ...exec.Option) error
 	IsWindows() bool
 	Exec(string, ...exec.Option) error
 	ExecInteractive(string) error
@@ -261,14 +261,14 @@ func (c *Connection) Disconnect() {
 	c.client = nil
 }
 
-// Upload copies a file from a local path src to the remote host tempfile and returns the path to the new file. For
+// Upload copies a file from a local path src to the remote host path dst. For
 // smaller files you should probably use os.WriteFile
-func (c Connection) Upload(src string) (string, error) {
+func (c Connection) Upload(src, dst string, opts ...exec.Option) error {
 	if !c.IsConnected() {
-		return "", &NotConnectedError{&c}
+		return &NotConnectedError{&c}
 	}
 
-	return c.client.Upload(src)
+	return c.client.Upload(src, dst, opts...)
 }
 
 func (c *Connection) configuredClient() client {

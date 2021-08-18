@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig/exec"
 	ps "github.com/k0sproject/rig/powershell"
 	"github.com/kballard/go-shellquote"
@@ -130,40 +131,31 @@ func (c *Localhost) command(cmd string, o *exec.Options) (*osexec.Cmd, error) {
 }
 
 // Upload copies a larger file to another path on the host.
-func (c *Localhost) Upload(src string) (string, error) {
-	var tmpFile string
-	var err error
-	if c.IsWindows() {
-		if err := c.Exec(ps.Cmd("(New-TemporaryFile).FullPath"), exec.Output(&tmpFile)); err != nil {
-			return tmpFile, err
-		}
-	} else {
-		if err := c.Exec("mktemp 2> /dev/null", exec.Output(&tmpFile)); err != nil {
-			return tmpFile, err
-		}
-	}
+func (c *Localhost) Upload(src, dst string, opts ...exec.Option) error {
+	var remoteErr error
 	defer func() {
-		if err != nil {
+		if remoteErr != nil {
 			if c.IsWindows() {
-				_ = c.Exec(fmt.Sprintf(`del "%s"`, tmpFile))
+				_ = c.Exec(fmt.Sprintf(`del %s`, ps.DoubleQuote(dst)))
 			} else {
-				_ = c.Exec(fmt.Sprintf(`rm -f "%s"`, tmpFile))
+				_ = c.Exec(fmt.Sprintf(`rm -f %s`, shellescape.Quote(dst)))
 			}
 		}
 	}()
+
 	in, err := os.Open(src)
 	if err != nil {
-		return tmpFile, err
+		return err
 	}
 	defer in.Close()
 
-	out, err := os.Create(tmpFile)
+	out, err := os.Create(dst)
 	if err != nil {
-		return tmpFile, err
+		return err
 	}
 	defer out.Close()
-	_, err = io.Copy(out, in)
-	return tmpFile, err
+	_, remoteErr = io.Copy(out, in)
+	return remoteErr
 }
 
 // ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host
