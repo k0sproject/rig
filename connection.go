@@ -4,7 +4,6 @@ package rig
 
 import (
 	"fmt"
-	"reflect"
 	"strings"
 
 	"github.com/creasty/defaults"
@@ -292,10 +291,9 @@ func defaultClient() client {
 
 // separates exec.Options from sprintf templating args
 func groupParams(params ...interface{}) (opts []exec.Option, args []interface{}) {
-	sample := reflect.TypeOf(exec.HideCommand())
 	for _, v := range params {
-		if reflect.TypeOf(v) == sample {
-			opts = append(opts, v.(exec.Option))
+		if fn, ok := v.(exec.Option); ok {
+			opts = append(opts, fn)
 		} else {
 			switch vv := v.(type) {
 			case []interface{}:
