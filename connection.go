@@ -205,17 +205,14 @@ func (c *Connection) configureSudo() {
 	default:
 		if c.Exec(`[ "$(id -u)" = 0 ]`) == nil {
 			c.sudofunc = func(cmd string) string {
-				println("id=0")
 				return cmd
 			}
 		} else if c.Exec("sudo -n true") == nil {
 			c.sudofunc = func(cmd string) string {
-				println("sudo -s " + cmd)
 				return "sudo -s " + cmd
 			}
 		} else if c.Exec("doas -n true") == nil {
 			c.sudofunc = func(cmd string) string {
-				println("doas -s " + cmd)
 				return "doas -s " + cmd
 			}
 		}
