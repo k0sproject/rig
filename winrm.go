@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"strings"
 	"sync"
@@ -98,7 +97,7 @@ func (c *WinRM) IsWindows() bool {
 func (c *WinRM) loadCertificates() error {
 	c.caCert = nil
 	if c.CACertPath != "" {
-		ca, err := ioutil.ReadFile(c.CACertPath)
+		ca, err := os.ReadFile(c.CACertPath)
 		if err != nil {
 			return err
 		}
@@ -107,7 +106,7 @@ func (c *WinRM) loadCertificates() error {
 
 	c.cert = nil
 	if c.CertPath != "" {
-		cert, err := ioutil.ReadFile(c.CertPath)
+		cert, err := os.ReadFile(c.CertPath)
 		if err != nil {
 			return err
 		}
@@ -116,7 +115,7 @@ func (c *WinRM) loadCertificates() error {
 
 	c.key = nil
 	if c.KeyPath != "" {
-		key, err := ioutil.ReadFile(c.KeyPath)
+		key, err := os.ReadFile(c.KeyPath)
 		if err != nil {
 			return err
 		}

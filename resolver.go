@@ -116,6 +116,9 @@ func parseOSReleaseFile(s string, os *OSVersion) error {
 			os.ID = unquote(fields[1])
 		case "ID_LIKE":
 			os.IDLike = unquote(fields[1])
+			if os.IDLike == "arch" {
+				os.Version = "0.0.0"
+			}
 		case "VERSION_ID":
 			os.Version = unquote(fields[1])
 		case "PRETTY_NAME":

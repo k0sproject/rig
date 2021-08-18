@@ -1,6 +1,13 @@
 package initsystem
 
-import "github.com/k0sproject/rig/exec"
+import (
+	"fmt"
+	"path"
+	"strconv"
+	"strings"
+
+	"github.com/k0sproject/rig/exec"
+)
 
 // Systemd is found by default on most linux distributions today
 type Systemd struct{}
@@ -43,4 +50,25 @@ func (i Systemd) ServiceIsRunning(h Host, s string) bool {
 // ServiceScriptPath returns the path to a service configuration file
 func (i Systemd) ServiceScriptPath(h Host, s string) (string, error) {
 	return h.ExecOutputf(`systemctl show -p FragmentPath %s.service 2> /dev/null | cut -d"=" -f2`, s, exec.Sudo(h))
+}
+
+// ServiceEnvironmentPath returns a path to an environment override file path
+func (i Systemd) ServiceEnvironmentPath(h Host, s string) (string, error) {
+	sp, err := i.ServiceScriptPath(h, s)
+	if err != nil {
+		return "", err
+	}
+	dn := path.Dir(sp)
+	return path.Join(dn, fmt.Sprintf("%s.service.d", s), "env.conf"), nil
+}
+
+// ServiceEnvironmentContent returns a formatted string for a service environment override file
+func (i Systemd) ServiceEnvironmentContent(env map[string]string) string {
+	var b strings.Builder
+	fmt.Fprintln(&b, "[Service]")
+	for k, v := range env {
+		_, _ = fmt.Fprintf(&b, `Environment=%s=%s\n`, k, strconv.Quote(v))
+	}
+
+	return b.String()
 }

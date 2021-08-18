@@ -10,9 +10,7 @@ import (
 )
 
 // Linux is a base module for various linux OS support packages
-type Linux struct {
-	isys initSystem
-}
+type Linux struct{}
 
 // initSystem interface defines an init system - the OS's system to manage services (systemd, openrc for example)
 type initSystem interface {
@@ -24,6 +22,8 @@ type initSystem interface {
 	ServiceIsRunning(initsystem.Host, string) bool
 	ServiceScriptPath(initsystem.Host, string) (string, error)
 	DaemonReload(initsystem.Host) error
+	ServiceEnvironmentPath(initsystem.Host, string) (string, error)
+	ServiceEnvironmentContent(map[string]string) string
 }
 
 // Kind returns "linux"
@@ -31,57 +31,108 @@ func (c Linux) Kind() string {
 	return "linux"
 }
 
-// memoizing accessor to the init system (systemd, openrc)
-func (c Linux) is(h Host) initSystem {
-	if c.isys == nil {
-		if h.Exec("command -v systemctl > /dev/null 2&>1", exec.Sudo(h)) == nil {
-			c.isys = &initsystem.Systemd{}
-		} else if h.Exec("command -v rc-service > /dev/null 2&>1", exec.Sudo(h)) == nil {
-			c.isys = &initsystem.OpenRC{}
-		}
+func (c Linux) hasSystemd(h Host) bool {
+	return h.Exec("stat /run/systemd/system", exec.Sudo(h)) == nil
+}
+
+func (c Linux) hasUpstart(h Host) bool {
+	return h.Exec(`stat /sbin/upstart-udev-bridge > /dev/null 2>&1 || \
+    (stat /sbin/initctl > /dev/null 2>&1 && \
+     /sbin/initctl --version 2> /dev/null | grep -q "\(upstart" )`, exec.Sudo(h)) == nil
+}
+
+func (c Linux) hasOpenRC(h Host) bool {
+	return h.Exec(`command -v openrc-init > /dev/null 2>&1 || \
+    (stat /etc/inittab > /dev/null 2>&1 && \
+		  (grep ::sysinit: /etc/inittab | grep -q openrc) )`, exec.Sudo(h)) == nil
+}
+
+func (c Linux) hasSysV(h Host) bool {
+	return h.Exec(`command -v service 2>&1 && stat /etc/init.d > /dev/null 2>&1`, exec.Sudo(h)) == nil
+}
+
+func (c Linux) is(h Host) (initSystem, error) {
+	if c.hasSystemd(h) {
+		return &initsystem.Systemd{}, nil
 	}
 
-	return c.isys
+	if c.hasOpenRC(h) || c.hasUpstart(h) || c.hasSysV(h) {
+		return &initsystem.OpenRC{}, nil
+	}
+
+	return nil, fmt.Errorf("failed to detect OS init system")
 }
 
 // StartService starts a service on the host
 func (c Linux) StartService(h Host, s string) error {
-	return c.is(h).StartService(h, s)
+	is, err := c.is(h)
+	if err != nil {
+		return err
+	}
+	return is.StartService(h, s)
 }
 
 // StopService stops a service on the host
 func (c Linux) StopService(h Host, s string) error {
-	return c.is(h).StopService(h, s)
+	is, err := c.is(h)
+	if err != nil {
+		return err
+	}
+	return is.StopService(h, s)
 }
 
 // RestartService restarts a service on the host
 func (c Linux) RestartService(h Host, s string) error {
-	return c.is(h).RestartService(h, s)
+	is, err := c.is(h)
+	if err != nil {
+		return err
+	}
+	return is.RestartService(h, s)
 }
 
 // DisableService disables a service on the host
 func (c Linux) DisableService(h Host, s string) error {
-	return c.is(h).DisableService(h, s)
+	is, err := c.is(h)
+	if err != nil {
+		return err
+	}
+	return is.DisableService(h, s)
 }
 
 // EnableService enables a service on the host
 func (c Linux) EnableService(h Host, s string) error {
-	return c.is(h).EnableService(h, s)
+	is, err := c.is(h)
+	if err != nil {
+		return err
+	}
+	return is.EnableService(h, s)
 }
 
 // ServiceIsRunning returns true if the service is running on the host
 func (c Linux) ServiceIsRunning(h Host, s string) bool {
-	return c.is(h).ServiceIsRunning(h, s)
+	is, err := c.is(h)
+	if err != nil {
+		return false
+	}
+	return is.ServiceIsRunning(h, s)
 }
 
 // ServiceScriptPath returns the service definition file path on the host
 func (c Linux) ServiceScriptPath(h Host, s string) (string, error) {
-	return c.is(h).ServiceScriptPath(h, s)
+	is, err := c.is(h)
+	if err != nil {
+		return "", err
+	}
+	return is.ServiceScriptPath(h, s)
 }
 
 // DaemonReload performs an init system config reload
 func (c Linux) DaemonReload(h Host) error {
-	return c.is(h).DaemonReload(h)
+	is, err := c.is(h)
+	if err != nil {
+		return err
+	}
+	return is.DaemonReload(h)
 }
 
 // Pwd returns the current working directory of the session
@@ -202,6 +253,19 @@ func (c Linux) UpdateEnvironment(h Host, env map[string]string) error {
 	return h.Exec(`while read -r pair; do if [[ $pair == ?* && $pair != \#* ]]; then export "$pair" || exit 2; fi; done < /etc/environment`)
 }
 
+// UpdateServiceEnvironment updates environment variables for a service
+func (c Linux) UpdateServiceEnvironment(h Host, s string, env map[string]string) error {
+	is, err := c.is(h)
+	if err != nil {
+		return err
+	}
+	fp, err := is.ServiceEnvironmentPath(h, s)
+	if err != nil {
+		return err
+	}
+	return c.WriteFile(h, fp, is.ServiceEnvironmentContent(env), "0660")
+}
+
 // CleanupEnvironment removes environment variable configuration
 func (c Linux) CleanupEnvironment(h Host, env map[string]string) error {
 	for k := range env {
@@ -212,6 +276,19 @@ func (c Linux) CleanupEnvironment(h Host, env map[string]string) error {
 	}
 	// remove empty lines
 	return h.Exec(`sed -i '/^$/d' /etc/environment`, exec.Sudo(h))
+}
+
+// CleanupServiceEnvironment updates environment variables for a service
+func (c Linux) CleanupServiceEnvironment(h Host, s string) error {
+	is, err := c.is(h)
+	if err != nil {
+		return err
+	}
+	fp, err := is.ServiceEnvironmentPath(h, s)
+	if err != nil {
+		return err
+	}
+	return c.DeleteFile(h, fp)
 }
 
 // CommandExist returns true if the command exists

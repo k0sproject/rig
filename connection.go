@@ -224,7 +224,7 @@ func (c *Connection) configureSudo() {
 
 func (c Connection) Sudo(cmd string) (string, error) {
 	if c.sudofunc == nil {
-		return "", fmt.Errorf("user is not root and passwordless sudo has not been configured")
+		return "", fmt.Errorf("user is not an administrator and passwordless access elevation has not been configured")
 	}
 
 	return c.sudofunc(cmd), nil

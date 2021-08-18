@@ -1,10 +1,10 @@
 package linux
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/k0sproject/rig"
-	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/os/registry"
 )
@@ -16,7 +16,11 @@ type SLES struct {
 
 // InstallPackage installs packages via zypper
 func (c SLES) InstallPackage(h os.Host, s ...string) error {
-	return h.Execf("zypper refresh && sudo zypper -n install -y %s", strings.Join(s, " "), exec.Sudo(h))
+	cmd, err := h.Sudo(fmt.Sprintf("zypper -n install -y %s", strings.Join(s, " ")))
+	if err != nil {
+		return err
+	}
+	return h.Execf("zypper refresh && %s", cmd)
 }
 
 func init() {

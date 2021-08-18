@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"os"
 	"strings"
@@ -24,6 +23,7 @@ import (
 	"github.com/acarl005/stripansi"
 	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/log"
 	ps "github.com/k0sproject/rig/powershell"
 
 	"github.com/mitchellh/go-homedir"
@@ -32,7 +32,7 @@ import (
 // SSH describes an SSH connection
 type SSH struct {
 	Address string `yaml:"address" validate:"required,hostname|ip"`
-	User    string `yaml:"user" validate:"omitempty,gt=2" default:"root"`
+	User    string `yaml:"user" validate:"required" default:"root"`
 	Port    int    `yaml:"port" default:"22" validate:"gt=0,lte=65535"`
 	KeyPath string `yaml:"keyPath" validate:"omitempty"`
 	HostKey string `yaml:"hostKey,omitempty"`
@@ -128,15 +128,7 @@ func (c *SSH) Connect() error {
 		config.HostKeyCallback = trustedHostKeyCallback(c.HostKey)
 	}
 
-	sshAgentSock := os.Getenv("SSH_AUTH_SOCK")
-
-	if sshAgentSock != "" {
-		sshAgent, err := net.Dial("unix", sshAgentSock)
-		if err != nil {
-			return fmt.Errorf("cannot connect to SSH agent auth socket %s: %s", sshAgentSock, err)
-		}
-		config.Auth = append(config.Auth, ssh.PublicKeysCallback(agent.NewClient(sshAgent).Signers))
-	}
+	var pubkeySigners []ssh.Signer
 
 	_, err := os.Stat(c.KeyPath)
 	if err != nil && !c.keypathDefault {
@@ -144,15 +136,33 @@ func (c *SSH) Connect() error {
 	}
 	if err == nil {
 		var key []byte
-		key, err = ioutil.ReadFile(c.KeyPath)
+		key, err = os.ReadFile(c.KeyPath)
 		if err != nil {
 			return err
 		}
 		signer, err := ssh.ParsePrivateKey(key)
-		if err != nil && sshAgentSock == "" {
-			return err
+		if err != nil {
+			log.Errorf("can't parse keyfile %s: %s", c.KeyPath, err.Error())
+		} else {
+			pubkeySigners = append(pubkeySigners, signer)
 		}
-		config.Auth = append(config.Auth, ssh.PublicKeys(signer))
+	}
+
+	sshAgentSock := os.Getenv("SSH_AUTH_SOCK")
+	if sshAgentSock != "" {
+		sshAgent, err := net.Dial("unix", sshAgentSock)
+		if err != nil {
+			log.Errorf("can't connect to SSH agent auth socket %s: %s", sshAgentSock, err)
+		} else {
+			signers, err := agent.NewClient(sshAgent).Signers()
+			if err == nil {
+				pubkeySigners = append(pubkeySigners, signers...)
+			}
+		}
+	}
+
+	if len(pubkeySigners) > 0 {
+		config.Auth = append(config.Auth, ssh.PublicKeys(pubkeySigners...))
 	}
 
 	dst := fmt.Sprintf("%s:%d", c.Address, c.Port)
