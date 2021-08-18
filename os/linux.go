@@ -155,14 +155,14 @@ func (c Linux) JoinPath(parts ...string) string {
 
 // Hostname resolves the short hostname
 func (c Linux) Hostname(h Host) string {
-	n, _ := h.ExecOutput("hostname -s 2> /dev/null")
+	n, _ := h.ExecOutput("hostname 2> /dev/null")
 
 	return n
 }
 
 // LongHostname resolves the FQDN (long) hostname
 func (c Linux) LongHostname(h Host) string {
-	n, _ := h.ExecOutput("hostname 2> /dev/null")
+	n, _ := h.ExecOutput("hostname -f 2> /dev/null")
 
 	return n
 }
