@@ -389,8 +389,10 @@ func (c *SSH) uploadLinux(src, dst string, opts ...exec.Option) error {
 	if err != nil {
 		return err
 	}
+	cmd := fmt.Sprintf("gzip -d | %s", teeCmd)
 
-	err = session.Start(fmt.Sprintf("gzip -d | %s", teeCmd))
+	log.Debugf("%s: executing: %s", c, cmd)
+	err = session.Start(cmd)
 	if err != nil {
 		return err
 	}
