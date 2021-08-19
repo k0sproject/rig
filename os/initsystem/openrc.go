@@ -61,7 +61,7 @@ func (i OpenRC) ServiceEnvironmentPath(h Host, s string) (string, error) {
 func (i OpenRC) ServiceEnvironmentContent(env map[string]string) string {
 	var b strings.Builder
 	for k, v := range env {
-		_, _ = fmt.Fprintf(&b, `%s=%s\n`, k, strconv.Quote(v))
+		_, _ = fmt.Fprintf(&b, "%s=%s\n", k, strconv.Quote(v))
 	}
 
 	return b.String()

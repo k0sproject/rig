@@ -67,7 +67,7 @@ func (i Systemd) ServiceEnvironmentContent(env map[string]string) string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "[Service]")
 	for k, v := range env {
-		_, _ = fmt.Fprintf(&b, `Environment=%s=%s\n`, k, strconv.Quote(v))
+		_, _ = fmt.Fprintf(&b, "Environment=%s=%s\n", k, strconv.Quote(v))
 	}
 
 	return b.String()

@@ -263,7 +263,12 @@ func (c Linux) UpdateServiceEnvironment(h Host, s string, env map[string]string)
 	if err != nil {
 		return err
 	}
-	return c.WriteFile(h, fp, is.ServiceEnvironmentContent(env), "0660")
+	err = c.WriteFile(h, fp, is.ServiceEnvironmentContent(env), "0660")
+	if err != nil {
+		return err
+	}
+
+	return c.DaemonReload(h)
 }
 
 // CleanupEnvironment removes environment variable configuration
