@@ -228,14 +228,14 @@ func (c Connection) Sudo(cmd string) (string, error) {
 
 // Execf is just like `Exec` but you can use Sprintf templating for the command
 func (c Connection) Execf(s string, params ...interface{}) error {
-	opts, args := groupParams(params)
+	opts, args := GroupParams(params)
 	return c.Exec(fmt.Sprintf(s, args...), opts...)
 }
 
 // ExecOutputf is like ExecOutput but you can use Sprintf
 // templating for the command
 func (c Connection) ExecOutputf(s string, params ...interface{}) (string, error) {
-	opts, args := groupParams(params)
+	opts, args := GroupParams(params)
 	return c.ExecOutput(fmt.Sprintf(s, args...), opts...)
 }
 
@@ -289,18 +289,18 @@ func defaultClient() client {
 	return c
 }
 
-// separates exec.Options from sprintf templating args
-func groupParams(params ...interface{}) (opts []exec.Option, args []interface{}) {
+// GroupParams separates exec.Options from other sprintf templating args
+func GroupParams(params ...interface{}) (opts []exec.Option, args []interface{}) {
 	for _, v := range params {
-		if fn, ok := v.(exec.Option); ok {
-			opts = append(opts, fn)
-		} else {
-			switch vv := v.(type) {
-			case []interface{}:
-				args = append(args, vv...)
-			default:
-				args = append(args, v)
-			}
+		switch vv := v.(type) {
+		case []interface{}:
+			o, a := GroupParams(vv...)
+			opts = append(opts, o...)
+			args = append(args, a...)
+		case exec.Option:
+			opts = append(opts, vv)
+		default:
+			args = append(args, vv)
 		}
 	}
 	return
