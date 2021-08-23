@@ -92,7 +92,9 @@ func (c *SSH) Disconnect() {
 // IsWindows is true when the host is running windows
 func (c *SSH) IsWindows() bool {
 	if !c.knowOs && c.client != nil {
-		c.isWindows = c.Exec("cmd /c exit 0") == nil
+		log.Debugf("%s: checking if host is windows", c)
+		c.isWindows = c.Exec("cmd.exe /c exit 0") == nil
+		log.Debugf("%s: host is windows: %t", c, c.isWindows)
 		c.knowOs = true
 
 	}
@@ -356,6 +358,7 @@ func (c *SSH) ExecInteractive(cmd string) error {
 }
 
 func (c *SSH) uploadLinux(src, dst string, opts ...exec.Option) error {
+	var err error
 	in, err := os.Open(src)
 	if err != nil {
 		return err
@@ -364,6 +367,7 @@ func (c *SSH) uploadLinux(src, dst string, opts ...exec.Option) error {
 
 	defer func() {
 		if err != nil {
+			log.Debugf("%s: cleaning up %s", c, dst)
 			_ = c.Exec(fmt.Sprintf("rm -f %s", shellescape.Quote(dst)), opts...)
 		}
 	}()
@@ -379,6 +383,11 @@ func (c *SSH) uploadLinux(src, dst string, opts ...exec.Option) error {
 		return err
 	}
 
+	stderr, err := session.StderrPipe()
+	if err != nil {
+		return err
+	}
+
 	gw, err := gzip.NewWriterLevel(hostIn, gzip.BestSpeed)
 	if err != nil {
 		return err
@@ -389,8 +398,10 @@ func (c *SSH) uploadLinux(src, dst string, opts ...exec.Option) error {
 	if err != nil {
 		return err
 	}
+	unzipCmd := fmt.Sprintf("gzip -d | %s", teeCmd)
+	log.Debugf("%s: executing `%s`", c, unzipCmd)
 
-	err = session.Start(fmt.Sprintf("gzip -d | %s", teeCmd))
+	err = session.Start(unzipCmd)
 	if err != nil {
 		return err
 	}
@@ -401,8 +412,13 @@ func (c *SSH) uploadLinux(src, dst string, opts ...exec.Option) error {
 	gw.Close()
 	hostIn.Close()
 
-	if err := session.Wait(); err != nil {
-		return err
+	if err = session.Wait(); err != nil {
+		msg, readErr := io.ReadAll(stderr)
+		if readErr != nil {
+			msg = []byte(readErr.Error())
+		}
+
+		return fmt.Errorf("upload failed: %s (%s)", err.Error(), msg)
 	}
 
 	return nil
@@ -412,7 +428,8 @@ func (c *SSH) uploadWindows(src, dst string, opts ...exec.Option) error {
 	var err error
 	defer func() {
 		if err != nil {
-			_ = c.Exec(fmt.Sprintf(`del %s`, ps.DoubleQuote(dst)))
+			log.Debugf("%s: cleaning up %s", c, dst)
+			_ = c.Exec(fmt.Sprintf(`del %s`, ps.DoubleQuote(dst)), opts...)
 		}
 	}()
 	psCmd := ps.UploadCmd(dst)
@@ -461,6 +478,7 @@ func (c *SSH) uploadWindows(src, dst string, opts ...exec.Option) error {
 	if err != nil {
 		return err
 	}
+	log.Debugf("%s: executing the upload command", c)
 	if err := session.Start(psRunCmd); err != nil {
 		return err
 	}
@@ -556,8 +574,8 @@ func (c *SSH) uploadWindows(src, dst string, opts ...exec.Option) error {
 		}
 	}()
 
-	if err := session.Wait(); err != nil {
-		return err
+	if err = session.Wait(); err != nil {
+		return fmt.Errorf("%s: upload failed: %s", c, err.Error())
 	}
 
 	wg.Wait()
