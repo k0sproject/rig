@@ -73,6 +73,11 @@ func (c *SSH) IPAddress() string {
 // String returns the connection's printable name
 func (c *SSH) String() string {
 	if c.name == "" {
+		// Pritify IPv6 print
+		if strings.Contains(c.Address, ":") {
+			c.name = fmt.Sprintf("[ssh] [%s]:%d", c.Address, c.Port)
+			return c.name
+		}
 		c.name = fmt.Sprintf("[ssh] %s:%d", c.Address, c.Port)
 	}
 
@@ -167,7 +172,13 @@ func (c *SSH) Connect() error {
 		config.Auth = append(config.Auth, ssh.PublicKeys(pubkeySigners...))
 	}
 
-	dst := fmt.Sprintf("%s:%d", c.Address, c.Port)
+	// add IPv6 Support
+	var dst string
+	if strings.Contains(c.Address, ":") {
+		dst = fmt.Sprintf("[%s]:%d", c.Address, c.Port)
+	} else {
+		dst = fmt.Sprintf("%s:%d", c.Address, c.Port)
+	}
 
 	var client *ssh.Client
 
