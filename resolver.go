@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/k0sproject/rig/log"
 	ps "github.com/k0sproject/rig/powershell"
 )
 
@@ -20,7 +19,6 @@ var Resolvers []resolveFunc
 func GetOSVersion(c *Connection) (OSVersion, error) {
 	for _, r := range Resolvers {
 		if os, err := r(c); err == nil {
-			log.Debugf("%s: detected OS: %s", c, os)
 			return os, nil
 		}
 	}
