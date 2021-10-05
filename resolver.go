@@ -20,7 +20,7 @@ var Resolvers []resolveFunc
 func GetOSVersion(c *Connection) (OSVersion, error) {
 	for _, r := range Resolvers {
 		if os, err := r(c); err == nil {
-			log.Debugf("%s: detected OS: %s", os)
+			log.Debugf("%s: detected OS: %s", c, os)
 			return os, nil
 		}
 	}
