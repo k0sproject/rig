@@ -116,14 +116,16 @@ func parseOSReleaseFile(s string, os *OSVersion) error {
 			os.ID = unquote(fields[1])
 		case "ID_LIKE":
 			os.IDLike = unquote(fields[1])
-			if os.IDLike == "arch" {
-				os.Version = "0.0.0"
-			}
 		case "VERSION_ID":
 			os.Version = unquote(fields[1])
 		case "PRETTY_NAME":
 			os.Name = unquote(fields[1])
 		}
+	}
+
+	// ArchLinux has no versions
+	if os.ID == "arch" || os.IDLike == "arch" {
+		os.Version = "0.0.0"
 	}
 
 	if os.ID == "" || os.Version == "" {
