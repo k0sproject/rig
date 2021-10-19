@@ -309,3 +309,13 @@ func (c Linux) Reboot(h Host) error {
 	}
 	return h.Execf("%s && exit", cmd)
 }
+
+// MkDir creates a directory (including intermediate directories)
+func (c Linux) MkDir(h Host, s string, opts ...exec.Option) error {
+	return h.Exec(fmt.Sprintf("mkdir -p %s", escape.Quote(s)), opts...)
+}
+
+// Chmod updates permissions of a path
+func (c Linux) Chmod(h Host, s, perm string, opts ...exec.Option) error {
+	return h.Exec(fmt.Sprintf("chmod %s %s", perm, escape.Quote(s)), opts...)
+}
