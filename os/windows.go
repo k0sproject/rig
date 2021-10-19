@@ -228,3 +228,14 @@ func (c Windows) DisableService(h Host, s string) error {
 func (c Windows) ServiceIsRunning(h Host, s string) bool {
 	return h.Execf(`sc.exe query "%s" | findstr "RUNNING"`, s) == nil
 }
+
+// MkDir creates a directory (including intermediate directories)
+func (c Windows) MkDir(h Host, s string, opts ...exec.Option) error {
+	// windows mkdir is "-p" by default
+	return h.Exec(fmt.Sprintf(`mkdir %s`, ps.DoubleQuote(s)), opts...)
+}
+
+// Chmod on windows does nothing
+func (c Windows) Chmod(h Host, s, perm string, opts ...exec.Option) error {
+	return nil
+}
