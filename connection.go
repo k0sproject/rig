@@ -71,7 +71,7 @@ type Connection struct {
 	SSH       *SSH       `yaml:"ssh,omitempty"`
 	Localhost *Localhost `yaml:"localhost,omitempty"`
 
-	OSVersion OSVersion `yaml:"-"`
+	OSVersion *OSVersion `yaml:"-"`
 
 	client   client `yaml:"-"`
 	sudofunc func(string) string
@@ -185,11 +185,14 @@ func (c *Connection) Connect() error {
 		return err
 	}
 
-	o, err := GetOSVersion(c)
-	if err != nil {
-		return err
+	if c.OSVersion == nil {
+		o, err := GetOSVersion(c)
+		if err != nil {
+			return err
+		}
+		c.OSVersion = &o
 	}
-	c.OSVersion = o
+
 	c.configureSudo()
 
 	return nil
