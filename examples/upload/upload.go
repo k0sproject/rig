@@ -30,7 +30,7 @@ type Host struct {
 // LoadOS is a function that assigns a OS support package to the host and
 // typecasts it to a suitable interface
 func (h *Host) LoadOS() error {
-	bf, err := registry.GetOSModuleBuilder(h.OSVersion)
+	bf, err := registry.GetOSModuleBuilder(*h.OSVersion)
 	if err != nil {
 		return err
 	}
