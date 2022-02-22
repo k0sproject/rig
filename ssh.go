@@ -18,7 +18,7 @@ import (
 	ssh "golang.org/x/crypto/ssh"
 
 	"golang.org/x/crypto/ssh/agent"
-	"golang.org/x/crypto/ssh/terminal"
+	"golang.org/x/term"
 
 	"github.com/acarl005/stripansi"
 	"github.com/alessio/shellescape"
@@ -314,16 +314,16 @@ func (c *SSH) ExecInteractive(cmd string) error {
 	session.Stderr = os.Stderr
 
 	fd := int(os.Stdin.Fd())
-	old, err := terminal.MakeRaw(fd)
+	old, err := term.MakeRaw(fd)
 	if err != nil {
 		return err
 	}
 
-	defer func(fd int, old *terminal.State) {
-		_ = terminal.Restore(fd, old)
+	defer func(fd int, old *term.State) {
+		_ = term.Restore(fd, old)
 	}(fd, old)
 
-	rows, cols, err := terminal.GetSize(fd)
+	rows, cols, err := term.GetSize(fd)
 	if err != nil {
 		return err
 	}

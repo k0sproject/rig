@@ -1,3 +1,4 @@
+//go:build !windows
 // +build !windows
 
 package rig
@@ -11,7 +12,7 @@ import (
 	"syscall"
 
 	ssh "golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/terminal"
+	"golang.org/x/term"
 )
 
 func captureSignals(stdin io.WriteCloser, session *ssh.Session) {
@@ -38,7 +39,7 @@ func captureSignals(stdin io.WriteCloser, session *ssh.Session) {
 func termSizeWNCH() []byte {
 	size := make([]byte, 16)
 	fd := int(os.Stdin.Fd())
-	rows, cols, err := terminal.GetSize(fd)
+	rows, cols, err := term.GetSize(fd)
 	if err != nil {
 		binary.BigEndian.PutUint32(size, 40)
 		binary.BigEndian.PutUint32(size[4:], 80)
