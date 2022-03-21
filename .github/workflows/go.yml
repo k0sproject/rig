@@ -1,6 +1,6 @@
 name: Go
 
-on: [push, pull_request]
+on: [pull_request]
 
 jobs:
 
@@ -11,13 +11,11 @@ jobs:
 
     - name: Set up Go
       uses: actions/setup-go@v2
-      if: github.ref != 'refs/heads/main'
       with:
-        go-version: 1.16
+        go-version: 1.18
 
     - name: Go modules cache
       uses: actions/cache@v2
-      if: github.ref != 'refs/heads/main'
       with:
         path: ~/go/pkg/mod
         key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
@@ -25,16 +23,13 @@ jobs:
           ${{ runner.os }}-go-
 
     - name: Run golangci-lint
-      if: github.ref != 'refs/heads/main'
-      uses: golangci/golangci-lint-action@v2.3.0
+      uses: golangci/golangci-lint-action@v3.1.0
       with:
-        version: v1.35.2
+        version: latest
         skip-go-installation: true
 
     - name: Build
-      if: github.ref != 'refs/heads/main'
       run: go build -v ./...
 
     - name: Test
-      if: github.ref != 'refs/heads/main'
       run: go test -v ./...
