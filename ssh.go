@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -73,7 +74,7 @@ func (c *SSH) IPAddress() string {
 // String returns the connection's printable name
 func (c *SSH) String() string {
 	if c.name == "" {
-		c.name = fmt.Sprintf("[ssh] %s:%d", c.Address, c.Port)
+		c.name = fmt.Sprintf("[ssh] %s", net.JoinHostPort(c.Address, strconv.Itoa(c.Port)))
 	}
 
 	return c.name
@@ -167,7 +168,7 @@ func (c *SSH) Connect() error {
 		config.Auth = append(config.Auth, ssh.PublicKeys(pubkeySigners...))
 	}
 
-	dst := fmt.Sprintf("%s:%d", c.Address, c.Port)
+	dst := net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
 
 	var client *ssh.Client
 
