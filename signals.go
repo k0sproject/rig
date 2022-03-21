@@ -16,7 +16,7 @@ import (
 )
 
 func captureSignals(stdin io.WriteCloser, session *ssh.Session) {
-	ch := make(chan os.Signal)
+	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, os.Interrupt, syscall.SIGTSTP, syscall.SIGWINCH)
 
 	go func() {
