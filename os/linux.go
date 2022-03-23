@@ -2,8 +2,12 @@ package os
 
 import (
 	"fmt"
+	"io/fs"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/alessio/shellescape"
 	escape "github.com/alessio/shellescape"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/os/initsystem"
@@ -318,4 +322,37 @@ func (c Linux) MkDir(h Host, s string, opts ...exec.Option) error {
 // Chmod updates permissions of a path
 func (c Linux) Chmod(h Host, s, perm string, opts ...exec.Option) error {
 	return h.Exec(fmt.Sprintf("chmod %s %s", perm, escape.Quote(s)), opts...)
+}
+
+// Stat gets file / directory information
+func (c Linux) Stat(h Host, path string, opts ...exec.Option) (*FileInfo, error) {
+	f := &FileInfo{FName: path}
+	out, err := h.ExecOutput(`stat --format "%s/%Y/%a/%F" `+shellescape.Quote(path), opts...)
+	if err != nil {
+		return nil, err
+	}
+	fields := strings.SplitN(out, "/", 4)
+	size, err := strconv.ParseInt(fields[0], 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	f.FSize = size
+	modtime, err := strconv.ParseInt(fields[1], 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	f.FModTime = time.Unix(modtime, 0)
+	mode, err := strconv.ParseUint(fields[2], 8, 32)
+	if err != nil {
+		return nil, err
+	}
+	f.FMode = fs.FileMode(mode)
+	f.FIsDir = strings.Contains(fields[3], "directory")
+
+	return f, nil
+}
+
+// Touch updates a file's last modified time or creates a new empty file
+func (c Linux) Touch(h Host, path string, ts time.Time, opts ...exec.Option) error {
+	return h.Exec(fmt.Sprintf("touch -m -t %s %s", ts.Format("200601021504.05"), shellescape.Quote(path)), opts...)
 }

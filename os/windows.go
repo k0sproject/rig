@@ -2,7 +2,10 @@ package os
 
 import (
 	"fmt"
+	"io/fs"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
@@ -238,4 +241,48 @@ func (c Windows) MkDir(h Host, s string, opts ...exec.Option) error {
 // Chmod on windows does nothing
 func (c Windows) Chmod(h Host, s, perm string, opts ...exec.Option) error {
 	return nil
+}
+
+// Stat gets file / directory information
+func (c Windows) Stat(h Host, path string, opts ...exec.Option) (*FileInfo, error) {
+	f := &FileInfo{FName: path, FMode: fs.FileMode(0)}
+
+	out, err := h.ExecOutput(fmt.Sprintf("[System.Math]::Truncate((Get-Date -Date ((Get-Item %s).LastWriteTime.ToUniversalTime()) -UFormat %%s))", ps.DoubleQuote(path)), opts...)
+	if err != nil {
+		return nil, err
+	}
+	ts, err := strconv.ParseInt(strings.TrimSpace(out), 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	f.FModTime = time.Unix(ts, 0)
+
+	out, err = h.ExecOutput(fmt.Sprintf("(Get-Item %s).Length", ps.DoubleQuote(path)), opts...)
+	if err != nil {
+		return nil, err
+	}
+	size, err := strconv.ParseInt(strings.TrimSpace(out), 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	f.FSize = size
+
+	out, err = h.ExecOutput(fmt.Sprintf("(Get-Item %s).GetType().Name", ps.DoubleQuote(path)), opts...)
+	if err != nil {
+		return nil, err
+	}
+	f.FIsDir = strings.Contains(out, "DirectoryInfo")
+
+	return f, nil
+}
+
+// Touch updates a file's last modified time or creates a new empty file
+func (c Windows) Touch(h Host, path string, ts time.Time, opts ...exec.Option) error {
+	if !c.FileExist(h, path) {
+		if err := h.Exec(fmt.Sprintf("Set-Content -Path %s -value $null", ps.DoubleQuote(path)), opts...); err != nil {
+			return err
+		}
+	}
+
+	return h.Exec(fmt.Sprintf("(Get-Item %s).LastWriteTime = (Get-Date %s)", ps.DoubleQuote(path), ps.DoubleQuote(ts.Format(time.RFC3339))), opts...)
 }
