@@ -2,9 +2,14 @@ package darwin
 
 import (
 	"fmt"
+	"io/fs"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig"
+	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/os/registry"
 )
@@ -62,6 +67,37 @@ func (c Darwin) ServiceIsRunning(h os.Host, s string) bool {
 // InstallPackage installs a package using brew
 func (c Darwin) InstallPackage(h os.Host, s ...string) error {
 	return h.Execf("brew install %s", strings.Join(s, " "))
+}
+
+func (c Darwin) Stat(h os.Host, path string, opts ...exec.Option) (*os.FileInfo, error) {
+	f := &os.FileInfo{FName: path}
+	out, err := h.ExecOutput(`stat -f "%z/%m/%p/%HT" `+shellescape.Quote(path), opts...)
+	if err != nil {
+		return nil, err
+	}
+	fields := strings.SplitN(out, "/", 4)
+	size, err := strconv.ParseInt(fields[0], 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	f.FSize = size
+	modtime, err := strconv.ParseInt(fields[1], 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	f.FModTime = time.Unix(modtime, 0)
+	mode, err := strconv.ParseUint(fields[2], 8, 32)
+	if err != nil {
+		return nil, err
+	}
+	f.FMode = fs.FileMode(mode)
+	f.FIsDir = strings.Contains(fields[3], "directory")
+
+	return f, nil
+}
+
+func (c Darwin) Touch(h os.Host, path string, ts time.Time, opts ...exec.Option) error {
+	return c.Linux.Touch(h, path, ts, opts...)
 }
 
 func init() {
