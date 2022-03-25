@@ -53,7 +53,7 @@ func main() {
 }
 ```
 
-But of course you can use it directly on it's own too:
+But of course you can use it directly on its own too:
 
 ```go
 package main
