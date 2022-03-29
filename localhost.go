@@ -138,7 +138,7 @@ func (c *Localhost) Upload(src, dst string, opts ...exec.Option) error {
 			if c.IsWindows() {
 				_ = c.Exec(fmt.Sprintf(`del %s`, ps.DoubleQuote(dst)))
 			} else {
-				_ = c.Exec(fmt.Sprintf(`rm -f %s`, shellescape.Quote(dst)))
+				_ = c.Exec(fmt.Sprintf(`rm -f -- %s`, shellescape.Quote(dst)))
 			}
 		}
 	}()

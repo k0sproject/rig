@@ -211,11 +211,11 @@ func (c *Connection) configureSudo() {
 			}
 		} else if c.Exec("sudo -n true") == nil {
 			c.sudofunc = func(cmd string) string {
-				return "sudo -s " + cmd
+				return "sudo -s -- " + cmd
 			}
 		} else if c.Exec("doas -n true") == nil {
 			c.sudofunc = func(cmd string) string {
-				return "doas -s " + cmd
+				return "doas -s -- " + cmd
 			}
 		}
 	}

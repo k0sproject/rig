@@ -213,17 +213,17 @@ func (c Linux) WriteFile(h Host, path string, data string, permissions string) e
 }
 
 func (c Linux) InstallFile(h Host, src, dst, permissions string) error {
-	return h.Execf("install -D -m %s %s %s", permissions, src, dst, exec.Sudo(h))
+	return h.Execf("install -D -m %s -- %s %s", permissions, src, dst, exec.Sudo(h))
 }
 
 // ReadFile reads a files contents from the host.
 func (c Linux) ReadFile(h Host, path string) (string, error) {
-	return h.ExecOutputf("cat %s 2> /dev/null", escape.Quote(path), exec.HideOutput(), exec.Sudo(h))
+	return h.ExecOutputf("cat -- %s 2> /dev/null", escape.Quote(path), exec.HideOutput(), exec.Sudo(h))
 }
 
 // DeleteFile deletes a file from the host.
 func (c Linux) DeleteFile(h Host, path string) error {
-	return h.Execf(`rm -f %s 2> /dev/null`, escape.Quote(path), exec.Sudo(h))
+	return h.Execf(`rm -f -- %s 2> /dev/null`, escape.Quote(path), exec.Sudo(h))
 }
 
 // FileExist checks if a file exists on the host
@@ -235,7 +235,7 @@ func (c Linux) FileExist(h Host, path string) bool {
 // TODO refactor this into go because it's too magical.
 func (c Linux) LineIntoFile(h Host, path, matcher, newLine string) error {
 	if c.FileExist(h, path) {
-		err := h.Exec(fmt.Sprintf(`/bin/bash -c -- 'file=%s; match=%s; line=%s; grep -q "${match}" "$file" && sed -i "/${match}/c ${line}" "$file" || (echo "$line" | tee -a "$file" > /dev/null)'`, escape.Quote(path), escape.Quote(matcher), escape.Quote(newLine)))
+		err := h.Exec(fmt.Sprintf(`/bin/bash -c -- 'file=%s; match=%s; line=%s; grep -q "${match}" "$file" && sed -i "/${match}/c ${line}" -- "$file" || (echo "$line" | tee -a -- "$file" > /dev/null)'`, escape.Quote(path), escape.Quote(matcher), escape.Quote(newLine)))
 		if err != nil {
 			return err
 		}
@@ -302,7 +302,7 @@ func (c Linux) CleanupServiceEnvironment(h Host, s string) error {
 
 // CommandExist returns true if the command exists
 func (c Linux) CommandExist(h Host, cmd string) bool {
-	return h.Execf(`command -v "%s" 2> /dev/null`, cmd, exec.Sudo(h)) == nil
+	return h.Execf(`command -v -- "%s" 2> /dev/null`, cmd, exec.Sudo(h)) == nil
 }
 
 // Reboot executes the reboot command
@@ -316,12 +316,12 @@ func (c Linux) Reboot(h Host) error {
 
 // MkDir creates a directory (including intermediate directories)
 func (c Linux) MkDir(h Host, s string, opts ...exec.Option) error {
-	return h.Exec(fmt.Sprintf("mkdir -p %s", escape.Quote(s)), opts...)
+	return h.Exec(fmt.Sprintf("mkdir -p -- %s", escape.Quote(s)), opts...)
 }
 
 // Chmod updates permissions of a path
 func (c Linux) Chmod(h Host, s, perm string, opts ...exec.Option) error {
-	return h.Exec(fmt.Sprintf("chmod %s %s", perm, escape.Quote(s)), opts...)
+	return h.Exec(fmt.Sprintf("chmod %s -- %s", perm, escape.Quote(s)), opts...)
 }
 
 // Stat gets file / directory information
@@ -354,5 +354,5 @@ func (c Linux) Stat(h Host, path string, opts ...exec.Option) (*FileInfo, error)
 
 // Touch updates a file's last modified time or creates a new empty file
 func (c Linux) Touch(h Host, path string, ts time.Time, opts ...exec.Option) error {
-	return h.Exec(fmt.Sprintf("touch -m -t %s %s", ts.Format("200601021504.05"), shellescape.Quote(path)), opts...)
+	return h.Exec(fmt.Sprintf("touch -m -t %s -- %s", ts.Format("200601021504.05"), shellescape.Quote(path)), opts...)
 }

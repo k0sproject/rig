@@ -369,7 +369,7 @@ func (c *SSH) uploadLinux(src, dst string, opts ...exec.Option) error {
 	defer func() {
 		if err != nil {
 			log.Debugf("%s: cleaning up %s", c, dst)
-			_ = c.Exec(fmt.Sprintf("rm -f %s", shellescape.Quote(dst)), opts...)
+			_ = c.Exec(fmt.Sprintf("rm -f -- %s", shellescape.Quote(dst)), opts...)
 		}
 	}()
 
@@ -395,7 +395,7 @@ func (c *SSH) uploadLinux(src, dst string, opts ...exec.Option) error {
 	}
 
 	o := exec.Build(opts...)
-	teeCmd, err := o.Command(fmt.Sprintf("tee %s > /dev/null", shellescape.Quote(dst)))
+	teeCmd, err := o.Command(fmt.Sprintf("tee -- %s > /dev/null", shellescape.Quote(dst)))
 	if err != nil {
 		return err
 	}
