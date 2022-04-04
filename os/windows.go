@@ -1,6 +1,7 @@
 package os
 
 import (
+	"bufio"
 	"fmt"
 	"io/fs"
 	"strconv"
@@ -285,4 +286,35 @@ func (c Windows) Touch(h Host, path string, ts time.Time, opts ...exec.Option) e
 	}
 
 	return h.Exec(fmt.Sprintf("(Get-Item %s).LastWriteTime = (Get-Date %s)", ps.DoubleQuote(path), ps.DoubleQuote(ts.Format(time.RFC3339))), opts...)
+}
+
+// LineIntoFile tries to find a line starting with the matcher and replace it with a new entry. If match isn't found, the string is appended to the file.
+// TODO this is a straight copypaste from linux, figure out a way to share these
+func (c Windows) LineIntoFile(h Host, path, matcher, newLine string) error {
+	newLine = strings.TrimSuffix(newLine, "\n")
+	content, err := c.ReadFile(h, path)
+	if err != nil {
+		content = ""
+	}
+
+	var found bool
+	writer := new(strings.Builder)
+
+	scanner := bufio.NewScanner(strings.NewReader(content))
+	for scanner.Scan() {
+		row := scanner.Text()
+
+		if strings.HasPrefix(row, matcher) && !found {
+			row = newLine
+			found = true
+		}
+
+		fmt.Fprintln(writer, row)
+	}
+
+	if !found {
+		fmt.Fprintln(writer, newLine)
+	}
+
+	return c.WriteFile(h, path, writer.String(), "0644")
 }
