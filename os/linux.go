@@ -324,35 +324,52 @@ func (c Linux) Chmod(h Host, s, perm string, opts ...exec.Option) error {
 	return h.Exec(fmt.Sprintf("chmod %s -- %s", perm, escape.Quote(s)), opts...)
 }
 
+// gnuCoreutilsDateTimeLayout represents the date and time format employed by GNU
+// coreutils. Note that this is different from BSD coreutils.
+const gnuCoreutilsDateTimeLayout = "2006-01-02 15:04:05.999999999 -0700"
+
 // Stat gets file / directory information
 func (c Linux) Stat(h Host, path string, opts ...exec.Option) (*FileInfo, error) {
-	f := &FileInfo{FName: path}
-	out, err := h.ExecOutput(`stat --format "%s/%Y/%a/%F" `+shellescape.Quote(path), opts...)
+	cmd := `env -i LC_ALL=C stat --printf '%s\0%y\0%a\0%F' -- ` + shellescape.Quote(path)
+
+	out, err := h.ExecOutput(cmd, opts...)
 	if err != nil {
 		return nil, err
 	}
-	fields := strings.SplitN(out, "/", 4)
+
+	fields := strings.SplitN(out, "\x00", 4)
+
 	size, err := strconv.ParseInt(fields[0], 10, 64)
 	if err != nil {
 		return nil, err
 	}
-	f.FSize = size
-	modtime, err := strconv.ParseInt(fields[1], 10, 64)
+
+	modTime, err := time.Parse(gnuCoreutilsDateTimeLayout, fields[1])
 	if err != nil {
 		return nil, err
 	}
-	f.FModTime = time.Unix(modtime, 0)
+
 	mode, err := strconv.ParseUint(fields[2], 8, 32)
 	if err != nil {
 		return nil, err
 	}
-	f.FMode = fs.FileMode(mode)
-	f.FIsDir = strings.Contains(fields[3], "directory")
 
-	return f, nil
+	return &FileInfo{
+		FName:    path,
+		FSize:    size,
+		FModTime: modTime,
+		FMode:    fs.FileMode(mode),
+		FIsDir:   strings.Contains(fields[3], "directory"),
+	}, nil
 }
 
-// Touch updates a file's last modified time or creates a new empty file
+// Touch updates a file's last modified time. It creates a new empty file if it
+// didn't exist prior to the call to Touch.
 func (c Linux) Touch(h Host, path string, ts time.Time, opts ...exec.Option) error {
-	return h.Exec(fmt.Sprintf("touch -m -t %s -- %s", ts.Format("200601021504.05"), shellescape.Quote(path)), opts...)
+	cmd := fmt.Sprintf("env -i LC_ALL=C touch -m -d %s -- %s",
+		shellescape.Quote(ts.Format(gnuCoreutilsDateTimeLayout)),
+		shellescape.Quote(path),
+	)
+
+	return h.Exec(cmd, opts...)
 }
