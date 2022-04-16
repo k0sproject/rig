@@ -235,14 +235,14 @@ func (c Linux) FileExist(h Host, path string) bool {
 // TODO refactor this into go because it's too magical.
 func (c Linux) LineIntoFile(h Host, path, matcher, newLine string) error {
 	if c.FileExist(h, path) {
-		err := h.Exec(fmt.Sprintf(`/bin/bash -c -- 'grep -q "%s" "%s" && sed -i "/%s/c %s" -- "%s" || (echo "%s" | tee -a -- "%s" > /dev/null)'`, 
+		err := h.Exec(fmt.Sprintf(`/bin/bash -c -- 'grep -q "%s" "%s" && sed -i "/%s/c %s" -- "%s" || (echo "%s" >> "%s")'`, 
 			escape.Quote(matcher), escape.Quote(path), escape.Quote(matcher), escape.Quote(newLine), escape.Quote(path), escape.Quote(newLine), escape.Quote(path)), exec.Sudo(h))
 		if err != nil {
 			return err
 		}
 		return nil
 	}
-	return c.WriteFile(h, path, newLine, "0700")
+	return c.WriteFile(h, path, newLine + "\b", "0644")
 }
 
 // UpdateEnvironment updates the hosts's environment variables
