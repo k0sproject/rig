@@ -242,7 +242,7 @@ func (c Linux) LineIntoFile(h Host, path, matcher, newLine string) error {
 		}
 		return nil
 	}
-	return c.WriteFile(h, path, newLine + "\b", "0644")
+	return c.WriteFile(h, path, newLine + "\n", "0644")
 }
 
 // UpdateEnvironment updates the hosts's environment variables
