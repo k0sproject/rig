@@ -145,7 +145,7 @@ func (c *SSH) Connect() error {
 		}
 		signer, err := ssh.ParsePrivateKey(key)
 		if err != nil {
-			log.Errorf("can't parse keyfile %s: %s", c.KeyPath, err.Error())
+			log.Infof("can't parse keyfile %s: %s", c.KeyPath, err.Error())
 		} else {
 			pubkeySigners = append(pubkeySigners, signer)
 		}
