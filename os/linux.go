@@ -1,6 +1,7 @@
 package os
 
 import (
+	"bufio"
 	"fmt"
 	"io/fs"
 	"strconv"
@@ -231,17 +232,35 @@ func (c Linux) FileExist(h Host, path string) bool {
 	return h.Execf(`test -e %s 2> /dev/null`, escape.Quote(path), exec.Sudo(h)) == nil
 }
 
-// LineIntoFile tries to find a matching line in a file and replace it with a new entry
-// TODO refactor this into go because it's too magical.
+// LineIntoFile tries to find a line starting with the matcher and replace it with a new entry. If match isn't found, the string is appended to the file.
+// TODO add exec.Opts (requires modifying readfile and writefile signatures)
 func (c Linux) LineIntoFile(h Host, path, matcher, newLine string) error {
-	if c.FileExist(h, path) {
-		err := h.Exec(fmt.Sprintf(`/bin/bash -c -- 'file=%s; match=%s; line=%s; grep -q "${match}" "$file" && sed -i "/${match}/c ${line}" -- "$file" || (echo "$line" | tee -a -- "$file" > /dev/null)'`, escape.Quote(path), escape.Quote(matcher), escape.Quote(newLine)))
-		if err != nil {
-			return err
-		}
-		return nil
+	newLine = strings.TrimSuffix(newLine, "\n")
+	content, err := c.ReadFile(h, path)
+	if err != nil {
+		content = ""
 	}
-	return c.WriteFile(h, path, newLine, "0700")
+
+	var found bool
+	writer := new(strings.Builder)
+
+	scanner := bufio.NewScanner(strings.NewReader(content))
+	for scanner.Scan() {
+		row := scanner.Text()
+
+		if strings.HasPrefix(row, matcher) && !found {
+			row = newLine
+			found = true
+		}
+
+		fmt.Fprintln(writer, row)
+	}
+
+	if !found {
+		fmt.Fprintln(writer, newLine)
+	}
+
+	return c.WriteFile(h, path, writer.String(), "0644")
 }
 
 // UpdateEnvironment updates the hosts's environment variables
