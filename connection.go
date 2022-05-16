@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/alessio/shellescape"
 	"github.com/creasty/defaults"
+	"github.com/google/shlex"
 	"github.com/k0sproject/rig/exec"
 )
 
@@ -211,7 +213,29 @@ func (c *Connection) configureSudo() {
 			}
 		} else if c.Exec("sudo -n true") == nil {
 			c.sudofunc = func(cmd string) string {
-				return "sudo -s -- " + cmd
+				parts, err := shlex.Split(cmd)
+				if err != nil {
+					return "sudo -s -- " + cmd
+				}
+
+				var idx int
+				for i, p := range parts {
+					if strings.Contains(p, "=") {
+						idx = i + 1
+						continue
+					}
+					break
+				}
+
+				if idx == 0 {
+					return "sudo -s -- " + cmd
+				}
+
+				for i, p := range parts {
+					parts[i] = shellescape.Quote(p)
+				}
+
+				return fmt.Sprintf("sudo -s %s -- %s", strings.Join(parts[0:idx], " "), strings.Join(parts[idx:], " "))
 			}
 		} else if c.Exec("doas -n true") == nil {
 			c.sudofunc = func(cmd string) string {
