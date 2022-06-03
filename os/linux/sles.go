@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/k0sproject/rig"
+	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/os/registry"
 )
@@ -20,7 +21,10 @@ func (c SLES) InstallPackage(h os.Host, s ...string) error {
 	if err != nil {
 		return err
 	}
-	return h.Execf("zypper refresh && %s", cmd)
+	if err := h.Exec("zypper refresh", exec.Sudo(h)); err != nil {
+		return err
+	}
+	return h.Execf("zypper -n install -y %s", strings.Join(s, " "), exec.Sudo(h))
 }
 
 func init() {
