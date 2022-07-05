@@ -3,7 +3,6 @@ package initsystem
 import (
 	"fmt"
 	"path"
-	"strconv"
 	"strings"
 
 	"github.com/k0sproject/rig/exec"
@@ -61,7 +60,7 @@ func (i OpenRC) ServiceEnvironmentPath(h Host, s string) (string, error) {
 func (i OpenRC) ServiceEnvironmentContent(env map[string]string) string {
 	var b strings.Builder
 	for k, v := range env {
-		_, _ = fmt.Fprintf(&b, "export %s=%s\n", k, strconv.Quote(v))
+		_, _ = fmt.Fprintf(&b, "export %s=%s\n", k, v)
 	}
 
 	return b.String()
