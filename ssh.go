@@ -32,14 +32,14 @@ import (
 
 // SSH describes an SSH connection
 type SSH struct {
-	Address string `yaml:"address" validate:"required,hostname|ip"`
-	User    string `yaml:"user" validate:"required" default:"root"`
-	Port    int    `yaml:"port" default:"22" validate:"gt=0,lte=65535"`
-	KeyPath string `yaml:"keyPath" validate:"omitempty"`
-	HostKey string `yaml:"hostKey,omitempty"`
-	Bastion *SSH   `yaml:"bastion,omitempty"`
-
-	name string
+	Address          string `yaml:"address" validate:"required,hostname|ip"`
+	User             string `yaml:"user" validate:"required" default:"root"`
+	Port             int    `yaml:"port" default:"22" validate:"gt=0,lte=65535"`
+	KeyPath          string `yaml:"keyPath" validate:"omitempty"`
+	HostKey          string `yaml:"hostKey,omitempty"`
+	Bastion          *SSH   `yaml:"bastion,omitempty"`
+	PasswordProvider PasswordProvider
+	name             string
 
 	isWindows      bool
 	knowOs         bool
@@ -47,6 +47,8 @@ type SSH struct {
 
 	client *ssh.Client
 }
+
+type PasswordProvider func() ([]byte, error)
 
 const DefaultKeypath = "~/.ssh/id_rsa"
 
@@ -145,7 +147,23 @@ func (c *SSH) Connect() error {
 		}
 		signer, err := ssh.ParsePrivateKey(key)
 		if err != nil {
-			log.Infof("can't parse keyfile %s: %s", c.KeyPath, err.Error())
+			if c.PasswordProvider != nil {
+				switch err.(type) {
+				case *ssh.PassphraseMissingError:
+					pass, err := c.PasswordProvider()
+					if err != nil {
+						return fmt.Errorf("password provider failed: %s", err)
+					}
+					signer, err := ssh.ParsePrivateKeyWithPassphrase(key, pass)
+					if err != nil {
+						log.Infof("can't parse keyfile %s: %s", c.KeyPath, err.Error())
+					} else {
+						pubkeySigners = append(pubkeySigners, signer)
+					}
+				}
+			} else {
+				log.Infof("can't parse keyfile %s: %s", c.KeyPath, err.Error())
+			}
 		} else {
 			pubkeySigners = append(pubkeySigners, signer)
 		}
