@@ -121,49 +121,6 @@ func trustedHostKeyCallback(trustedKey string) ssh.HostKeyCallback {
 	}
 }
 
-func (c *SSH) getPrivateKeys() ([]ssh.AuthMethod, error) {
-	result := []ssh.AuthMethod{}
-	_, err := os.Stat(c.KeyPath)
-	if err != nil && !c.keypathDefault {
-		return result, err
-	}
-	if err == nil {
-		var key []byte
-		key, err = os.ReadFile(c.KeyPath)
-		if err != nil {
-			return result, err
-		}
-		signer, err := ssh.ParsePrivateKey(key)
-		if err != nil {
-			if c.PasswordCallback != nil {
-				switch err.(type) {
-				case *ssh.PassphraseMissingError:
-					auth := ssh.PublicKeysCallback(func() ([]ssh.Signer, error) {
-						pass, err := c.PasswordCallback()
-						if err != nil {
-							return nil, fmt.Errorf("password provider failed: %s", err)
-						}
-						signer, err := ssh.ParsePrivateKeyWithPassphrase(key, []byte(pass))
-						if err != nil {
-
-							return nil, err
-						}
-						return []ssh.Signer{signer}, nil
-					})
-
-					result = append(result, auth)
-				default:
-					log.Infof("can't parse keyfile %s: %s", c.KeyPath, err.Error())
-				}
-			} else {
-				log.Infof("can't parse keyfile %s: %s", c.KeyPath, err.Error())
-			}
-		}
-		result = append(result, ssh.PublicKeys(signer))
-	}
-	return result, nil
-}
-
 // Connect opens the SSH connection
 func (c *SSH) Connect() error {
 	config := &ssh.ClientConfig{
@@ -221,6 +178,49 @@ func (c *SSH) Connect() error {
 
 	c.client = client
 	return nil
+}
+
+func (c *SSH) getPrivateKeys() ([]ssh.AuthMethod, error) {
+	result := []ssh.AuthMethod{}
+	_, err := os.Stat(c.KeyPath)
+	if err != nil && !c.keypathDefault {
+		return result, err
+	}
+	if err == nil {
+		var key []byte
+		key, err = os.ReadFile(c.KeyPath)
+		if err != nil {
+			return result, err
+		}
+		signer, err := ssh.ParsePrivateKey(key)
+		if err != nil {
+			if c.PasswordCallback != nil {
+				switch err.(type) {
+				case *ssh.PassphraseMissingError:
+					auth := ssh.PublicKeysCallback(func() ([]ssh.Signer, error) {
+						pass, err := c.PasswordCallback()
+						if err != nil {
+							return nil, fmt.Errorf("password provider failed: %s", err)
+						}
+						signer, err := ssh.ParsePrivateKeyWithPassphrase(key, []byte(pass))
+						if err != nil {
+
+							return nil, err
+						}
+						return []ssh.Signer{signer}, nil
+					})
+
+					result = append(result, auth)
+				default:
+					log.Infof("can't parse keyfile %s: %s", c.KeyPath, err.Error())
+				}
+			} else {
+				log.Infof("can't parse keyfile %s: %s", c.KeyPath, err.Error())
+			}
+		}
+		result = append(result, ssh.PublicKeys(signer))
+	}
+	return result, nil
 }
 
 // Exec executes a command on the host
