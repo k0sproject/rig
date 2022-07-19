@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"syscall"
 
@@ -13,10 +14,13 @@ import (
 */
 
 func main() {
+	user := flag.String("user", "root", "SSH User")
+	host := flag.String("host", "localhost", "Host")
+	flag.Parse()
 	conn := rig.Connection{
 		SSH: &rig.SSH{
-			User:    "root",
-			Address: "localhost",
+			User:    *user,
+			Address: *host,
 			PasswordCallback: func() (string, error) {
 				fmt.Println("Enter password:")
 				pass, err := terminal.ReadPassword(int(syscall.Stdin))

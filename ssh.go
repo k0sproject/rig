@@ -150,7 +150,9 @@ func (c *SSH) Connect() error {
 	if err != nil {
 		return err
 	}
-	config.Auth = append(config.Auth, privateKeyAuth...)
+	if len(privateKeyAuth) > 0 {
+		config.Auth = append(config.Auth, privateKeyAuth...)
+	}
 
 	dst := net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
 
