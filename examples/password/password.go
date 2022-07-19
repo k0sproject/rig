@@ -17,9 +17,10 @@ func main() {
 		SSH: &rig.SSH{
 			User:    "root",
 			Address: "localhost",
-			PasswordProvider: func() ([]byte, error) {
+			PasswordCallback: func() (string, error) {
 				fmt.Println("Enter password:")
-				return terminal.ReadPassword(int(syscall.Stdin))
+				pass, err := terminal.ReadPassword(int(syscall.Stdin))
+				return string(pass), err
 			},
 		},
 	}

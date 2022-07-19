@@ -38,7 +38,7 @@ type SSH struct {
 	KeyPath          string `yaml:"keyPath" validate:"omitempty"`
 	HostKey          string `yaml:"hostKey,omitempty"`
 	Bastion          *SSH   `yaml:"bastion,omitempty"`
-	PasswordProvider PasswordProvider
+	PasswordCallback PasswordCallback
 	name             string
 
 	isWindows      bool
@@ -48,7 +48,7 @@ type SSH struct {
 	client *ssh.Client
 }
 
-type PasswordProvider func() ([]byte, error)
+type PasswordCallback func() (secret string, err error)
 
 const DefaultKeypath = "~/.ssh/id_rsa"
 
@@ -121,6 +121,49 @@ func trustedHostKeyCallback(trustedKey string) ssh.HostKeyCallback {
 	}
 }
 
+func (c *SSH) getPrivateKeys() ([]ssh.AuthMethod, error) {
+	result := []ssh.AuthMethod{}
+	_, err := os.Stat(c.KeyPath)
+	if err != nil && !c.keypathDefault {
+		return result, err
+	}
+	if err == nil {
+		var key []byte
+		key, err = os.ReadFile(c.KeyPath)
+		if err != nil {
+			return result, err
+		}
+		signer, err := ssh.ParsePrivateKey(key)
+		if err != nil {
+			if c.PasswordCallback != nil {
+				switch err.(type) {
+				case *ssh.PassphraseMissingError:
+					auth := ssh.PublicKeysCallback(func() ([]ssh.Signer, error) {
+						pass, err := c.PasswordCallback()
+						if err != nil {
+							return nil, fmt.Errorf("password provider failed: %s", err)
+						}
+						signer, err := ssh.ParsePrivateKeyWithPassphrase(key, []byte(pass))
+						if err != nil {
+
+							return nil, err
+						}
+						return []ssh.Signer{signer}, nil
+					})
+
+					result = append(result, auth)
+				default:
+					log.Infof("can't parse keyfile %s: %s", c.KeyPath, err.Error())
+				}
+			} else {
+				log.Infof("can't parse keyfile %s: %s", c.KeyPath, err.Error())
+			}
+		}
+		result = append(result, ssh.PublicKeys(signer))
+	}
+	return result, nil
+}
+
 // Connect opens the SSH connection
 func (c *SSH) Connect() error {
 	config := &ssh.ClientConfig{
@@ -133,42 +176,6 @@ func (c *SSH) Connect() error {
 		config.HostKeyCallback = trustedHostKeyCallback(c.HostKey)
 	}
 
-	var pubkeySigners []ssh.Signer
-
-	_, err := os.Stat(c.KeyPath)
-	if err != nil && !c.keypathDefault {
-		return err
-	}
-	if err == nil {
-		var key []byte
-		key, err = os.ReadFile(c.KeyPath)
-		if err != nil {
-			return err
-		}
-		signer, err := ssh.ParsePrivateKey(key)
-		if err != nil {
-			if c.PasswordProvider != nil {
-				switch err.(type) {
-				case *ssh.PassphraseMissingError:
-					pass, err := c.PasswordProvider()
-					if err != nil {
-						return fmt.Errorf("password provider failed: %s", err)
-					}
-					signer, err := ssh.ParsePrivateKeyWithPassphrase(key, pass)
-					if err != nil {
-						log.Infof("can't parse keyfile %s: %s", c.KeyPath, err.Error())
-					} else {
-						pubkeySigners = append(pubkeySigners, signer)
-					}
-				}
-			} else {
-				log.Infof("can't parse keyfile %s: %s", c.KeyPath, err.Error())
-			}
-		} else {
-			pubkeySigners = append(pubkeySigners, signer)
-		}
-	}
-
 	sshAgentSock := os.Getenv("SSH_AUTH_SOCK")
 	if sshAgentSock != "" {
 		sshAgent, err := net.Dial("unix", sshAgentSock)
@@ -176,15 +183,17 @@ func (c *SSH) Connect() error {
 			log.Errorf("can't connect to SSH agent auth socket %s: %s", sshAgentSock, err)
 		} else {
 			signers, err := agent.NewClient(sshAgent).Signers()
-			if err == nil {
-				pubkeySigners = append(pubkeySigners, signers...)
+			if err == nil && len(signers) > 0 {
+				config.Auth = append(config.Auth, ssh.PublicKeys(signers...))
 			}
 		}
 	}
 
-	if len(pubkeySigners) > 0 {
-		config.Auth = append(config.Auth, ssh.PublicKeys(pubkeySigners...))
+	privateKeyAuth, err := c.getPrivateKeys()
+	if err != nil {
+		return err
 	}
+	config.Auth = append(config.Auth, privateKeyAuth...)
 
 	dst := net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
 
