@@ -3,6 +3,7 @@ package initsystem
 import (
 	"fmt"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/k0sproject/rig/exec"
@@ -66,7 +67,8 @@ func (i Systemd) ServiceEnvironmentContent(env map[string]string) string {
 	var b strings.Builder
 	fmt.Fprintln(&b, "[Service]")
 	for k, v := range env {
-		_, _ = fmt.Fprintf(&b, "Environment=%s=%s\n", k, v)
+		env := fmt.Sprintf("%s=%s", k, v)
+		_, _ = fmt.Fprintf(&b, "Environment=%s\n", strconv.Quote(env))
 	}
 
 	return b.String()
