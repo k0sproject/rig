@@ -18,7 +18,6 @@ import (
 
 	ssh "golang.org/x/crypto/ssh"
 
-	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/term"
 
 	"github.com/acarl005/stripansi"
@@ -121,6 +120,15 @@ func trustedHostKeyCallback(trustedKey string) ssh.HostKeyCallback {
 	}
 }
 
+// signersToString returns signers key type and sha256 fingerprint
+func signersToString(signers []ssh.Signer) string {
+	var ret strings.Builder
+	for _, s := range signers {
+		ret.WriteString("- " + keyString(s.PublicKey()) + "\n")
+	}
+	return ret.String()
+}
+
 // Connect opens the SSH connection
 func (c *SSH) Connect() error {
 	config := &ssh.ClientConfig{
@@ -133,17 +141,12 @@ func (c *SSH) Connect() error {
 		config.HostKeyCallback = trustedHostKeyCallback(c.HostKey)
 	}
 
-	sshAgentSock := os.Getenv("SSH_AUTH_SOCK")
-	if sshAgentSock != "" {
-		sshAgent, err := net.Dial("unix", sshAgentSock)
-		if err != nil {
-			log.Errorf("can't connect to SSH agent auth socket %s: %s", sshAgentSock, err)
-		} else {
-			signers, err := agent.NewClient(sshAgent).Signers()
-			if err == nil && len(signers) > 0 {
-				config.Auth = append(config.Auth, ssh.PublicKeys(signers...))
-			}
-		}
+	signers, err := getSshAgentSigners()
+	if err == nil {
+		log.Debugf("Got %v signers from SSH agents:\n%s", len(signers), signersToString(signers))
+		config.Auth = append(config.Auth, ssh.PublicKeys(signers...))
+	} else {
+		log.Errorf("Failed to get signers from SSH agents because:\n%s", err)
 	}
 
 	privateKeyAuth, err := c.getPrivateKeys()

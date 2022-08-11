@@ -3,9 +3,11 @@ module github.com/k0sproject/rig
 go 1.18
 
 require (
+	github.com/Microsoft/go-winio v0.5.2
 	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d
 	github.com/alessio/shellescape v1.4.1
 	github.com/creasty/defaults v1.5.2
+	github.com/davidmz/go-pageant v1.0.2
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/masterzen/winrm v0.0.0-20211231115050-232efb40349e
