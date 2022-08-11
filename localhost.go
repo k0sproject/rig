@@ -124,7 +124,7 @@ func (c *Localhost) command(cmd string, o *exec.Options) (*osexec.Cmd, error) {
 	}
 
 	if c.IsWindows() {
-		return osexec.Command(cmd), nil
+		return osexec.Command("cmd.exe", "/c", cmd), nil
 	}
 
 	return osexec.Command("bash", "-c", "--", cmd), nil
