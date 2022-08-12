@@ -70,7 +70,7 @@ func TestHostFunctions(t *testing.T) {
 	require.NoError(t, defaults.Set(&h))
 	require.Equal(t, "SSH", h.Protocol())
 	require.Equal(t, "127.0.0.1", h.Address())
-	require.NoError(t, h.Connect())
+	h.Connect()
 	h.Disconnect()
 }
 
