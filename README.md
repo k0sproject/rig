@@ -13,7 +13,10 @@ All of the relevant structs have YAML tags and default values to make unmarshali
 #### Protocols
 
 Currently rig comes with the most common ways to connect to hosts:
-- SSH for connecting to hosts that accept SSH connections
+
+- SSH for connecting to hosts that accept SSH connections. **Pageant**
+or [**openssh agent**](https://docs.microsoft.com/en-us/windows-server/administration/openssh/openssh_install_firstuse)
+can be used on Windows.
 - WinRM as an alternative to SSH for windows hosts (SSH works too)
 - Local for treating the localhost as it was one of the remote hosts
 
