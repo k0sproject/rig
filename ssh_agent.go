@@ -15,18 +15,15 @@ import (
 func getSshAgentSigners() ([]ssh.Signer, error) {
 	sshAgentSock := os.Getenv("SSH_AUTH_SOCK")
 	if sshAgentSock == "" {
-		return nil, fmt.Errorf("- SSH_AUTH_SOCK is empty")
+		return nil, fmt.Errorf("SSH_AUTH_SOCK is empty")
 	}
-	sshAgent, errConnect := net.Dial("unix", sshAgentSock)
-	if errConnect != nil {
-		return nil, fmt.Errorf("- can't connect to SSH agent: %s", errConnect)
+	sshAgent, err := net.Dial("unix", sshAgentSock)
+	if err != nil {
+		return nil, fmt.Errorf("can't connect to SSH agent: %w", err)
 	}
-	signers, errGetSigners := agent.NewClient(sshAgent).Signers()
-	if errGetSigners != nil {
-		return nil, fmt.Errorf("- SSH agent: %s", errGetSigners)
+	signers, err := agent.NewClient(sshAgent).Signers()
+	if err != nil {
+		return nil, fmt.Errorf("SSH agent new client: %w", err)
 	}
-	if len(signers) > 0 {
-		return signers, nil
-	}
-	return nil, fmt.Errorf("- SSH agent %s returned empty list", sshAgentSock)
+	return signers, nil
 }

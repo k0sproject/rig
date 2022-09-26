@@ -62,6 +62,11 @@ func (c *SSH) SetDefaults() {
 	}
 }
 
+// KeyPathDefaulted returns true if the keypath was not set by the user
+func (c *SSH) KeyPathDefaulted() bool {
+	return c.keypathDefault
+}
+
 // Protocol returns the protocol name, "SSH"
 func (c *SSH) Protocol() string {
 	return "SSH"
@@ -141,20 +146,22 @@ func (c *SSH) Connect() error {
 		config.HostKeyCallback = trustedHostKeyCallback(c.HostKey)
 	}
 
-	signers, err := getSshAgentSigners()
-	if err == nil {
-		log.Debugf("Got %v signers from SSH agents:\n%s", len(signers), signersToString(signers))
-		config.Auth = append(config.Auth, ssh.PublicKeys(signers...))
-	} else {
-		log.Errorf("Failed to get signers from SSH agents because:\n%s", err)
-	}
-
 	privateKeyAuth, err := c.getPrivateKeys()
 	if err != nil {
 		return err
 	}
 	if len(privateKeyAuth) > 0 {
 		config.Auth = append(config.Auth, privateKeyAuth...)
+	}
+
+	if c.KeyPath == "" || c.KeyPathDefaulted() {
+		signers, err := getSshAgentSigners()
+		if err != nil {
+			log.Debugf("failed to get signers from SSH agents: %v", err)
+		} else if len(signers) > 0 {
+			log.Debugf("Got %v signers from SSH agents:\n%s", len(signers), signersToString(signers))
+			config.Auth = append(config.Auth, ssh.PublicKeys(signers...))
+		}
 	}
 
 	dst := net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
@@ -186,46 +193,36 @@ func (c *SSH) Connect() error {
 }
 
 func (c *SSH) getPrivateKeys() ([]ssh.AuthMethod, error) {
-	result := []ssh.AuthMethod{}
-	_, err := os.Stat(c.KeyPath)
-	if err != nil && !c.keypathDefault {
-		return result, err
-	}
-	if err == nil {
-		var key []byte
-		key, err = os.ReadFile(c.KeyPath)
-		if err != nil {
-			return result, err
+	key, err := os.ReadFile(c.KeyPath)
+	if err != nil {
+		if c.KeyPathDefaulted() {
+			return nil, nil
 		}
-		signer, err := ssh.ParsePrivateKey(key)
-		if err != nil {
-			if c.PasswordCallback != nil {
-				switch err.(type) {
-				case *ssh.PassphraseMissingError:
-					auth := ssh.PublicKeysCallback(func() ([]ssh.Signer, error) {
-						pass, err := c.PasswordCallback()
-						if err != nil {
-							return nil, fmt.Errorf("password provider failed: %s", err)
-						}
-						signer, err := ssh.ParsePrivateKeyWithPassphrase(key, []byte(pass))
-						if err != nil {
+		return nil, err
+	}
 
-							return nil, err
-						}
-						return []ssh.Signer{signer}, nil
-					})
-
-					result = append(result, auth)
-				default:
-					log.Infof("can't parse keyfile %s: %s", c.KeyPath, err.Error())
+	signer, err := ssh.ParsePrivateKey(key)
+	switch err.(type) {
+	case nil:
+		return []ssh.AuthMethod{ssh.PublicKeys(signer)}, nil
+	case *ssh.PassphraseMissingError:
+		if c.PasswordCallback != nil {
+			auth := ssh.PublicKeysCallback(func() ([]ssh.Signer, error) {
+				pass, err := c.PasswordCallback()
+				if err != nil {
+					return nil, fmt.Errorf("password provider failed: %s", err)
 				}
-			} else {
-				log.Infof("can't parse keyfile %s: %s", c.KeyPath, err.Error())
-			}
+				signer, err := ssh.ParsePrivateKeyWithPassphrase(key, []byte(pass))
+				if err != nil {
+					return nil, err
+				}
+				return []ssh.Signer{signer}, nil
+			})
+			return []ssh.AuthMethod{auth}, nil
 		}
-		result = append(result, ssh.PublicKeys(signer))
 	}
-	return result, nil
+
+	return nil, fmt.Errorf("can't parse keyfile %s: %w", c.KeyPath, err)
 }
 
 // Exec executes a command on the host
