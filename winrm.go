@@ -3,6 +3,7 @@ package rig
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -177,7 +178,7 @@ func (c *WinRM) Connect() error {
 	}
 
 	log.Debugf("%s: testing connection", c)
-	_, err = client.Run("echo ok", io.Discard, io.Discard)
+	_, err = client.RunWithContext(context.Background(), "echo ok", io.Discard, io.Discard)
 	if err != nil {
 		return err
 	}
@@ -204,7 +205,7 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error {
 
 	o.LogCmd(c.String(), cmd)
 
-	command, err := shell.Execute(cmd)
+	command, err := shell.ExecuteWithContext(context.Background(), cmd)
 	if err != nil {
 		return err
 	}
@@ -279,7 +280,7 @@ func (c *WinRM) ExecInteractive(cmd string) error {
 	if cmd == "" {
 		cmd = "cmd"
 	}
-	_, err := c.client.RunWithInput(cmd, os.Stdout, os.Stderr, os.Stdin)
+	_, err := c.client.RunWithContextWithInput(context.Background(), cmd, os.Stdout, os.Stderr, os.Stdin)
 	return err
 }
 
@@ -324,7 +325,7 @@ func (c *WinRM) Upload(src, dst string, opts ...exec.Option) error {
 		return err
 	}
 
-	cmd, err := shell.Execute(upcmd)
+	cmd, err := shell.ExecuteWithContext(context.Background(), upcmd)
 	if err != nil {
 		return err
 	}
