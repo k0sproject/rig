@@ -84,9 +84,8 @@ func TestOutputWriter(t *testing.T) {
 	}
 	require.NoError(t, defaults.Set(&h))
 	require.NoError(t, h.Connect())
-	var buf []byte
-	writer := bytes.NewBuffer(buf)
-	require.NoError(t, h.Exec("echo hello world", exec.Writer(writer)))
+	var writer bytes.Buffer
+	require.NoError(t, h.Exec("echo hello world", exec.Writer(&writer)))
 	lt := "\n"
 	if h.IsWindows() {
 		lt = "\r\n"
