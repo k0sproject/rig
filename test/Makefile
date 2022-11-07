@@ -31,7 +31,7 @@ $(footloose):
 .ssh/identity: .ssh
 	ssh-keygen -t $(KEY_TYPE) -b $(KEY_SIZE) -f .ssh/identity -N $(KEY_PASSPHRASE)
 
-footloose.yaml: .ssh/identity
+footloose.yaml: .ssh/identity $(footloose)
 	$(footloose) config create \
 		--config footloose.yaml \
 	  --image quay.io/footloose/ubuntu18.04 \
