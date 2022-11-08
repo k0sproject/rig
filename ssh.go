@@ -35,16 +35,15 @@ type SSH struct {
 	Address          string           `yaml:"address" validate:"required,hostname|ip"`
 	User             string           `yaml:"user" validate:"required" default:"root"`
 	Port             int              `yaml:"port" default:"22" validate:"gt=0,lte=65535"`
-	KeyPath          string           `yaml:"keyPath" validate:"omitempty"`
+	KeyPath          *string          `yaml:"keyPath" validate:"omitempty"`
 	HostKey          string           `yaml:"hostKey,omitempty"`
 	Bastion          *SSH             `yaml:"bastion,omitempty"`
 	PasswordCallback PasswordCallback `yaml:"-"`
 	name             string
 
-	isWindows      bool
-	knowOs         bool
-	keypathDefault bool
-	defaultsSet    bool
+	isWindows bool
+	knowOs    bool
+	once      sync.Once
 
 	client *ssh.Client
 
@@ -53,65 +52,56 @@ type SSH struct {
 
 type PasswordCallback func() (secret string, err error)
 
-const defaultKeypath = "~/.ssh/id_rsa"
+var defaultKeypaths = []string{"~/.ssh/id_rsa", "~/.ssh/identity", "~/.ssh/id_dsa"}
+
+func (c *SSH) expandKeypath(path string) (string, bool) {
+	expanded, err := homedir.Expand(path)
+	if err != nil {
+		return "", false
+	}
+	_, err = os.Stat(expanded)
+	if err != nil {
+		log.Debugf("%s: identity file %s not found", c, expanded)
+		return "", false
+	}
+	log.Debugf("%s: found identity file %s", c, expanded)
+	return expanded, true
+}
+
+func (c *SSH) keypathsFromConfig() []string {
+	log.Debugf("%s: trying to get a keyfile path from ssh config", c)
+	if idf := c.getConfigAll("IdentityFile"); len(idf) > 0 {
+		log.Debugf("%s: detected %d identity file paths from ssh config", c, len(idf))
+		return idf
+	}
+	return []string{}
+}
 
 // SetDefaults sets various default values
 func (c *SSH) SetDefaults() {
-	if c.defaultsSet {
-		return
-	}
-	defer func() { c.defaultsSet = true }()
+	c.once.Do(func() {
+		if c.KeyPath != nil && *c.KeyPath == "" {
+			c.KeyPath = nil
+		}
+		if c.KeyPath != nil {
+			if expanded, ok := c.expandKeypath(*c.KeyPath); ok {
+				c.keyPaths = append(c.keyPaths, expanded)
+			}
+			return
+		}
 
-	if c.KeyPath == "" || c.KeyPath == defaultKeypath {
-		log.Debugf("%s: trying to get a keyfile path from ssh config", c)
-		if idf := c.getConfigAll("IdentityFile"); len(idf) > 0 {
-			log.Debugf("%s: detected %d identity file paths", c, len(idf))
-			for _, f := range idf {
-				exp, err := homedir.Expand(f)
-				if err != nil {
-					log.Debugf("%s: failed to expand path %s: %v", c, f, err)
-					continue
-				}
+		paths := c.keypathsFromConfig()
+		if len(paths) == 0 {
+			paths = append(paths, defaultKeypaths...)
+		}
 
-				_, err = os.Stat(exp)
-				if err != nil {
-					log.Debugf("%s: failed to stat identity file %s: %v", c, exp, err)
-					continue
-				}
-				log.Debugf("%s: using identity file %s", c, exp)
-				c.keyPaths = append(c.keyPaths, exp)
+		for _, p := range paths {
+			if expanded, ok := c.expandKeypath(p); ok {
+				log.Debugf("%s: using identity file %s", c, expanded)
+				c.keyPaths = append(c.keyPaths, expanded)
 			}
 		}
-		if len(c.keyPaths) == 0 {
-			log.Debugf("%s: falling back to %s", c, defaultKeypath)
-			exp, err := homedir.Expand(defaultKeypath)
-			if err != nil {
-				log.Debugf("%s: failed to expand path %s: %v", c, defaultKeypath, err)
-			}
-			_, err = os.Stat(exp)
-			if err != nil {
-				log.Debugf("%s: failed to stat default identity file %s: %v", c, exp, err)
-			} else {
-				c.keyPaths = append(c.keyPaths, exp)
-			}
-		}
-		c.keypathDefault = true
-		return
-	}
-	exp, err := homedir.Expand(c.KeyPath)
-	if err != nil {
-		log.Debugf("%s: failed to expand key path %s: %v", c, c.KeyPath, err)
-	}
-	_, err = os.Stat(exp)
-	if err != nil {
-		log.Errorf("%s: failed to stat key path %s: %v", c, exp, err)
-	}
-	c.keyPaths = append(c.keyPaths, exp)
-}
-
-// KeyPathDefaulted returns true if the keypath was not set by the user
-func (c *SSH) KeyPathDefaulted() bool {
-	return c.keypathDefault
+	})
 }
 
 // Protocol returns the protocol name, "SSH"
@@ -184,6 +174,8 @@ func trustedHostKeyCallback(trustedKey string) ssh.HostKeyCallback {
 	}
 }
 
+const hopefullyNonexistentHost = "thisH0stDoe5not3xist"
+
 // Connect opens the SSH connection
 func (c *SSH) Connect() error {
 	config := &ssh.ClientConfig{
@@ -199,27 +191,52 @@ func (c *SSH) Connect() error {
 	var signers []ssh.Signer
 	agent, err := agentClient()
 	if err != nil {
-		log.Debugf("failed to get ssh agent client: %v", err)
+		log.Debugf("%s: failed to get ssh agent client: %v", c, err)
 	} else {
 		signers, err = agent.Signers()
 		if err != nil {
-			log.Debugf("failed to get signers from ssh agent: %v", err)
+			log.Debugf("%s: failed to get signers from ssh agent: %v", c, err)
 		}
 	}
 
 	for _, keyPath := range c.keyPaths {
 		privateKeyAuth, err := c.pkeySigner(signers, keyPath)
 		if err != nil {
-			log.Debugf("failed to get a signer for %s: %v", keyPath, err)
+			log.Debugf("%s: failed to get a signer for %s: %v", c, keyPath, err)
 			continue
 		}
 
 		config.Auth = append(config.Auth, privateKeyAuth)
 	}
 
-	if len(config.Auth) == 0 && len(signers) > 0 && c.KeyPathDefaulted() {
-		log.Debugf("using %d signers from ssh agent", len(signers))
-		config.Auth = append(config.Auth, ssh.PublicKeys(signers...))
+	if c.KeyPath == nil {
+		dummyHostIdentityFiles := SSHConfigGetAll(hopefullyNonexistentHost, "IdentityFile")
+		var expandedDummyIDFs []string
+		for _, keyPath := range dummyHostIdentityFiles {
+			if expanded, ok := c.expandKeypath(keyPath); ok {
+				expandedDummyIDFs = append(expandedDummyIDFs, expanded)
+			}
+		}
+
+		allDefault := true
+		for _, keyPath := range c.keyPaths {
+			found := false
+			for _, idf := range expandedDummyIDFs {
+				if idf == keyPath {
+					found = true
+					break
+				}
+			}
+			if !found {
+				allDefault = false
+				break
+			}
+		}
+
+		if allDefault && len(signers) > 0 {
+			log.Debugf("%s: additionally using all keys (%d) from ssh agent because keypath was not explicitly given", c, len(signers))
+			config.Auth = append(config.Auth, ssh.PublicKeys(signers...))
+		}
 	}
 
 	dst := net.JoinHostPort(c.Address, strconv.Itoa(c.Port))

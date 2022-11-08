@@ -65,12 +65,9 @@ func main() {
 				Address: *dh,
 				Port:    *dp,
 				User:    *usr,
+				KeyPath: kp,
 			},
 		},
-	}
-
-	if *kp != "" {
-		h.SSH.KeyPath = *kp
 	}
 
 	if configPath := goos.Getenv("SSH_CONFIG"); configPath != "" {
