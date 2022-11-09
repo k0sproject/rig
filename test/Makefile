@@ -2,6 +2,7 @@ KEY_TYPE ?= rsa
 KEY_SIZE ?= 4096
 KEY_PASSPHRASE ?= ""
 KEY_PATH ?= ".ssh/identity"
+REPLICAS ?= 1
 
 footloose := $(shell which footloose)
 ifeq ($(footloose),)
@@ -29,6 +30,7 @@ $(footloose):
 	mkdir -p .ssh
 
 .ssh/identity: .ssh
+	rm -f .ssh/identity
 	ssh-keygen -t $(KEY_TYPE) -b $(KEY_SIZE) -f .ssh/identity -N $(KEY_PASSPHRASE)
 
 footloose.yaml: .ssh/identity $(footloose)
@@ -37,7 +39,7 @@ footloose.yaml: .ssh/identity $(footloose)
 	  --image quay.io/footloose/ubuntu18.04 \
 		--name rigtest \
 	  --key .ssh/identity \
-		--replicas 1 \
+		--replicas $(REPLICAS) \
     --override
 
 .PHONY: create-host
@@ -60,8 +62,7 @@ sshport:
 .PHONY: run
 run: rigtest create-host
 	./rigtest \
-		-host 127.0.0.1 \
-		-port $(shell $(MAKE) sshport) \
+		-host 127.0.0.1:$(shell $(MAKE) sshport) \
 	  -keypath $(KEY_PATH) \
 		-user root
 

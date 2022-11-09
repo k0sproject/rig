@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	goos "os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -45,10 +46,10 @@ func (h *Host) LoadOS() error {
 }
 
 func main() {
-	dh := flag.String("host", "127.0.0.1", "target host")
-	dp := flag.Int("port", 22, "target host port")
+	dh := flag.String("host", "127.0.0.1", "target host [+ :port], can give multiple comma separated")
 	usr := flag.String("user", "root", "user name")
 	kp := flag.String("keypath", "", "keypath")
+	pc := flag.Bool("askpass", false, "ask passwords")
 
 	fn := fmt.Sprintf("test_%s.txt", time.Now().Format("20060102150405"))
 
@@ -57,17 +58,6 @@ func main() {
 	if *dh == "" {
 		println("see -help")
 		goos.Exit(1)
-	}
-
-	h := Host{
-		Connection: rig.Connection{
-			SSH: &rig.SSH{
-				Address: *dh,
-				Port:    *dp,
-				User:    *usr,
-				KeyPath: kp,
-			},
-		},
 	}
 
 	if configPath := goos.Getenv("SSH_CONFIG"); configPath != "" {
@@ -88,47 +78,86 @@ func main() {
 		}
 	}
 
-	if err := h.Connect(); err != nil {
-		panic(err)
+	var passfunc func() (string, error)
+	if *pc {
+		passfunc = func() (string, error) {
+			var pass string
+			fmt.Print("Password: ")
+			fmt.Scanln(&pass)
+			return pass, nil
+		}
 	}
 
-	if err := h.LoadOS(); err != nil {
-		panic(err)
+	var hosts []Host
+
+	for _, address := range strings.Split(*dh, ",") {
+		port := 22
+		if addr, portstr, ok := strings.Cut(address, ":"); ok {
+			address = addr
+			p, err := strconv.Atoi(portstr)
+			if err != nil {
+				panic("invalid port " + portstr)
+			}
+			port = p
+		}
+
+		h := Host{
+			Connection: rig.Connection{
+				SSH: &rig.SSH{
+					Address:          address,
+					Port:             port,
+					User:             *usr,
+					KeyPath:          kp,
+					PasswordCallback: passfunc,
+				},
+			},
+		}
+		hosts = append(hosts, h)
 	}
 
-	if err := h.Configurer.WriteFile(h, fn, "test\ntest2\ntest3", "0644"); err != nil {
-		panic(err)
-	}
+	for _, h := range hosts {
+		if err := h.Connect(); err != nil {
+			panic(err)
+		}
 
-	if err := h.Configurer.LineIntoFile(h, fn, "test2", "test4"); err != nil {
-		panic(err)
-	}
+		if err := h.LoadOS(); err != nil {
+			panic(err)
+		}
 
-	if !h.Configurer.FileExist(h, fn) {
-		panic("file does not exist")
-	}
+		if err := h.Configurer.WriteFile(h, fn, "test\ntest2\ntest3", "0644"); err != nil {
+			panic(err)
+		}
 
-	row, err := h.Configurer.ReadFile(h, fn)
-	if err != nil {
-		panic(err)
-	}
-	if row != "test\ntest4\ntest3" {
-		panic("file content is not correct")
-	}
+		if err := h.Configurer.LineIntoFile(h, fn, "test2", "test4"); err != nil {
+			panic(err)
+		}
 
-	stat, err := h.Configurer.Stat(h, fn)
-	if err != nil {
-		panic(err)
-	}
-	if !strings.HasSuffix(stat.FName, fn) {
-		panic("file stat is not correct")
-	}
+		if !h.Configurer.FileExist(h, fn) {
+			panic("file does not exist")
+		}
 
-	if err := h.Configurer.DeleteFile(h, fn); err != nil {
-		panic(err)
-	}
+		row, err := h.Configurer.ReadFile(h, fn)
+		if err != nil {
+			panic(err)
+		}
+		if row != "test\ntest4\ntest3" {
+			panic("file content is not correct")
+		}
 
-	if h.Configurer.FileExist(h, fn) {
-		panic("file still exists")
+		stat, err := h.Configurer.Stat(h, fn)
+		if err != nil {
+			panic(err)
+		}
+		if !strings.HasSuffix(stat.FName, fn) {
+			panic("file stat is not correct")
+		}
+
+		if err := h.Configurer.DeleteFile(h, fn); err != nil {
+			panic(err)
+		}
+
+		if h.Configurer.FileExist(h, fn) {
+			panic("file still exists")
+		}
 	}
 }
