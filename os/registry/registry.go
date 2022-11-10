@@ -6,8 +6,10 @@ import (
 	"github.com/k0sproject/rig"
 )
 
-type buildFunc = func() interface{}
-type matchFunc = func(rig.OSVersion) bool
+type (
+	buildFunc = func() interface{}
+	matchFunc = func(rig.OSVersion) bool
+)
 
 type osFactory struct {
 	MatchFunc matchFunc

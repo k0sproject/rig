@@ -43,31 +43,31 @@ type client interface {
 //
 // If you have a host like this:
 //
-// 		type Host struct {
-// 		  rig.Connection `yaml:"connection"`
-// 		}
+//	type Host struct {
+//	  rig.Connection `yaml:"connection"`
+//	}
 //
 // and a YAML like this:
 //
-//     hosts:
-//       - connection:
-//           ssh:
-//             address: 10.0.0.1
-//             port: 8022
+//	hosts:
+//	  - connection:
+//	      ssh:
+//	        address: 10.0.0.1
+//	        port: 8022
 //
 // you can then simply do this:
 //
-//     var hosts []*Host
-//     if err := yaml.Unmarshal(data, &hosts); err != nil {
-//       panic(err)
-//     }
-//     for _, h := range hosts {
-//       err := h.Connect()
-//       if err != nil {
-//         panic(err)
-//       }
-//       output, err := h.ExecOutput("echo hello")
-//     }
+//	var hosts []*Host
+//	if err := yaml.Unmarshal(data, &hosts); err != nil {
+//	  panic(err)
+//	}
+//	for _, h := range hosts {
+//	  err := h.Connect()
+//	  if err != nil {
+//	    panic(err)
+//	  }
+//	  output, err := h.ExecOutput("echo hello")
+//	}
 type Connection struct {
 	WinRM     *WinRM     `yaml:"winRM,omitempty"`
 	SSH       *SSH       `yaml:"ssh,omitempty"`

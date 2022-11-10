@@ -18,9 +18,8 @@ import (
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
 	ps "github.com/k0sproject/rig/powershell"
-	"github.com/mitchellh/go-homedir"
-
 	"github.com/masterzen/winrm"
+	"github.com/mitchellh/go-homedir"
 )
 
 // WinRM describes a WinRM connection with its configuration options
@@ -172,7 +171,6 @@ func (c *WinRM) Connect() error {
 	}
 
 	client, err := winrm.NewClientWithParameters(endpoint, c.User, c.Password, params)
-
 	if err != nil {
 		return err
 	}

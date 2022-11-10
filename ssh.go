@@ -16,19 +16,16 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/creasty/defaults"
-	"github.com/kevinburke/ssh_config"
-	ssh "golang.org/x/crypto/ssh"
-
-	"golang.org/x/term"
-
 	"github.com/acarl005/stripansi"
 	"github.com/alessio/shellescape"
+	"github.com/creasty/defaults"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
 	ps "github.com/k0sproject/rig/powershell"
-
+	"github.com/kevinburke/ssh_config"
 	"github.com/mitchellh/go-homedir"
+	ssh "golang.org/x/crypto/ssh"
+	"golang.org/x/term"
 )
 
 var authMethodCache = sync.Map{}
@@ -55,9 +52,11 @@ type SSH struct {
 
 type PasswordCallback func() (secret string, err error)
 
-var defaultKeypaths = []string{"~/.ssh/id_rsa", "~/.ssh/identity", "~/.ssh/id_dsa"}
-var dummyHostKeypaths []string
-var globalOnce sync.Once
+var (
+	defaultKeypaths   = []string{"~/.ssh/id_rsa", "~/.ssh/identity", "~/.ssh/id_dsa"}
+	dummyHostKeypaths []string
+	globalOnce        sync.Once
+)
 
 func (c *SSH) expandKeypath(path string) (string, bool) {
 	expanded, err := homedir.Expand(path)
@@ -129,7 +128,6 @@ func (c *SSH) SetDefaults() {
 				break
 			}
 		}
-
 	})
 }
 
@@ -181,7 +179,6 @@ func (c *SSH) IsWindows() bool {
 		c.isWindows = c.Exec("cmd.exe /c exit 0") == nil
 		log.Debugf("%s: host is windows: %t", c, c.isWindows)
 		c.knowOs = true
-
 	}
 
 	return c.isWindows

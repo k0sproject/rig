@@ -12,7 +12,7 @@ import (
 	// anonymous import for triggerint init()
 	_ "github.com/k0sproject/rig/os/linux/enterpriselinux"
 	// anonymous import for triggerint init()
-	_ "github.com/k0sproject/rig/os/windows"
-	// anonymous import for triggerint init()
 	_ "github.com/k0sproject/rig/os/mac"
+	// anonymous import for triggerint init()
+	_ "github.com/k0sproject/rig/os/windows"
 )

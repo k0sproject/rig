@@ -82,7 +82,6 @@ func (o *Options) Command(cmd string) (string, error) {
 // LogCmd is for logging the command to be executed
 func (o *Options) LogCmd(prefix, cmd string) {
 	if Confirm {
-
 		mutex.Lock()
 		if !ConfirmFunc(fmt.Sprintf("\nHost: %s\nCommand: %s", prefix, o.Redact(cmd))) {
 			os.Stderr.WriteString("aborted\n")
