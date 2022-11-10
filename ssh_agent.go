@@ -7,23 +7,19 @@ import (
 	"net"
 	"os"
 
-	ssh "golang.org/x/crypto/ssh"
+	"github.com/k0sproject/rig/log"
 	"golang.org/x/crypto/ssh/agent"
 )
 
-// getSshAgentSigners returns non empty list of signers from a SSH agent
-func getSshAgentSigners() ([]ssh.Signer, error) {
+func agentClient() (agent.Agent, error) {
 	sshAgentSock := os.Getenv("SSH_AUTH_SOCK")
 	if sshAgentSock == "" {
 		return nil, fmt.Errorf("SSH_AUTH_SOCK is empty")
 	}
+	log.Debugf("using SSH_AUTH_SOCK=%s", sshAgentSock)
 	sshAgent, err := net.Dial("unix", sshAgentSock)
 	if err != nil {
 		return nil, fmt.Errorf("can't connect to SSH agent: %w", err)
 	}
-	signers, err := agent.NewClient(sshAgent).Signers()
-	if err != nil {
-		return nil, fmt.Errorf("SSH agent new client: %w", err)
-	}
-	return signers, nil
+	return agent.NewClient(sshAgent), nil
 }

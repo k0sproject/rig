@@ -86,9 +86,8 @@ func (c *Connection) SetDefaults() {
 		if c.client == nil {
 			c.client = defaultClient()
 		}
+		_ = defaults.Set(c.client)
 	}
-
-	_ = defaults.Set(c.client)
 }
 
 // Protocol returns the connection protocol name
@@ -133,16 +132,11 @@ func (c *Connection) IsConnected() bool {
 // String returns a printable representation of the connection, which will look
 // like: `[ssh] address:port`
 func (c Connection) String() string {
-	client := c.client
-	if client == nil {
-		client = c.configuredClient()
-		_ = defaults.Set(c)
-	}
-	if client == nil {
-		client = defaultClient()
+	if c.client == nil {
+		return fmt.Sprintf("[%s] %s", c.Protocol(), c.Address())
 	}
 
-	return client.String()
+	return c.client.String()
 }
 
 // IsWindows returns true on windows hosts
@@ -311,9 +305,7 @@ func (c *Connection) configuredClient() client {
 }
 
 func defaultClient() client {
-	c := &Localhost{Enabled: true}
-	_ = defaults.Set(c)
-	return c
+	return &Localhost{Enabled: true}
 }
 
 // GroupParams separates exec.Options from other sprintf templating args

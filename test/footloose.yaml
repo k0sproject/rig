@@ -1,0 +1,11 @@
+cluster:
+  name: rigtest
+  privateKey: .ssh/identity
+machines:
+- count: 1
+  spec:
+    backend: docker
+    image: quay.io/footloose/ubuntu18.04
+    name: node%d
+    portMappings:
+    - containerPort: 22

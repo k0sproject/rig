@@ -10,6 +10,7 @@ require (
 	github.com/davidmz/go-pageant v1.0.2
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
+	github.com/kevinburke/ssh_config v1.2.0
 	github.com/masterzen/winrm v0.0.0-20220917170901-b07f6cb0598d
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/stretchr/testify v1.8.0
