@@ -69,14 +69,14 @@ func (c *SSH) expandKeypath(path string) (string, bool) {
 		log.Debugf("%s: identity file %s not found", c, expanded)
 		return "", false
 	}
-	log.Debugf("%s: found identity file %s", c, expanded)
+	log.Tracef("%s: found identity file %s", c, expanded)
 	return expanded, true
 }
 
 func (c *SSH) keypathsFromConfig() []string {
-	log.Debugf("%s: trying to get a keyfile path from ssh config", c)
+	log.Tracef("%s: trying to get a keyfile path from ssh config", c)
 	if idf := c.getConfigAll("IdentityFile"); len(idf) > 0 {
-		log.Debugf("%s: detected %d identity file paths from ssh config", c, len(idf))
+		log.Tracef("%s: detected %d identity file paths from ssh config", c, len(idf))
 		return idf
 	}
 	return []string{}
@@ -85,7 +85,7 @@ func (c *SSH) keypathsFromConfig() []string {
 // SetDefaults sets various default values
 func (c *SSH) SetDefaults() {
 	globalOnce.Do(func() {
-		log.Debugf("discovering global default keypaths")
+		log.Tracef("discovering global default keypaths")
 		dummyHostIdentityFiles := SSHConfigGetAll(hopefullyNonexistentHost, "IdentityFile")
 		for _, keyPath := range dummyHostIdentityFiles {
 			if expanded, ok := c.expandKeypath(keyPath); ok {
@@ -222,11 +222,11 @@ func (c *SSH) Connect() error {
 	var signers []ssh.Signer
 	agent, err := agentClient()
 	if err != nil {
-		log.Debugf("%s: failed to get ssh agent client: %v", c, err)
+		log.Tracef("%s: failed to get ssh agent client: %v", c, err)
 	} else {
 		signers, err = agent.Signers()
 		if err != nil {
-			log.Debugf("%s: failed to get signers from ssh agent: %v", c, err)
+			log.Debugf("%s: failed to list signers from ssh agent: %v", c, err)
 		}
 	}
 
@@ -234,18 +234,18 @@ func (c *SSH) Connect() error {
 		if am, ok := authMethodCache.Load(keyPath); ok {
 			switch authM := am.(type) {
 			case ssh.AuthMethod:
-				log.Debugf("%s: using cached auth method for %s", c, keyPath)
+				log.Tracef("%s: using cached auth method for %s", c, keyPath)
 				config.Auth = append(config.Auth, authM)
 			case error:
-				log.Debugf("%s: already discarded key %s: %v", c, keyPath, authM)
+				log.Tracef("%s: already discarded key %s: %v", c, keyPath, authM)
 			default:
-				log.Debugf("%s: unexpected type %T for cached auth method for %s", c, am, keyPath)
+				log.Tracef("%s: unexpected type %T for cached auth method for %s", c, am, keyPath)
 			}
 			continue
 		}
 		privateKeyAuth, err := c.pkeySigner(signers, keyPath)
 		if err != nil {
-			log.Debugf("%s: failed to get a signer for %s: %v", c, keyPath, err)
+			log.Debugf("%s: failed to obtain a signer for identity %s: %v", c, keyPath, err)
 			// store the error so this key won't be loaded again
 			authMethodCache.Store(keyPath, err)
 		}
@@ -289,21 +289,21 @@ func (c *SSH) Connect() error {
 
 func (c *SSH) pubkeySigner(signers []ssh.Signer, key ssh.PublicKey) (ssh.AuthMethod, error) {
 	if len(signers) == 0 {
-		return nil, fmt.Errorf("no signer found for public key")
+		return nil, fmt.Errorf("no signer available for public key")
 	}
 
 	for _, s := range signers {
 		if bytes.Equal(key.Marshal(), s.PublicKey().Marshal()) {
-			log.Debugf("%s: key found in ssh agent", c)
+			log.Debugf("%s: signer for public key available in ssh agent", c)
 			return ssh.PublicKeys(s), nil
 		}
 	}
 
-	return nil, fmt.Errorf("the provided key is a public key and not known by agent")
+	return nil, fmt.Errorf("the provided key is a public key and is not known by agent")
 }
 
 func (c *SSH) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMethod, error) {
-	log.Debugf("%s: checking identity file %s", c, path)
+	log.Tracef("%s: checking identity file %s", c, path)
 	key, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -322,7 +322,7 @@ func (c *SSH) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMethod, err
 	}
 
 	if _, ok := err.(*ssh.PassphraseMissingError); ok {
-		log.Debugf("%s: key in %s is encrypted", c, path)
+		log.Debugf("%s: key %s is encrypted", c, path)
 
 		if len(signers) > 0 {
 			if pubkeyPath, ok := c.expandKeypath(path + ".pub"); ok {
@@ -333,7 +333,7 @@ func (c *SSH) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMethod, err
 		}
 
 		if c.PasswordCallback != nil {
-			log.Debugf("%s: asking for a password to decrypt %s", c, path)
+			log.Tracef("%s: asking for a password to decrypt %s", c, path)
 			pass, err := c.PasswordCallback()
 			if err != nil {
 				return nil, fmt.Errorf("password provider failed: %w", err)
