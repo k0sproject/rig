@@ -1,3 +1,4 @@
+// Package support can be imported to load all the stock os support packages.
 package support
 
 // This file is intended to be imported for loading the OS support modules.

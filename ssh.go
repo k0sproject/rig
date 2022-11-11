@@ -8,10 +8,12 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,10 +27,9 @@ import (
 	"github.com/kevinburke/ssh_config"
 	"github.com/mitchellh/go-homedir"
 	ssh "golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 	"golang.org/x/term"
 )
-
-var authMethodCache = sync.Map{}
 
 // SSH describes an SSH connection
 type SSH struct {
@@ -50,13 +51,32 @@ type SSH struct {
 	keyPaths []string
 }
 
+// PasswordCallback is a function that is called when a passphrase is needed to decrypt a private key
 type PasswordCallback func() (secret string, err error)
 
 var (
+	authMethodCache   = sync.Map{}
 	defaultKeypaths   = []string{"~/.ssh/id_rsa", "~/.ssh/identity", "~/.ssh/id_dsa"}
 	dummyHostKeypaths []string
 	globalOnce        sync.Once
+
+	// ErrSSHHostKeyMismatch is returned when the host key does not match the host key or a key in known_hosts file
+	ErrSSHHostKeyMismatch = errors.New("ssh host key mismatch")
+
+	// ErrNoSignerFound is returned when no signer is found for a key
+	ErrNoSignerFound = errors.New("no signer found for key")
+
+	// ErrDataInStderr is returned when data is received for stderr from a windows host
+	ErrDataInStderr = errors.New("command failed (received output to stderr on windows)")
+
+	// ErrUnexpectedCopyOutput is returned when the output of a copy command is not as expected
+	ErrUnexpectedCopyOutput = errors.New("copy command did not output the expected JSON")
+
+	// ErrCopyFileChecksumMismatch is returned when the checksum of the uploaded file does not match the source file
+	ErrCopyFileChecksumMismatch = errors.New("copy file checksum mismatch")
 )
+
+const hopefullyNonexistentHost = "thisH0stDoe5not3xist"
 
 func (c *SSH) expandKeypath(path string) (string, bool) {
 	expanded, err := homedir.Expand(path)
@@ -81,17 +101,19 @@ func (c *SSH) keypathsFromConfig() []string {
 	return []string{}
 }
 
+func (c *SSH) initGlobalDefaults() {
+	log.Tracef("discovering global default keypaths")
+	dummyHostIdentityFiles := SSHConfigGetAll(hopefullyNonexistentHost, "IdentityFile")
+	for _, keyPath := range dummyHostIdentityFiles {
+		if expanded, ok := c.expandKeypath(keyPath); ok {
+			dummyHostKeypaths = append(dummyHostKeypaths, expanded)
+		}
+	}
+}
+
 // SetDefaults sets various default values
 func (c *SSH) SetDefaults() {
-	globalOnce.Do(func() {
-		log.Tracef("discovering global default keypaths")
-		dummyHostIdentityFiles := SSHConfigGetAll(hopefullyNonexistentHost, "IdentityFile")
-		for _, keyPath := range dummyHostIdentityFiles {
-			if expanded, ok := c.expandKeypath(keyPath); ok {
-				dummyHostKeypaths = append(dummyHostKeypaths, expanded)
-			}
-		}
-	})
+	globalOnce.Do(c.initGlobalDefaults)
 	c.once.Do(func() {
 		if c.KeyPath != nil && *c.KeyPath != "" {
 			if expanded, ok := c.expandKeypath(*c.KeyPath); ok {
@@ -124,7 +146,8 @@ func (c *SSH) SetDefaults() {
 			if !found {
 				// found a keypath that is not in the dummy host's config, so it's not a global default
 				// set this as c.KeyPath so we can consider it an explicitly set keypath
-				c.KeyPath = &keyPath
+				kp := keyPath
+				c.KeyPath = &kp
 				break
 			}
 		}
@@ -184,37 +207,52 @@ func (c *SSH) IsWindows() bool {
 	return c.isWindows
 }
 
-// create human-readable SSH-key strings
+// create human-readable SSH-key strings e.g. "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTY...."
 func keyString(k ssh.PublicKey) string {
-	return k.Type() + " " + base64.StdEncoding.EncodeToString(k.Marshal()) // e.g. "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTY...."
+	return k.Type() + " " + base64.StdEncoding.EncodeToString(k.Marshal())
 }
 
 func trustedHostKeyCallback(trustedKey string) ssh.HostKeyCallback {
 	return func(_ string, _ net.Addr, k ssh.PublicKey) error {
 		ks := keyString(k)
 		if trustedKey != ks {
-			return fmt.Errorf("SSH host key verification failed")
+			return ErrSSHHostKeyMismatch
 		}
 
 		return nil
 	}
 }
 
-const hopefullyNonexistentHost = "thisH0stDoe5not3xist"
+func (c *SSH) hostkeyCallback() (ssh.HostKeyCallback, error) {
+	if c.HostKey != "" {
+		return trustedHostKeyCallback(c.HostKey), nil
+	}
+	exp, err := homedir.Expand(filepath.Join("~", ".ssh", "known_hosts"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get ssh known_hosts path: %w", err)
+	}
+	f, err := os.OpenFile(exp, os.O_CREATE|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("failed to access ssh known_hosts file: %w", err)
+	}
+	f.Close()
+	hkc, err := knownhosts.New(f.Name())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create knownhosts callback: %w", err)
+	}
+	return hkc, nil
+}
 
-// Connect opens the SSH connection
-func (c *SSH) Connect() error {
-	_ = defaults.Set(c)
-
+func (c *SSH) clientConfig() (*ssh.ClientConfig, error) {
 	config := &ssh.ClientConfig{
 		User: c.User,
 	}
 
-	if c.HostKey == "" {
-		config.HostKeyCallback = ssh.InsecureIgnoreHostKey()
-	} else {
-		config.HostKeyCallback = trustedHostKeyCallback(c.HostKey)
+	hkc, err := c.hostkeyCallback()
+	if err != nil {
+		return nil, err
 	}
+	config.HostKeyCallback = hkc
 
 	var signers []ssh.Signer
 	agent, err := agentClient()
@@ -255,38 +293,48 @@ func (c *SSH) Connect() error {
 		config.Auth = append(config.Auth, ssh.PublicKeys(signers...))
 	}
 
-	dst := net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
+	return config, nil
+}
 
-	var client *ssh.Client
+// Connect opens the SSH connection
+func (c *SSH) Connect() error {
+	_ = defaults.Set(c)
+
+	config, err := c.clientConfig()
+	if err != nil {
+		return err
+	}
+
+	dst := net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
 
 	if c.Bastion == nil {
 		clientDirect, err := ssh.Dial("tcp", dst, config)
 		if err != nil {
-			return err
+			return fmt.Errorf("ssh dial: %w", err)
 		}
-		client = clientDirect
-	} else {
-		if err := c.Bastion.Connect(); err != nil {
-			return err
-		}
-		bconn, err := c.Bastion.client.Dial("tcp", dst)
-		if err != nil {
-			return err
-		}
-		c, chans, reqs, err := ssh.NewClientConn(bconn, dst, config)
-		if err != nil {
-			return err
-		}
-		client = ssh.NewClient(c, chans, reqs)
+		c.client = clientDirect
+		return nil
 	}
 
-	c.client = client
+	if err := c.Bastion.Connect(); err != nil {
+		return err
+	}
+	bconn, err := c.Bastion.client.Dial("tcp", dst)
+	if err != nil {
+		return fmt.Errorf("bastion dial: %w", err)
+	}
+	client, chans, reqs, err := ssh.NewClientConn(bconn, dst, config)
+	if err != nil {
+		return fmt.Errorf("bastion client connect: %w", err)
+	}
+	c.client = ssh.NewClient(client, chans, reqs)
+
 	return nil
 }
 
 func (c *SSH) pubkeySigner(signers []ssh.Signer, key ssh.PublicKey) (ssh.AuthMethod, error) {
 	if len(signers) == 0 {
-		return nil, fmt.Errorf("no signer available for public key")
+		return nil, fmt.Errorf("signer not found for public key: %w", ErrNoSignerFound)
 	}
 
 	for _, s := range signers {
@@ -296,14 +344,14 @@ func (c *SSH) pubkeySigner(signers []ssh.Signer, key ssh.PublicKey) (ssh.AuthMet
 		}
 	}
 
-	return nil, fmt.Errorf("the provided key is a public key and is not known by agent")
+	return nil, fmt.Errorf("the provided key is a public key and is not known by agent: %w", ErrNoSignerFound)
 }
 
 func (c *SSH) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMethod, error) {
 	log.Tracef("%s: checking identity file %s", c, path)
 	key, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read identity file: %w", err)
 	}
 
 	pubKey, _, _, _, err := ssh.ParseAuthorizedKey(key)
@@ -318,14 +366,12 @@ func (c *SSH) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMethod, err
 		return ssh.PublicKeys(signer), nil
 	}
 
-	if _, ok := err.(*ssh.PassphraseMissingError); ok {
+	if errors.Is(err, &ssh.PassphraseMissingError{}) { //nolint:nestif
 		log.Debugf("%s: key %s is encrypted", c, path)
 
 		if len(signers) > 0 {
-			if pubkeyPath, ok := c.expandKeypath(path + ".pub"); ok {
-				if signer, err := c.pkeySigner(signers, pubkeyPath); err == nil {
-					return signer, nil
-				}
+			if signer, err := c.pkeySigner(signers, path+".pub"); err == nil {
+				return signer, nil
 			}
 		}
 
@@ -346,45 +392,50 @@ func (c *SSH) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMethod, err
 	return nil, fmt.Errorf("can't parse keyfile %s: %w", path, err)
 }
 
+const (
+	ptyWidth  = 80
+	ptyHeight = 40
+)
+
 // Exec executes a command on the host
-func (c *SSH) Exec(cmd string, opts ...exec.Option) error {
-	o := exec.Build(opts...)
+func (c *SSH) Exec(cmd string, opts ...exec.Option) error { //nolint:funlen,cyclop
+	execOpts := exec.Build(opts...)
 	session, err := c.client.NewSession()
 	if err != nil {
-		return err
+		return fmt.Errorf("ssh new session: %w", err)
 	}
 	defer session.Close()
 
-	cmd, err = o.Command(cmd)
+	cmd, err = execOpts.Command(cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("build command: %w", err)
 	}
 
-	if len(o.Stdin) == 0 && c.knowOs && !c.isWindows {
+	if len(execOpts.Stdin) == 0 && c.knowOs && !c.isWindows {
 		// Only request a PTY when there's no STDIN data, because
 		// then you would need to send a CTRL-D after input to signal
 		// the end of text
 		modes := ssh.TerminalModes{ssh.ECHO: 0}
-		err = session.RequestPty("xterm", 80, 40, modes)
+		err = session.RequestPty("xterm", ptyWidth, ptyHeight, modes)
 		if err != nil {
-			return err
+			return fmt.Errorf("request pty: %w", err)
 		}
 	}
 
-	o.LogCmd(c.String(), cmd)
+	execOpts.LogCmd(c.String(), cmd)
 
 	stdin, _ := session.StdinPipe()
 	stdout, _ := session.StdoutPipe()
 	stderr, _ := session.StderrPipe()
 
 	if err := session.Start(cmd); err != nil {
-		return err
+		return fmt.Errorf("ssh session start: %w", err)
 	}
 
-	if len(o.Stdin) > 0 {
-		o.LogStdin(c.String())
-		if _, err := io.WriteString(stdin, o.Stdin); err != nil {
-			return err
+	if len(execOpts.Stdin) > 0 {
+		execOpts.LogStdin(c.String())
+		if _, err := io.WriteString(stdin, execOpts.Stdin); err != nil {
+			return fmt.Errorf("write stdin: %w", err)
 		}
 	}
 	stdin.Close()
@@ -394,21 +445,21 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if o.Writer == nil {
+		if execOpts.Writer == nil {
 			outputScanner := bufio.NewScanner(stdout)
 
 			for outputScanner.Scan() {
 				text := outputScanner.Text()
 				stripped := stripansi.Strip(text)
-				o.AddOutput(c.String(), stripped+"\n", "")
+				execOpts.AddOutput(c.String(), stripped+"\n", "")
 			}
 
 			if err := outputScanner.Err(); err != nil {
-				o.LogErrorf("%s: %s", c, err.Error())
+				execOpts.LogErrorf("%s: %s", c, err.Error())
 			}
 		} else {
-			if _, err := io.Copy(o.Writer, stdout); err != nil {
-				o.LogErrorf("%s: failed to stream stdout", c, err.Error())
+			if _, err := io.Copy(execOpts.Writer, stdout); err != nil {
+				execOpts.LogErrorf("%s: failed to stream stdout", c, err.Error())
 			}
 		}
 	}()
@@ -422,12 +473,12 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error {
 
 		for outputScanner.Scan() {
 			gotErrors = true
-			o.AddOutput(c.String(), "", outputScanner.Text()+"\n")
+			execOpts.AddOutput(c.String(), "", outputScanner.Text()+"\n")
 		}
 
 		if err := outputScanner.Err(); err != nil {
 			gotErrors = true
-			o.LogErrorf("%s: %s", c, err.Error())
+			execOpts.LogErrorf("%s: %s", c, err.Error())
 		}
 	}()
 
@@ -435,11 +486,11 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error {
 	wg.Wait()
 
 	if err != nil {
-		return err
+		return fmt.Errorf("ssh session wait: %w", err)
 	}
 
-	if c.knowOs && c.isWindows && (!o.AllowWinStderr && gotErrors) {
-		return fmt.Errorf("command failed (received output to stderr on windows)")
+	if c.knowOs && c.isWindows && (!execOpts.AllowWinStderr && gotErrors) {
+		return ErrDataInStderr
 	}
 
 	return nil
@@ -457,7 +508,7 @@ func (c *SSH) Upload(src, dst string, opts ...exec.Option) error {
 func (c *SSH) ExecInteractive(cmd string) error {
 	session, err := c.client.NewSession()
 	if err != nil {
-		return err
+		return fmt.Errorf("ssh new session: %w", err)
 	}
 	defer session.Close()
 
@@ -467,7 +518,7 @@ func (c *SSH) ExecInteractive(cmd string) error {
 	fd := int(os.Stdin.Fd())
 	old, err := term.MakeRaw(fd)
 	if err != nil {
-		return err
+		return fmt.Errorf("make terminal raw: %w", err)
 	}
 
 	defer func(fd int, old *term.State) {
@@ -476,18 +527,18 @@ func (c *SSH) ExecInteractive(cmd string) error {
 
 	rows, cols, err := term.GetSize(fd)
 	if err != nil {
-		return err
+		return fmt.Errorf("get terminal size: %w", err)
 	}
 
 	modes := ssh.TerminalModes{ssh.ECHO: 1}
 	err = session.RequestPty("xterm", cols, rows, modes)
 	if err != nil {
-		return err
+		return fmt.Errorf("request pty: %w", err)
 	}
 
 	stdinpipe, err := session.StdinPipe()
 	if err != nil {
-		return err
+		return fmt.Errorf("get stdin pipe: %w", err)
 	}
 	go func() {
 		_, _ = io.Copy(stdinpipe, os.Stdin)
@@ -502,19 +553,23 @@ func (c *SSH) ExecInteractive(cmd string) error {
 	}
 
 	if err != nil {
-		return err
+		return fmt.Errorf("ssh session: %w", err)
 	}
 
-	return session.Wait()
+	if err := session.Wait(); err != nil {
+		return fmt.Errorf("ssh session wait: %w", err)
+	}
+
+	return nil
 }
 
 func (c *SSH) uploadLinux(src, dst string, opts ...exec.Option) error {
 	var err error
-	in, err := os.Open(src)
+	inFile, err := os.Open(src)
 	if err != nil {
-		return err
+		return fmt.Errorf("open file for upload: %w", err)
 	}
-	defer in.Close()
+	defer inFile.Close()
 
 	defer func() {
 		if err != nil {
@@ -525,42 +580,42 @@ func (c *SSH) uploadLinux(src, dst string, opts ...exec.Option) error {
 
 	session, err := c.client.NewSession()
 	if err != nil {
-		return err
+		return fmt.Errorf("ssh new session: %w", err)
 	}
 	defer session.Close()
 
 	hostIn, err := session.StdinPipe()
 	if err != nil {
-		return err
+		return fmt.Errorf("get stdin pipe: %w", err)
 	}
 
 	stderr, err := session.StderrPipe()
 	if err != nil {
-		return err
+		return fmt.Errorf("get stderr pipe: %w", err)
 	}
 
-	gw, err := gzip.NewWriterLevel(hostIn, gzip.BestSpeed)
+	gzWriter, err := gzip.NewWriterLevel(hostIn, gzip.BestSpeed)
 	if err != nil {
-		return err
+		return fmt.Errorf("create gzip writer: %w", err)
 	}
 
-	o := exec.Build(opts...)
-	teeCmd, err := o.Command(fmt.Sprintf("tee -- %s > /dev/null", shellescape.Quote(dst)))
+	execOpts := exec.Build(opts...)
+	teeCmd, err := execOpts.Command(fmt.Sprintf("tee -- %s > /dev/null", shellescape.Quote(dst)))
 	if err != nil {
-		return err
+		return fmt.Errorf("build tee command: %w", err)
 	}
 	unzipCmd := fmt.Sprintf("gzip -d | %s", teeCmd)
 	log.Debugf("%s: executing `%s`", c, unzipCmd)
 
 	err = session.Start(unzipCmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("ssh session: %w", err)
 	}
 
-	if _, err := io.Copy(gw, in); err != nil {
-		return err
+	if _, err := io.Copy(gzWriter, inFile); err != nil {
+		return fmt.Errorf("copy file to remote: %w", err)
 	}
-	gw.Close()
+	gzWriter.Close()
 	hostIn.Close()
 
 	if err = session.Wait(); err != nil {
@@ -569,13 +624,13 @@ func (c *SSH) uploadLinux(src, dst string, opts ...exec.Option) error {
 			msg = []byte(readErr.Error())
 		}
 
-		return fmt.Errorf("upload failed: %s (%s)", err.Error(), msg)
+		return fmt.Errorf("upload failed: %w (%s)", err, msg)
 	}
 
 	return nil
 }
 
-func (c *SSH) uploadWindows(src, dst string, opts ...exec.Option) error {
+func (c *SSH) uploadWindows(src, dst string, opts ...exec.Option) error { //nolint:funlen,cyclop,gocognit
 	var err error
 	defer func() {
 		if err != nil {
@@ -586,7 +641,7 @@ func (c *SSH) uploadWindows(src, dst string, opts ...exec.Option) error {
 	psCmd := ps.UploadCmd(dst)
 	stat, err := os.Stat(src)
 	if err != nil {
-		return err
+		return fmt.Errorf("stat file for upload: %w", err)
 	}
 	sha256DigestLocalObj := sha256.New()
 	sha256DigestLocal := ""
@@ -595,47 +650,47 @@ func (c *SSH) uploadWindows(src, dst string, opts ...exec.Option) error {
 	var bytesSent uint64
 	var realSent uint64
 	var fdClosed bool
-	fd, err := os.Open(src)
+	srcFd, err := os.Open(src)
 	if err != nil {
-		return err
+		return fmt.Errorf("open file for upload: %w", err)
 	}
 	defer func() {
 		if !fdClosed {
-			_ = fd.Close()
+			_ = srcFd.Close()
 			fdClosed = true
 		}
 	}()
 	session, err := c.client.NewSession()
 	if err != nil {
-		return err
+		return fmt.Errorf("ssh new session: %w", err)
 	}
 	defer session.Close()
 
 	hostIn, err := session.StdinPipe()
 	if err != nil {
-		return err
+		return fmt.Errorf("get stdin pipe: %w", err)
 	}
 	hostOut, err := session.StdoutPipe()
 	if err != nil {
-		return err
+		return fmt.Errorf("get stdout pipe: %w", err)
 	}
 	hostErr, err := session.StderrPipe()
 	if err != nil {
-		return err
+		return fmt.Errorf("get stderr pipe: %w", err)
 	}
 
-	o := exec.Build(opts...)
-	psRunCmd, err := o.Command("powershell -ExecutionPolicy Unrestricted -EncodedCommand " + psCmd)
+	execOpts := exec.Build(opts...)
+	psRunCmd, err := execOpts.Command("powershell -ExecutionPolicy Unrestricted -EncodedCommand " + psCmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("build powershell command: %w", err)
 	}
 	log.Debugf("%s: executing the upload command", c)
 	if err := session.Start(psRunCmd); err != nil {
-		return err
+		return fmt.Errorf("ssh session: %w", err)
 	}
 
-	bufferCapacity := 262143 // use 256kb chunks
-	base64LineBufferCapacity := bufferCapacity/3*4 + 2
+	bufferCapacity := 262143                           // use 256kb chunks
+	base64LineBufferCapacity := bufferCapacity/3*4 + 2 //nolint:gomnd
 	base64LineBuffer := make([]byte, base64LineBufferCapacity)
 	base64LineBuffer[base64LineBufferCapacity-2] = '\r'
 	base64LineBuffer[base64LineBufferCapacity-1] = '\n'
@@ -646,7 +701,7 @@ func (c *SSH) uploadWindows(src, dst string, opts ...exec.Option) error {
 
 	for {
 		var n int
-		n, err = fd.Read(buffer)
+		n, err = srcFd.Read(buffer)
 		bufferLength += n
 		if err != nil {
 			break
@@ -667,13 +722,13 @@ func (c *SSH) uploadWindows(src, dst string, opts ...exec.Option) error {
 
 			bufferLength = 0
 			if err != nil {
-				return err
+				return fmt.Errorf("write to remote: %w", err)
 			}
 		}
 	}
-	_ = fd.Close()
+	_ = srcFd.Close()
 	fdClosed = true
-	if err == io.EOF {
+	if errors.Is(err, io.EOF) {
 		err = nil
 	}
 	if err != nil {
@@ -689,7 +744,7 @@ func (c *SSH) uploadWindows(src, dst string, opts ...exec.Option) error {
 		_, err = hostIn.Write(base64LineBuffer[:i+2])
 		if err != nil {
 			if !strings.Contains(err.Error(), ps.PipeHasEnded) && !strings.Contains(err.Error(), ps.PipeIsBeingClosed) {
-				return err
+				return fmt.Errorf("write to remote (tailing): %w", err)
 			}
 			// ignore pipe errors that results from passing true to cmd.SendInput
 		}
@@ -726,15 +781,15 @@ func (c *SSH) uploadWindows(src, dst string, opts ...exec.Option) error {
 	}()
 
 	if err = session.Wait(); err != nil {
-		return fmt.Errorf("%s: upload failed: %s", c, err.Error())
+		return fmt.Errorf("%s: upload failed: %w", c, err)
 	}
 
 	wg.Wait()
 
 	if sha256DigestRemote == "" {
-		return fmt.Errorf("copy file command did not output the expected JSON to stdout but exited with code 0")
+		return ErrUnexpectedCopyOutput
 	} else if sha256DigestRemote != sha256DigestLocal {
-		return fmt.Errorf("copy file checksum mismatch (local = %s, remote = %s)", sha256DigestLocal, sha256DigestRemote)
+		return fmt.Errorf("%w (local = %s, remote = %s)", ErrCopyFileChecksumMismatch, sha256DigestLocal, sha256DigestRemote)
 	}
 
 	return nil

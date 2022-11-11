@@ -1,6 +1,7 @@
 package linux
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/k0sproject/rig/exec"
@@ -14,5 +15,9 @@ type EnterpriseLinux struct {
 
 // InstallPackage installs packages via yum
 func (c EnterpriseLinux) InstallPackage(h os.Host, s ...string) error {
-	return h.Execf("yum install -y %s", strings.Join(s, " "), exec.Sudo(h))
+	if err := h.Execf("yum install -y %s", strings.Join(s, " "), exec.Sudo(h)); err != nil {
+		return fmt.Errorf("failed to install packages: %w", err)
+	}
+
+	return nil
 }

@@ -1,3 +1,4 @@
+// Package exec provides helpers for setting execution options for commands
 package exec
 
 import (
@@ -71,12 +72,17 @@ type host interface {
 	Sudo(string) (string, error)
 }
 
+// Command returns the command wrapped in a sudo if sudo is enabled or the original command
 func (o *Options) Command(cmd string) (string, error) {
 	if !o.Sudo {
 		return cmd, nil
 	}
 
-	return o.host.Sudo(cmd)
+	out, err := o.host.Sudo(cmd)
+	if err != nil {
+		return "", fmt.Errorf("failed to sudo: %w", err)
+	}
+	return out, nil
 }
 
 // LogCmd is for logging the command to be executed
@@ -146,7 +152,9 @@ func (o *Options) AddOutput(prefix, stdout, stderr string) {
 		} else if stderr != "" {
 			ErrorFunc("%s: %s", prefix, strings.TrimSpace(o.Redact(stderr)))
 		}
-	} else if o.LogOutput {
+		return
+	}
+	if o.LogOutput {
 		if stdout != "" {
 			DebugFunc("%s: %s", prefix, strings.TrimSpace(o.Redact(stdout)))
 		} else if stderr != "" {

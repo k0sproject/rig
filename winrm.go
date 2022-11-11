@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -21,6 +22,9 @@ import (
 	"github.com/masterzen/winrm"
 	"github.com/mitchellh/go-homedir"
 )
+
+// ErrNonZeroExitCode is returned when the remote command exits with non-zero exit code
+var ErrNonZeroExitCode = errors.New("non-zero exit code")
 
 // WinRM describes a WinRM connection with its configuration options
 type WinRM struct {
@@ -99,7 +103,7 @@ func (c *WinRM) loadCertificates() error {
 	if c.CACertPath != "" {
 		ca, err := os.ReadFile(c.CACertPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("load ca cert: %w", err)
 		}
 		c.caCert = ca
 	}
@@ -108,7 +112,7 @@ func (c *WinRM) loadCertificates() error {
 	if c.CertPath != "" {
 		cert, err := os.ReadFile(c.CertPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("load cert: %w", err)
 		}
 		c.cert = cert
 	}
@@ -117,7 +121,7 @@ func (c *WinRM) loadCertificates() error {
 	if c.KeyPath != "" {
 		key, err := os.ReadFile(c.KeyPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("load key: %w", err)
 		}
 		c.key = key
 	}
@@ -128,7 +132,7 @@ func (c *WinRM) loadCertificates() error {
 // Connect opens the WinRM connection
 func (c *WinRM) Connect() error {
 	if err := c.loadCertificates(); err != nil {
-		return fmt.Errorf("%s: failed to load certificates: %s", c, err)
+		return fmt.Errorf("failed to load certificates: %w", err)
 	}
 
 	endpoint := &winrm.Endpoint{
@@ -137,7 +141,7 @@ func (c *WinRM) Connect() error {
 		HTTPS:         c.UseHTTPS,
 		Insecure:      c.Insecure,
 		TLSServerName: c.TLSServerName,
-		Timeout:       60 * time.Second,
+		Timeout:       time.Minute,
 	}
 
 	if len(c.caCert) > 0 {
@@ -172,13 +176,13 @@ func (c *WinRM) Connect() error {
 
 	client, err := winrm.NewClientWithParameters(endpoint, c.User, c.Password, params)
 	if err != nil {
-		return err
+		return fmt.Errorf("create winrm client: %w", err)
 	}
 
 	log.Debugf("%s: testing connection", c)
 	_, err = client.RunWithContext(context.Background(), "echo ok", io.Discard, io.Discard)
 	if err != nil {
-		return err
+		return fmt.Errorf("test connection: %w", err)
 	}
 	log.Debugf("%s: test passed", c)
 
@@ -193,50 +197,50 @@ func (c *WinRM) Disconnect() {
 }
 
 // Exec executes a command on the host
-func (c *WinRM) Exec(cmd string, opts ...exec.Option) error {
-	o := exec.Build(opts...)
+func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:funlen,cyclop
+	execOpts := exec.Build(opts...)
 	shell, err := c.client.CreateShell()
 	if err != nil {
-		return err
+		return fmt.Errorf("create shell: %w", err)
 	}
 	defer shell.Close()
 
-	o.LogCmd(c.String(), cmd)
+	execOpts.LogCmd(c.String(), cmd)
 
 	command, err := shell.ExecuteWithContext(context.Background(), cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("execute command: %w", err)
 	}
 
 	var wg sync.WaitGroup
 
-	if o.Stdin != "" {
-		o.LogStdin(c.String())
+	if execOpts.Stdin != "" {
+		execOpts.LogStdin(c.String())
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			defer command.Stdin.Close()
-			_, _ = command.Stdin.Write([]byte(o.Stdin))
+			_, _ = command.Stdin.Write([]byte(execOpts.Stdin))
 		}()
 	}
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if o.Writer == nil {
+		if execOpts.Writer == nil {
 			outputScanner := bufio.NewScanner(command.Stdout)
 
 			for outputScanner.Scan() {
-				o.AddOutput(c.String(), outputScanner.Text()+"\n", "")
+				execOpts.AddOutput(c.String(), outputScanner.Text()+"\n", "")
 			}
 
 			if err := outputScanner.Err(); err != nil {
-				o.LogErrorf("%s: %s", c, err.Error())
+				execOpts.LogErrorf("%s: %s", c, err.Error())
 			}
 			command.Stdout.Close()
 		} else {
-			if _, err := io.Copy(o.Writer, command.Stdout); err != nil {
-				o.LogErrorf("%s: failed to stream stdout", c, err.Error())
+			if _, err := io.Copy(execOpts.Writer, command.Stdout); err != nil {
+				execOpts.LogErrorf("%s: failed to stream stdout", c, err.Error())
 			}
 		}
 	}()
@@ -250,12 +254,12 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error {
 
 		for outputScanner.Scan() {
 			gotErrors = true
-			o.AddOutput(c.String(), "", outputScanner.Text()+"\n")
+			execOpts.AddOutput(c.String(), "", outputScanner.Text()+"\n")
 		}
 
 		if err := outputScanner.Err(); err != nil {
 			gotErrors = true
-			o.LogErrorf("%s: %s", c, err.Error())
+			execOpts.LogErrorf("%s: %s", c, err.Error())
 		}
 		command.Stderr.Close()
 	}()
@@ -266,8 +270,8 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error {
 
 	command.Close()
 
-	if command.ExitCode() > 0 || (!o.AllowWinStderr && gotErrors) {
-		return fmt.Errorf("command failed (received output to stderr on windows)")
+	if command.ExitCode() > 0 || (!execOpts.AllowWinStderr && gotErrors) {
+		return ErrDataInStderr
 	}
 
 	return nil
@@ -279,11 +283,14 @@ func (c *WinRM) ExecInteractive(cmd string) error {
 		cmd = "cmd"
 	}
 	_, err := c.client.RunWithContextWithInput(context.Background(), cmd, os.Stdout, os.Stderr, os.Stdin)
-	return err
+	if err != nil {
+		return fmt.Errorf("execute command: %w", err)
+	}
+	return nil
 }
 
 // Upload uploads a file from local src path to remote path dst
-func (c *WinRM) Upload(src, dst string, opts ...exec.Option) error {
+func (c *WinRM) Upload(src, dst string, opts ...exec.Option) error { //nolint:funlen,gocognit,cyclop
 	var err error
 	defer func() {
 		if err != nil {
@@ -293,7 +300,7 @@ func (c *WinRM) Upload(src, dst string, opts ...exec.Option) error {
 	psCmd := ps.UploadCmd(dst)
 	stat, err := os.Stat(src)
 	if err != nil {
-		return err
+		return fmt.Errorf("stat file: %w", err)
 	}
 	sha256DigestLocalObj := sha256.New()
 	sha256DigestLocal := ""
@@ -302,37 +309,37 @@ func (c *WinRM) Upload(src, dst string, opts ...exec.Option) error {
 	var bytesSent uint64
 	var realSent uint64
 	var fdClosed bool
-	fd, err := os.Open(src)
+	srcFd, err := os.Open(src)
 	if err != nil {
-		return err
+		return fmt.Errorf("open source file: %w", err)
 	}
 	defer func() {
 		if !fdClosed {
-			_ = fd.Close()
+			_ = srcFd.Close()
 			fdClosed = true
 		}
 	}()
 	shell, err := c.client.CreateShell()
 	if err != nil {
-		return err
+		return fmt.Errorf("create shell: %w", err)
 	}
 	defer shell.Close()
-	o := exec.Build(opts...)
-	upcmd, err := o.Command("powershell -ExecutionPolicy Unrestricted -EncodedCommand " + psCmd)
+	execOpts := exec.Build(opts...)
+	upcmd, err := execOpts.Command("powershell -ExecutionPolicy Unrestricted -EncodedCommand " + psCmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("build command: %w", err)
 	}
 
 	cmd, err := shell.ExecuteWithContext(context.Background(), upcmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("execute command: %w", err)
 	}
 
 	// Create a dummy request to get its length
 	dummy := winrm.NewSendInputRequest("dummydummydummy", "dummydummydummy", "dummydummydummy", []byte(""), false, winrm.DefaultParameters)
-	maxInput := len(dummy.String()) - 100
-	bufferCapacity := (winrm.DefaultParameters.EnvelopeSize - maxInput) / 4 * 3
-	base64LineBufferCapacity := bufferCapacity/3*4 + 2
+	maxInput := len(dummy.String()) - 100                                       //nolint:gomnd
+	bufferCapacity := (winrm.DefaultParameters.EnvelopeSize - maxInput) / 4 * 3 //nolint:gomnd
+	base64LineBufferCapacity := bufferCapacity/3*4 + 2                          //nolint:gomnd
 	base64LineBuffer := make([]byte, base64LineBufferCapacity)
 	base64LineBuffer[base64LineBufferCapacity-2] = '\r'
 	base64LineBuffer[base64LineBufferCapacity-1] = '\n'
@@ -343,7 +350,7 @@ func (c *WinRM) Upload(src, dst string, opts ...exec.Option) error {
 
 	for {
 		var n int
-		n, err = fd.Read(buffer)
+		n, err = srcFd.Read(buffer)
 		bufferLength += n
 		if err != nil {
 			break
@@ -364,13 +371,13 @@ func (c *WinRM) Upload(src, dst string, opts ...exec.Option) error {
 
 			bufferLength = 0
 			if err != nil {
-				return err
+				return fmt.Errorf("write to remote stdin: %w", err)
 			}
 		}
 	}
-	_ = fd.Close()
+	_ = srcFd.Close()
 	fdClosed = true
-	if err == io.EOF {
+	if errors.Is(err, io.EOF) {
 		err = nil
 	}
 	if err != nil {
@@ -388,14 +395,14 @@ func (c *WinRM) Upload(src, dst string, opts ...exec.Option) error {
 		if err != nil {
 			if !strings.Contains(err.Error(), ps.PipeHasEnded) && !strings.Contains(err.Error(), ps.PipeIsBeingClosed) {
 				cmd.Close()
-				return err
+				return fmt.Errorf("write to remote stdin: %w", err)
 			}
 			// ignore pipe errors that results from passing true to cmd.SendInput
 		}
 		cmd.Stdin.Close()
 	}
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(2) //nolint:gomnd
 	var stderr bytes.Buffer
 	var stdout bytes.Buffer
 	go func() {
@@ -427,12 +434,12 @@ func (c *WinRM) Upload(src, dst string, opts ...exec.Option) error {
 	wg.Wait()
 
 	if cmd.ExitCode() != 0 {
-		return fmt.Errorf("non-zero exit code: %d during upload", cmd.ExitCode())
+		return fmt.Errorf("%w (%d during upload)", ErrNonZeroExitCode, cmd.ExitCode())
 	}
 	if sha256DigestRemote == "" {
-		return fmt.Errorf("copy file command did not output the expected JSON to stdout but exited with code 0")
+		return ErrUnexpectedCopyOutput
 	} else if sha256DigestRemote != sha256DigestLocal {
-		return fmt.Errorf("copy file checksum mismatch (local = %s, remote = %s)", sha256DigestLocal, sha256DigestRemote)
+		return fmt.Errorf("%w (local = %s, remote = %s)", ErrCopyFileChecksumMismatch, sha256DigestLocal, sha256DigestRemote)
 	}
 
 	return nil

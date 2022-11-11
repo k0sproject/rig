@@ -4,6 +4,8 @@ run:
   skip-dirs-use-default: false
   skip-files:
     - ".*\\.gen\\.go"
+    - examples/*
+    - test/*
   tests: false
   allow-parallel-runners: true
 
@@ -33,6 +35,9 @@ linters:
     - varcheck
     - ifshort
     - goheader
+    - dogsled
+    - lll
+    - gomnd
 
 linters-settings:
   funlen:
@@ -48,6 +53,7 @@ linters-settings:
       - p []byte
       - mu sync.Mutex
       - wg sync.WaitGroup
+      - h Host
   cyclop:
     max-complexity: 12
 
@@ -60,10 +66,3 @@ issues:
     - EXC0015
   max-issues-per-linter: 0
   max-same-issues: 0
-  exclude-rules:
-    - source: "^//go:generate"
-      linters:
-        - lll
-    - text: 'package-comments: package comment should be of the form "Package cmd ..."'
-      linters:
-        - revive

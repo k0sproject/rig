@@ -3,6 +3,7 @@
 package rig
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -12,16 +13,8 @@ import (
 	"github.com/k0sproject/rig/exec"
 )
 
-type rigError struct {
-	Connection *Connection
-}
-
-// NotConnectedError is returned when attempting to perform remote operations
-// on Host when it is not connected
-type NotConnectedError rigError
-
-// Error returns the error message
-func (e *NotConnectedError) Error() string { return e.Connection.String() + ": not connected" }
+// ErrNotConnected is returned when a connection is used when it is not connected
+var ErrNotConnected = errors.New("not connected")
 
 type client interface {
 	Connect() error
@@ -35,6 +28,8 @@ type client interface {
 	IPAddress() string
 	IsConnected() bool
 }
+
+type sudofn func(string) string
 
 // Connection is a Struct you can embed into your application's "Host" types
 // to give them multi-protocol connectivity.
@@ -76,7 +71,7 @@ type Connection struct {
 	OSVersion *OSVersion `yaml:"-"`
 
 	client   client `yaml:"-"`
-	sudofunc func(string) string
+	sudofunc sudofn
 }
 
 // SetDefaults sets a connection
@@ -129,6 +124,14 @@ func (c *Connection) IsConnected() bool {
 	return c.client.IsConnected()
 }
 
+func (c *Connection) checkConnected() error {
+	if !c.IsConnected() {
+		return fmt.Errorf("%s: %w", c, ErrNotConnected)
+	}
+
+	return nil
+}
+
 // String returns a printable representation of the connection, which will look
 // like: `[ssh] address:port`
 func (c Connection) String() string {
@@ -151,17 +154,21 @@ func (c *Connection) IsWindows() bool {
 
 // Exec runs a command on the host
 func (c Connection) Exec(cmd string, opts ...exec.Option) error {
-	if !c.IsConnected() {
-		return &NotConnectedError{&c}
+	if err := c.checkConnected(); err != nil {
+		return err
 	}
 
-	return c.client.Exec(cmd, opts...)
+	if err := c.client.Exec(cmd, opts...); err != nil {
+		return fmt.Errorf("client exec: %w", err)
+	}
+
+	return nil
 }
 
 // ExecOutput runs a command on the host and returns the output as a String
 func (c Connection) ExecOutput(cmd string, opts ...exec.Option) (string, error) {
-	if !c.IsConnected() {
-		return "", &NotConnectedError{&c}
+	if err := c.checkConnected(); err != nil {
+		return "", err
 	}
 
 	var output string
@@ -178,7 +185,7 @@ func (c *Connection) Connect() error {
 
 	if err := c.client.Connect(); err != nil {
 		c.client = nil
-		return err
+		return fmt.Errorf("client connect: %w", err)
 	}
 
 	if c.OSVersion == nil {
@@ -194,80 +201,104 @@ func (c *Connection) Connect() error {
 	return nil
 }
 
-func (c *Connection) configureSudo() {
-	switch c.OSVersion.ID {
-	case "windows":
-		c.sudofunc = func(cmd string) string {
-			return "runas /user:Administrator " + cmd
+func sudoNoop(cmd string) string {
+	return cmd
+}
+
+func sudoSudo(cmd string) string {
+	parts, err := shlex.Split(cmd)
+	if err != nil {
+		return "sudo -s -- " + cmd
+	}
+
+	var idx int
+	for i, p := range parts {
+		if strings.Contains(p, "=") {
+			idx = i + 1
+			continue
 		}
-	default:
-		if c.Exec(`[ "$(id -u)" = 0 ]`) == nil {
-			c.sudofunc = func(cmd string) string {
-				return cmd
-			}
-		} else if c.Exec("sudo -n true") == nil {
-			c.sudofunc = func(cmd string) string {
-				parts, err := shlex.Split(cmd)
-				if err != nil {
-					return "sudo -s -- " + cmd
-				}
+		break
+	}
 
-				var idx int
-				for i, p := range parts {
-					if strings.Contains(p, "=") {
-						idx = i + 1
-						continue
-					}
-					break
-				}
+	if idx == 0 {
+		return "sudo -s -- " + cmd
+	}
 
-				if idx == 0 {
-					return "sudo -s -- " + cmd
-				}
+	for i, p := range parts {
+		parts[i] = shellescape.Quote(p)
+	}
 
-				for i, p := range parts {
-					parts[i] = shellescape.Quote(p)
-				}
+	return fmt.Sprintf("sudo -s %s -- %s", strings.Join(parts[0:idx], " "), strings.Join(parts[idx:], " "))
+}
 
-				return fmt.Sprintf("sudo -s %s -- %s", strings.Join(parts[0:idx], " "), strings.Join(parts[idx:], " "))
-			}
-		} else if c.Exec("doas -n true") == nil {
-			c.sudofunc = func(cmd string) string {
-				return "doas -s -- " + cmd
-			}
+func sudoDoas(cmd string) string {
+	return "doas -s -- " + cmd
+}
+
+var sudoChecks = map[string]sudofn{
+	`[ "$(id -u)" = 0 ]`: sudoNoop,
+	"sudo -n true":       sudoSudo,
+	"doas -n true":       sudoDoas,
+}
+
+const sudoCheckWindows = `whoami | findstr /i "administrator"`
+
+func sudoWindows(cmd string) string {
+	return "runas /user:Administrator " + cmd
+}
+
+func (c *Connection) configureSudo() {
+	if c.OSVersion.ID == "windows" {
+		if c.Exec(sudoCheckWindows) == nil {
+			c.sudofunc = sudoWindows
+		}
+		return
+	}
+	for check, fn := range sudoChecks {
+		if c.Exec(check) == nil {
+			c.sudofunc = fn
+			return
 		}
 	}
 }
 
+// ErrNoSudo is returned when the connection does not have sudo capability but it is required
+var ErrNoSudo = errors.New("user is not an administrator and passwordless access elevation has not been configured")
+
+// Sudo formats a command string to be run with elevated privileges
 func (c Connection) Sudo(cmd string) (string, error) {
 	if c.sudofunc == nil {
-		return "", fmt.Errorf("user is not an administrator and passwordless access elevation has not been configured")
+		return "", ErrNoSudo
 	}
 
 	return c.sudofunc(cmd), nil
 }
 
 // Execf is just like `Exec` but you can use Sprintf templating for the command
-func (c Connection) Execf(s string, params ...interface{}) error {
-	opts, args := GroupParams(params)
+func (c Connection) Execf(s string, params ...any) error {
+	opts, args := GroupParams(params...)
 	return c.Exec(fmt.Sprintf(s, args...), opts...)
 }
 
 // ExecOutputf is like ExecOutput but you can use Sprintf
 // templating for the command
-func (c Connection) ExecOutputf(s string, params ...interface{}) (string, error) {
-	opts, args := GroupParams(params)
+func (c Connection) ExecOutputf(s string, params ...any) (string, error) {
+	opts, args := GroupParams(params...)
 	return c.ExecOutput(fmt.Sprintf(s, args...), opts...)
 }
 
 // ExecInteractive executes a command on the host and passes control of
 // local input to the remote command
 func (c Connection) ExecInteractive(cmd string) error {
-	if !c.IsConnected() {
-		return &NotConnectedError{&c}
+	if err := c.checkConnected(); err != nil {
+		return err
 	}
 
-	return c.client.ExecInteractive(cmd)
+	if err := c.client.ExecInteractive(cmd); err != nil {
+		return fmt.Errorf("client exec interactive: %w", err)
+	}
+
+	return nil
 }
 
 // Disconnect from the host
@@ -281,11 +312,15 @@ func (c *Connection) Disconnect() {
 // Upload copies a file from a local path src to the remote host path dst. For
 // smaller files you should probably use os.WriteFile
 func (c Connection) Upload(src, dst string, opts ...exec.Option) error {
-	if !c.IsConnected() {
-		return &NotConnectedError{&c}
+	if err := c.checkConnected(); err != nil {
+		return err
 	}
 
-	return c.client.Upload(src, dst, opts...)
+	if err := c.client.Upload(src, dst, opts...); err != nil {
+		return fmt.Errorf("client upload: %w", err)
+	}
+
+	return nil
 }
 
 func (c *Connection) configuredClient() client {
@@ -309,10 +344,12 @@ func defaultClient() client {
 }
 
 // GroupParams separates exec.Options from other sprintf templating args
-func GroupParams(params ...interface{}) (opts []exec.Option, args []interface{}) {
+func GroupParams(params ...any) ([]exec.Option, []any) {
+	var opts []exec.Option
+	var args []any
 	for _, v := range params {
 		switch vv := v.(type) {
-		case []interface{}:
+		case []any:
 			o, a := GroupParams(vv...)
 			opts = append(opts, o...)
 			args = append(args, a...)
@@ -322,5 +359,5 @@ func GroupParams(params ...interface{}) (opts []exec.Option, args []interface{})
 			args = append(args, vv)
 		}
 	}
-	return
+	return opts, args
 }

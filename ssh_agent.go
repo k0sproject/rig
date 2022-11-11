@@ -11,10 +11,13 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 )
 
+// ErrNoSSHAgent is returned when SSH_AUTH_SOCK is not set
+var ErrNoSSHAgent = fmt.Errorf("no ssh agent found")
+
 func agentClient() (agent.Agent, error) {
 	sshAgentSock := os.Getenv("SSH_AUTH_SOCK")
 	if sshAgentSock == "" {
-		return nil, fmt.Errorf("SSH_AUTH_SOCK is empty")
+		return nil, ErrNoSSHAgent
 	}
 	log.Debugf("using SSH_AUTH_SOCK=%s", sshAgentSock)
 	sshAgent, err := net.Dial("unix", sshAgentSock)

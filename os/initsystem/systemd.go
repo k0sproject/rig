@@ -14,32 +14,50 @@ type Systemd struct{}
 
 // StartService starts a a service
 func (i Systemd) StartService(h Host, s string) error {
-	return h.Execf("systemctl start %s 2> /dev/null", s, exec.Sudo(h))
+	if err := h.Execf("systemctl start %s 2> /dev/null", s, exec.Sudo(h)); err != nil {
+		return fmt.Errorf("failed to start service %s: %w", s, err)
+	}
+	return nil
 }
 
 // EnableService enables a a service
 func (i Systemd) EnableService(h Host, s string) error {
-	return h.Execf("systemctl enable %s 2> /dev/null", s, exec.Sudo(h))
+	if err := h.Execf("systemctl enable %s 2> /dev/null", s, exec.Sudo(h)); err != nil {
+		return fmt.Errorf("failed to enable service %s: %w", s, err)
+	}
+	return nil
 }
 
 // DisableService disables a a service
 func (i Systemd) DisableService(h Host, s string) error {
-	return h.Execf("systemctl disable %s 2> /dev/null", s, exec.Sudo(h))
+	if err := h.Execf("systemctl disable %s 2> /dev/null", s, exec.Sudo(h)); err != nil {
+		return fmt.Errorf("failed to disable service %s: %w", s, err)
+	}
+	return nil
 }
 
 // StopService stops a a service
 func (i Systemd) StopService(h Host, s string) error {
-	return h.Execf("systemctl stop %s 2> /dev/null", s, exec.Sudo(h))
+	if err := h.Execf("systemctl stop %s 2> /dev/null", s, exec.Sudo(h)); err != nil {
+		return fmt.Errorf("failed to stop service %s: %w", s, err)
+	}
+	return nil
 }
 
 // RestartService restarts a a service
 func (i Systemd) RestartService(h Host, s string) error {
-	return h.Execf("systemctl restart %s 2> /dev/null", s, exec.Sudo(h))
+	if err := h.Execf("systemctl restart %s 2> /dev/null", s, exec.Sudo(h)); err != nil {
+		return fmt.Errorf("failed to restart service %s: %w", s, err)
+	}
+	return nil
 }
 
 // DaemonReload reloads init system configuration
 func (i Systemd) DaemonReload(h Host) error {
-	return h.Execf("systemctl daemon-reload 2> /dev/null", exec.Sudo(h))
+	if err := h.Execf("systemctl daemon-reload 2> /dev/null", exec.Sudo(h)); err != nil {
+		return fmt.Errorf("failed to daemon-reload: %w", err)
+	}
+	return nil
 }
 
 // ServiceIsRunning returns true if a service is running
@@ -49,7 +67,11 @@ func (i Systemd) ServiceIsRunning(h Host, s string) bool {
 
 // ServiceScriptPath returns the path to a service configuration file
 func (i Systemd) ServiceScriptPath(h Host, s string) (string, error) {
-	return h.ExecOutputf(`systemctl show -p FragmentPath %s.service 2> /dev/null | cut -d"=" -f2`, s, exec.Sudo(h))
+	out, err := h.ExecOutputf(`systemctl show -p FragmentPath %s.service 2> /dev/null | cut -d"=" -f2`, s, exec.Sudo(h))
+	if err != nil {
+		return "", fmt.Errorf("failed to get service %s script path: %w", s, err)
+	}
+	return strings.TrimSpace(out), nil
 }
 
 // ServiceEnvironmentPath returns a path to an environment override file path

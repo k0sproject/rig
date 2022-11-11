@@ -1,10 +1,14 @@
+// Package registry is a registry of OS support modules
 package registry
 
 import (
-	"fmt"
+	"errors"
 
 	"github.com/k0sproject/rig"
 )
+
+// ErrOSModuleNotFound is returned when no suitable OS support module is found
+var ErrOSModuleNotFound = errors.New("os support module not found")
 
 type (
 	buildFunc = func() interface{}
@@ -32,5 +36,5 @@ func GetOSModuleBuilder(osv rig.OSVersion) (buildFunc, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("os support module not found")
+	return nil, ErrOSModuleNotFound
 }

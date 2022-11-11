@@ -1,3 +1,4 @@
+// Package powershell provides helpers for powershell command generation
 package powershell
 
 import (
@@ -66,58 +67,32 @@ func Cmd(psCmd string) string {
 // SingleQuote quotes and escapes a string in a format that is accepted by powershell scriptlets
 // from jbrekelmans/go-winrm/util.go PowerShellSingleQuotedStringLiteral
 func SingleQuote(v string) string {
-	var sb strings.Builder
-	_, _ = sb.WriteRune('\'')
+	var buf strings.Builder
+	_, _ = buf.WriteRune('\'')
 	for _, rune := range v {
-		var esc string
 		switch rune {
-		case '\n':
-			esc = "`n"
-		case '\r':
-			esc = "`r"
-		case '\t':
-			esc = "`t"
-		case '\a':
-			esc = "`a"
-		case '\b':
-			esc = "`b"
-		case '\f':
-			esc = "`f"
-		case '\v':
-			esc = "`v"
-		case '"':
-			esc = "`\""
-		case '\'':
-			esc = "`'"
-		case '`':
-			esc = "``"
-		case '\x00':
-			esc = "`0"
+		case '\n', '\r', '\t', '\v', '\f', '\a', '\b', '\'', '`', '\x00':
+			_, _ = buf.WriteString(fmt.Sprintf("`%c", rune))
 		default:
-			_, _ = sb.WriteRune(rune)
-			continue
+			_, _ = buf.WriteRune(rune)
 		}
-		_, _ = sb.WriteString(esc)
 	}
-	_, _ = sb.WriteRune('\'')
-	return sb.String()
+	_, _ = buf.WriteRune('\'')
+	return buf.String()
 }
 
 // DoubleQuote escapes a string in a way that can be used as a windows file path
 func DoubleQuote(v string) string {
-	var sb strings.Builder
-	_, _ = sb.WriteRune('"')
+	var buf strings.Builder
+	_, _ = buf.WriteRune('"')
 	for _, rune := range v {
-		var esc string
 		switch rune {
 		case '"':
-			esc = "`\""
+			_, _ = buf.WriteString("`\"")
 		default:
-			_, _ = sb.WriteRune(rune)
-			continue
+			_, _ = buf.WriteRune(rune)
 		}
-		_, _ = sb.WriteString(esc)
 	}
-	_, _ = sb.WriteRune('"')
-	return sb.String()
+	_, _ = buf.WriteRune('"')
+	return buf.String()
 }

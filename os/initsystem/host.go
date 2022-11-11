@@ -1,3 +1,4 @@
+// Package initsystem provides an abstraction over several supported init systems.
 package initsystem
 
 // Host interface for init system

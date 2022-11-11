@@ -58,46 +58,46 @@ func (c *Localhost) Disconnect() {}
 
 // Exec executes a command on the host
 func (c *Localhost) Exec(cmd string, opts ...exec.Option) error {
-	o := exec.Build(opts...)
-	command, err := c.command(cmd, o)
+	execOpts := exec.Build(opts...)
+	command, err := c.command(cmd, execOpts)
 	if err != nil {
 		return err
 	}
 
-	if o.Stdin != "" {
-		o.LogStdin(name)
+	if execOpts.Stdin != "" {
+		execOpts.LogStdin(name)
 
-		command.Stdin = strings.NewReader(o.Stdin)
+		command.Stdin = strings.NewReader(execOpts.Stdin)
 	}
 
 	stdout, err := command.StdoutPipe()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get stdout pipe: %w", err)
 	}
 	stderr, err := command.StderrPipe()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get stderr pipe: %w", err)
 	}
 
-	o.LogCmd(name, cmd)
+	execOpts.LogCmd(name, cmd)
 
 	if err := command.Start(); err != nil {
-		return err
+		return fmt.Errorf("failed to start command: %w", err)
 	}
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
-		if o.Writer == nil {
+		if execOpts.Writer == nil {
 			outputScanner := bufio.NewScanner(stdout)
 
 			for outputScanner.Scan() {
-				o.AddOutput(name, outputScanner.Text()+"\n", "")
+				execOpts.AddOutput(name, outputScanner.Text()+"\n", "")
 			}
 		} else {
-			if _, err := io.Copy(o.Writer, stdout); err != nil {
-				o.LogErrorf("%s: failed to stream stdout", c, err.Error())
+			if _, err := io.Copy(execOpts.Writer, stdout); err != nil {
+				execOpts.LogErrorf("%s: failed to stream stdout", c, err.Error())
 			}
 		}
 	}()
@@ -108,19 +108,22 @@ func (c *Localhost) Exec(cmd string, opts ...exec.Option) error {
 		outputScanner := bufio.NewScanner(stderr)
 
 		for outputScanner.Scan() {
-			o.AddOutput(name, "", outputScanner.Text()+"\n")
+			execOpts.AddOutput(name, "", outputScanner.Text()+"\n")
 		}
 	}()
 
 	err = command.Wait()
 	wg.Wait()
-	return err
+	if err != nil {
+		return fmt.Errorf("command wait: %w", err)
+	}
+	return nil
 }
 
 func (c *Localhost) command(cmd string, o *exec.Options) (*osexec.Cmd, error) {
 	cmd, err := o.Command(cmd)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to build command: %w", err)
 	}
 
 	if c.IsWindows() {
@@ -143,19 +146,22 @@ func (c *Localhost) Upload(src, dst string, opts ...exec.Option) error {
 		}
 	}()
 
-	in, err := os.Open(src)
+	inFile, err := os.Open(src)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to open source file %s: %w", src, err)
 	}
-	defer in.Close()
+	defer inFile.Close()
 
 	out, err := os.Create(dst)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create destination file %s: %w", dst, err)
 	}
 	defer out.Close()
-	_, remoteErr = io.Copy(out, in)
-	return remoteErr
+	_, err = io.Copy(out, inFile)
+	if err != nil {
+		return fmt.Errorf("failed to copy file %s to %s: %w", src, dst, err)
+	}
+	return nil
 }
 
 // ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host
@@ -170,7 +176,7 @@ func (c *Localhost) ExecInteractive(cmd string) error {
 
 	cwd, err := os.Getwd()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get current working directory: %w", err)
 	}
 
 	pa := os.ProcAttr{
@@ -180,15 +186,16 @@ func (c *Localhost) ExecInteractive(cmd string) error {
 
 	parts, err := shellquote.Split(cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to parse command: %w", err)
 	}
 
 	proc, err := os.StartProcess(parts[0], parts[1:], &pa)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to start process: %w", err)
 	}
 
-	_, err = proc.Wait()
-	println("shell exited")
-	return err
+	if _, err := proc.Wait(); err != nil {
+		return fmt.Errorf("process wait: %w", err)
+	}
+	return nil
 }
