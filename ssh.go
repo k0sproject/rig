@@ -74,9 +74,6 @@ var (
 
 	// ErrCopyFileChecksumMismatch is returned when the checksum of the uploaded file does not match the source file
 	ErrCopyFileChecksumMismatch = errors.New("copy file checksum mismatch")
-
-	// ErrNoKnownHostsFile is returned when no known_hosts file is found
-	ErrNoKnownHostsFile = errors.New("no known hosts file found")
 )
 
 const hopefullyNonexistentHost = "thisH0stDoe5not3xist"
@@ -244,20 +241,20 @@ func (c *SSH) hostkeyCallback() (ssh.HostKeyCallback, error) { //nolint:cyclop
 			knownhostsPaths = append(knownhostsPaths, files...)
 		} else {
 			// fall back to hardcoded default
-			knownhostsPaths = append(knownhostsPaths, filepath.Join(os.Getenv("HOME"), ".ssh", "known_hosts2"))
+			knownhostsPaths = append(knownhostsPaths, filepath.Join("~", ".ssh", "known_hosts2"))
 		}
 	}
 
 	var exp string
 	for _, path := range knownhostsPaths {
 		expanded, err := homedir.Expand(path)
-		if err == nil {
-			exp = expanded
+		if err != nil {
+			continue
+		}
+		exp = expanded
+		if _, err := os.Stat(exp); err == nil {
 			break
 		}
-	}
-	if exp == "" {
-		return nil, ErrNoKnownHostsFile
 	}
 
 	kf, err := os.OpenFile(exp, os.O_CREATE|os.O_APPEND, 0o600)
