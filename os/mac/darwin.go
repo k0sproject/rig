@@ -29,7 +29,7 @@ func (c Darwin) Kind() string {
 	return "darwin"
 }
 
-// StartService starts a a service
+// StartService starts a service
 func (c Darwin) StartService(h os.Host, s string) error {
 	if err := h.Execf(`launchctl start %s`, s); err != nil {
 		return fmt.Errorf("failed to start service %s: %w", s, err)
@@ -37,7 +37,7 @@ func (c Darwin) StartService(h os.Host, s string) error {
 	return nil
 }
 
-// StopService stops a a service
+// StopService stops a service
 func (c Darwin) StopService(h os.Host, s string) error {
 	if err := h.Execf(`launchctl stop %s`, s); err != nil {
 		return fmt.Errorf("failed to stop service %s: %w", s, err)
@@ -50,7 +50,7 @@ func (c Darwin) ServiceScriptPath(s string) (string, error) {
 	return "", ErrNotAvailableOnDarwin
 }
 
-// RestartService restarts a a service
+// RestartService restarts a service
 func (c Darwin) RestartService(h os.Host, s string) error {
 	if err := h.Execf(`launchctl kickstart -k %s`, s); err != nil {
 		return fmt.Errorf("failed to restart service %s: %w", s, err)
@@ -63,7 +63,7 @@ func (c Darwin) DaemonReload(_ os.Host) error {
 	return nil
 }
 
-// EnableService enables a a service
+// EnableService enables a service
 func (c Darwin) EnableService(h os.Host, s string) error {
 	if err := h.Execf(`launchctl enable %s`, s); err != nil {
 		return fmt.Errorf("failed to enable service %s: %w", s, err)
@@ -71,7 +71,7 @@ func (c Darwin) EnableService(h os.Host, s string) error {
 	return nil
 }
 
-// DisableService disables a a service
+// DisableService disables a service
 func (c Darwin) DisableService(h os.Host, s string) error {
 	if err := h.Execf(`launchctl disable %s`, s); err != nil {
 		return fmt.Errorf("failed to disable service %s: %w", s, err)

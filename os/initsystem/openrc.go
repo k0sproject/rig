@@ -11,7 +11,7 @@ import (
 // OpenRC is found on some linux systems, often installed on Alpine for example.
 type OpenRC struct{}
 
-// StartService starts a a service
+// StartService starts a service
 func (i OpenRC) StartService(h Host, s string) error {
 	if err := h.Execf("rc-service %s start", s, exec.Sudo(h)); err != nil {
 		return fmt.Errorf("failed to start service %s: %w", s, err)
@@ -19,7 +19,7 @@ func (i OpenRC) StartService(h Host, s string) error {
 	return nil
 }
 
-// StopService stops a a service
+// StopService stops a service
 func (i OpenRC) StopService(h Host, s string) error {
 	if err := h.Execf("rc-service %s stop", s, exec.Sudo(h)); err != nil {
 		return fmt.Errorf("failed to stop service %s: %w", s, err)
@@ -36,7 +36,7 @@ func (i OpenRC) ServiceScriptPath(h Host, s string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
-// RestartService restarts a a service
+// RestartService restarts a service
 func (i OpenRC) RestartService(h Host, s string) error {
 	if err := h.Execf("rc-service %s restart", s, exec.Sudo(h)); err != nil {
 		return fmt.Errorf("failed to restart service %s: %w", s, err)
@@ -49,7 +49,7 @@ func (i OpenRC) DaemonReload(_ Host) error {
 	return nil
 }
 
-// EnableService enables a a service
+// EnableService enables a service
 func (i OpenRC) EnableService(h Host, s string) error {
 	if err := h.Execf("rc-update add %s", s, exec.Sudo(h)); err != nil {
 		return fmt.Errorf("failed to enable service %s: %w", s, err)
@@ -57,7 +57,7 @@ func (i OpenRC) EnableService(h Host, s string) error {
 	return nil
 }
 
-// DisableService disables a a service
+// DisableService disables a service
 func (i OpenRC) DisableService(h Host, s string) error {
 	if err := h.Execf("rc-update del %s", s, exec.Sudo(h)); err != nil {
 		return fmt.Errorf("failed to disable service %s: %w", s, err)

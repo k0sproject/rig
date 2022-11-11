@@ -219,7 +219,7 @@ func (c Windows) Reboot(h Host) error {
 	return nil
 }
 
-// StartService starts a a service
+// StartService starts a service
 func (c Windows) StartService(h Host, s string) error {
 	if err := h.Execf(`sc start "%s"`, s); err != nil {
 		return fmt.Errorf("failed to start service %s: %w", s, err)
@@ -227,7 +227,7 @@ func (c Windows) StartService(h Host, s string) error {
 	return nil
 }
 
-// StopService stops a a service
+// StopService stops a service
 func (c Windows) StopService(h Host, s string) error {
 	if err := h.Execf(`sc stop "%s"`, s); err != nil {
 		return fmt.Errorf("failed to stop service %s: %w", s, err)
@@ -240,7 +240,7 @@ func (c Windows) ServiceScriptPath(h Host, s string) (string, error) {
 	return "", ErrNotAvailableOnWindows
 }
 
-// RestartService restarts a a service
+// RestartService restarts a service
 func (c Windows) RestartService(h Host, s string) error {
 	if err := h.Execf(ps.Cmd(fmt.Sprintf(`Restart-Service "%s"`, s))); err != nil {
 		return fmt.Errorf("failed to restart service %s: %w", s, err)
@@ -253,7 +253,7 @@ func (c Windows) DaemonReload(_ Host) error {
 	return nil
 }
 
-// EnableService enables a a service
+// EnableService enables a service
 func (c Windows) EnableService(h Host, s string) error {
 	if err := h.Execf(`sc.exe config "%s" start=enabled`, s); err != nil {
 		return fmt.Errorf("failed to enable service %s: %w", s, err)
@@ -262,7 +262,7 @@ func (c Windows) EnableService(h Host, s string) error {
 	return nil
 }
 
-// DisableService disables a a service
+// DisableService disables a service
 func (c Windows) DisableService(h Host, s string) error {
 	if err := h.Execf(`sc.exe config "%s" start=disabled`, s); err != nil {
 		return fmt.Errorf("failed to disable service %s: %w", s, err)

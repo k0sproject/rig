@@ -12,7 +12,7 @@ import (
 // Systemd is found by default on most linux distributions today
 type Systemd struct{}
 
-// StartService starts a a service
+// StartService starts a service
 func (i Systemd) StartService(h Host, s string) error {
 	if err := h.Execf("systemctl start %s 2> /dev/null", s, exec.Sudo(h)); err != nil {
 		return fmt.Errorf("failed to start service %s: %w", s, err)
@@ -20,7 +20,7 @@ func (i Systemd) StartService(h Host, s string) error {
 	return nil
 }
 
-// EnableService enables a a service
+// EnableService enables a service
 func (i Systemd) EnableService(h Host, s string) error {
 	if err := h.Execf("systemctl enable %s 2> /dev/null", s, exec.Sudo(h)); err != nil {
 		return fmt.Errorf("failed to enable service %s: %w", s, err)
@@ -28,7 +28,7 @@ func (i Systemd) EnableService(h Host, s string) error {
 	return nil
 }
 
-// DisableService disables a a service
+// DisableService disables a service
 func (i Systemd) DisableService(h Host, s string) error {
 	if err := h.Execf("systemctl disable %s 2> /dev/null", s, exec.Sudo(h)); err != nil {
 		return fmt.Errorf("failed to disable service %s: %w", s, err)
@@ -36,7 +36,7 @@ func (i Systemd) DisableService(h Host, s string) error {
 	return nil
 }
 
-// StopService stops a a service
+// StopService stops a service
 func (i Systemd) StopService(h Host, s string) error {
 	if err := h.Execf("systemctl stop %s 2> /dev/null", s, exec.Sudo(h)); err != nil {
 		return fmt.Errorf("failed to stop service %s: %w", s, err)
@@ -44,7 +44,7 @@ func (i Systemd) StopService(h Host, s string) error {
 	return nil
 }
 
-// RestartService restarts a a service
+// RestartService restarts a service
 func (i Systemd) RestartService(h Host, s string) error {
 	if err := h.Execf("systemctl restart %s 2> /dev/null", s, exec.Sudo(h)); err != nil {
 		return fmt.Errorf("failed to restart service %s: %w", s, err)
