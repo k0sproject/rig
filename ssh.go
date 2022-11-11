@@ -74,6 +74,9 @@ var (
 
 	// ErrCopyFileChecksumMismatch is returned when the checksum of the uploaded file does not match the source file
 	ErrCopyFileChecksumMismatch = errors.New("copy file checksum mismatch")
+
+	// ErrNoKnownHostsFile is returned when no known_hosts file is found
+	ErrNoKnownHostsFile = errors.New("no known hosts file found")
 )
 
 const hopefullyNonexistentHost = "thisH0stDoe5not3xist"
@@ -227,28 +230,36 @@ func (c *SSH) hostkeyCallback() (ssh.HostKeyCallback, error) { //nolint:cyclop
 	if c.HostKey != "" {
 		return trustedHostKeyCallback(c.HostKey), nil
 	}
-	var knownhostsPath string
+	var knownhostsPaths []string
 	if path, ok := os.LookupEnv("SSH_KNOWN_HOSTS"); ok {
 		if path == "" {
 			// setting empty SSH_KNOWN_HOSTS disables hostkey checking
 			return ssh.InsecureIgnoreHostKey(), nil //nolint:gosec
 		}
-		knownhostsPath = path
+		knownhostsPaths = append(knownhostsPaths, path)
 	}
-	if knownhostsPath == "" {
+	if len(knownhostsPaths) == 0 {
 		// Ask ssh_config for a known hosts file
 		if files := SSHConfigGetAll(c.Address, "UserKnownHostsFile"); len(files) > 0 {
-			knownhostsPath = files[0]
+			knownhostsPaths = append(knownhostsPaths, files...)
 		} else {
 			// fall back to hardcoded default
-			knownhostsPath = filepath.Join(os.Getenv("HOME"), ".ssh", "known_hosts")
+			knownhostsPaths = append(knownhostsPaths, filepath.Join(os.Getenv("HOME"), ".ssh", "known_hosts2"))
 		}
 	}
 
-	exp, err := homedir.Expand(knownhostsPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get ssh known_hosts path %s: %w", knownhostsPath, err)
+	var exp string
+	for _, path := range knownhostsPaths {
+		expanded, err := homedir.Expand(path)
+		if err == nil {
+			exp = expanded
+			break
+		}
 	}
+	if exp == "" {
+		return nil, ErrNoKnownHostsFile
+	}
+
 	kf, err := os.OpenFile(exp, os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("failed to access ssh known_hosts file %s: %w", exp, err)
