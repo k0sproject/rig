@@ -223,24 +223,61 @@ func trustedHostKeyCallback(trustedKey string) ssh.HostKeyCallback {
 	}
 }
 
-func (c *SSH) hostkeyCallback() (ssh.HostKeyCallback, error) {
+func (c *SSH) hostkeyCallback() (ssh.HostKeyCallback, error) { //nolint:cyclop
 	if c.HostKey != "" {
 		return trustedHostKeyCallback(c.HostKey), nil
 	}
-	exp, err := homedir.Expand(filepath.Join("~", ".ssh", "known_hosts"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to get ssh known_hosts path: %w", err)
+	var knownhostsPath string
+	if path, ok := os.LookupEnv("SSH_KNOWN_HOSTS"); ok {
+		if path == "" {
+			// setting empty SSH_KNOWN_HOSTS disables hostkey checking
+			return ssh.InsecureIgnoreHostKey(), nil //nolint:gosec
+		}
+		knownhostsPath = path
 	}
-	f, err := os.OpenFile(exp, os.O_CREATE|os.O_APPEND, 0o600)
-	if err != nil {
-		return nil, fmt.Errorf("failed to access ssh known_hosts file: %w", err)
+	if knownhostsPath == "" {
+		// Ask ssh_config for a known hosts file
+		if files := SSHConfigGetAll(c.Address, "UserKnownHostsFile"); len(files) > 0 {
+			knownhostsPath = files[0]
+		} else {
+			// fall back to hardcoded default
+			knownhostsPath = filepath.Join(os.Getenv("HOME"), ".ssh", "known_hosts")
+		}
 	}
-	f.Close()
-	hkc, err := knownhosts.New(f.Name())
+
+	exp, err := homedir.Expand(knownhostsPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get ssh known_hosts path %s: %w", knownhostsPath, err)
+	}
+	kf, err := os.OpenFile(exp, os.O_CREATE|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("failed to access ssh known_hosts file %s: %w", exp, err)
+	}
+	kf.Close()
+	hkc, err := knownhosts.New(kf.Name())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create knownhosts callback: %w", err)
 	}
-	return hkc, nil
+	return ssh.HostKeyCallback(func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		var keyErr *knownhosts.KeyError
+		err := hkc(hostname, remote, key)
+		if errors.As(err, &keyErr) { //nolint:nestif
+			if len(keyErr.Want) == 0 {
+				kf, err := os.OpenFile(exp, os.O_CREATE|os.O_APPEND, 0o600)
+				if err != nil {
+					return fmt.Errorf("failed to open ssh known_hosts file %s for writing: %w", exp, err)
+				}
+				defer kf.Close()
+
+				knownHosts := knownhosts.Normalize(remote.String())
+				if _, err := kf.WriteString(knownhosts.Line([]string{knownHosts}, key)); err != nil {
+					return fmt.Errorf("failed to write to ssh known_hosts file %s: %w", exp, err)
+				}
+				return nil
+			}
+		}
+		return err
+	}), nil
 }
 
 func (c *SSH) clientConfig() (*ssh.ClientConfig, error) {
