@@ -12,7 +12,7 @@ test: $(GO_SRCS) $(GO_TESTS)
 
 .PHONY: inttest
 inttest: $(GO_SRCS} $(INT_TESTS)
-	$(gotest) -v ./...
+	$(MAKE) -C test
 
 ifeq ($(FIX),true)
 fixparam := --fix
@@ -23,3 +23,4 @@ endif
 .PHONY: lint
 lint:
 	golangci-lint run -v $(fixparam)
+

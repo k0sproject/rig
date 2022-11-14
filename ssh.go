@@ -21,6 +21,7 @@ import (
 	"github.com/acarl005/stripansi"
 	"github.com/alessio/shellescape"
 	"github.com/creasty/defaults"
+	"github.com/google/shlex"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
 	ps "github.com/k0sproject/rig/powershell"
@@ -59,6 +60,7 @@ var (
 	defaultKeypaths   = []string{"~/.ssh/id_rsa", "~/.ssh/identity", "~/.ssh/id_dsa"}
 	dummyHostKeypaths []string
 	globalOnce        sync.Once
+	knownHostsMU      sync.Mutex
 
 	// ErrSSHHostKeyMismatch is returned when the host key does not match the host key or a key in known_hosts file
 	ErrSSHHostKeyMismatch = errors.New("ssh host key mismatch")
@@ -224,29 +226,35 @@ func trustedHostKeyCallback(trustedKey string) ssh.HostKeyCallback {
 }
 
 func (c *SSH) hostkeyCallback() (ssh.HostKeyCallback, error) { //nolint:cyclop
+	knownHostsMU.Lock()
+	defer knownHostsMU.Unlock()
+
+	// use a map as a set
+	knownhostPaths := make(map[string]struct{})
 	if c.HostKey != "" {
 		return trustedHostKeyCallback(c.HostKey), nil
 	}
-	var knownhostsPaths []string
 	if path, ok := os.LookupEnv("SSH_KNOWN_HOSTS"); ok {
 		if path == "" {
 			// setting empty SSH_KNOWN_HOSTS disables hostkey checking
 			return ssh.InsecureIgnoreHostKey(), nil //nolint:gosec
 		}
-		knownhostsPaths = append(knownhostsPaths, path)
-	}
-	if len(knownhostsPaths) == 0 {
-		// Ask ssh_config for a known hosts file
-		if files := SSHConfigGetAll(c.Address, "UserKnownHostsFile"); len(files) > 0 {
-			knownhostsPaths = append(knownhostsPaths, files...)
-		} else {
-			// fall back to hardcoded default
-			knownhostsPaths = append(knownhostsPaths, filepath.Join("~", ".ssh", "known_hosts2"))
-		}
+		knownhostPaths[path] = struct{}{}
 	}
 
+	// Ask ssh_config for a known hosts file
+	kfs := SSHConfigGetAll(c.Address, "UserKnownHostsFile")
+	// splitting the result as for some reason ssh_config seems to retur a single string containing two paths
+	if files, err := shlex.Split(strings.Join(kfs, " ")); err == nil {
+		for _, path := range files {
+			knownhostPaths[path] = struct{}{}
+		}
+	}
+	// fall back to hardcoded default
+	knownhostPaths[filepath.Join("~", ".ssh", "known_hosts2")] = struct{}{}
+
 	var exp string
-	for _, path := range knownhostsPaths {
+	for path := range knownhostPaths {
 		expanded, err := homedir.Expand(path)
 		if err != nil {
 			continue
@@ -257,7 +265,9 @@ func (c *SSH) hostkeyCallback() (ssh.HostKeyCallback, error) { //nolint:cyclop
 		}
 	}
 
-	kf, err := os.OpenFile(exp, os.O_CREATE|os.O_APPEND, 0o600)
+	log.Debugf("%s: using known_hosts file %s", c, exp)
+
+	kf, err := os.OpenFile(exp, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("failed to access ssh known_hosts file %s: %w", exp, err)
 	}
@@ -267,18 +277,20 @@ func (c *SSH) hostkeyCallback() (ssh.HostKeyCallback, error) { //nolint:cyclop
 		return nil, fmt.Errorf("failed to create knownhosts callback: %w", err)
 	}
 	return ssh.HostKeyCallback(func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		knownHostsMU.Lock()
+		defer knownHostsMU.Unlock()
 		var keyErr *knownhosts.KeyError
 		err := hkc(hostname, remote, key)
 		if errors.As(err, &keyErr) { //nolint:nestif
 			if len(keyErr.Want) == 0 {
-				kf, err := os.OpenFile(exp, os.O_CREATE|os.O_APPEND, 0o600)
+				kf, err := os.OpenFile(exp, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 				if err != nil {
 					return fmt.Errorf("failed to open ssh known_hosts file %s for writing: %w", exp, err)
 				}
 				defer kf.Close()
 
 				knownHosts := knownhosts.Normalize(remote.String())
-				if _, err := kf.WriteString(knownhosts.Line([]string{knownHosts}, key)); err != nil {
+				if _, err := kf.WriteString(fmt.Sprintf("%s\n", strings.TrimSpace(knownhosts.Line([]string{knownHosts}, key)))); err != nil {
 					return fmt.Errorf("failed to write to ssh known_hosts file %s: %w", exp, err)
 				}
 				return nil
@@ -328,12 +340,13 @@ func (c *SSH) clientConfig() (*ssh.ClientConfig, error) {
 			log.Debugf("%s: failed to obtain a signer for identity %s: %v", c, keyPath, err)
 			// store the error so this key won't be loaded again
 			authMethodCache.Store(keyPath, err)
+		} else {
+			authMethodCache.Store(keyPath, privateKeyAuth)
+			config.Auth = append(config.Auth, privateKeyAuth)
 		}
-		authMethodCache.Store(keyPath, privateKeyAuth)
-		config.Auth = append(config.Auth, privateKeyAuth)
 	}
 
-	if c.KeyPath == nil && len(signers) > 0 {
+	if len(config.Auth) == 0 && len(signers) > 0 {
 		log.Debugf("%s: using all keys (%d) from ssh agent because a keypath was not explicitly given", c, len(signers))
 		config.Auth = append(config.Auth, ssh.PublicKeys(signers...))
 	}
@@ -411,7 +424,8 @@ func (c *SSH) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMethod, err
 		return ssh.PublicKeys(signer), nil
 	}
 
-	if errors.Is(err, &ssh.PassphraseMissingError{}) { //nolint:nestif
+	var ppErr *ssh.PassphraseMissingError
+	if errors.As(err, &ppErr) { //nolint:nestif
 		log.Debugf("%s: key %s is encrypted", c, path)
 
 		if len(signers) > 0 {

@@ -4,6 +4,10 @@ KEY_PASSPHRASE ?= ""
 KEY_PATH ?= ".ssh/identity"
 REPLICAS ?= 1
 
+.PHONY: test
+test: rigtest
+	./test.sh
+
 footloose := $(shell which footloose)
 ifeq ($(footloose),)
 footloose := $(shell go env GOPATH)/bin/footloose
@@ -66,6 +70,3 @@ run: rigtest create-host
 	  -keypath $(KEY_PATH) \
 		-user root
 
-.PHONY: test
-test: rigtest
-	./test.sh
