@@ -20,10 +20,8 @@ import (
 	"github.com/acarl005/stripansi"
 	"github.com/alessio/shellescape"
 	"github.com/creasty/defaults"
-	"github.com/google/shlex"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
-	"github.com/k0sproject/rig/pkg/ssh/hostkey"
 	ps "github.com/k0sproject/rig/powershell"
 	"github.com/kevinburke/ssh_config"
 	ssh "golang.org/x/crypto/ssh"
@@ -258,59 +256,8 @@ func (c *SSH) IsWindows() bool {
 	return c.isWindows
 }
 
-func knownhostsCallback(path string) (ssh.HostKeyCallback, error) {
-	cb, err := hostkey.KnownHostsFileCallback(path)
-	if err != nil {
-		return nil, fmt.Errorf("create host key validator: %w", err)
-	}
-	return cb, nil
-}
-
 func (c *SSH) hostkeyCallback() (ssh.HostKeyCallback, error) {
-	if c.HostKey != "" {
-		log.Debugf("%s: using host key from config", c)
-		return hostkey.StaticKeyCallback(c.HostKey), nil
-	}
-
-	knownHostsMU.Lock()
-	defer knownHostsMU.Unlock()
-
-	if path, ok := hostkey.KnownHostsPathFromEnv(); ok {
-		if path == "" {
-			return hostkey.InsecureIgnoreHostKeyCallback, nil
-		}
-		log.Tracef("%s: using known_hosts file from SSH_KNOWN_HOSTS: %s", c, path)
-		return knownhostsCallback(path)
-	}
-
-	var khPath string
-
-	// Ask ssh_config for a known hosts file
-	kfs := SSHConfigGetAll(c.Address, "UserKnownHostsFile")
-	// splitting the result as for some reason ssh_config sometimes seems to
-	// return a single string containing space separated paths
-	if files, err := shlex.Split(strings.Join(kfs, " ")); err == nil {
-		for _, f := range files {
-			exp, err := expandAndValidatePath(f)
-			khPath = exp
-			if err == nil {
-				break
-			}
-		}
-	}
-
-	if khPath != "" {
-		log.Tracef("%s: using known_hosts file from ssh config %s", c, khPath)
-		return knownhostsCallback(khPath)
-	}
-
-	log.Tracef("%s: using default known_hosts file %s", c, hostkey.DefaultKnownHostsPath)
-	defaultPath, err := expandPath(hostkey.DefaultKnownHostsPath)
-	if err != nil {
-		return nil, err
-	}
-
-	return knownhostsCallback(defaultPath)
+	return ssh.InsecureIgnoreHostKey(), nil //nolint:gosec
 }
 
 func (c *SSH) clientConfig() (*ssh.ClientConfig, error) {
