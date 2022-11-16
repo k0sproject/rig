@@ -10,6 +10,26 @@ ssh_port() {
 	footloose show $1 -o json|grep hostPort|grep -oE "[0-9]+"
 }
 
+sanity_check() {
+  color_echo "- Testing footloose machine connection"
+  make create-host
+  echo "* Footloose status"
+  footloose status
+  echo "* Docker ps"
+  docker ps
+  echo "* SSH port: $(ssh_port node0)"
+  echo "* Testing stock ssh"
+  ssh -vvv -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i .ssh/identity -p $(ssh_port node0) root@127.0.0.1 echo "test-conn"
+  set +e
+  echo "* Testing footloose ssh"
+  footloose ssh root@node0 echo test-conn | grep -q test-conn
+  local exit_code=$?
+  set -e
+  make clean
+  return $exit_code
+}
+
+
 rig_test_agent_with_public_key() {
   color_echo "- Testing connection using agent and providing a path to public key"
   make create-host
@@ -28,12 +48,12 @@ rig_test_agent_with_public_key() {
 
 rig_test_agent_with_private_key() {
   color_echo "- Testing connection using agent and providing a path to protected private key"
-  make create-host KEY_PASSPHRASE=foo
+  make create-host KEY_PASSPHRASE=testPhrase
   eval $(ssh-agent -s)
   expect -c '
     spawn ssh-add .ssh/identity
     expect "?:"
-    send "foo\n"
+    send "testPhrase\n"
     expect eof"
   '
   set +e
@@ -90,7 +110,7 @@ rig_test_key_from_path() {
 
 rig_test_protected_key_from_path() {
   color_echo "- Testing regular keypath to encrypted key, two hosts"
-  make create-host KEY_PASSPHRASE=foo REPLICAS=2
+  make create-host KEY_PASSPHRASE=testPhrase REPLICAS=2
   set +e
   ssh_port node0 > .ssh/port_A
   ssh_port node1 > .ssh/port_B
@@ -105,13 +125,18 @@ rig_test_protected_key_from_path() {
 
     spawn ./rigtest -host 127.0.0.1:$PORTA,127.0.0.1:$PORTB -user root -keypath .ssh/identity -askpass true
     expect "Password:"
-    send "foo\n"
+    send "testPhrase\n"
     expect eof"
   ' $port1 $port2
   local exit_code=$?
   set -e
   return $exit_code
 }
+
+if ! sanity_check; then
+  echo "Sanity check failed"
+  exit 1
+fi
 
 for test in $(declare -F|grep rig_test_|cut -d" " -f3); do
   if [ "$FOCUS" != "" ] && [ "$FOCUS" != "$test" ]; then

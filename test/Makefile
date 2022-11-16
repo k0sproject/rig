@@ -37,17 +37,22 @@ $(footloose):
 	rm -f .ssh/identity
 	ssh-keygen -t $(KEY_TYPE) -b $(KEY_SIZE) -f .ssh/identity -N $(KEY_PASSPHRASE)
 
+.PHONY: docker-network
+docker-network:
+	docker network inspect footloose-cluster || docker network create footloose-cluster --subnet 172.16.86.0/24 --gateway 172.16.86.1 --attachable
+
 footloose.yaml: .ssh/identity $(footloose)
 	$(footloose) config create \
 		--config footloose.yaml \
 	  --image quay.io/footloose/ubuntu18.04 \
 		--name rigtest \
 	  --key .ssh/identity \
-		--replicas $(REPLICAS) \
-    --override
+		--networks footloose-cluster \
+    --override \
+		--replicas $(REPLICAS)
 
 .PHONY: create-host
-create-host: footloose.yaml
+create-host: footloose.yaml docker-network
 	$(footloose) create -c footloose.yaml
 
 .PHONY: delete-host
@@ -58,6 +63,7 @@ delete-host: footloose.yaml
 clean: delete-host
 	rm -f footloose.yaml identity rigtest
 	rm -rf .ssh
+	docker network rm footloose-cluster || true
 
 .PHONY: sshport
 sshport:
