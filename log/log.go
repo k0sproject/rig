@@ -1,3 +1,4 @@
+// Package log provides a simple pluggable logging interface
 package log
 
 import "fmt"
@@ -38,7 +39,7 @@ type StdLog struct {
 	Logger
 }
 
-// Debugf prints a debug level log message
+// Tracef prints a debug level log message
 func (l *StdLog) Tracef(t string, args ...interface{}) {
 	fmt.Println("TRACE", fmt.Sprintf(t, args...))
 }

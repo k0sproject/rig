@@ -1,3 +1,4 @@
+// Package support can be imported to load all the stock os support packages.
 package support
 
 // This file is intended to be imported for loading the OS support modules.
@@ -12,7 +13,7 @@ import (
 	// anonymous import for triggerint init()
 	_ "github.com/k0sproject/rig/os/linux/enterpriselinux"
 	// anonymous import for triggerint init()
-	_ "github.com/k0sproject/rig/os/windows"
-	// anonymous import for triggerint init()
 	_ "github.com/k0sproject/rig/os/mac"
+	// anonymous import for triggerint init()
+	_ "github.com/k0sproject/rig/os/windows"
 )

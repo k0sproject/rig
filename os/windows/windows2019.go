@@ -1,3 +1,4 @@
+// Package windows provides OS support for Windows.
 package windows
 
 import (

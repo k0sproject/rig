@@ -1,3 +1,4 @@
+// Package enterpriselinux provides OS modules for Enterprise Linux based distributions
 package enterpriselinux
 
 import (

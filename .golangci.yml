@@ -1,0 +1,68 @@
+run:
+  timeout: 8m
+
+  skip-dirs-use-default: false
+  skip-files:
+    - ".*\\.gen\\.go"
+    - examples/*
+    - test/*
+  tests: false
+  allow-parallel-runners: true
+
+linters:
+  enable-all: true
+  disable:
+    - exhaustivestruct
+    - exhaustruct
+    - forbidigo
+    - gochecknoglobals
+    - gochecknoinits
+    - godot
+    - godox
+    - golint
+    - interfacer
+    - ireturn
+    - maligned
+    - nlreturn
+    - paralleltest
+    - scopelint
+    - tparallel
+    - wsl
+    - tagliatelle
+    - structcheck
+    - nosnakecase
+    - deadcode
+    - varcheck
+    - ifshort
+    - goheader
+    - dogsled
+    - lll
+    - gomnd
+
+linters-settings:
+  funlen:
+    lines: 65
+    statements: 45
+  varnamelen:
+    max-distance: 10
+    ignore-decls:
+      - w http.ResponseWriter
+      - r *http.Request
+      - i int
+      - n int
+      - p []byte
+      - mu sync.Mutex
+      - wg sync.WaitGroup
+      - h Host
+  cyclop:
+    max-complexity: 12
+
+issues:
+  include:
+    - EXC0002
+    - EXC0012
+    - EXC0013
+    - EXC0014
+    - EXC0015
+  max-issues-per-linter: 0
+  max-same-issues: 0
