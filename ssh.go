@@ -56,7 +56,6 @@ var (
 	defaultKeypaths   = []string{"~/.ssh/id_rsa", "~/.ssh/identity", "~/.ssh/id_dsa"}
 	dummyhostKeyPaths []string
 	globalOnce        sync.Once
-	knownHostsMU      sync.Mutex
 
 	// ErrNoSignerFound is returned when no signer is found for a key
 	ErrNoSignerFound = errors.New("no signer found for key")
@@ -256,7 +255,7 @@ func (c *SSH) IsWindows() bool {
 	return c.isWindows
 }
 
-func (c *SSH) hostkeyCallback() (ssh.HostKeyCallback, error) {
+func (c *SSH) hostkeyCallback() (ssh.HostKeyCallback, error) { //nolint:unparam
 	return ssh.InsecureIgnoreHostKey(), nil //nolint:gosec
 }
 
