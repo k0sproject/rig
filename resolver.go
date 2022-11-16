@@ -28,7 +28,7 @@ type resolveFunc func(*Connection) (OSVersion, error)
 
 // Resolvers exposes an array of resolve functions where you can add your own if you need to detect some OS rig doesn't already know about
 // (consider making a PR)
-var Resolvers = []resolveFunc{resolveLinux, resolveWindows, resolveDarwin}
+var Resolvers = []resolveFunc{resolveLinux, resolveDarwin, resolveWindows}
 
 // GetOSVersion runs through the Resolvers and tries to figure out the OS version information
 func GetOSVersion(conn *Connection) (OSVersion, error) {
