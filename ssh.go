@@ -477,7 +477,7 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error { //nolint:funlen,cycl
 			}
 		} else {
 			if _, err := io.Copy(execOpts.Writer, stdout); err != nil {
-				execOpts.LogErrorf("%s: failed to stream stdout", c, err.Error())
+				execOpts.LogErrorf("%s: failed to stream stdout: %v", c, err)
 			}
 		}
 	}()

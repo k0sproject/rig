@@ -240,7 +240,7 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:funlen,cy
 			command.Stdout.Close()
 		} else {
 			if _, err := io.Copy(execOpts.Writer, command.Stdout); err != nil {
-				execOpts.LogErrorf("%s: failed to stream stdout", c, err.Error())
+				execOpts.LogErrorf("%s: failed to stream stdout: %v", c, err)
 			}
 		}
 	}()
