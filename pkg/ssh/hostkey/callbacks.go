@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -20,6 +21,9 @@ var (
 
 	// ErrHostKeyMismatch is returned when the host key does not match the host key or a key in known_hosts file
 	ErrHostKeyMismatch = errors.New("host key mismatch")
+
+	// ErrInvalidPath is returned for unusable file paths
+	ErrInvalidPath = errors.New("invalid path")
 
 	// DefaultKnownHostsPath is the default path to the known_hosts file - make sure to homedir-expand it
 	DefaultKnownHostsPath = "~/.ssh/known_hosts2"
@@ -108,9 +112,23 @@ func fileExists(path string) bool {
 	return err == nil && stat.Mode().IsRegular()
 }
 
+func ensureDir(path string) error {
+	stat, err := os.Stat(path)
+	if err == nil && !stat.Mode().IsDir() {
+		return fmt.Errorf("%w: path %s is not a directory", ErrInvalidPath, path)
+	}
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", path, err)
+	}
+	return nil
+}
+
 func ensureFile(path string) error {
 	if fileExists(path) {
 		return nil
+	}
+	if err := ensureDir(filepath.Dir(path)); err != nil {
+		return err
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
