@@ -3,12 +3,8 @@
 package rig
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/Microsoft/go-winio"
 	"github.com/davidmz/go-pageant"
-	ssh "golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 )
 
