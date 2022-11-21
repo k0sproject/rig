@@ -130,6 +130,8 @@ rig_test_protected_key_from_path() {
   ' $port1 $port2
   local exit_code=$?
   set -e
+  rm footloose.yaml
+  make delete-host REPLICAS=2
   return $exit_code
 }
 

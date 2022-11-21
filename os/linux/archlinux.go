@@ -1,7 +1,6 @@
 package linux
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/k0sproject/rig"
@@ -29,7 +28,7 @@ func init() {
 // InstallPackage installs packages via pacman
 func (c Archlinux) InstallPackage(h os.Host, s ...string) error {
 	if err := h.Execf("pacman -S --noconfirm --noprogressbar %s", strings.Join(s, " "), exec.Sudo(h)); err != nil {
-		return fmt.Errorf("failed to install packages: %w", err)
+		return exec.ErrRemote.Wrapf("failed to install packages: %w", err)
 	}
 
 	return nil

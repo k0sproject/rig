@@ -15,7 +15,7 @@ type Systemd struct{}
 // StartService starts a service
 func (i Systemd) StartService(h Host, s string) error {
 	if err := h.Execf("systemctl start %s 2> /dev/null", s, exec.Sudo(h)); err != nil {
-		return fmt.Errorf("failed to start service %s: %w", s, err)
+		return exec.ErrRemote.Wrapf("failed to start service %s: %w", s, err)
 	}
 	return nil
 }
@@ -23,7 +23,7 @@ func (i Systemd) StartService(h Host, s string) error {
 // EnableService enables a service
 func (i Systemd) EnableService(h Host, s string) error {
 	if err := h.Execf("systemctl enable %s 2> /dev/null", s, exec.Sudo(h)); err != nil {
-		return fmt.Errorf("failed to enable service %s: %w", s, err)
+		return exec.ErrRemote.Wrapf("failed to enable service %s: %w", s, err)
 	}
 	return nil
 }
@@ -31,7 +31,7 @@ func (i Systemd) EnableService(h Host, s string) error {
 // DisableService disables a service
 func (i Systemd) DisableService(h Host, s string) error {
 	if err := h.Execf("systemctl disable %s 2> /dev/null", s, exec.Sudo(h)); err != nil {
-		return fmt.Errorf("failed to disable service %s: %w", s, err)
+		return exec.ErrRemote.Wrapf("failed to disable service %s: %w", s, err)
 	}
 	return nil
 }
@@ -39,7 +39,7 @@ func (i Systemd) DisableService(h Host, s string) error {
 // StopService stops a service
 func (i Systemd) StopService(h Host, s string) error {
 	if err := h.Execf("systemctl stop %s 2> /dev/null", s, exec.Sudo(h)); err != nil {
-		return fmt.Errorf("failed to stop service %s: %w", s, err)
+		return exec.ErrRemote.Wrapf("failed to stop service %s: %w", s, err)
 	}
 	return nil
 }
@@ -47,7 +47,7 @@ func (i Systemd) StopService(h Host, s string) error {
 // RestartService restarts a service
 func (i Systemd) RestartService(h Host, s string) error {
 	if err := h.Execf("systemctl restart %s 2> /dev/null", s, exec.Sudo(h)); err != nil {
-		return fmt.Errorf("failed to restart service %s: %w", s, err)
+		return exec.ErrRemote.Wrapf("failed to restart service %s: %w", s, err)
 	}
 	return nil
 }
@@ -55,7 +55,7 @@ func (i Systemd) RestartService(h Host, s string) error {
 // DaemonReload reloads init system configuration
 func (i Systemd) DaemonReload(h Host) error {
 	if err := h.Execf("systemctl daemon-reload 2> /dev/null", exec.Sudo(h)); err != nil {
-		return fmt.Errorf("failed to daemon-reload: %w", err)
+		return exec.ErrRemote.Wrapf("failed to daemon-reload: %w", err)
 	}
 	return nil
 }
@@ -69,7 +69,7 @@ func (i Systemd) ServiceIsRunning(h Host, s string) bool {
 func (i Systemd) ServiceScriptPath(h Host, s string) (string, error) {
 	out, err := h.ExecOutputf(`systemctl show -p FragmentPath %s.service 2> /dev/null | cut -d"=" -f2`, s, exec.Sudo(h))
 	if err != nil {
-		return "", fmt.Errorf("failed to get service %s script path: %w", s, err)
+		return "", exec.ErrRemote.Wrapf("failed to get service %s script path: %w", s, err)
 	}
 	return strings.TrimSpace(out), nil
 }

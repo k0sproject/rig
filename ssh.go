@@ -21,6 +21,7 @@ import (
 	"github.com/alessio/shellescape"
 	"github.com/creasty/defaults"
 	"github.com/google/shlex"
+	"github.com/k0sproject/rig/errstring"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
 	"github.com/k0sproject/rig/pkg/ssh/hostkey"
@@ -60,20 +61,8 @@ var (
 	globalOnce        sync.Once
 	knownHostsMU      sync.Mutex
 
-	// ErrNoSignerFound is returned when no signer is found for a key
-	ErrNoSignerFound = errors.New("no signer found for key")
-
-	// ErrDataInStderr is returned when data is received for stderr from a windows host
-	ErrDataInStderr = errors.New("command failed (received output to stderr on windows)")
-
-	// ErrUnexpectedCopyOutput is returned when the output of a copy command is not as expected
-	ErrUnexpectedCopyOutput = errors.New("copy command did not output the expected JSON")
-
-	// ErrCopyFileChecksumMismatch is returned when the checksum of the uploaded file does not match the source file
-	ErrCopyFileChecksumMismatch = errors.New("copy file checksum mismatch")
-
-	// ErrInvalidPath is returned for paths that are invalid or unusable
-	ErrInvalidPath = errors.New("invalid path")
+	// ErrChecksumMismatch is returned when the checksum of an uploaded file does not match expectation
+	ErrChecksumMismatch = errstring.New("checksum mismatch")
 )
 
 const hopefullyNonexistentHost = "thisH0stDoe5not3xist"
@@ -85,7 +74,7 @@ func homeDir() (string, error) {
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("failed to get user home directory: %w", err)
+		return "", ErrOS.Wrapf("failed to get user home directory: %w", err)
 	}
 	return home, nil
 }
@@ -99,7 +88,7 @@ func expandPath(path string) (string, error) {
 		return homeDir()
 	}
 	if path[1] != '/' {
-		return "", fmt.Errorf("%w: ~user/ style paths not supported", ErrInvalidPath)
+		return "", ErrNotImplemented.Wrapf("~user/ style paths not supported")
 	}
 
 	home, err := homeDir()
@@ -111,7 +100,7 @@ func expandPath(path string) (string, error) {
 
 func expandAndValidatePath(path string) (string, error) {
 	if len(path) == 0 {
-		return "", fmt.Errorf("%w: path is empty", ErrInvalidPath)
+		return "", ErrInvalidPath.Wrapf("path is empty")
 	}
 
 	path, err := expandPath(path)
@@ -120,11 +109,11 @@ func expandAndValidatePath(path string) (string, error) {
 	}
 	stat, err := os.Stat(path)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrInvalidPath, err)
+		return "", ErrInvalidPath.Wrap(err)
 	}
 
 	if stat.IsDir() {
-		return "", fmt.Errorf("%w: %s is a directory", ErrInvalidPath, path)
+		return "", ErrInvalidPath.Wrapf("%s is a directory", path)
 	}
 
 	return path, nil
@@ -261,7 +250,7 @@ func (c *SSH) IsWindows() bool {
 func knownhostsCallback(path string) (ssh.HostKeyCallback, error) {
 	cb, err := hostkey.KnownHostsFileCallback(path)
 	if err != nil {
-		return nil, fmt.Errorf("create host key validator: %w", err)
+		return nil, ErrCantConnect.Wrapf("create host key validator: %w", err)
 	}
 	return cb, nil
 }
@@ -359,7 +348,10 @@ func (c *SSH) clientConfig() (*ssh.ClientConfig, error) {
 		}
 	}
 
-	if len(config.Auth) == 0 && len(signers) > 0 {
+	if len(config.Auth) == 0 {
+		if len(signers) == 0 {
+			return nil, ErrCantConnect.Wrapf("no usable authentication method found")
+		}
 		log.Debugf("%s: using all keys (%d) from ssh agent because a keypath was not explicitly given", c, len(signers))
 		config.Auth = append(config.Auth, ssh.PublicKeys(signers...))
 	}
@@ -369,11 +361,13 @@ func (c *SSH) clientConfig() (*ssh.ClientConfig, error) {
 
 // Connect opens the SSH connection
 func (c *SSH) Connect() error {
-	_ = defaults.Set(c)
+	if err := defaults.Set(c); err != nil {
+		return ErrValidationFailed.Wrapf("set defaults: %w", err)
+	}
 
 	config, err := c.clientConfig()
 	if err != nil {
-		return err
+		return ErrCantConnect.Wrapf("create config: %w", err)
 	}
 
 	dst := net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
@@ -405,7 +399,7 @@ func (c *SSH) Connect() error {
 
 func (c *SSH) pubkeySigner(signers []ssh.Signer, key ssh.PublicKey) (ssh.AuthMethod, error) {
 	if len(signers) == 0 {
-		return nil, fmt.Errorf("signer not found for public key: %w", ErrNoSignerFound)
+		return nil, ErrCantConnect.Wrapf("signer not found for public key")
 	}
 
 	for _, s := range signers {
@@ -415,14 +409,14 @@ func (c *SSH) pubkeySigner(signers []ssh.Signer, key ssh.PublicKey) (ssh.AuthMet
 		}
 	}
 
-	return nil, fmt.Errorf("the provided key is a public key and is not known by agent: %w", ErrNoSignerFound)
+	return nil, ErrAuthFailed.Wrapf("the provided key is a public key and is not known by agent")
 }
 
 func (c *SSH) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMethod, error) {
 	log.Tracef("%s: checking identity file %s", c, path)
 	key, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read identity file: %w", err)
+		return nil, ErrCantConnect.Wrapf("read identity file: %w", err)
 	}
 
 	pubKey, _, _, _, err := ssh.ParseAuthorizedKey(key)
@@ -451,17 +445,17 @@ func (c *SSH) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMethod, err
 			log.Tracef("%s: asking for a password to decrypt %s", c, path)
 			pass, err := c.PasswordCallback()
 			if err != nil {
-				return nil, fmt.Errorf("password provider failed: %w", err)
+				return nil, ErrCantConnect.Wrapf("password provider failed")
 			}
 			signer, err := ssh.ParsePrivateKeyWithPassphrase(key, []byte(pass))
 			if err != nil {
-				return nil, fmt.Errorf("protected key decoding failed: %w", err)
+				return nil, ErrCantConnect.Wrapf("protected key decoding failed: %w", err)
 			}
 			return ssh.PublicKeys(signer), nil
 		}
 	}
 
-	return nil, fmt.Errorf("can't parse keyfile %s: %w", path, err)
+	return nil, ErrCantConnect.Wrapf("can't parse keyfile %s: %w", path, err)
 }
 
 const (
@@ -562,7 +556,7 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error { //nolint:funlen,cycl
 	}
 
 	if c.knowOs && c.isWindows && (!execOpts.AllowWinStderr && gotErrors) {
-		return ErrDataInStderr
+		return ErrCommandFailed.Wrapf("data in stderr")
 	}
 
 	return nil
@@ -590,7 +584,7 @@ func (c *SSH) ExecInteractive(cmd string) error {
 	fd := int(os.Stdin.Fd())
 	old, err := term.MakeRaw(fd)
 	if err != nil {
-		return fmt.Errorf("make terminal raw: %w", err)
+		return ErrOS.Wrapf("make terminal raw: %w", err)
 	}
 
 	defer func(fd int, old *term.State) {
@@ -599,7 +593,7 @@ func (c *SSH) ExecInteractive(cmd string) error {
 
 	rows, cols, err := term.GetSize(fd)
 	if err != nil {
-		return fmt.Errorf("get terminal size: %w", err)
+		return ErrOS.Wrapf("get terminal size: %w", err)
 	}
 
 	modes := ssh.TerminalModes{ssh.ECHO: 1}
@@ -639,7 +633,7 @@ func (c *SSH) uploadLinux(src, dst string, opts ...exec.Option) error {
 	var err error
 	inFile, err := os.Open(src)
 	if err != nil {
-		return fmt.Errorf("open file for upload: %w", err)
+		return ErrInvalidPath.Wrapf("open file for upload: %w", err)
 	}
 	defer inFile.Close()
 
@@ -681,7 +675,7 @@ func (c *SSH) uploadLinux(src, dst string, opts ...exec.Option) error {
 
 	err = session.Start(unzipCmd)
 	if err != nil {
-		return fmt.Errorf("ssh session: %w", err)
+		return fmt.Errorf("start gzip pipe: %w", err)
 	}
 
 	if _, err := io.Copy(gzWriter, inFile); err != nil {
@@ -696,7 +690,7 @@ func (c *SSH) uploadLinux(src, dst string, opts ...exec.Option) error {
 			msg = []byte(readErr.Error())
 		}
 
-		return fmt.Errorf("upload failed: %w (%s)", err, msg)
+		return ErrCommandFailed.Wrapf("output %s:", string(msg))
 	}
 
 	return nil
@@ -713,7 +707,7 @@ func (c *SSH) uploadWindows(src, dst string, opts ...exec.Option) error { //noli
 	psCmd := ps.UploadCmd(dst)
 	stat, err := os.Stat(src)
 	if err != nil {
-		return fmt.Errorf("stat file for upload: %w", err)
+		return ErrUploadFailed.Wrap(ErrInvalidPath.Wrapf("stat file for upload: %w", err))
 	}
 	sha256DigestLocalObj := sha256.New()
 	sha256DigestLocal := ""
@@ -724,7 +718,7 @@ func (c *SSH) uploadWindows(src, dst string, opts ...exec.Option) error { //noli
 	var fdClosed bool
 	srcFd, err := os.Open(src)
 	if err != nil {
-		return fmt.Errorf("open file for upload: %w", err)
+		return ErrUploadFailed.Wrap(ErrInvalidPath.Wrapf("open file for upload: %w", err))
 	}
 	defer func() {
 		if !fdClosed {
@@ -734,7 +728,7 @@ func (c *SSH) uploadWindows(src, dst string, opts ...exec.Option) error { //noli
 	}()
 	session, err := c.client.NewSession()
 	if err != nil {
-		return fmt.Errorf("ssh new session: %w", err)
+		return fmt.Errorf("ssh new upload session: %w", err)
 	}
 	defer session.Close()
 
@@ -758,7 +752,7 @@ func (c *SSH) uploadWindows(src, dst string, opts ...exec.Option) error { //noli
 	}
 	log.Debugf("%s: executing the upload command", c)
 	if err := session.Start(psRunCmd); err != nil {
-		return fmt.Errorf("ssh session: %w", err)
+		return fmt.Errorf("session start: %w", err)
 	}
 
 	bufferCapacity := 262143                           // use 256kb chunks
@@ -853,15 +847,15 @@ func (c *SSH) uploadWindows(src, dst string, opts ...exec.Option) error { //noli
 	}()
 
 	if err = session.Wait(); err != nil {
-		return fmt.Errorf("%s: upload failed: %w", c, err)
+		return fmt.Errorf("session wait: upload failed: %w", err)
 	}
 
 	wg.Wait()
 
 	if sha256DigestRemote == "" {
-		return ErrUnexpectedCopyOutput
+		return ErrChecksumMismatch.Wrapf("unexpected empty checksum for target")
 	} else if sha256DigestRemote != sha256DigestLocal {
-		return fmt.Errorf("%w (local = %s, remote = %s)", ErrCopyFileChecksumMismatch, sha256DigestLocal, sha256DigestRemote)
+		return ErrChecksumMismatch.Wrapf("upload file checksum mismatch (local = %s, remote = %s)", sha256DigestLocal, sha256DigestRemote)
 	}
 
 	return nil

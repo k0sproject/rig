@@ -44,7 +44,7 @@ docker-network:
 footloose.yaml: .ssh/identity $(footloose)
 	$(footloose) config create \
 		--config footloose.yaml \
-	  --image quay.io/footloose/ubuntu18.04 \
+	  --image quay.io/footloose/centos7 \
 		--name rigtest \
 	  --key .ssh/identity \
 		--networks footloose-cluster \

@@ -2,7 +2,6 @@ package os
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"io/fs"
 	"strconv"
@@ -12,14 +11,6 @@ import (
 	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/os/initsystem"
-)
-
-var (
-	// ErrFailedToDetectInitSystem is returned when the init system could not be detected
-	ErrFailedToDetectInitSystem = errors.New("failed to detect init system")
-
-	// ErrNoSudo is returned when the connection does not have sudo capability but it is required
-	ErrNoSudo = errors.New("user is not an administrator and passwordless access elevation has not been configured")
 )
 
 // Linux is a base module for various linux OS support packages
@@ -73,7 +64,7 @@ func (c Linux) is(h Host) (initSystem, error) {
 		return &initsystem.OpenRC{}, nil
 	}
 
-	return nil, ErrFailedToDetectInitSystem
+	return nil, exec.ErrRemote.Wrapf("failed to detect init system")
 }
 
 // StartService starts a service on the host
@@ -83,7 +74,7 @@ func (c Linux) StartService(h Host, s string) error {
 		return err
 	}
 	if err := is.StartService(h, s); err != nil {
-		return fmt.Errorf("failed to start service %s: %w", s, err)
+		return exec.ErrRemote.Wrapf("failed to start service %s: %w", s, err)
 	}
 	return nil
 }
@@ -95,7 +86,7 @@ func (c Linux) StopService(h Host, s string) error {
 		return err
 	}
 	if err := is.StopService(h, s); err != nil {
-		return fmt.Errorf("failed to stop service %s: %w", s, err)
+		return exec.ErrRemote.Wrapf("failed to stop service %s: %w", s, err)
 	}
 	return nil
 }
@@ -107,7 +98,7 @@ func (c Linux) RestartService(h Host, s string) error {
 		return err
 	}
 	if err := is.RestartService(h, s); err != nil {
-		return fmt.Errorf("failed to restart service %s: %w", s, err)
+		return exec.ErrRemote.Wrapf("failed to restart service %s: %w", s, err)
 	}
 	return nil
 }
@@ -119,7 +110,7 @@ func (c Linux) DisableService(h Host, s string) error {
 		return err
 	}
 	if err := is.DisableService(h, s); err != nil {
-		return fmt.Errorf("failed to disable service %s: %w", s, err)
+		return exec.ErrRemote.Wrapf("failed to disable service %s: %w", s, err)
 	}
 	return nil
 }
@@ -131,7 +122,7 @@ func (c Linux) EnableService(h Host, s string) error {
 		return err
 	}
 	if err := is.EnableService(h, s); err != nil {
-		return fmt.Errorf("failed to enable service %s: %w", s, err)
+		return exec.ErrRemote.Wrapf("failed to enable service %s: %w", s, err)
 	}
 	return nil
 }
@@ -153,7 +144,7 @@ func (c Linux) ServiceScriptPath(h Host, s string) (string, error) {
 	}
 	path, err := is.ServiceScriptPath(h, s)
 	if err != nil {
-		return "", fmt.Errorf("failed to get service script path for %s: %w", s, err)
+		return "", exec.ErrRemote.Wrapf("failed to get service script path for %s: %w", s, err)
 	}
 	return path, nil
 }
@@ -165,7 +156,7 @@ func (c Linux) DaemonReload(h Host) error {
 		return err
 	}
 	if err := is.DaemonReload(h); err != nil {
-		return fmt.Errorf("failed to daemon-reload: %w", err)
+		return exec.ErrRemote.Wrapf("failed to daemon-reload: %w", err)
 	}
 	return nil
 }
@@ -182,7 +173,7 @@ func (c Linux) Pwd(h Host) string {
 // CheckPrivilege checks if the current user has root privileges
 func (c Linux) CheckPrivilege(h Host) error {
 	if err := h.Exec("true", exec.Sudo(h)); err != nil {
-		return fmt.Errorf("%w: %v", ErrNoSudo, err)
+		return exec.ErrSudo.Wrap(err)
 	}
 	return nil
 }
@@ -214,7 +205,7 @@ func (c Linux) IsContainer(h Host) bool {
 // FixContainer makes a container work like a real host
 func (c Linux) FixContainer(h Host) error {
 	if err := h.Exec("mount --make-rshared / 2> /dev/null", exec.Sudo(h)); err != nil {
-		return fmt.Errorf("failed to mount / as rshared: %w", err)
+		return exec.ErrRemote.Wrapf("failed to mount / as rshared: %w", err)
 	}
 	return nil
 }
@@ -227,20 +218,20 @@ func (c Linux) SELinuxEnabled(h Host) bool {
 // WriteFile writes file to host with given contents. Do not use for large files.
 func (c Linux) WriteFile(h Host, path string, data string, permissions string) error {
 	if data == "" {
-		return fmt.Errorf("%w while writing %s", ErrEmptyContentInWriteFile, path)
+		return exec.ErrRemote.Wrapf("empty content for write file %s", path)
 	}
 
 	if path == "" {
-		return ErrEmptyPathInWriteFile
+		return exec.ErrRemote.Wrapf("empty path for write file")
 	}
 
 	tempFile, err := h.ExecOutput("mktemp 2> /dev/null")
 	if err != nil {
-		return fmt.Errorf("failed to create temp file: %w", err)
+		return exec.ErrRemote.Wrapf("failed to create temp file: %w", err)
 	}
 
 	if err := h.Execf(`cat > %s`, tempFile, exec.Stdin(data), exec.RedactString(data)); err != nil {
-		return fmt.Errorf("failed to write temp file: %w", err)
+		return exec.ErrRemote.Wrapf("failed to write temp file: %w", err)
 	}
 
 	if err := c.InstallFile(h, tempFile, path, permissions); err != nil {
@@ -253,7 +244,7 @@ func (c Linux) WriteFile(h Host, path string, data string, permissions string) e
 // InstallFile installs a file to the host
 func (c Linux) InstallFile(h Host, src, dst, permissions string) error {
 	if err := h.Execf("install -D -m %s -- %s %s", permissions, src, dst, exec.Sudo(h)); err != nil {
-		return fmt.Errorf("failed to install file %s to %s: %w", src, dst, err)
+		return exec.ErrRemote.Wrapf("failed to install file %s to %s: %w", src, dst, err)
 	}
 	return nil
 }
@@ -262,7 +253,7 @@ func (c Linux) InstallFile(h Host, src, dst, permissions string) error {
 func (c Linux) ReadFile(h Host, path string) (string, error) {
 	out, err := h.ExecOutputf("cat -- %s 2> /dev/null", shellescape.Quote(path), exec.HideOutput(), exec.Sudo(h))
 	if err != nil {
-		return "", fmt.Errorf("failed to read file %s: %w", path, err)
+		return "", exec.ErrRemote.Wrapf("failed to read file %s: %w", path, err)
 	}
 	return out, nil
 }
@@ -270,7 +261,7 @@ func (c Linux) ReadFile(h Host, path string) (string, error) {
 // DeleteFile deletes a file from the host.
 func (c Linux) DeleteFile(h Host, path string) error {
 	if err := h.Execf(`rm -f -- %s 2> /dev/null`, shellescape.Quote(path), exec.Sudo(h)); err != nil {
-		return fmt.Errorf("failed to delete file %s: %w", path, err)
+		return exec.ErrRemote.Wrapf("failed to delete file %s: %w", path, err)
 	}
 	return nil
 }
@@ -322,7 +313,7 @@ func (c Linux) UpdateEnvironment(h Host, env map[string]string) error {
 
 	// Update current session environment from the /etc/environment
 	if err := h.Exec(`while read -r pair; do if [[ $pair == ?* && $pair != \#* ]]; then export "$pair" || exit 2; fi; done < /etc/environment`); err != nil {
-		return fmt.Errorf("failed to update environment: %w", err)
+		return exec.ErrRemote.Wrapf("failed to update environment: %w", err)
 	}
 	return nil
 }
@@ -335,11 +326,11 @@ func (c Linux) UpdateServiceEnvironment(h Host, s string, env map[string]string)
 	}
 	fp, err := is.ServiceEnvironmentPath(h, s)
 	if err != nil {
-		return fmt.Errorf("failed to get service environment path: %w", err)
+		return exec.ErrRemote.Wrapf("failed to get service environment path: %w", err)
 	}
 	err = c.WriteFile(h, fp, is.ServiceEnvironmentContent(env), "0660")
 	if err != nil {
-		return fmt.Errorf("update service environment: %w", err)
+		return exec.ErrRemote.Wrapf("update service environment: %w", err)
 	}
 
 	return c.DaemonReload(h)
@@ -355,7 +346,7 @@ func (c Linux) CleanupEnvironment(h Host, env map[string]string) error {
 	}
 	// remove empty lines
 	if err := h.Exec(`sed -i '/^$/d' /etc/environment`, exec.Sudo(h)); err != nil {
-		return fmt.Errorf("failed to cleanup environment: %w", err)
+		return exec.ErrRemote.Wrapf("failed to cleanup environment: %w", err)
 	}
 	return nil
 }
@@ -368,7 +359,7 @@ func (c Linux) CleanupServiceEnvironment(h Host, s string) error {
 	}
 	fp, err := is.ServiceEnvironmentPath(h, s)
 	if err != nil {
-		return fmt.Errorf("failed to get service environment path: %w", err)
+		return exec.ErrRemote.Wrapf("failed to get service environment path: %w", err)
 	}
 	return c.DeleteFile(h, fp)
 }
@@ -382,10 +373,10 @@ func (c Linux) CommandExist(h Host, cmd string) bool {
 func (c Linux) Reboot(h Host) error {
 	cmd, err := h.Sudo("shutdown --reboot 0 2> /dev/null")
 	if err != nil {
-		return fmt.Errorf("failed to get sudo command: %w", err)
+		return exec.ErrRemote.Wrapf("failed to get sudo command: %w", err)
 	}
 	if err := h.Execf("%s && exit", cmd); err != nil {
-		return fmt.Errorf("failed to reboot: %w", err)
+		return exec.ErrRemote.Wrapf("failed to reboot: %w", err)
 	}
 	return nil
 }
@@ -393,7 +384,7 @@ func (c Linux) Reboot(h Host) error {
 // MkDir creates a directory (including intermediate directories)
 func (c Linux) MkDir(h Host, s string, opts ...exec.Option) error {
 	if err := h.Exec(fmt.Sprintf("mkdir -p -- %s", shellescape.Quote(s)), opts...); err != nil {
-		return fmt.Errorf("failed to create directory %s: %w", s, err)
+		return exec.ErrRemote.Wrapf("failed to create directory %s: %w", s, err)
 	}
 	return nil
 }
@@ -401,7 +392,7 @@ func (c Linux) MkDir(h Host, s string, opts ...exec.Option) error {
 // Chmod updates permissions of a path
 func (c Linux) Chmod(h Host, s, perm string, opts ...exec.Option) error {
 	if err := h.Exec(fmt.Sprintf("chmod %s -- %s", perm, shellescape.Quote(s)), opts...); err != nil {
-		return fmt.Errorf("failed to chmod %s: %w", s, err)
+		return exec.ErrRemote.Wrapf("failed to chmod %s: %w", s, err)
 	}
 	return nil
 }
@@ -416,24 +407,24 @@ func (c Linux) Stat(h Host, path string, opts ...exec.Option) (*FileInfo, error)
 
 	out, err := h.ExecOutput(cmd, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to stat %s: %w", path, err)
+		return nil, exec.ErrRemote.Wrapf("failed to stat %s: %w", path, err)
 	}
 
 	fields := strings.SplitN(out, "\x00", 4)
 
 	size, err := strconv.ParseInt(fields[0], 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse file %s size: %w", path, err)
+		return nil, exec.ErrRemote.Wrapf("failed to parse file %s size: %w", path, err)
 	}
 
 	modTime, err := time.Parse(gnuCoreutilsDateTimeLayout, fields[1])
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse file %s mod time: %w", path, err)
+		return nil, exec.ErrRemote.Wrapf("failed to parse file %s mod time: %w", path, err)
 	}
 
 	mode, err := strconv.ParseUint(fields[2], 8, 32)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse file %s mode: %w", path, err)
+		return nil, exec.ErrRemote.Wrapf("failed to parse file %s mode: %w", path, err)
 	}
 
 	return &FileInfo{
@@ -454,7 +445,7 @@ func (c Linux) Touch(h Host, path string, ts time.Time, opts ...exec.Option) err
 	)
 
 	if err := h.Exec(cmd, opts...); err != nil {
-		return fmt.Errorf("failed to touch %s: %w", path, err)
+		return exec.ErrRemote.Wrapf("failed to touch %s: %w", path, err)
 	}
 	return nil
 }
