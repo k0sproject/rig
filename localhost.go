@@ -123,7 +123,7 @@ func (c *Localhost) Exec(cmd string, opts ...exec.Option) error {
 func (c *Localhost) command(cmd string, o *exec.Options) (*osexec.Cmd, error) {
 	cmd, err := o.Command(cmd)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build command: %w", err)
+		return nil, fmt.Errorf("build command: %w", err)
 	}
 
 	if c.IsWindows() {
@@ -148,7 +148,7 @@ func (c *Localhost) Upload(src, dst string, opts ...exec.Option) error {
 
 	inFile, err := os.Open(src)
 	if err != nil {
-		return fmt.Errorf("failed to open source file %s: %w", src, err)
+		return ErrInvalidPath.Wrapf("failed to open local file %s: %w", src, err)
 	}
 	defer inFile.Close()
 
@@ -159,7 +159,7 @@ func (c *Localhost) Upload(src, dst string, opts ...exec.Option) error {
 	defer out.Close()
 	_, err = io.Copy(out, inFile)
 	if err != nil {
-		return fmt.Errorf("failed to copy file %s to %s: %w", src, dst, err)
+		return fmt.Errorf("failed to copy local file %s to remote %s: %w", src, dst, err)
 	}
 	return nil
 }

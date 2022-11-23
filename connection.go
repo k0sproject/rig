@@ -3,7 +3,6 @@
 package rig
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
@@ -11,10 +10,8 @@ import (
 	"github.com/creasty/defaults"
 	"github.com/google/shlex"
 	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/log"
 )
-
-// ErrNotConnected is returned when a connection is used when it is not connected
-var ErrNotConnected = errors.New("not connected")
 
 type client interface {
 	Connect() error
@@ -126,7 +123,7 @@ func (c *Connection) IsConnected() bool {
 
 func (c *Connection) checkConnected() error {
 	if !c.IsConnected() {
-		return fmt.Errorf("%s: %w", c, ErrNotConnected)
+		return ErrNotConnected
 	}
 
 	return nil
@@ -159,7 +156,7 @@ func (c Connection) Exec(cmd string, opts ...exec.Option) error {
 	}
 
 	if err := c.client.Exec(cmd, opts...); err != nil {
-		return fmt.Errorf("client exec: %w", err)
+		return ErrCommandFailed.Wrapf("client exec: %w", err)
 	}
 
 	return nil
@@ -180,12 +177,15 @@ func (c Connection) ExecOutput(cmd string, opts ...exec.Option) (string, error) 
 // Connect to the host and identify the operating system and sudo capability
 func (c *Connection) Connect() error {
 	if c.client == nil {
-		_ = defaults.Set(c)
+		if err := defaults.Set(c); err != nil {
+			return ErrValidationFailed.Wrapf("set defaults: %w", err)
+		}
 	}
 
 	if err := c.client.Connect(); err != nil {
 		c.client = nil
-		return fmt.Errorf("client connect: %w", err)
+		log.Debugf("%s: failed to connect: %v", c, err)
+		return ErrNotConnected.Wrapf("client connect: %w", err)
 	}
 
 	if c.OSVersion == nil {
@@ -262,13 +262,10 @@ func (c *Connection) configureSudo() {
 	}
 }
 
-// ErrNoSudo is returned when the connection does not have sudo capability but it is required
-var ErrNoSudo = errors.New("user is not an administrator and passwordless access elevation has not been configured")
-
 // Sudo formats a command string to be run with elevated privileges
 func (c Connection) Sudo(cmd string) (string, error) {
 	if c.sudofunc == nil {
-		return "", ErrNoSudo
+		return "", ErrSudoRequired.Wrapf("user is not an administrator and passwordless access elevation has not been configured")
 	}
 
 	return c.sudofunc(cmd), nil
@@ -295,7 +292,7 @@ func (c Connection) ExecInteractive(cmd string) error {
 	}
 
 	if err := c.client.ExecInteractive(cmd); err != nil {
-		return fmt.Errorf("client exec interactive: %w", err)
+		return ErrCommandFailed.Wrapf("client exec interactive: %w", err)
 	}
 
 	return nil
@@ -317,7 +314,7 @@ func (c Connection) Upload(src, dst string, opts ...exec.Option) error {
 	}
 
 	if err := c.client.Upload(src, dst, opts...); err != nil {
-		return fmt.Errorf("client upload: %w", err)
+		return ErrUploadFailed.Wrap(err)
 	}
 
 	return nil

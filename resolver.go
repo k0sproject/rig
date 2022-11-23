@@ -7,75 +7,78 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/k0sproject/rig/errstring"
+	"github.com/k0sproject/rig/log"
 	ps "github.com/k0sproject/rig/powershell"
-)
-
-var (
-	// ErrInvalidOSRelease is returned when the OS release file is invalid
-	ErrInvalidOSRelease = errors.New("invalid or incomplete os-release file contents, at least ID and VERSION_ID required")
-
-	// ErrUnableToDetermineOS is returned when the OS cannot be determined
-	ErrUnableToDetermineOS = errors.New("unable to determine host os")
-
-	// ErrNotLinux is returned when the host is not Linux
-	ErrNotLinux = errors.New("not a linux host")
-
-	// ErrNotDarwin is returned when the host is not a darwin host
-	ErrNotDarwin = errors.New("not a darwin host")
 )
 
 type resolveFunc func(*Connection) (OSVersion, error)
 
-// Resolvers exposes an array of resolve functions where you can add your own if you need to detect some OS rig doesn't already know about
-// (consider making a PR)
-var Resolvers = []resolveFunc{resolveLinux, resolveDarwin, resolveWindows}
+var (
+	// Resolvers exposes an array of resolve functions where you can add your own if you need to detect some OS rig doesn't already know about
+	// (consider making a PR)
+	Resolvers = []resolveFunc{resolveLinux, resolveDarwin, resolveWindows}
+
+	errAbort = errstring.New("base os detected, version resolving failed")
+)
 
 // GetOSVersion runs through the Resolvers and tries to figure out the OS version information
 func GetOSVersion(conn *Connection) (OSVersion, error) {
 	for _, r := range Resolvers {
-		if os, err := r(conn); err == nil {
+		os, err := r(conn)
+		if err == nil {
 			return os, nil
 		}
+		if errors.Is(err, errAbort) {
+			return OSVersion{}, ErrNotSupported.Wrap(err)
+		}
+		log.Tracef("resolver failed: %v", err)
 	}
-	return OSVersion{}, ErrUnableToDetermineOS
+	return OSVersion{}, ErrNotSupported.Wrapf("unable to determine host os")
 }
 
 func resolveLinux(conn *Connection) (OSVersion, error) {
 	if err := conn.Exec("uname | grep -q Linux"); err != nil {
-		return OSVersion{}, ErrNotLinux
+		return OSVersion{}, ErrCommandFailed.Wrapf("not a linux host: %w", err)
 	}
 
 	output, err := conn.ExecOutput("cat /etc/os-release || cat /usr/lib/os-release")
 	if err != nil {
-		return OSVersion{}, fmt.Errorf("unable to read os-release file: %w", err)
+		// at this point it is known that this is a linux host, so any error from here on should signal the resolver to not try the next
+		return OSVersion{}, errAbort.Wrapf("unable to read os-release file: %w", err)
 	}
 
 	var version OSVersion
 	if err := parseOSReleaseFile(output, &version); err != nil {
-		return OSVersion{}, err
+		return OSVersion{}, errAbort.Wrap(err)
 	}
 	return version, nil
 }
 
 func resolveWindows(conn *Connection) (OSVersion, error) {
+	if !conn.IsWindows() {
+		return OSVersion{}, ErrCommandFailed.Wrapf("not a windows host")
+	}
+
+	// at this point it is known that this is a windows host, so any error from here on should signal the resolver to not try the next
 	osName, err := conn.ExecOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").ProductName`))
 	if err != nil {
-		return OSVersion{}, fmt.Errorf("unable to determine windows product name: %w", err)
+		return OSVersion{}, errAbort.Wrapf("unable to determine windows product name: %w", err)
 	}
 
 	osMajor, err := conn.ExecOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").CurrentMajorVersionNumber`))
 	if err != nil {
-		return OSVersion{}, fmt.Errorf("unable to determine windows major version: %w", err)
+		return OSVersion{}, errAbort.Wrapf("unable to determine windows major version: %w", err)
 	}
 
 	osMinor, err := conn.ExecOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").CurrentMinorVersionNumber`))
 	if err != nil {
-		return OSVersion{}, fmt.Errorf("unable to determine windows minor version: %w", err)
+		return OSVersion{}, errAbort.Wrapf("unable to determine windows minor version: %w", err)
 	}
 
 	osBuild, err := conn.ExecOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").CurrentBuild`))
 	if err != nil {
-		return OSVersion{}, fmt.Errorf("unable to determine windows build version: %w", err)
+		return OSVersion{}, errAbort.Wrapf("unable to determine windows build version: %w", err)
 	}
 
 	version := OSVersion{
@@ -90,12 +93,13 @@ func resolveWindows(conn *Connection) (OSVersion, error) {
 
 func resolveDarwin(conn *Connection) (OSVersion, error) {
 	if err := conn.Exec("uname | grep -q Darwin"); err != nil {
-		return OSVersion{}, ErrNotDarwin
+		return OSVersion{}, ErrCommandFailed.Wrapf("not a darwin host: %w", err)
 	}
 
+	// at this point it is known that this is a windows host, so any error from here on should signal the resolver to not try the next
 	version, err := conn.ExecOutput("sw_vers -productVersion")
 	if err != nil {
-		return OSVersion{}, fmt.Errorf("unable to determine darwin version: %w", err)
+		return OSVersion{}, errAbort.Wrapf("unable to determine darwin version: %w", err)
 	}
 
 	var name string
@@ -142,7 +146,7 @@ func parseOSReleaseFile(s string, version *OSVersion) error {
 	}
 
 	if version.ID == "" || version.Version == "" {
-		return ErrInvalidOSRelease
+		return ErrNotSupported.Wrapf("invalid or incomplete os-release file contents, at least ID and VERSION_ID required")
 	}
 
 	return nil

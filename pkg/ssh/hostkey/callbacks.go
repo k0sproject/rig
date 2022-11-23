@@ -11,22 +11,23 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/k0sproject/rig/errstring"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 var (
+	// ErrHostKeyMismatch is returned when the host key does not match the host key or a key in known_hosts file
+	ErrHostKeyMismatch = errstring.New("host key mismatch")
+
+	// ErrCheckHostKey is returned when the callback could not be created
+	ErrCheckHostKey = errstring.New("check hostkey")
+
 	// InsecureIgnoreHostKeyCallback is an insecure HostKeyCallback that accepts any host key.
 	InsecureIgnoreHostKeyCallback = ssh.InsecureIgnoreHostKey() //nolint:gosec
 
-	// ErrHostKeyMismatch is returned when the host key does not match the host key or a key in known_hosts file
-	ErrHostKeyMismatch = errors.New("host key mismatch")
-
-	// ErrInvalidPath is returned for unusable file paths
-	ErrInvalidPath = errors.New("invalid path")
-
 	// DefaultKnownHostsPath is the default path to the known_hosts file - make sure to homedir-expand it
-	DefaultKnownHostsPath = "~/.ssh/known_hosts2"
+	DefaultKnownHostsPath = "~/.ssh/known_hosts"
 
 	mu sync.Mutex
 )
@@ -63,7 +64,7 @@ func KnownHostsFileCallback(path string) (ssh.HostKeyCallback, error) {
 
 	hkc, err := knownhosts.New(path)
 	if err != nil {
-		return nil, fmt.Errorf("create knownhosts callback: %w", err)
+		return nil, ErrCheckHostKey.Wrapf("knownhosts callback: %w", err)
 	}
 
 	return wrapCallback(hkc, path), nil
@@ -85,12 +86,12 @@ func wrapCallback(hkc ssh.HostKeyCallback, path string) ssh.HostKeyCallback {
 		if !errors.As(err, &keyErr) || len(keyErr.Want) > 0 {
 			// keyErr.Want is empty if the host key is not in the known_hosts file
 			// non-empty is a mismatch
-			return fmt.Errorf("%w: %s", ErrHostKeyMismatch, err)
+			return ErrHostKeyMismatch.Wrap(err)
 		}
 
 		dbFile, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 		if err != nil {
-			return fmt.Errorf("failed to open ssh known_hosts file %s for writing: %w", path, err)
+			return ErrCheckHostKey.Wrapf("failed to open ssh known_hosts file %s for writing: %w", path, err)
 		}
 
 		knownHostsEntry := knownhosts.Normalize(remote.String())
@@ -98,10 +99,10 @@ func wrapCallback(hkc ssh.HostKeyCallback, path string) ssh.HostKeyCallback {
 		row = fmt.Sprintf("%s\n", strings.TrimSpace(row))
 
 		if _, err := dbFile.WriteString(row); err != nil {
-			return fmt.Errorf("failed to write to known hosts file %s: %w", path, err)
+			return ErrCheckHostKey.Wrapf("failed to write to known hosts file %s: %w", path, err)
 		}
 		if err := dbFile.Close(); err != nil {
-			return fmt.Errorf("failed to close known_hosts file after writing: %w", err)
+			return ErrCheckHostKey.Wrapf("failed to close known_hosts file after writing: %w", err)
 		}
 		return nil
 	})
@@ -115,10 +116,10 @@ func fileExists(path string) bool {
 func ensureDir(path string) error {
 	stat, err := os.Stat(path)
 	if err == nil && !stat.Mode().IsDir() {
-		return fmt.Errorf("%w: path %s is not a directory", ErrInvalidPath, path)
+		return ErrCheckHostKey.Wrapf("path %s is not a directory", path)
 	}
 	if err := os.MkdirAll(path, 0o700); err != nil {
-		return fmt.Errorf("failed to create directory %s: %w", path, err)
+		return ErrCheckHostKey.Wrapf("failed to create directory %s: %w", path, err)
 	}
 	return nil
 }
@@ -132,10 +133,10 @@ func ensureFile(path string) error {
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
-		return fmt.Errorf("failed to create known_hosts file: %w", err)
+		return ErrCheckHostKey.Wrapf("failed to create known_hosts file: %w", err)
 	}
 	if err := f.Close(); err != nil {
-		return fmt.Errorf("failed to close known_hosts file: %w", err)
+		return ErrCheckHostKey.Wrapf("failed to close known_hosts file: %w", err)
 	}
 	return nil
 }

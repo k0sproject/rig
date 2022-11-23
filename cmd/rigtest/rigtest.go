@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	goos "os"
@@ -42,6 +43,18 @@ func (h *Host) LoadOS() error {
 
 	h.Configurer = bf().(configurer)
 
+	return nil
+}
+
+func retry(fn func() error) error {
+	var err error
+	for i := 0; i < 3; i++ {
+		err = fn()
+		if err == nil {
+			return nil
+		}
+		time.Sleep(2 * time.Second)
+	}
 	return nil
 }
 
@@ -116,9 +129,13 @@ func main() {
 	}
 
 	for _, h := range hosts {
-		if err := h.Connect(); err != nil {
-			panic(err)
-		}
+		err := retry(func() error {
+			err := h.Connect()
+			if errors.Is(err, rig.ErrCantConnect) {
+				panic(err)
+			}
+			return err
+		})
 
 		if err := h.LoadOS(); err != nil {
 			panic(err)

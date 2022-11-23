@@ -23,9 +23,6 @@ import (
 	"github.com/mitchellh/go-homedir"
 )
 
-// ErrNonZeroExitCode is returned when the remote command exits with non-zero exit code
-var ErrNonZeroExitCode = errors.New("non-zero exit code")
-
 // WinRM describes a WinRM connection with its configuration options
 type WinRM struct {
 	Address       string `yaml:"address" validate:"required,hostname|ip"`
@@ -103,7 +100,7 @@ func (c *WinRM) loadCertificates() error {
 	if c.CACertPath != "" {
 		ca, err := os.ReadFile(c.CACertPath)
 		if err != nil {
-			return fmt.Errorf("load ca cert: %w", err)
+			return ErrInvalidPath.Wrapf("load ca cert: %w", err)
 		}
 		c.caCert = ca
 	}
@@ -112,7 +109,7 @@ func (c *WinRM) loadCertificates() error {
 	if c.CertPath != "" {
 		cert, err := os.ReadFile(c.CertPath)
 		if err != nil {
-			return fmt.Errorf("load cert: %w", err)
+			return ErrInvalidPath.Wrapf("load cert: %w", err)
 		}
 		c.cert = cert
 	}
@@ -121,7 +118,7 @@ func (c *WinRM) loadCertificates() error {
 	if c.KeyPath != "" {
 		key, err := os.ReadFile(c.KeyPath)
 		if err != nil {
-			return fmt.Errorf("load key: %w", err)
+			return ErrInvalidPath.Wrapf("load key: %w", err)
 		}
 		c.key = key
 	}
@@ -132,7 +129,7 @@ func (c *WinRM) loadCertificates() error {
 // Connect opens the WinRM connection
 func (c *WinRM) Connect() error {
 	if err := c.loadCertificates(); err != nil {
-		return fmt.Errorf("failed to load certificates: %w", err)
+		return ErrCantConnect.Wrapf("failed to load certificates: %w", err)
 	}
 
 	endpoint := &winrm.Endpoint{
@@ -161,7 +158,7 @@ func (c *WinRM) Connect() error {
 	if c.Bastion != nil {
 		err := c.Bastion.Connect()
 		if err != nil {
-			return err
+			return fmt.Errorf("bastion connect: %w", err)
 		}
 		params.Dial = c.Bastion.client.Dial
 	}
@@ -270,8 +267,11 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:funlen,cy
 
 	command.Close()
 
-	if command.ExitCode() > 0 || (!execOpts.AllowWinStderr && gotErrors) {
-		return ErrDataInStderr
+	if ec := command.ExitCode(); ec > 0 {
+		return ErrCommandFailed.Wrapf("non-zero exit code %d", ec)
+	}
+	if !execOpts.AllowWinStderr && gotErrors {
+		return ErrCommandFailed.Wrapf("received data in stderr")
 	}
 
 	return nil
@@ -284,7 +284,7 @@ func (c *WinRM) ExecInteractive(cmd string) error {
 	}
 	_, err := c.client.RunWithContextWithInput(context.Background(), cmd, os.Stdout, os.Stderr, os.Stdin)
 	if err != nil {
-		return fmt.Errorf("execute command: %w", err)
+		return fmt.Errorf("execute command interactive: %w", err)
 	}
 	return nil
 }
@@ -300,7 +300,7 @@ func (c *WinRM) Upload(src, dst string, opts ...exec.Option) error { //nolint:fu
 	psCmd := ps.UploadCmd(dst)
 	stat, err := os.Stat(src)
 	if err != nil {
-		return fmt.Errorf("stat file: %w", err)
+		return ErrInvalidPath.Wrapf("stat source file: %w", err)
 	}
 	sha256DigestLocalObj := sha256.New()
 	sha256DigestLocal := ""
@@ -311,7 +311,7 @@ func (c *WinRM) Upload(src, dst string, opts ...exec.Option) error { //nolint:fu
 	var fdClosed bool
 	srcFd, err := os.Open(src)
 	if err != nil {
-		return fmt.Errorf("open source file: %w", err)
+		return ErrInvalidPath.Wrapf("open source file: %w", err)
 	}
 	defer func() {
 		if !fdClosed {
@@ -382,7 +382,7 @@ func (c *WinRM) Upload(src, dst string, opts ...exec.Option) error { //nolint:fu
 	}
 	if err != nil {
 		cmd.Close()
-		return err
+		return fmt.Errorf("write buffer loop: %w", err)
 	}
 	if !ended {
 		_, _ = sha256DigestLocalObj.Write(buffer[:bufferLength])
@@ -434,12 +434,12 @@ func (c *WinRM) Upload(src, dst string, opts ...exec.Option) error { //nolint:fu
 	wg.Wait()
 
 	if cmd.ExitCode() != 0 {
-		return fmt.Errorf("%w (%d during upload)", ErrNonZeroExitCode, cmd.ExitCode())
+		return ErrCommandFailed.Wrapf("non-zero exit code %d during upload", cmd.ExitCode())
 	}
 	if sha256DigestRemote == "" {
-		return ErrUnexpectedCopyOutput
+		return ErrChecksumMismatch.Wrapf("unexpected empty checksum for target file")
 	} else if sha256DigestRemote != sha256DigestLocal {
-		return fmt.Errorf("%w (local = %s, remote = %s)", ErrCopyFileChecksumMismatch, sha256DigestLocal, sha256DigestRemote)
+		return ErrChecksumMismatch.Wrapf("upload file checksum mismatch (local = %s, remote = %s)", sha256DigestLocal, sha256DigestRemote)
 	}
 
 	return nil
