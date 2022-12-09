@@ -2,6 +2,8 @@
 package powershell
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/base64"
 	"fmt"
 	"strings"
@@ -13,31 +15,35 @@ const PipeHasEnded = "The pipe has been ended."
 // PipeIsBeingClosed string is used during the base64+sha265 upload process
 const PipeIsBeingClosed = "The pipe is being closed."
 
-// UploadCmd generates a powershell script that acts as a small "stdin daemon" for file upload
-func UploadCmd(path string) string {
-	return EncodeCmd(`
-		begin {
-			$path = "` + path + `"
-			Remove-Item $path -ErrorAction Ignore
-			$DebugPreference = "Continue"
-			$ErrorActionPreference = "Stop"
-			Set-StrictMode -Version 2
-			$fd = [System.IO.File]::Create($path)
-			$sha256 = [System.Security.Cryptography.SHA256CryptoServiceProvider]::Create()
-			$bytes = @() #initialize for empty file case
+// CompressedCmd creates a scriptlet that will decompress and execute a gzipped script to both avoid
+// command line length limits and to reduce data transferred
+func CompressedCmd(psCmd string) string {
+	var trimmed []string //nolint:prealloc
+	lines := strings.Split(psCmd, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if len(line) == 0 || line[0] == '#' {
+			continue
 		}
-		process {
-			$bytes = [System.Convert]::FromBase64String($input)
-			$sha256.TransformBlock($bytes, 0, $bytes.Length, $bytes, 0) | Out-Null
-			$fd.Write($bytes, 0, $bytes.Length)
-		}
-		end {
-			$sha256.TransformFinalBlock($bytes, 0, 0) | Out-Null
-			$hash = [System.BitConverter]::ToString($sha256.Hash).Replace("-", "").ToLowerInvariant()
-			$fd.Close()
-			Write-Output "{""sha256"":""$hash""}"
-		}
-	`)
+		trimmed = append(trimmed, line)
+	}
+	cmd := strings.Join(trimmed, "\n")
+	var b bytes.Buffer
+	w, _ := gzip.NewWriterLevel(&b, gzip.BestCompression)
+	_, _ = w.Write([]byte(cmd))
+	_ = w.Close()
+	scriptlet := `$z="` + base64.StdEncoding.EncodeToString(b.Bytes()) + `"
+$d=[Convert]::FromBase64String($z)
+Set-Alias NO New-Object
+$m=NO IO.MemoryStream
+$m.Write($d,0,$d.Length)
+$m.Seek(0,0)|Out-Null
+$c=NO IO.Compression.GZipStream($m,[IO.Compression.CompressionMode]::Decompress)
+$s=NO IO.StreamReader($c)
+$u=$s.ReadToEnd()
+$z=$null
+Invoke-Expression "function s(){$u}"; s`
+	return Cmd(scriptlet)
 }
 
 // EncodeCmd base64-encodes a string in a way that is accepted by PowerShell -EncodedCommand
@@ -61,7 +67,7 @@ func Cmd(psCmd string) string {
 	encodedCmd := EncodeCmd(psCmd)
 
 	// Create the powershell.exe command line to execute the script
-	return fmt.Sprintf("powershell.exe -NonInteractive -ExecutionPolicy Bypass -NoProfile -EncodedCommand %s", encodedCmd)
+	return fmt.Sprintf("powershell.exe -NonInteractive -ExecutionPolicy Unrestricted -NoProfile -EncodedCommand %s", encodedCmd)
 }
 
 // SingleQuote quotes and escapes a string in a format that is accepted by powershell scriptlets

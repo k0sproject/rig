@@ -236,6 +236,7 @@ func (c Linux) WriteFile(h Host, path string, data string, permissions string) e
 
 	if err := c.InstallFile(h, tempFile, path, permissions); err != nil {
 		_ = c.DeleteFile(h, tempFile)
+		return exec.ErrRemote.Wrapf("failed to move file into place: %w", err)
 	}
 
 	return nil

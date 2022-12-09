@@ -10,9 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig/exec"
-	ps "github.com/k0sproject/rig/powershell"
 	"github.com/kballard/go-shellquote"
 )
 
@@ -55,6 +53,28 @@ func (c *Localhost) Connect() error {
 
 // Disconnect on local connection does nothing
 func (c *Localhost) Disconnect() {}
+
+// ExecStreams executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
+// blocks until the command finishes and returns an error if the exit code is not zero.
+func (c *Localhost) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (Waiter, error) {
+	execOpts := exec.Build(opts...)
+	command, err := c.command(cmd, execOpts)
+	if err != nil {
+		return nil, ErrCommandFailed.Wrapf("failed to build command: %w", err)
+	}
+
+	command.Stdin = stdin
+	command.Stdout = stdout
+	command.Stderr = stderr
+
+	execOpts.LogCmd(name, cmd)
+
+	if err := command.Start(); err != nil {
+		return nil, ErrCommandFailed.Wrapf("failed to start command: %w", err)
+	}
+
+	return command, nil
+}
 
 // Exec executes a command on the host
 func (c *Localhost) Exec(cmd string, opts ...exec.Option) error {
@@ -131,37 +151,6 @@ func (c *Localhost) command(cmd string, o *exec.Options) (*osexec.Cmd, error) {
 	}
 
 	return osexec.Command("bash", "-c", "--", cmd), nil
-}
-
-// Upload copies a larger file to another path on the host.
-func (c *Localhost) Upload(src, dst string, opts ...exec.Option) error {
-	var remoteErr error
-	defer func() {
-		if remoteErr != nil {
-			if c.IsWindows() {
-				_ = c.Exec(fmt.Sprintf(`del %s`, ps.DoubleQuote(dst)))
-			} else {
-				_ = c.Exec(fmt.Sprintf(`rm -f -- %s`, shellescape.Quote(dst)))
-			}
-		}
-	}()
-
-	inFile, err := os.Open(src)
-	if err != nil {
-		return ErrInvalidPath.Wrapf("failed to open local file %s: %w", src, err)
-	}
-	defer inFile.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return fmt.Errorf("failed to create destination file %s: %w", dst, err)
-	}
-	defer out.Close()
-	_, err = io.Copy(out, inFile)
-	if err != nil {
-		return fmt.Errorf("failed to copy local file %s to remote %s: %w", src, dst, err)
-	}
-	return nil
 }
 
 // ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host

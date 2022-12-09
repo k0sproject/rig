@@ -2,6 +2,8 @@
 package windows
 
 import (
+	"strings"
+
 	"github.com/k0sproject/rig"
 	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/os/registry"
@@ -15,7 +17,7 @@ type Windows2019 struct {
 func init() {
 	registry.RegisterOSModule(
 		func(os rig.OSVersion) bool {
-			return os.ID == "windows" && os.Version == "10.0.17763"
+			return os.ID == "windows" && strings.HasPrefix(os.Version, "10.0.")
 		},
 		func() interface{} {
 			return Windows2019{}

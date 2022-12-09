@@ -2,6 +2,7 @@
 package errstring
 
 import (
+	"errors"
 	"fmt"
 )
 
@@ -34,6 +35,12 @@ func (e *Error) Wrap(errB error) error {
 
 // Wrapf is a shortcut for Wrap(fmt.Errorf("...", ...))
 func (e *Error) Wrapf(msg string, args ...any) error {
+	if len(args) == 0 {
+		return &wrappedError{
+			errA: e,
+			errB: errors.New(msg), //nolint:goerr113
+		}
+	}
 	return &wrappedError{
 		errA: e,
 		errB: fmt.Errorf(msg, args...), //nolint:goerr113
