@@ -2,6 +2,7 @@ package rig
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -21,6 +22,11 @@ var (
 
 	errAbort = errstring.New("base os detected, version resolving failed")
 )
+
+type windowsVersion struct {
+	Caption string
+	Version string
+}
 
 // GetOSVersion runs through the Resolvers and tries to figure out the OS version information
 func GetOSVersion(conn *Connection) (OSVersion, error) {
@@ -60,35 +66,21 @@ func resolveWindows(conn *Connection) (OSVersion, error) {
 		return OSVersion{}, ErrCommandFailed.Wrapf("not a windows host")
 	}
 
-	// at this point it is known that this is a windows host, so any error from here on should signal the resolver to not try the next
-	osName, err := conn.ExecOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").ProductName`))
+	script := ps.Cmd("Get-CimInstance -ClassName Win32_OperatingSystem | Select-Object Caption, Version | ConvertTo-Json")
+	output, err := conn.ExecOutput(script)
 	if err != nil {
-		return OSVersion{}, errAbort.Wrapf("unable to determine windows product name: %w", err)
+		return OSVersion{}, errAbort.Wrapf("unable to get windows version: %w", err)
 	}
-
-	osMajor, err := conn.ExecOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").CurrentMajorVersionNumber`))
-	if err != nil {
-		return OSVersion{}, errAbort.Wrapf("unable to determine windows major version: %w", err)
+	var winver windowsVersion
+	if err := json.Unmarshal([]byte(output), &winver); err != nil {
+		return OSVersion{}, errAbort.Wrapf("unable to parse windows version: %w", err)
 	}
-
-	osMinor, err := conn.ExecOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").CurrentMinorVersionNumber`))
-	if err != nil {
-		return OSVersion{}, errAbort.Wrapf("unable to determine windows minor version: %w", err)
-	}
-
-	osBuild, err := conn.ExecOutput(ps.Cmd(`(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion").CurrentBuild`))
-	if err != nil {
-		return OSVersion{}, errAbort.Wrapf("unable to determine windows build version: %w", err)
-	}
-
-	version := OSVersion{
+	return OSVersion{
 		ID:      "windows",
 		IDLike:  "windows",
-		Version: fmt.Sprintf("%s.%s.%s", osMajor, osMinor, osBuild),
-		Name:    osName,
-	}
-
-	return version, nil
+		Version: winver.Version,
+		Name:    winver.Caption,
+	}, nil
 }
 
 func resolveDarwin(conn *Connection) (OSVersion, error) {
