@@ -281,7 +281,7 @@ func (c Windows) Chmod(h Host, s, perm string, opts ...exec.Option) error {
 func (c Windows) Stat(h Host, path string, opts ...exec.Option) (*FileInfo, error) {
 	info := &FileInfo{FName: path, FMode: fs.FileMode(0)}
 
-	out, err := h.ExecOutput(fmt.Sprintf("[System.Math]::Truncate((Get-Date -Date ((Get-Item %s).LastWriteTime.ToUniversalTime()) -UFormat %%s))", ps.DoubleQuote(path)), opts...)
+	out, err := h.ExecOutput(ps.Cmd(fmt.Sprintf("[System.Math]::Truncate((Get-Date -Date ((Get-Item %s).LastWriteTime.ToUniversalTime()) -UFormat %%s))", ps.DoubleQuote(path))), opts...)
 	if err != nil {
 		return nil, exec.ErrRemote.Wrapf("failed to get file %s modtime: %w", path, err)
 	}
@@ -291,7 +291,7 @@ func (c Windows) Stat(h Host, path string, opts ...exec.Option) (*FileInfo, erro
 	}
 	info.FModTime = time.Unix(ts, 0)
 
-	out, err = h.ExecOutput(fmt.Sprintf("(Get-Item %s).Length", ps.DoubleQuote(path)), opts...)
+	out, err = h.ExecOutput(ps.Cmd(fmt.Sprintf("(Get-Item %s).Length", ps.DoubleQuote(path))), opts...)
 	if err != nil {
 		return nil, exec.ErrRemote.Wrapf("failed to get file %s size: %w", path, err)
 	}
@@ -301,7 +301,7 @@ func (c Windows) Stat(h Host, path string, opts ...exec.Option) (*FileInfo, erro
 	}
 	info.FSize = size
 
-	out, err = h.ExecOutput(fmt.Sprintf("(Get-Item %s).GetType().Name", ps.DoubleQuote(path)), opts...)
+	out, err = h.ExecOutput(ps.Cmd(fmt.Sprintf("(Get-Item %s).GetType().Name", ps.DoubleQuote(path))), opts...)
 	if err != nil {
 		return nil, exec.ErrRemote.Wrapf("failed to get file %s type: %w", path, err)
 	}
@@ -313,12 +313,12 @@ func (c Windows) Stat(h Host, path string, opts ...exec.Option) (*FileInfo, erro
 // Touch updates a file's last modified time or creates a new empty file
 func (c Windows) Touch(h Host, path string, ts time.Time, opts ...exec.Option) error {
 	if !c.FileExist(h, path) {
-		if err := h.Exec(fmt.Sprintf("Set-Content -Path %s -value $null", ps.DoubleQuote(path)), opts...); err != nil {
+		if err := h.Exec(ps.Cmd(fmt.Sprintf("Set-Content -Path %s -value $null", ps.DoubleQuote(path))), opts...); err != nil {
 			return exec.ErrRemote.Wrapf("failed to create file %s: %w", path, err)
 		}
 	}
 
-	err := h.Exec(fmt.Sprintf("(Get-Item %s).LastWriteTime = (Get-Date %s)", ps.DoubleQuote(path), ps.DoubleQuote(ts.Format(time.RFC3339))), opts...)
+	err := h.Exec(ps.Cmd(fmt.Sprintf("(Get-Item %s).LastWriteTime = (Get-Date %s)", ps.DoubleQuote(path), ps.DoubleQuote(ts.Format(time.RFC3339)))), opts...)
 	if err != nil {
 		return exec.ErrRemote.Wrapf("failed to update file %s timestamp: %w", path, err)
 	}
