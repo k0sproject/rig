@@ -3,7 +3,11 @@
 package rig
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"io"
+	"io/fs"
+	"os"
 	"strings"
 
 	"github.com/alessio/shellescape"
@@ -11,14 +15,22 @@ import (
 	"github.com/google/shlex"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
+	rigos "github.com/k0sproject/rig/os"
 )
+
+var _ rigos.Host = &Connection{}
+
+// Waiter is an interface that has a Wait() function that blocks until a command is finished
+type Waiter interface {
+	Wait() error
+}
 
 type client interface {
 	Connect() error
 	Disconnect()
-	Upload(source, destination string, opts ...exec.Option) error
 	IsWindows() bool
 	Exec(string, ...exec.Option) error
+	ExecStreams(string, io.ReadCloser, io.Writer, io.Writer, ...exec.Option) (Waiter, error)
 	ExecInteractive(string) error
 	String() string
 	Protocol() string
@@ -69,6 +81,29 @@ type Connection struct {
 
 	client   client `yaml:"-"`
 	sudofunc sudofn
+	fsys     FS
+	sudofsys FS
+}
+
+// File is a file on a remote host
+type File interface {
+	Seek(int64, int) (int64, error)
+	CopyFromN(io.Reader, int64, io.Writer) (int64, error)
+	Copy(io.Writer) (int, error)
+	Write([]byte) (int, error)
+	Read([]byte) (int, error)
+	Stat() (fs.FileInfo, error)
+	Close() error
+}
+
+// FS is a fs.FS compatible filesystem interface for filesystems on remote hosts
+type FS interface {
+	Open(name string) (fs.File, error)
+	OpenFile(name string, mode FileMode, perm int) (File, error)
+	Stat(name string) (fs.FileInfo, error)
+	Sha256(name string) (string, error)
+	ReadDir(name string) ([]fs.DirEntry, error)
+	Delete(name string) error
 }
 
 // SetDefaults sets a connection
@@ -139,6 +174,32 @@ func (c Connection) String() string {
 	return c.client.String()
 }
 
+// Fsys returns a fs.FS compatible filesystem interface for accessing files on remote hosts
+func (c *Connection) Fsys() FS {
+	if c.fsys == nil {
+		if c.IsWindows() {
+			c.fsys = newWindowsFsys(c)
+		} else {
+			c.fsys = newUnixFsys(c)
+		}
+	}
+
+	return c.fsys
+}
+
+// SudoFsys returns a fs.FS compatible filesystem interface for accessing files on remote hosts with sudo permissions
+func (c *Connection) SudoFsys() FS {
+	if c.sudofsys == nil {
+		if c.IsWindows() {
+			c.sudofsys = newWindowsFsys(c, exec.Sudo(c))
+		} else {
+			c.sudofsys = newUnixFsys(c, exec.Sudo(c))
+		}
+	}
+
+	return c.sudofsys
+}
+
 // IsWindows returns true on windows hosts
 func (c *Connection) IsWindows() bool {
 	if !c.IsConnected() {
@@ -147,6 +208,19 @@ func (c *Connection) IsWindows() bool {
 		}
 	}
 	return c.client.IsWindows()
+}
+
+// ExecStreams executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
+// blocks until the command finishes and returns an error if the exit code is not zero.
+func (c Connection) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (Waiter, error) {
+	if err := c.checkConnected(); err != nil {
+		return nil, ErrNotConnected.Wrapf("exec streams")
+	}
+	waiter, err := c.client.ExecStreams(cmd, stdin, stdout, stderr, opts...)
+	if err != nil {
+		return nil, ErrCommandFailed.Wrapf("exec (with streams): %w", err)
+	}
+	return waiter, nil
 }
 
 // Exec runs a command on the host
@@ -308,13 +382,42 @@ func (c *Connection) Disconnect() {
 
 // Upload copies a file from a local path src to the remote host path dst. For
 // smaller files you should probably use os.WriteFile
-func (c Connection) Upload(src, dst string, opts ...exec.Option) error {
+func (c *Connection) Upload(src, dst string, opts ...exec.Option) error {
 	if err := c.checkConnected(); err != nil {
 		return err
 	}
+	local, err := os.Open(src)
+	if err != nil {
+		return ErrInvalidPath.Wrap(err)
+	}
+	defer local.Close()
 
-	if err := c.client.Upload(src, dst, opts...); err != nil {
-		return ErrUploadFailed.Wrap(err)
+	stat, err := local.Stat()
+	if err != nil {
+		return ErrInvalidPath.Wrapf("stat local file %s: %w", src, err)
+	}
+
+	shasum := sha256.New()
+
+	fsys := c.Fsys()
+	remote, err := fsys.OpenFile(dst, ModeCreate, int(stat.Mode()))
+	if err != nil {
+		return ErrInvalidPath.Wrapf("open remote file for writing: %w", err)
+	}
+	defer remote.Close()
+
+	if _, err := remote.CopyFromN(local, stat.Size(), shasum); err != nil {
+		return ErrUploadFailed.Wrapf("copy file to remote host: %w", err)
+	}
+
+	log.Debugf("%s: post-upload validate checksum of %s", c, dst)
+	remoteSum, err := fsys.Sha256(dst)
+	if err != nil {
+		return ErrUploadFailed.Wrapf("validate checksum of %s: %w", dst, err)
+	}
+
+	if remoteSum != fmt.Sprintf("%x", shasum.Sum(nil)) {
+		return ErrUploadFailed.Wrapf("checksum mismatch")
 	}
 
 	return nil

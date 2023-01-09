@@ -45,7 +45,7 @@ func (h *Host) LoadOS() error {
 }
 
 func main() {
-	h := Host{
+	h := &Host{
 		Connection: rig.Connection{
 			Localhost: &rig.Localhost{
 				Enabled: true,

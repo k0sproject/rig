@@ -2,6 +2,8 @@ package rig
 
 import (
 	"bytes"
+	"fmt"
+	"io"
 	"testing"
 
 	"github.com/creasty/defaults"
@@ -36,6 +38,9 @@ func (m *mockClient) Exec(cmd string, opts ...exec.Option) error {
 	m.commands = append(m.commands, cmd)
 
 	return nil
+}
+func (m *mockClient) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (Waiter, error) {
+	return nil, fmt.Errorf("not implemented")
 }
 
 var stubSudofunc = func(in string) string {

@@ -2,23 +2,15 @@ package rig
 
 import (
 	"bufio"
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/hex"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
-	ps "github.com/k0sproject/rig/powershell"
 	"github.com/masterzen/winrm"
 	"github.com/mitchellh/go-homedir"
 )
@@ -193,6 +185,78 @@ func (c *WinRM) Disconnect() {
 	c.client = nil
 }
 
+// Command implements the Waiter interface
+type Command struct {
+	sh     *winrm.Shell
+	cmd    *winrm.Command
+	stdin  io.ReadCloser
+	stdout io.Writer
+	stderr io.Writer
+}
+
+// Wait blocks until the command finishes
+func (c *Command) Wait() error {
+	var wg sync.WaitGroup
+	defer c.sh.Close()
+	defer c.cmd.Close()
+	if c.stdin == nil {
+		c.cmd.Stdin.Close()
+	} else {
+		wg.Add(1)
+		go func() {
+			defer c.cmd.Stdin.Close()
+			defer wg.Done()
+			log.Debugf("copying data to stdin")
+			_, err := io.Copy(c.cmd.Stdin, c.stdin)
+			if err != nil {
+				log.Errorf("copying data to command stdin failed: %v", err)
+			}
+		}()
+	}
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_, _ = io.Copy(c.stdout, c.cmd.Stdout)
+	}()
+	go func() {
+		defer wg.Done()
+		_, _ = io.Copy(c.stderr, c.cmd.Stderr)
+	}()
+
+	c.cmd.Wait()
+	log.Debugf("command finished")
+	var err error
+	if c.cmd.ExitCode() != 0 {
+		err = ErrCommandFailed.Wrapf("exit code %d", c.cmd.ExitCode())
+	}
+	wg.Wait()
+	return err
+}
+
+// ExecStreams executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
+// blocks until the command finishes and returns an error if the exit code is not zero.
+func (c *WinRM) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (Waiter, error) {
+	if c.client == nil {
+		return nil, ErrNotConnected
+	}
+	execOpts := exec.Build(opts...)
+	command, err := execOpts.Command(cmd)
+	if err != nil {
+		return nil, ErrCommandFailed.Wrapf("build command: %w", err)
+	}
+
+	execOpts.LogCmd(c.String(), cmd)
+	shell, err := c.client.CreateShell()
+	if err != nil {
+		return nil, ErrCantConnect.Wrapf("create shell: %w", err)
+	}
+	proc, err := shell.ExecuteWithContext(context.Background(), command)
+	if err != nil {
+		return nil, ErrCommandFailed.Wrapf("execute command: %w", err)
+	}
+	return &Command{sh: shell, cmd: proc, stdin: stdin, stdout: stdout, stderr: stderr}, nil
+}
+
 // Exec executes a command on the host
 func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:funlen,cyclop
 	execOpts := exec.Build(opts...)
@@ -286,161 +350,5 @@ func (c *WinRM) ExecInteractive(cmd string) error {
 	if err != nil {
 		return fmt.Errorf("execute command interactive: %w", err)
 	}
-	return nil
-}
-
-// Upload uploads a file from local src path to remote path dst
-func (c *WinRM) Upload(src, dst string, opts ...exec.Option) error { //nolint:funlen,gocognit,cyclop
-	var err error
-	defer func() {
-		if err != nil {
-			_ = c.Exec(fmt.Sprintf(`del %s`, ps.DoubleQuote(dst)), opts...)
-		}
-	}()
-	psCmd := ps.UploadCmd(dst)
-	stat, err := os.Stat(src)
-	if err != nil {
-		return ErrInvalidPath.Wrapf("stat source file: %w", err)
-	}
-	sha256DigestLocalObj := sha256.New()
-	sha256DigestLocal := ""
-	sha256DigestRemote := ""
-	srcSize := uint64(stat.Size())
-	var bytesSent uint64
-	var realSent uint64
-	var fdClosed bool
-	srcFd, err := os.Open(src)
-	if err != nil {
-		return ErrInvalidPath.Wrapf("open source file: %w", err)
-	}
-	defer func() {
-		if !fdClosed {
-			_ = srcFd.Close()
-			fdClosed = true
-		}
-	}()
-	shell, err := c.client.CreateShell()
-	if err != nil {
-		return fmt.Errorf("create shell: %w", err)
-	}
-	defer shell.Close()
-	execOpts := exec.Build(opts...)
-	upcmd, err := execOpts.Command("powershell -ExecutionPolicy Unrestricted -EncodedCommand " + psCmd)
-	if err != nil {
-		return fmt.Errorf("build command: %w", err)
-	}
-
-	cmd, err := shell.ExecuteWithContext(context.Background(), upcmd)
-	if err != nil {
-		return fmt.Errorf("execute command: %w", err)
-	}
-
-	// Create a dummy request to get its length
-	dummy := winrm.NewSendInputRequest("dummydummydummy", "dummydummydummy", "dummydummydummy", []byte(""), false, winrm.DefaultParameters)
-	maxInput := len(dummy.String()) - 100                                       //nolint:gomnd
-	bufferCapacity := (winrm.DefaultParameters.EnvelopeSize - maxInput) / 4 * 3 //nolint:gomnd
-	base64LineBufferCapacity := bufferCapacity/3*4 + 2                          //nolint:gomnd
-	base64LineBuffer := make([]byte, base64LineBufferCapacity)
-	base64LineBuffer[base64LineBufferCapacity-2] = '\r'
-	base64LineBuffer[base64LineBufferCapacity-1] = '\n'
-	buffer := make([]byte, bufferCapacity)
-	var bufferLength int
-
-	var ended bool
-
-	for {
-		var n int
-		n, err = srcFd.Read(buffer)
-		bufferLength += n
-		if err != nil {
-			break
-		}
-		if bufferLength == bufferCapacity {
-			base64.StdEncoding.Encode(base64LineBuffer, buffer)
-			bytesSent += uint64(bufferLength)
-			_, _ = sha256DigestLocalObj.Write(buffer)
-			if bytesSent >= srcSize {
-				ended = true
-				sha256DigestLocal = hex.EncodeToString(sha256DigestLocalObj.Sum(nil))
-			}
-			b, err := cmd.Stdin.Write(base64LineBuffer)
-			realSent += uint64(b)
-			if ended {
-				cmd.Stdin.Close()
-			}
-
-			bufferLength = 0
-			if err != nil {
-				return fmt.Errorf("write to remote stdin: %w", err)
-			}
-		}
-	}
-	_ = srcFd.Close()
-	fdClosed = true
-	if errors.Is(err, io.EOF) {
-		err = nil
-	}
-	if err != nil {
-		cmd.Close()
-		return fmt.Errorf("write buffer loop: %w", err)
-	}
-	if !ended {
-		_, _ = sha256DigestLocalObj.Write(buffer[:bufferLength])
-		sha256DigestLocal = hex.EncodeToString(sha256DigestLocalObj.Sum(nil))
-		base64.StdEncoding.Encode(base64LineBuffer, buffer[:bufferLength])
-		i := base64.StdEncoding.EncodedLen(bufferLength)
-		base64LineBuffer[i] = '\r'
-		base64LineBuffer[i+1] = '\n'
-		_, err = cmd.Stdin.Write(base64LineBuffer[:i+2])
-		if err != nil {
-			if !strings.Contains(err.Error(), ps.PipeHasEnded) && !strings.Contains(err.Error(), ps.PipeIsBeingClosed) {
-				cmd.Close()
-				return fmt.Errorf("write to remote stdin: %w", err)
-			}
-			// ignore pipe errors that results from passing true to cmd.SendInput
-		}
-		cmd.Stdin.Close()
-	}
-	var wg sync.WaitGroup
-	wg.Add(2) //nolint:gomnd
-	var stderr bytes.Buffer
-	var stdout bytes.Buffer
-	go func() {
-		defer wg.Done()
-		_, err = io.Copy(&stderr, cmd.Stderr)
-		if err != nil {
-			stderr.Reset()
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		scanner := bufio.NewScanner(cmd.Stdout)
-		for scanner.Scan() {
-			var output struct {
-				Sha256 string `json:"sha256"`
-			}
-			if json.Unmarshal(scanner.Bytes(), &output) == nil {
-				sha256DigestRemote = output.Sha256
-			} else {
-				_, _ = stdout.Write(scanner.Bytes())
-				_, _ = stdout.WriteString("\n")
-			}
-		}
-		if err := scanner.Err(); err != nil {
-			stdout.Reset()
-		}
-	}()
-	cmd.Wait()
-	wg.Wait()
-
-	if cmd.ExitCode() != 0 {
-		return ErrCommandFailed.Wrapf("non-zero exit code %d during upload", cmd.ExitCode())
-	}
-	if sha256DigestRemote == "" {
-		return ErrChecksumMismatch.Wrapf("unexpected empty checksum for target file")
-	} else if sha256DigestRemote != sha256DigestLocal {
-		return ErrChecksumMismatch.Wrapf("upload file checksum mismatch (local = %s, remote = %s)", sha256DigestLocal, sha256DigestRemote)
-	}
-
 	return nil
 }

@@ -6,13 +6,11 @@ import (
 	"fmt"
 	goos "os"
 
-	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/os/registry"
 	_ "github.com/k0sproject/rig/os/support"
-	ps "github.com/k0sproject/rig/powershell"
 )
 
 type configurer interface {
@@ -49,6 +47,7 @@ func main() {
 	usr := flag.String("user", "root", "user name")
 	pwd := flag.String("pass", "", "password")
 	proto := flag.String("proto", "ssh", "ssh/winrm")
+	https := flag.Bool("https", false, "use https")
 
 	flag.Parse()
 
@@ -57,10 +56,10 @@ func main() {
 		goos.Exit(1)
 	}
 
-	var h Host
+	var h *Host
 
 	if *proto == "ssh" {
-		h = Host{
+		h = &Host{
 			Connection: rig.Connection{
 				SSH: &rig.SSH{
 					Address: *dh,
@@ -70,13 +69,13 @@ func main() {
 			},
 		}
 	} else {
-		h = Host{
+		h = &Host{
 			Connection: rig.Connection{
 				WinRM: &rig.WinRM{
 					Address:  *dh,
 					Port:     *dp,
 					User:     *usr,
-					UseHTTPS: true,
+					UseHTTPS: *https,
 					Insecure: true,
 					Password: *pwd,
 				},
@@ -97,27 +96,8 @@ func main() {
 	if *sudo {
 		opts = append(opts, exec.Sudo(h))
 	}
-
-	err := h.Upload(*sf, *df, opts...)
-	if err != nil {
+	if err := h.Upload(*sf, *df, opts...); err != nil {
 		panic(err)
 	}
-
 	fmt.Println("Done, file now at", *df)
-	var md5 string
-	if h.IsWindows() {
-		md5, err = h.ExecOutputf("certutil -hashfile %s MD5", ps.DoubleQuote(*df))
-		if err != nil {
-			panic(err)
-		}
-	} else {
-		md5, err = h.ExecOutputf("md5sum %s", shellescape.Quote(*df))
-		if err != nil {
-			panic(err)
-		}
-	}
-	fmt.Println("md5sum:", md5)
-	if err := h.Configurer.CheckPrivilege(h); err != nil {
-		panic(err)
-	}
 }
