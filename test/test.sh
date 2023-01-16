@@ -97,6 +97,54 @@ rig_test_ssh_config() {
   return $exit_code
 }
 
+rig_test_ssh_config_strict() {
+  color_echo "- Testing StrictHostkeyChecking=yes in ssh config"
+  make create-host
+  local addr="127.0.0.1:$(ssh_port node0)"
+  echo "Host ${addr}" > .ssh/config
+  echo "  UserKnownHostsFile $(pwd)/.ssh/known" >> .ssh/config
+  set +e
+  HOME=. SSH_CONFIG=.ssh/config ./rigtest -host "${addr}" -user root
+  if [ $? -ne 0 ]; then
+    return 1
+  fi
+  # modify the known hosts file to make it mismatch
+  echo "${addr} ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBBgejI9UJnRY/i4HNM/os57oFcRjE77gEbVfUkuGr5NRh3N7XxUnnBKdzrAiQNPttUjKmUm92BN7nCUxbwsoSPw=" > .ssh/known
+  HOME=. SSH_CONFIG=.ssh/config ./rigtest -host "${addr}" -user root
+  local exit_code=$?
+  rm -f .ssh/known
+  set -e
+
+  if [ $exit_code -eq 0 ]; then
+    # success is a failure
+    return 1
+  fi
+
+  return 0
+}
+
+rig_test_ssh_config_no_strict() {
+  color_echo "- Testing StrictHostkeyChecking=no in ssh config"
+  make create-host
+  local addr="127.0.0.1:$(ssh_port node0)"
+  echo "Host ${addr}" > .ssh/config
+  echo "  UserKnownHostsFile $(pwd)/.ssh/known" >> .ssh/config
+  echo "  StrictHostKeyChecking no" >> .ssh/config
+  set +e
+  HOME=. SSH_CONFIG=.ssh/config ./rigtest -host "${addr}" -user root
+  if [ $? -ne 0 ]; then
+    return 1
+  fi
+  # modify the known hosts file to make it mismatch
+  echo "${addr} ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBBgejI9UJnRY/i4HNM/os57oFcRjE77gEbVfUkuGr5NRh3N7XxUnnBKdzrAiQNPttUjKmUm92BN7nCUxbwsoSPw=" > .ssh/known
+  HOME=. SSH_CONFIG=.ssh/config ./rigtest -host "${addr}" -user root
+  local exit_code=$?
+  rm -f .ssh/known
+  set -e
+  return $exit_code
+}
+
+
 rig_test_key_from_path() {
   color_echo "- Testing regular keypath"
   make create-host
