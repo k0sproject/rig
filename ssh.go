@@ -263,7 +263,7 @@ func (c *SSH) hostkeyCallback() (ssh.HostKeyCallback, error) {
 	defer knownHostsMU.Unlock()
 
 	var permissive bool
-	strict := SSHConfigGetAll(c.Address, "StrictHostkeyChecking")
+	strict := c.getConfigAll("StrictHostkeyChecking")
 	if len(strict) > 0 && strict[0] == "no" {
 		log.Debugf("%s: StrictHostkeyChecking is set to 'no'", c)
 		permissive = true
@@ -280,14 +280,14 @@ func (c *SSH) hostkeyCallback() (ssh.HostKeyCallback, error) {
 	var khPath string
 
 	// Ask ssh_config for a known hosts file
-	kfs := SSHConfigGetAll(c.Address, "UserKnownHostsFile")
+	kfs := c.getConfigAll("UserKnownHostsFile")
 	// splitting the result as for some reason ssh_config sometimes seems to
 	// return a single string containing space separated paths
 	if files, err := shlex.Split(strings.Join(kfs, " ")); err == nil {
 		for _, f := range files {
-			exp, err := expandAndValidatePath(f)
-			khPath = exp
+			exp, err := expandPath(f)
 			if err == nil {
+				khPath = exp
 				break
 			}
 		}
@@ -380,6 +380,9 @@ func (c *SSH) Connect() error {
 	if c.Bastion == nil {
 		clientDirect, err := ssh.Dial("tcp", dst, config)
 		if err != nil {
+			if errors.Is(err, hostkey.ErrHostKeyMismatch) {
+				return ErrCantConnect.Wrap(err)
+			}
 			return fmt.Errorf("ssh dial: %w", err)
 		}
 		c.client = clientDirect
@@ -387,6 +390,9 @@ func (c *SSH) Connect() error {
 	}
 
 	if err := c.Bastion.Connect(); err != nil {
+		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
+			return ErrCantConnect.Wrapf("bastion connect: %w", err)
+		}
 		return err
 	}
 	bconn, err := c.Bastion.client.Dial("tcp", dst)
@@ -395,6 +401,9 @@ func (c *SSH) Connect() error {
 	}
 	client, chans, reqs, err := ssh.NewClientConn(bconn, dst, config)
 	if err != nil {
+		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
+			return ErrCantConnect.Wrapf("bastion client connect: %w", err)
+		}
 		return fmt.Errorf("bastion client connect: %w", err)
 	}
 	c.client = ssh.NewClient(client, chans, reqs)

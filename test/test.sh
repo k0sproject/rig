@@ -102,18 +102,26 @@ rig_test_ssh_config_strict() {
   make create-host
   local addr="127.0.0.1:$(ssh_port node0)"
   echo "Host ${addr}" > .ssh/config
+  echo "  IdentityFile .ssh/identity" >> .ssh/config
   echo "  UserKnownHostsFile $(pwd)/.ssh/known" >> .ssh/config
+  cat .ssh/config
   set +e
   HOME=. SSH_CONFIG=.ssh/config ./rigtest -host "${addr}" -user root
-  if [ $? -ne 0 ]; then
+  local exit_code=$?
+  set -e
+  if [ $exit_code -ne 0 ]; then
+    echo "  * Failed first checkpoint"
     return 1
   fi
+  echo "  * Passed first checkpoint"
+  cat .ssh/known
   # modify the known hosts file to make it mismatch
   echo "${addr} ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBBgejI9UJnRY/i4HNM/os57oFcRjE77gEbVfUkuGr5NRh3N7XxUnnBKdzrAiQNPttUjKmUm92BN7nCUxbwsoSPw=" > .ssh/known
+  cat .ssh/known
   HOME=. SSH_CONFIG=.ssh/config ./rigtest -host "${addr}" -user root
-  local exit_code=$?
-  rm -f .ssh/known
+  exit_code=$?
   set -e
+  rm -f .ssh/known
 
   if [ $exit_code -eq 0 ]; then
     # success is a failure

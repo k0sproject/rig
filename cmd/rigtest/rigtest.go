@@ -90,7 +90,7 @@ func retry(fn func() error) error {
 		}
 		time.Sleep(2 * time.Second)
 	}
-	return nil
+	return err
 }
 
 func main() {
@@ -204,6 +204,8 @@ func main() {
 			}
 			return err
 		})
+
+		require.NoError(t, err, "connection failed")
 
 		t.Run("load os %s", h.Address())
 		require.NoError(t, h.LoadOS(), "load os")
