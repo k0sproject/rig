@@ -90,7 +90,7 @@ func retry(fn func() error) error {
 		}
 		time.Sleep(2 * time.Second)
 	}
-	return nil
+	return err
 }
 
 func main() {
@@ -101,6 +101,7 @@ func main() {
 	pc := flag.Bool("askpass", false, "ask ssh passwords")
 	pwd := flag.String("pass", "", "winrm password")
 	https := flag.Bool("https", false, "use https for winrm")
+	connectOnly := flag.Bool("connect", false, "just connect and quit")
 
 	fn := fmt.Sprintf("test_%s.txt", time.Now().Format("20060102150405"))
 
@@ -204,6 +205,12 @@ func main() {
 			}
 			return err
 		})
+
+		require.NoError(t, err, "connection failed")
+
+		if *connectOnly {
+			continue
+		}
 
 		t.Run("load os %s", h.Address())
 		require.NoError(t, h.LoadOS(), "load os")

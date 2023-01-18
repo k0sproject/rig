@@ -8,6 +8,7 @@ type Logger interface {
 	Tracef(string, ...interface{})
 	Debugf(string, ...interface{})
 	Infof(string, ...interface{})
+	Warnf(string, ...interface{})
 	Errorf(string, ...interface{})
 }
 
@@ -34,6 +35,11 @@ func Errorf(t string, args ...interface{}) {
 	Log.Errorf(t, args...)
 }
 
+// Warnf logs a warn level log message
+func Warnf(t string, args ...interface{}) {
+	Log.Warnf(t, args...)
+}
+
 // StdLog is a simplistic logger for rig
 type StdLog struct {
 	Logger
@@ -52,6 +58,11 @@ func (l *StdLog) Debugf(t string, args ...interface{}) {
 // Infof prints an info level log message
 func (l *StdLog) Infof(t string, args ...interface{}) {
 	fmt.Println("INFO ", fmt.Sprintf(t, args...))
+}
+
+// Warnf prints a warn level log message
+func (l *StdLog) Warnf(t string, args ...interface{}) {
+	fmt.Println("WARN", fmt.Sprintf(t, args...))
 }
 
 // Errorf prints an error level log message

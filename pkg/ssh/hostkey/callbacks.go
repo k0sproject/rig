@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/k0sproject/rig/errstring"
+	"github.com/k0sproject/rig/log"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
@@ -50,7 +51,7 @@ var KnownHostsPathFromEnv = func() (string, bool) {
 }
 
 // KnownHostsFileCallback returns a HostKeyCallback that uses a known hosts file to verify host keys
-func KnownHostsFileCallback(path string) (ssh.HostKeyCallback, error) {
+func KnownHostsFileCallback(path string, permissive bool) (ssh.HostKeyCallback, error) {
 	if path == "/dev/null" {
 		return InsecureIgnoreHostKeyCallback, nil
 	}
@@ -67,13 +68,13 @@ func KnownHostsFileCallback(path string) (ssh.HostKeyCallback, error) {
 		return nil, ErrCheckHostKey.Wrapf("knownhosts callback: %w", err)
 	}
 
-	return wrapCallback(hkc, path), nil
+	return wrapCallback(hkc, path, permissive), nil
 }
 
 // extends a knownhosts callback to not return an error when the key
 // is not found in the known_hosts file but instead adds it to the file as new
 // entry
-func wrapCallback(hkc ssh.HostKeyCallback, path string) ssh.HostKeyCallback {
+func wrapCallback(hkc ssh.HostKeyCallback, path string, permissive bool) ssh.HostKeyCallback {
 	return ssh.HostKeyCallback(func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 		mu.Lock()
 		defer mu.Unlock()
@@ -86,6 +87,10 @@ func wrapCallback(hkc ssh.HostKeyCallback, path string) ssh.HostKeyCallback {
 		if !errors.As(err, &keyErr) || len(keyErr.Want) > 0 {
 			// keyErr.Want is empty if the host key is not in the known_hosts file
 			// non-empty is a mismatch
+			if permissive {
+				log.Warnf("%s: Ignored a SSH host key mismatch because StrictHostkeyChecking is set to 'no' in ssh config", remote)
+				return nil
+			}
 			return ErrHostKeyMismatch.Wrap(err)
 		}
 

@@ -3,6 +3,7 @@ KEY_SIZE ?= 4096
 KEY_PASSPHRASE ?= ""
 KEY_PATH ?= ".ssh/identity"
 REPLICAS ?= 1
+LINUX_IMAGE ?= "quay.io/footloose/centos7"
 
 .PHONY: test
 test: rigtest
@@ -44,7 +45,7 @@ docker-network:
 footloose.yaml: .ssh/identity $(footloose)
 	$(footloose) config create \
 		--config footloose.yaml \
-	  --image quay.io/footloose/centos7 \
+	  --image $(LINUX_IMAGE) \
 		--name rigtest \
 	  --key .ssh/identity \
 		--networks footloose-cluster \
