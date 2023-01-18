@@ -7,11 +7,6 @@ jobs:
   build:
     runs-on: ubuntu-20.04
     steps:
-    - name: install test dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install expect
-
     - uses: actions/checkout@v2
 
     - name: Set up Go
@@ -48,6 +43,13 @@ jobs:
     needs: build
     runs-on: ubuntu-20.04
     steps:
+    - name: install test dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install expect
+
+    - uses: actions/checkout@v2
+
       - name: Run integration tests
         env:
           LINUX_IMAGE: ${{ matrix.image }}
