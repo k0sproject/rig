@@ -115,6 +115,9 @@ func (c *Localhost) Exec(cmd string, opts ...exec.Option) error {
 			for outputScanner.Scan() {
 				execOpts.AddOutput(name, outputScanner.Text()+"\n", "")
 			}
+			if err := outputScanner.Err(); err != nil {
+				execOpts.LogErrorf("%s: failed to scan stdout: %v", c, err)
+			}
 		} else {
 			if _, err := io.Copy(execOpts.Writer, stdout); err != nil {
 				execOpts.LogErrorf("%s: failed to stream stdout: %v", c, err)
@@ -130,10 +133,13 @@ func (c *Localhost) Exec(cmd string, opts ...exec.Option) error {
 		for outputScanner.Scan() {
 			execOpts.AddOutput(name, "", outputScanner.Text()+"\n")
 		}
+		if err := outputScanner.Err(); err != nil {
+			execOpts.LogErrorf("%s: failed to scan stderr: %v", c, err)
+		}
 	}()
 
-	err = command.Wait()
 	wg.Wait()
+	err = command.Wait()
 	if err != nil {
 		return fmt.Errorf("command wait: %w", err)
 	}
