@@ -77,7 +77,7 @@ func (c *Localhost) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr 
 }
 
 // Exec executes a command on the host
-func (c *Localhost) Exec(cmd string, opts ...exec.Option) error { //nolint:funlen
+func (c *Localhost) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop,funlen
 	execOpts := exec.Build(opts...)
 	command, err := c.command(cmd, execOpts)
 	if err != nil {
