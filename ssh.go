@@ -28,12 +28,13 @@ import (
 type SSH struct {
 	Address          string           `yaml:"address" validate:"required,hostname|ip"`
 	User             string           `yaml:"user" validate:"required" default:"root"`
-	Port             int              `yaml:"port" default:"22" validate:"gt=0,lte=65535"`
+	Port             *int             `yaml:"port" default:"22" validate:"gt=0,lte=65535"`
 	KeyPath          *string          `yaml:"keyPath" validate:"omitempty"`
 	HostKey          string           `yaml:"hostKey,omitempty"`
 	Bastion          *SSH             `yaml:"bastion,omitempty"`
 	PasswordCallback PasswordCallback `yaml:"-"`
-	name             string
+
+	connAddr string
 
 	isWindows bool
 	knowOs    bool
@@ -47,18 +48,22 @@ type SSH struct {
 // PasswordCallback is a function that is called when a passphrase is needed to decrypt a private key
 type PasswordCallback func() (secret string, err error)
 
+type sshconfig interface {
+	GetAll(alias, key string) []string
+	Get(alias, key string) string
+}
+
 var (
-	authMethodCache   = sync.Map{}
-	defaultKeypaths   = []string{"~/.ssh/id_rsa", "~/.ssh/identity", "~/.ssh/id_dsa"}
-	dummyhostKeyPaths []string
-	globalOnce        sync.Once
-	knownHostsMU      sync.Mutex
+	authMethodCache = sync.Map{}
+	defaultKeypaths = []string{}
+	globalOnce      sync.Once
+	knownHostsMU    sync.Mutex
+
+	sshConfig sshconfig = ssh_config.DefaultUserSettings
 
 	// ErrChecksumMismatch is returned when the checksum of an uploaded file does not match expectation
 	ErrChecksumMismatch = errstring.New("checksum mismatch")
 )
-
-const hopefullyNonexistentHost = "thisH0stDoe5not3xist"
 
 // returns the current user homedir, prefers $HOME env var
 func homeDir() (string, error) {
@@ -112,78 +117,157 @@ func expandAndValidatePath(path string) (string, error) {
 	return path, nil
 }
 
-func (c *SSH) keypathsFromConfig() []string {
-	log.Tracef("%s: trying to get a keyfile path from ssh config", c)
-	if idf := c.getConfigAll("IdentityFile"); len(idf) > 0 {
-		log.Tracef("%s: detected %d identity file paths from ssh config: %v", c, len(idf), idf)
-		return idf
-	}
-	log.Tracef("%s: no identity file paths found in ssh config", c)
-	return []string{}
-}
-
-func (c *SSH) initGlobalDefaults() {
-	log.Tracef("discovering global default keypaths")
-	dummyHostIdentityFiles := SSHConfigGetAll(hopefullyNonexistentHost, "IdentityFile")
-	for _, keyPath := range dummyHostIdentityFiles {
-		if expanded, err := expandAndValidatePath(keyPath); err != nil {
-			dummyhostKeyPaths = append(dummyhostKeyPaths, expanded)
+func flattenPaths(paths []string) []string {
+	var out []string
+	for _, p := range paths {
+		pp, err := shlex.Split(p)
+		if err == nil {
+			out = append(out, pp...)
 		}
 	}
+	return out
 }
 
-func findUniq(a, b []string) (string, bool) {
-	for _, s := range a {
+func uniqStrings(elems []string) []string {
+	if len(elems) < 2 {
+		return elems
+	}
+	uniq := make(map[string]struct{})
+	for _, e := range elems {
+		uniq[e] = struct{}{}
+	}
+	out := make([]string, 0, len(uniq))
+	for k := range uniq {
+		out = append(out, k)
+	}
+	return out
+}
+
+func initSSHDefaults() {
+	keyPaths := sshConfig.GetAll("*", "IdentityFile")
+	if len(keyPaths) > 0 {
+		defaultKeypaths = flattenPaths(keyPaths)
+	}
+}
+
+// sliceContainsAll returns true if string slice B contains only strings that are present in slice A
+func sliceContainsAll(a, b []string) bool {
+	for _, s := range b {
 		found := false
-		for _, t := range b {
+		for _, t := range a {
 			if s == t {
 				found = true
 				break
 			}
 		}
 		if !found {
-			return s, true
+			return false
 		}
 	}
-	return "", false
+	return true
+}
+
+func (c *SSH) nonDefaultKeypaths() []string {
+	var keyPaths []string
+	for _, p := range c.keyPaths {
+		var found bool
+		for _, d := range defaultKeypaths {
+			if p == d {
+				found = true
+				break
+			}
+		}
+		if !found {
+			keyPaths = append(keyPaths, p)
+		}
+	}
+	return keyPaths
+}
+
+func intPtr(num int) *int {
+	return &num
+}
+
+func (c *SSH) setupAddress() {
+	if addr := sshConfig.Get(c.Address, "HostName"); addr != "" {
+		log.Debugf("%s: using hostname %s from ssh config as connection address", c.Address, addr)
+		c.connAddr = addr
+		return
+	}
+	c.connAddr = c.Address
+}
+
+func (c *SSH) setupPort() {
+	if c.Port != nil {
+		return
+	}
+
+	portS := sshConfig.Get(c.Address, "Port")
+	port, err := strconv.Atoi(portS)
+	if err == nil {
+		c.Port = intPtr(port)
+		log.Tracef("%s: using port %d from ssh config", c, c.Port)
+		return
+	}
+	c.Port = intPtr(22)
+	log.Tracef("%s: using default port", c)
+}
+
+func (c *SSH) setupKeyPaths() {
+	if sshConfig.Get(c.Address, "PubkeyAuthentication") == "no" {
+		log.Infof("%s: public key based authentication disabled in ssh config", c)
+		c.keyPaths = nil
+		return
+	}
+
+	// if keypath is set, use that
+	if c.KeyPath != nil && *c.KeyPath != "" {
+		c.keyPaths = []string{*c.KeyPath}
+		return
+	}
+
+	log.Tracef("%s: trying to get a keyfile path from ssh config", c)
+	if paths := sshConfig.GetAll(c.Address, "IdentityFile"); len(paths) > 0 {
+		c.keyPaths = uniqStrings(flattenPaths(paths))
+		log.Tracef("%s: detected %d identity file paths from ssh config: %v", c, len(c.keyPaths), c.keyPaths)
+		return
+	}
+}
+
+func (c *SSH) sanitizeKeyPaths() {
+	if len(c.keyPaths) == 0 {
+		return
+	}
+	var newPaths []string
+	for _, p := range c.keyPaths {
+		if p == "" {
+			continue
+		}
+		p, err := expandAndValidatePath(p)
+		if err != nil {
+			log.Tracef("%s: failed to validate key path %s: %v", c, p, err)
+			continue
+		}
+		newPaths = append(newPaths, p)
+	}
+	c.keyPaths = uniqStrings(newPaths)
+}
+
+func (c *SSH) setup() {
+	for _, f := range []func(){
+		c.setupAddress,
+		c.setupPort,
+		c.setupKeyPaths,
+		c.sanitizeKeyPaths,
+	} {
+		f()
+	}
 }
 
 // SetDefaults sets various default values
 func (c *SSH) SetDefaults() {
-	globalOnce.Do(c.initGlobalDefaults)
-	c.once.Do(func() {
-		if c.KeyPath != nil && *c.KeyPath != "" {
-			if expanded, err := expandAndValidatePath(*c.KeyPath); err == nil {
-				c.keyPaths = append(c.keyPaths, expanded)
-			}
-			// keypath is explicitly set, accept the fact even if it's invalid and
-			// don't try to find it from ssh config/defaults
-			return
-		}
-		c.KeyPath = nil
-
-		paths := c.keypathsFromConfig()
-		if len(paths) == 0 {
-			// no paths found in ssh config either, use defaults
-			paths = append(paths, defaultKeypaths...)
-		}
-
-		for _, p := range paths {
-			expanded, err := expandAndValidatePath(p)
-			if err != nil {
-				log.Tracef("%s: %s: %v", c, p, err)
-				continue
-			}
-			log.Debugf("%s: using identity file %s", c, expanded)
-			c.keyPaths = append(c.keyPaths, expanded)
-		}
-
-		// check if all the paths that were found are global defaults
-		// errors are handled differently when a keypath is explicitly set vs when it's defaulted
-		if uniq, found := findUniq(c.keyPaths, dummyhostKeyPaths); found {
-			c.KeyPath = &uniq
-		}
-	})
+	globalOnce.Do(initSSHDefaults)
+	c.once.Do(c.setup)
 }
 
 // Protocol returns the protocol name, "SSH"
@@ -196,26 +280,20 @@ func (c *SSH) IPAddress() string {
 	return c.Address
 }
 
-// SSHConfigGetAll by default points to ssh_config package's GetAll() function
-// you can override it with your own implementation for testing purposes
-var SSHConfigGetAll = ssh_config.GetAll
-
 // try with port, if no results, try without
 func (c *SSH) getConfigAll(key string) []string {
-	dst := net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
-	if val := SSHConfigGetAll(dst, key); len(val) > 0 {
-		return val
-	}
-	return SSHConfigGetAll(c.Address, key)
+	return sshConfig.GetAll(c.Address, key)
 }
 
 // String returns the connection's printable name
 func (c *SSH) String() string {
-	if c.name == "" {
-		c.name = fmt.Sprintf("[ssh] %s", net.JoinHostPort(c.Address, strconv.Itoa(c.Port)))
+	var name string
+	if c.connAddr != c.Address {
+		name = c.Address
+	} else {
+		name = c.connAddr
 	}
-
-	return c.name
+	return fmt.Sprintf("[ssh] %s", net.JoinHostPort(name, strconv.Itoa(*c.Port)))
 }
 
 // IsConnected returns true if the client is connected
@@ -319,15 +397,22 @@ func (c *SSH) clientConfig() (*ssh.ClientConfig, error) {
 	config.HostKeyCallback = hkc
 
 	var signers []ssh.Signer
-	agent, err := agentClient()
-	if err != nil {
-		log.Tracef("%s: failed to get ssh agent client: %v", c, err)
+
+	if sshConfig.Get(c.Address, "IdentitiesOnly") == "yes" {
+		log.Debugf("%s: IdentitiesOnly is set to 'yes', not using ssh-agent", c)
 	} else {
-		signers, err = agent.Signers()
+		agent, err := agentClient()
 		if err != nil {
-			log.Debugf("%s: failed to list signers from ssh agent: %v", c, err)
+			log.Tracef("%s: failed to get ssh agent client: %v", c, err)
+		} else {
+			signers, err = agent.Signers()
+			if err != nil {
+				log.Debugf("%s: failed to list signers from ssh agent: %v", c, err)
+			}
 		}
 	}
+
+	nonDefaultPaths := c.nonDefaultKeypaths()
 
 	for _, keyPath := range c.keyPaths {
 		if am, ok := authMethodCache.Load(keyPath); ok {
@@ -344,7 +429,17 @@ func (c *SSH) clientConfig() (*ssh.ClientConfig, error) {
 		}
 		privateKeyAuth, err := c.pkeySigner(signers, keyPath)
 		if err != nil {
-			log.Debugf("%s: failed to obtain a signer for identity %s: %v", c, keyPath, err)
+			if c.KeyPath != nil {
+				return nil, ErrCantConnect.Wrapf("can't use explicitly set identity file %s: %w", *c.KeyPath, err)
+			}
+
+			for _, p := range nonDefaultPaths {
+				if p == keyPath {
+					return nil, ErrCantConnect.Wrapf("can't use identity file at %s: %w", keyPath, err)
+				}
+			}
+
+			log.Debugf("%s: failed to obtain a signer for identity file %s: %v", c, keyPath, err)
 			// store the error so this key won't be loaded again
 			authMethodCache.Store(keyPath, err)
 		} else {
@@ -364,31 +459,7 @@ func (c *SSH) clientConfig() (*ssh.ClientConfig, error) {
 	return config, nil
 }
 
-// Connect opens the SSH connection
-func (c *SSH) Connect() error {
-	if err := defaults.Set(c); err != nil {
-		return ErrValidationFailed.Wrapf("set defaults: %w", err)
-	}
-
-	config, err := c.clientConfig()
-	if err != nil {
-		return ErrCantConnect.Wrapf("create config: %w", err)
-	}
-
-	dst := net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
-
-	if c.Bastion == nil {
-		clientDirect, err := ssh.Dial("tcp", dst, config)
-		if err != nil {
-			if errors.Is(err, hostkey.ErrHostKeyMismatch) {
-				return ErrCantConnect.Wrap(err)
-			}
-			return fmt.Errorf("ssh dial: %w", err)
-		}
-		c.client = clientDirect
-		return nil
-	}
-
+func (c *SSH) connectViaBastion(dst string, cfg *ssh.ClientConfig) error {
 	if err := c.Bastion.Connect(); err != nil {
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
 			return ErrCantConnect.Wrapf("bastion connect: %w", err)
@@ -399,7 +470,7 @@ func (c *SSH) Connect() error {
 	if err != nil {
 		return fmt.Errorf("bastion dial: %w", err)
 	}
-	client, chans, reqs, err := ssh.NewClientConn(bconn, dst, config)
+	client, chans, reqs, err := ssh.NewClientConn(bconn, dst, cfg)
 	if err != nil {
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
 			return ErrCantConnect.Wrapf("bastion client connect: %w", err)
@@ -411,13 +482,50 @@ func (c *SSH) Connect() error {
 	return nil
 }
 
+// Connect opens the SSH connection
+func (c *SSH) Connect() error {
+	if err := defaults.Set(c); err != nil {
+		return ErrValidationFailed.Wrapf("set defaults: %w", err)
+	}
+
+	config, err := c.clientConfig()
+	if err != nil {
+		return ErrCantConnect.Wrapf("create config: %w", err)
+	}
+
+	var port string
+	if c.Port == nil {
+		port = "22"
+	} else {
+		port = strconv.Itoa(*c.Port)
+	}
+	dst := net.JoinHostPort(c.connAddr, port)
+	log.Debugf("%s: connecting to %s", c, dst)
+
+	if c.Bastion != nil {
+		return c.connectViaBastion(dst, config)
+	}
+
+	clientDirect, err := ssh.Dial("tcp", dst, config)
+	if err != nil {
+		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
+			return ErrCantConnect.Wrap(err)
+		}
+		return fmt.Errorf("ssh dial: %w", err)
+	}
+	c.client = clientDirect
+	return nil
+}
+
+// pubkeysigner returns an ssh.AuthMethod for an ssh public key from the supplied signers
 func (c *SSH) pubkeySigner(signers []ssh.Signer, key ssh.PublicKey) (ssh.AuthMethod, error) {
 	if len(signers) == 0 {
 		return nil, ErrCantConnect.Wrapf("signer not found for public key")
 	}
 
+	keyM := key.Marshal()
 	for _, s := range signers {
-		if bytes.Equal(key.Marshal(), s.PublicKey().Marshal()) {
+		if bytes.Equal(keyM, s.PublicKey().Marshal()) {
 			log.Debugf("%s: signer for public key available in ssh agent", c)
 			return ssh.PublicKeys(s), nil
 		}
@@ -426,6 +534,7 @@ func (c *SSH) pubkeySigner(signers []ssh.Signer, key ssh.PublicKey) (ssh.AuthMet
 	return nil, ErrAuthFailed.Wrapf("the provided key is a public key and is not known by agent")
 }
 
+// pkeySigner returns an AuthMethod for the given keyPath. the signers are passed around to avoid querying them from agent multiple times
 func (c *SSH) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMethod, error) {
 	log.Tracef("%s: checking identity file %s", c, path)
 	key, err := os.ReadFile(path)
@@ -453,6 +562,10 @@ func (c *SSH) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMethod, err
 			if signer, err := c.pkeySigner(signers, path+".pub"); err == nil {
 				return signer, nil
 			}
+		}
+
+		if sshConfig.Get(c.Address, "BatchMode") == "yes" {
+			return nil, ErrCantConnect.Wrapf("passphrase required for encrypted key but BatchMode is set for host in ssh config: %w", err)
 		}
 
 		if c.PasswordCallback != nil {

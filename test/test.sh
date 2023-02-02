@@ -38,7 +38,7 @@ rig_test_agent_with_public_key() {
   ssh-add .ssh/identity
   rm -f .ssh/identity
   set +e
-  HOME=$(pwd) SSH_AUTH_SOCK=$SSH_AUTH_SOCK ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -keypath .ssh/identity.pub -connect
+  SSH_AUTH_SOCK=$SSH_AUTH_SOCK ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -keypath .ssh/identity.pub -connect
   local exit_code=$?
   set -e
   kill $SSH_AGENT_PID
@@ -59,7 +59,7 @@ rig_test_agent_with_private_key() {
   '
   set +e
   # path points to a private key, rig should try to look for the .pub for it 
-  HOME=$(pwd) SSH_AUTH_SOCK=$SSH_AUTH_SOCK ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -keypath .ssh/identity -connect
+  SSH_AUTH_SOCK=$SSH_AUTH_SOCK ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -keypath .ssh/identity -connect
   local exit_code=$?
   set -e
   kill $SSH_AGENT_PID
@@ -76,7 +76,7 @@ rig_test_agent() {
   rm -f .ssh/identity
   set +e
   ssh-add -l
-  HOME=. SSH_AUTH_SOCK=$SSH_AUTH_SOCK ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -keypath "" -connect
+  SSH_AUTH_SOCK=$SSH_AUTH_SOCK ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -keypath "" -connect
   local exit_code=$?
   set -e
   kill $SSH_AGENT_PID
@@ -92,7 +92,7 @@ rig_test_ssh_config() {
   echo "Host 127.0.0.1:$(ssh_port node0)" > .ssh/config
   echo "  IdentityFile .ssh/identity2" >> .ssh/config
   set +e
-  HOME=. SSH_CONFIG=.ssh/config ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -connect
+  ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -connect
   local exit_code=$?
   set -e
   RET=$exit_code
@@ -107,7 +107,7 @@ rig_test_ssh_config_strict() {
   echo "  UserKnownHostsFile $(pwd)/.ssh/known" >> .ssh/config
   cat .ssh/config
   set +e
-  HOME=. SSH_CONFIG=.ssh/config ./rigtest -host "${addr}" -user root -connect
+  ./rigtest -host "${addr}" -user root -connect
   local exit_code=$?
   set -e
   if [ $exit_code -ne 0 ]; then
@@ -121,7 +121,7 @@ rig_test_ssh_config_strict() {
   echo "${addr} ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBBgejI9UJnRY/i4HNM/os57oFcRjE77gEbVfUkuGr5NRh3N7XxUnnBKdzrAiQNPttUjKmUm92BN7nCUxbwsoSPw=" > .ssh/known
   cat .ssh/known
   set +e
-  HOME=. SSH_CONFIG=.ssh/config ./rigtest -host "${addr}" -user root -connect
+  ./rigtest -host "${addr}" -user root -connect
   exit_code=$?
   set -e
 
@@ -142,7 +142,7 @@ rig_test_ssh_config_no_strict() {
   echo "  UserKnownHostsFile $(pwd)/.ssh/known" >> .ssh/config
   echo "  StrictHostKeyChecking no" >> .ssh/config
   set +e
-  HOME=. SSH_CONFIG=.ssh/config ./rigtest -host "${addr}" -user root -connect
+  ./rigtest -host "${addr}" -user root -connect
   local exit_code=$?
   set -e
   if [ $? -ne 0 ]; then
@@ -152,7 +152,7 @@ rig_test_ssh_config_no_strict() {
   # modify the known hosts file to make it mismatch
   echo "${addr} ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBBgejI9UJnRY/i4HNM/os57oFcRjE77gEbVfUkuGr5NRh3N7XxUnnBKdzrAiQNPttUjKmUm92BN7nCUxbwsoSPw=" > .ssh/known
   set +e
-  HOME=. SSH_CONFIG=.ssh/config ./rigtest -host "${addr}" -user root -connect
+  ./rigtest -host "${addr}" -user root -connect
   exit_code=$?
   set -e
   RET=$exit_code
@@ -201,6 +201,8 @@ if ! sanity_check; then
   echo "Sanity check failed"
   exit 1
 fi
+
+export HOME=$( cd "$( dirname "${BASH_SOURCE[0]}" )" > /dev/null && pwd )
 
 for test in $(declare -F|grep rig_test_|cut -d" " -f3); do
   if [ "$FOCUS" != "" ] && [ "$FOCUS" != "$test" ]; then
