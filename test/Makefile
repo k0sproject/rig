@@ -73,7 +73,7 @@ sshport:
 .PHONY: run
 run: rigtest create-host
 	./rigtest \
-		-host 127.0.0.1:$(shell $(MAKE) sshport) \
+		-host 127.0.0.1 sshport) \
 	  -keypath $(KEY_PATH) \
 		-user root
 

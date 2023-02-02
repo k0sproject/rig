@@ -89,8 +89,9 @@ rig_test_ssh_config() {
   color_echo "- Testing getting identity path from ssh config"
   make create-host
   mv .ssh/identity .ssh/identity2
-  echo "Host 127.0.0.1:$(ssh_port node0)" > .ssh/config
+  echo "Host 127.0.0.1" > .ssh/config
   echo "  IdentityFile .ssh/identity2" >> .ssh/config
+  echo "  Port $(ssh_port node0)" >> .ssh/config
   set +e
   ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -connect
   local exit_code=$?
@@ -102,7 +103,7 @@ rig_test_ssh_config_strict() {
   color_echo "- Testing StrictHostkeyChecking=yes in ssh config"
   make create-host
   local addr="127.0.0.1:$(ssh_port node0)"
-  echo "Host ${addr}" > .ssh/config
+  echo "Host 127.0.0.1" > .ssh/config
   echo "  IdentityFile .ssh/identity" >> .ssh/config
   echo "  UserKnownHostsFile $(pwd)/.ssh/known" >> .ssh/config
   cat .ssh/config
