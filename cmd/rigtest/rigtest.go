@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -21,8 +20,6 @@ import (
 	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/os/registry"
 	_ "github.com/k0sproject/rig/os/support"
-	sshconf "github.com/k0sproject/rig/pkg/ssh/config"
-	"github.com/kevinburke/ssh_config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -113,33 +110,6 @@ func main() {
 		println("at least host required, see -help")
 		goos.Exit(1)
 	}
-	fieldset := sshconf.DefaultFieldSet
-	opts := fieldset.GetOptions(*dh)
-	enc := json.NewEncoder(goos.Stdout)
-	enc.Encode(opts)
-	hn := ssh_config.Get(*dh, "Host")
-	p := ssh_config.Get(*dh, "Port")
-	println("host:", hn, "port:", p)
-
-	/*
-		if configPath := goos.Getenv("SSH_CONFIG"); configPath != "" {
-			f, err := goos.Open(configPath)
-			if err != nil {
-				panic(err)
-			}
-			cfg, err := ssh_config.Decode(f)
-			if err != nil {
-				panic(err)
-			}
-			rig.SSHConfigGetAll = func(dst, key string) []string {
-				res, err := cfg.GetAll(dst, key)
-				if err != nil {
-					return nil
-				}
-				return res
-			}
-		}
-	*/
 
 	var passfunc func() (string, error)
 	if *pc {
