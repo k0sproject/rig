@@ -150,23 +150,6 @@ func initSSHDefaults() {
 	}
 }
 
-// sliceContainsAll returns true if string slice B contains only strings that are present in slice A
-func sliceContainsAll(a, b []string) bool {
-	for _, s := range b {
-		found := false
-		for _, t := range a {
-			if s == t {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-	return true
-}
-
 func (c *SSH) nonDefaultKeypaths() []string {
 	var keyPaths []string
 	for _, p := range c.keyPaths {
@@ -385,6 +368,38 @@ func (c *SSH) hostkeyCallback() (ssh.HostKeyCallback, error) {
 	return knownhostsCallback(defaultPath, permissive)
 }
 
+func (c *SSH) signers() []ssh.Signer {
+	if sshConfig.Get(c.Address, "IdentitiesOnly") == "yes" {
+		log.Debugf("%s: IdentitiesOnly is set to 'yes', not using ssh-agent", c)
+		return []ssh.Signer{}
+	}
+	agent, err := agentClient()
+	if err != nil {
+		log.Tracef("%s: failed to get ssh agent client: %v", c, err)
+		return []ssh.Signer{}
+	}
+	signers, err := agent.Signers()
+	if err != nil {
+		log.Debugf("%s: failed to list signers from ssh agent: %v", c, err)
+		return []ssh.Signer{}
+	}
+	return signers
+}
+
+func getCachedAuth(keyPath string) ssh.AuthMethod {
+	if am, ok := authMethodCache.Load(keyPath); ok {
+		switch authM := am.(type) {
+		case ssh.AuthMethod:
+			return authM
+		case error:
+			log.Tracef("already discarded key before %s: %v", keyPath, authM)
+		default:
+			log.Tracef("unexpected type %T for cached auth method for %s", am, keyPath)
+		}
+	}
+	return nil
+}
+
 func (c *SSH) clientConfig() (*ssh.ClientConfig, error) {
 	config := &ssh.ClientConfig{
 		User: c.User,
@@ -396,56 +411,38 @@ func (c *SSH) clientConfig() (*ssh.ClientConfig, error) {
 	}
 	config.HostKeyCallback = hkc
 
-	var signers []ssh.Signer
-
-	if sshConfig.Get(c.Address, "IdentitiesOnly") == "yes" {
-		log.Debugf("%s: IdentitiesOnly is set to 'yes', not using ssh-agent", c)
-	} else {
-		agent, err := agentClient()
-		if err != nil {
-			log.Tracef("%s: failed to get ssh agent client: %v", c, err)
-		} else {
-			signers, err = agent.Signers()
-			if err != nil {
-				log.Debugf("%s: failed to list signers from ssh agent: %v", c, err)
-			}
-		}
-	}
+	signers := c.signers()
 
 	nonDefaultPaths := c.nonDefaultKeypaths()
 
 	for _, keyPath := range c.keyPaths {
-		if am, ok := authMethodCache.Load(keyPath); ok {
-			switch authM := am.(type) {
-			case ssh.AuthMethod:
-				log.Tracef("%s: using cached auth method for %s", c, keyPath)
-				config.Auth = append(config.Auth, authM)
-			case error:
-				log.Tracef("%s: already discarded key %s: %v", c, keyPath, authM)
-			default:
-				log.Tracef("%s: unexpected type %T for cached auth method for %s", c, am, keyPath)
-			}
+		if am := getCachedAuth(keyPath); am != nil {
+			log.Tracef("%s: using a cached auth method for identity file %s", c, keyPath)
+			config.Auth = append(config.Auth, am)
 			continue
 		}
-		privateKeyAuth, err := c.pkeySigner(signers, keyPath)
+		keyAuth, err := c.keyfileAuth(signers, keyPath)
 		if err != nil {
+			authMethodCache.Store(keyPath, err)
+			// store the error so this key won't be loaded again
+
 			if c.KeyPath != nil {
-				return nil, ErrCantConnect.Wrapf("can't use explicitly set identity file %s: %w", *c.KeyPath, err)
+				return nil, ErrCantConnect.Wrapf("can't use configured identity file %s: %w", *c.KeyPath, err)
 			}
 
+			// if the key isn't one of the default paths, assume it was explicitly set, and
+			// treat this as a fatal error
 			for _, p := range nonDefaultPaths {
 				if p == keyPath {
-					return nil, ErrCantConnect.Wrapf("can't use identity file at %s: %w", keyPath, err)
+					return nil, ErrCantConnect.Wrapf("can't use identity file %s: %w", keyPath, err)
 				}
 			}
 
 			log.Debugf("%s: failed to obtain a signer for identity file %s: %v", c, keyPath, err)
-			// store the error so this key won't be loaded again
-			authMethodCache.Store(keyPath, err)
-		} else {
-			authMethodCache.Store(keyPath, privateKeyAuth)
-			config.Auth = append(config.Auth, privateKeyAuth)
+			continue
 		}
+		authMethodCache.Store(keyPath, keyAuth)
+		config.Auth = append(config.Auth, keyAuth)
 	}
 
 	if len(config.Auth) == 0 {
@@ -518,7 +515,7 @@ func (c *SSH) Connect() error {
 }
 
 // pubkeysigner returns an ssh.AuthMethod for an ssh public key from the supplied signers
-func (c *SSH) pubkeySigner(signers []ssh.Signer, key ssh.PublicKey) (ssh.AuthMethod, error) {
+func (c *SSH) pubkeyAuth(signers []ssh.Signer, key ssh.PublicKey) (ssh.AuthMethod, error) {
 	if len(signers) == 0 {
 		return nil, ErrCantConnect.Wrapf("signer not found for public key")
 	}
@@ -534,8 +531,8 @@ func (c *SSH) pubkeySigner(signers []ssh.Signer, key ssh.PublicKey) (ssh.AuthMet
 	return nil, ErrAuthFailed.Wrapf("the provided key is a public key and is not known by agent")
 }
 
-// pkeySigner returns an AuthMethod for the given keyPath. the signers are passed around to avoid querying them from agent multiple times
-func (c *SSH) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMethod, error) {
+// keyfileAuth returns an AuthMethod for the given keyPath. the signers are passed around to avoid querying them from agent multiple times
+func (c *SSH) keyfileAuth(signers []ssh.Signer, path string) (ssh.AuthMethod, error) {
 	log.Tracef("%s: checking identity file %s", c, path)
 	key, err := os.ReadFile(path)
 	if err != nil {
@@ -545,7 +542,7 @@ func (c *SSH) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMethod, err
 	pubKey, _, _, _, err := ssh.ParseAuthorizedKey(key)
 	if err == nil {
 		log.Debugf("%s: file %s is a public key", c, path)
-		return c.pubkeySigner(signers, pubKey)
+		return c.pubkeyAuth(signers, pubKey)
 	}
 
 	signer, err := ssh.ParsePrivateKey(key)
@@ -559,7 +556,7 @@ func (c *SSH) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMethod, err
 		log.Debugf("%s: key %s is encrypted", c, path)
 
 		if len(signers) > 0 {
-			if signer, err := c.pkeySigner(signers, path+".pub"); err == nil {
+			if signer, err := c.keyfileAuth(signers, path+".pub"); err == nil {
 				return signer, nil
 			}
 		}
