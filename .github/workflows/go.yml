@@ -38,7 +38,7 @@ jobs:
         image:
           - quay.io/footloose/ubuntu18.04
           - quay.io/footloose/centos7
-          - quay.io/footloose/amazonlinux2
+          # - quay.io/footloose/amazonlinux2  ( not recognized )
           - quay.io/footloose/debian10
           - quay.io/footloose/fedora29
     needs: build
