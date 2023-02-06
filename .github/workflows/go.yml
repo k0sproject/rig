@@ -44,12 +44,18 @@ jobs:
     needs: build
     runs-on: ubuntu-20.04
     steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Go
+      uses: actions/setup-go@v3
+      with:
+        go-version-file: go.mod
+        check-latest: true
+    
     - name: install test dependencies
       run: |
         sudo apt-get update
         sudo apt-get install expect
-
-    - uses: actions/checkout@v3
 
     - name: Run integration tests
       env:
