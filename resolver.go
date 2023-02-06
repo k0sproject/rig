@@ -24,8 +24,8 @@ var (
 )
 
 type windowsVersion struct {
-	Caption string
-	Version string
+	Caption string `json:"Caption"`
+	Version string `json:"Version"`
 }
 
 // GetOSVersion runs through the Resolvers and tries to figure out the OS version information
