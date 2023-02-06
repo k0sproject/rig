@@ -6,14 +6,9 @@ package support
 // modules, import them in your own implementation.
 
 import (
-	// anonymous import for triggerint init()
-	_ "github.com/k0sproject/rig/os"
-	// anonymous import for triggerint init()
-	_ "github.com/k0sproject/rig/os/linux"
-	// anonymous import for triggerint init()
-	_ "github.com/k0sproject/rig/os/linux/enterpriselinux"
-	// anonymous import for triggerint init()
-	_ "github.com/k0sproject/rig/os/mac"
-	// anonymous import for triggerint init()
-	_ "github.com/k0sproject/rig/os/windows"
+	_ "github.com/k0sproject/rig/os"                       // anonymous import for triggering init()
+	_ "github.com/k0sproject/rig/os/linux"                 // anonymous import for triggering init()
+	_ "github.com/k0sproject/rig/os/linux/enterpriselinux" // anonymous import for triggering init()
+	_ "github.com/k0sproject/rig/os/mac"                   // anonymous import for triggering init()
+	_ "github.com/k0sproject/rig/os/windows"               // anonymous import for triggering init()
 )
