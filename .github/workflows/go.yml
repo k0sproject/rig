@@ -7,16 +7,16 @@ jobs:
   build:
     runs-on: ubuntu-20.04
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
 
     - name: Set up Go
-      uses: actions/setup-go@v2
+      uses: actions/setup-go@v3
       with:
         go-version-file: go.mod
         check-latest: true
 
     - name: Go modules cache
-      uses: actions/cache@v2
+      uses: actions/cache@v3
       with:
         path: ~/go/pkg/mod
         key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
@@ -49,10 +49,10 @@ jobs:
         sudo apt-get update
         sudo apt-get install expect
 
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
 
-      - name: Run integration tests
-        env:
-          LINUX_IMAGE: ${{ matrix.image }}
-        run: make -C test test
+    - name: Run integration tests
+      env:
+        LINUX_IMAGE: ${{ matrix.image }}
+      run: make -C test test
 
