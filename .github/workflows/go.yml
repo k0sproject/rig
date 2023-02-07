@@ -7,16 +7,16 @@ jobs:
   build:
     runs-on: ubuntu-20.04
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
 
     - name: Set up Go
-      uses: actions/setup-go@v2
+      uses: actions/setup-go@v3
       with:
         go-version-file: go.mod
         check-latest: true
 
     - name: Go modules cache
-      uses: actions/cache@v2
+      uses: actions/cache@v3
       with:
         path: ~/go/pkg/mod
         key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
@@ -38,21 +38,27 @@ jobs:
         image:
           - quay.io/footloose/ubuntu18.04
           - quay.io/footloose/centos7
-          - quay.io/footloose/amazonlinux2
+          # - quay.io/footloose/amazonlinux2  ( not recognized )
           - quay.io/footloose/debian10
-          - quay.io/footloose/fedora29
+          # - quay.io/footloose/fedora29 ( not recognized )
     needs: build
     runs-on: ubuntu-20.04
     steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Go
+      uses: actions/setup-go@v3
+      with:
+        go-version-file: go.mod
+        check-latest: true
+    
     - name: install test dependencies
       run: |
         sudo apt-get update
         sudo apt-get install expect
 
-    - uses: actions/checkout@v2
-
-      - name: Run integration tests
-        env:
-          LINUX_IMAGE: ${{ matrix.image }}
-        run: make -C test test
+    - name: Run integration tests
+      env:
+        LINUX_IMAGE: ${{ matrix.image }}
+      run: make -C test test
 
