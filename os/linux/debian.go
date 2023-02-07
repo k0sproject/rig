@@ -10,7 +10,7 @@ import (
 	"github.com/k0sproject/rig/os/registry"
 )
 
-// Ubuntu provides OS support for Ubuntu systems
+// Debian provides OS support for Debian systems
 type Debian struct {
 	os.Linux
 }
