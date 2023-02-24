@@ -235,7 +235,7 @@ func (c *Command) Wait() error {
 
 // ExecStreams executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
-func (c *WinRM) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (Waiter, error) {
+func (c *WinRM) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (waiter, error) {
 	if c.client == nil {
 		return nil, ErrNotConnected
 	}

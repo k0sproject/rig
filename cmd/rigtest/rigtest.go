@@ -20,6 +20,7 @@ import (
 	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/os/registry"
 	_ "github.com/k0sproject/rig/os/support"
+	"github.com/k0sproject/rig/pkg/rigfs"
 	"github.com/kevinburke/ssh_config"
 	"github.com/stretchr/testify/require"
 )
@@ -235,7 +236,7 @@ func main() {
 		require.False(t, h.Configurer.FileExist(h, fn))
 
 		testFileSize := int64(1 << (10 * 2)) // 1MB
-		fsyses := []rig.FS{h.Fsys(), h.SudoFsys()}
+		fsyses := []rigfs.Fsys{h.Fsys(), h.SudoFsys()}
 
 		for idx, fsys := range fsyses {
 			t.Run("fsys functions (%d) on %s", idx+1, h)
@@ -244,7 +245,7 @@ func main() {
 			shasum := sha256.New()
 			reader := io.TeeReader(origin, shasum)
 
-			destf, err := fsys.OpenFile(fn, rig.ModeCreate, 0644)
+			destf, err := fsys.OpenFile(fn, rigfs.ModeCreate, 0644)
 			require.NoError(t, err, "open file")
 
 			n, err := io.Copy(destf, reader)
@@ -262,7 +263,7 @@ func main() {
 
 			require.Equal(t, fmt.Sprintf("%x", shasum.Sum(nil)), destSum, "sha256 mismatch after io.copy from local to remote")
 
-			destf, err = fsys.OpenFile(fn, rig.ModeRead, 0644)
+			destf, err = fsys.OpenFile(fn, rigfs.ModeRead, 0644)
 			require.NoError(t, err, "open file for read")
 
 			readSha := sha256.New()

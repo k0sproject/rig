@@ -1,4 +1,4 @@
-package rig
+package rigfs
 
 import (
 	"bytes"
@@ -19,26 +19,26 @@ import (
 // rigHelper is a helper script to avoid having to write complex bash oneliners in Go
 // it's not a read-loop "daemon" like the windows counterpart rigrcp.ps1
 //
-//go:embed script/righelper.bash
+//go:embed righelper.bash
 var rigHelper string
 
 var (
-	_ fs.File        = &unixFSFile{}
-	_ fs.ReadDirFile = &unixFSDir{}
-	_ fs.FS          = &unixFsys{}
+	_ fs.File        = (*posixFile)(nil)
+	_ fs.ReadDirFile = (*posixDir)(nil)
+	_ fs.FS          = (*posixFsys)(nil)
 )
 
-type unixFsys struct {
-	conn *Connection
+type posixFsys struct {
+	conn connection
 	opts []exec.Option
 }
 
-func newUnixFsys(conn *Connection, opts ...exec.Option) *unixFsys {
-	return &unixFsys{conn: conn, opts: opts}
+func NewPosixFsys(conn connection, opts ...exec.Option) *posixFsys {
+	return &posixFsys{conn: conn, opts: opts}
 }
 
-type unixFSFile struct {
-	fsys   *unixFsys
+type posixFile struct {
+	fsys   *posixFsys
 	path   string
 	isOpen bool
 	isEOF  bool
@@ -47,18 +47,18 @@ type unixFSFile struct {
 	mode   FileMode
 }
 
-type unixFSDir struct {
-	unixFSFile
+type posixDir struct {
+	posixFile
 	entries []fs.DirEntry
 	hw      int
 }
 
-func (f *unixFSDir) ReadDir(n int) ([]fs.DirEntry, error) {
+func (f *posixDir) ReadDir(n int) ([]fs.DirEntry, error) {
 	if n == 0 {
-		return f.unixFSFile.fsys.ReadDir(f.path)
+		return f.posixFile.fsys.ReadDir(f.path)
 	}
 	if f.entries == nil {
-		entries, err := f.unixFSFile.fsys.ReadDir(f.path)
+		entries, err := f.posixFile.fsys.ReadDir(f.path)
 		if err != nil {
 			return nil, err
 		}
@@ -79,17 +79,17 @@ func (f *unixFSDir) ReadDir(n int) ([]fs.DirEntry, error) {
 	return f.entries[old:f.hw], nil
 }
 
-func (f *unixFSFile) isReadable() bool {
+func (f *posixFile) isReadable() bool {
 	return f.mode&ModeRead != 0
 }
 
-func (f *unixFSFile) isWritable() bool {
+func (f *posixFile) isWritable() bool {
 	return f.mode&ModeWrite != 0
 }
 
 // ddParams returns "optimal" parameters for a dd command to extract bytesToRead bytes at offset
 // from a file with fileSize length
-func (f *unixFSFile) ddParams(offset int64, toRead int) (int, int64, int) {
+func (f *posixFile) ddParams(offset int64, toRead int) (int, int64, int) {
 	offsetB := big.NewInt(offset)
 	toReadB := big.NewInt(int64(toRead))
 
@@ -104,11 +104,11 @@ func (f *unixFSFile) ddParams(offset int64, toRead int) (int, int64, int) {
 	return blockSize, skip, count
 }
 
-func (f *unixFSFile) Stat() (fs.FileInfo, error) {
+func (f *posixFile) Stat() (fs.FileInfo, error) {
 	return f.fsys.Stat(f.path)
 }
 
-func (f *unixFSFile) Read(p []byte) (int, error) {
+func (f *posixFile) Read(p []byte) (int, error) {
 	if f.isEOF {
 		return 0, io.EOF
 	}
@@ -132,7 +132,7 @@ func (f *unixFSFile) Read(p []byte) (int, error) {
 	return copy(p, buf.Bytes()), nil
 }
 
-func (f *unixFSFile) Write(p []byte) (int, error) {
+func (f *posixFile) Write(p []byte) (int, error) {
 	if !f.isWritable() {
 		return 0, ErrCommandFailed.Wrapf("file %s is not open for writing", f.path)
 	}
@@ -153,7 +153,7 @@ func (f *unixFSFile) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func (f *unixFSFile) CopyFromN(src io.Reader, num int64, alt io.Writer) (int64, error) {
+func (f *posixFile) CopyFromN(src io.Reader, num int64, alt io.Writer) (int64, error) {
 	if !f.isWritable() {
 		return 0, ErrCommandFailed.Wrapf("file %s is not open for writing", f.path)
 	}
@@ -196,7 +196,7 @@ func (f *unixFSFile) CopyFromN(src io.Reader, num int64, alt io.Writer) (int64, 
 	return num, nil
 }
 
-func (f *unixFSFile) Copy(dst io.Writer) (int, error) {
+func (f *posixFile) Copy(dst io.Writer) (int64, error) {
 	if f.isEOF {
 		return 0, io.EOF
 	}
@@ -214,15 +214,15 @@ func (f *unixFSFile) Copy(dst io.Writer) (int, error) {
 	}
 	f.pos = f.size
 	f.isEOF = true
-	return int(f.size - f.pos), nil
+	return f.size - f.pos, nil
 }
 
-func (f *unixFSFile) Close() error {
+func (f *posixFile) Close() error {
 	f.isOpen = false
 	return nil
 }
 
-func (f *unixFSFile) Seek(offset int64, whence int) (int64, error) {
+func (f *posixFile) Seek(offset int64, whence int) (int64, error) {
 	switch whence {
 	case io.SeekStart:
 		f.pos = offset
@@ -258,7 +258,7 @@ func (h *helperResponse) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-func (fsys *unixFsys) helper(args ...string) (*helperResponse, error) {
+func (fsys *posixFsys) helper(args ...string) (*helperResponse, error) {
 	var res helperResponse
 	opts := fsys.opts
 	opts = append(opts, exec.Stdin(rigHelper))
@@ -275,7 +275,7 @@ func (fsys *unixFsys) helper(args ...string) (*helperResponse, error) {
 	return &res, nil
 }
 
-func (fsys *unixFsys) Stat(name string) (fs.FileInfo, error) {
+func (fsys *posixFsys) Stat(name string) (fs.FileInfo, error) {
 	res, err := fsys.helper("stat", name)
 	if err != nil {
 		return nil, &fs.PathError{Op: "stat", Path: name, Err: fmt.Errorf("%w: %s", fs.ErrNotExist, err)}
@@ -286,7 +286,7 @@ func (fsys *unixFsys) Stat(name string) (fs.FileInfo, error) {
 	return res.Stat, nil
 }
 
-func (fsys *unixFsys) Sha256(name string) (string, error) {
+func (fsys *posixFsys) Sha256(name string) (string, error) {
 	res, err := fsys.helper("sum", name)
 	if err != nil {
 		return "", err
@@ -297,19 +297,19 @@ func (fsys *unixFsys) Sha256(name string) (string, error) {
 	return res.Sum.Sha256, nil
 }
 
-func (fsys *unixFsys) Open(name string) (fs.File, error) {
+func (fsys *posixFsys) Open(name string) (fs.File, error) {
 	info, err := fsys.Stat(name)
 	if err != nil {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
 	}
-	file := unixFSFile{fsys: fsys, path: name, isOpen: true, size: info.Size(), mode: ModeRead}
+	file := posixFile{fsys: fsys, path: name, isOpen: true, size: info.Size(), mode: ModeRead}
 	if info.IsDir() {
-		return &unixFSDir{unixFSFile: file}, nil
+		return &posixDir{posixFile: file}, nil
 	}
 	return &file, nil
 }
 
-func (fsys *unixFsys) OpenFile(name string, mode FileMode, perm int) (File, error) {
+func (fsys *posixFsys) OpenFile(name string, mode FileMode, perm FileMode) (File, error) {
 	var pos int64
 	info, err := fsys.Stat(name)
 	if err != nil {
@@ -321,10 +321,10 @@ func (fsys *unixFsys) OpenFile(name string, mode FileMode, perm int) (File, erro
 				return nil, err
 			}
 		}
-		info = &FileInfo{FName: name, FUnix: fs.FileMode(perm), FSize: 0, FIsDir: false, FModTime: time.Now(), fsys: fsys}
+		info = &FileInfo{FName: name, FMode: fs.FileMode(perm), FSize: 0, FIsDir: false, FModTime: time.Now(), fsys: fsys}
 	}
 	if info.IsDir() {
-		return nil, &fs.PathError{Op: "open", Path: name, Err: ErrCommandFailed.Wrapf("%w: is a directory", fs.ErrPermission)}
+		return nil, &fs.PathError{Op: "open", Path: name, Err: fmt.Errorf("%w: is a directory", fs.ErrPermission)}
 	}
 	switch {
 	case mode&ModeAppend == ModeAppend:
@@ -334,10 +334,10 @@ func (fsys *unixFsys) OpenFile(name string, mode FileMode, perm int) (File, erro
 			return nil, err
 		}
 	}
-	return &unixFSFile{fsys: fsys, path: name, isOpen: true, size: info.Size(), pos: pos, mode: mode}, nil
+	return &posixFile{fsys: fsys, path: name, isOpen: true, size: info.Size(), pos: pos, mode: mode}, nil
 }
 
-func (fsys *unixFsys) ReadDir(name string) ([]fs.DirEntry, error) {
+func (fsys *posixFsys) ReadDir(name string) ([]fs.DirEntry, error) {
 	if name == "" {
 		name = "."
 	}
@@ -356,7 +356,7 @@ func (fsys *unixFsys) ReadDir(name string) ([]fs.DirEntry, error) {
 }
 
 // Delete removes the named file or (empty) directory.
-func (fsys *unixFsys) Delete(name string) error {
+func (fsys *posixFsys) Delete(name string) error {
 	if err := fsys.conn.Exec(fmt.Sprintf("rm -f %s", shellescape.Quote(name)), fsys.opts...); err != nil {
 		return ErrCommandFailed.Wrapf("delete %s: %w", name, err)
 	}

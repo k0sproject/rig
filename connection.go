@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"strings"
 
@@ -16,12 +15,12 @@ import (
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
 	rigos "github.com/k0sproject/rig/os"
+	"github.com/k0sproject/rig/pkg/rigfs"
 )
 
-var _ rigos.Host = &Connection{}
+var _ rigos.Host = (*Connection)(nil)
 
-// Waiter is an interface that has a Wait() function that blocks until a command is finished
-type Waiter interface {
+type waiter interface {
 	Wait() error
 }
 
@@ -30,7 +29,7 @@ type client interface {
 	Disconnect()
 	IsWindows() bool
 	Exec(string, ...exec.Option) error
-	ExecStreams(string, io.ReadCloser, io.Writer, io.Writer, ...exec.Option) (Waiter, error)
+	ExecStreams(string, io.ReadCloser, io.Writer, io.Writer, ...exec.Option) (waiter, error)
 	ExecInteractive(string) error
 	String() string
 	Protocol() string
@@ -81,29 +80,8 @@ type Connection struct {
 
 	client   client `yaml:"-"`
 	sudofunc sudofn
-	fsys     FS
-	sudofsys FS
-}
-
-// File is a file on a remote host
-type File interface {
-	Seek(int64, int) (int64, error)
-	CopyFromN(io.Reader, int64, io.Writer) (int64, error)
-	Copy(io.Writer) (int, error)
-	Write([]byte) (int, error)
-	Read([]byte) (int, error)
-	Stat() (fs.FileInfo, error)
-	Close() error
-}
-
-// FS is a fs.FS compatible filesystem interface for filesystems on remote hosts
-type FS interface {
-	Open(name string) (fs.File, error)
-	OpenFile(name string, mode FileMode, perm int) (File, error)
-	Stat(name string) (fs.FileInfo, error)
-	Sha256(name string) (string, error)
-	ReadDir(name string) ([]fs.DirEntry, error)
-	Delete(name string) error
+	fsys     rigfs.Fsys
+	sudofsys rigfs.Fsys
 }
 
 // SetDefaults sets a connection
@@ -175,26 +153,18 @@ func (c Connection) String() string {
 }
 
 // Fsys returns a fs.FS compatible filesystem interface for accessing files on remote hosts
-func (c *Connection) Fsys() FS {
+func (c *Connection) Fsys() rigfs.Fsys {
 	if c.fsys == nil {
-		if c.IsWindows() {
-			c.fsys = newWindowsFsys(c)
-		} else {
-			c.fsys = newUnixFsys(c)
-		}
+		c.fsys = rigfs.NewFsys(c)
 	}
 
 	return c.fsys
 }
 
 // SudoFsys returns a fs.FS compatible filesystem interface for accessing files on remote hosts with sudo permissions
-func (c *Connection) SudoFsys() FS {
+func (c *Connection) SudoFsys() rigfs.Fsys {
 	if c.sudofsys == nil {
-		if c.IsWindows() {
-			c.sudofsys = newWindowsFsys(c, exec.Sudo(c))
-		} else {
-			c.sudofsys = newUnixFsys(c, exec.Sudo(c))
-		}
+		c.sudofsys = rigfs.NewFsys(c, exec.Sudo(c))
 	}
 
 	return c.sudofsys
@@ -212,7 +182,7 @@ func (c *Connection) IsWindows() bool {
 
 // ExecStreams executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
-func (c Connection) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (Waiter, error) {
+func (c Connection) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (rigfs.Waiter, error) {
 	if err := c.checkConnected(); err != nil {
 		return nil, ErrNotConnected.Wrapf("exec streams")
 	}
@@ -400,7 +370,7 @@ func (c *Connection) Upload(src, dst string, opts ...exec.Option) error {
 	shasum := sha256.New()
 
 	fsys := c.Fsys()
-	remote, err := fsys.OpenFile(dst, ModeCreate, int(stat.Mode()))
+	remote, err := fsys.OpenFile(dst, rigfs.ModeCreate, rigfs.FileMode(stat.Mode()))
 	if err != nil {
 		return ErrInvalidPath.Wrapf("open remote file for writing: %w", err)
 	}

@@ -1,28 +1,18 @@
-package rig
+package rigfs
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"path"
 	"strings"
 	"time"
 )
 
-// FileMode is used to set the type of allowed operations when opening remote files
-type FileMode int
-
-const (
-	ModeRead      FileMode = 1                    // ModeRead = Read only
-	ModeWrite     FileMode = 2                    // ModeWrite = Write only
-	ModeReadWrite FileMode = ModeRead | ModeWrite // ModeReadWrite = Read and Write
-	ModeCreate    FileMode = 4 | ModeWrite        // ModeCreate = Create a new file or truncate an existing one. Includes write permission.
-	ModeAppend    FileMode = 8 | ModeCreate       // ModeAppend = Append to an existing file. Includes create and write permissions.
-)
-
 // Check interfaces
 var (
-	_ fs.FileInfo = &FileInfo{}
-	_ fs.DirEntry = &FileInfo{}
+	_ fs.FileInfo = (*FileInfo)(nil)
+	_ fs.DirEntry = (*FileInfo)(nil)
 )
 
 // FileInfo implements fs.FileInfo for stat on remote files
@@ -42,7 +32,7 @@ func (f *FileInfo) UnmarshalJSON(b []byte) error {
 	type fileInfo *FileInfo
 	fi := fileInfo(f)
 	if err := json.Unmarshal(b, fi); err != nil {
-		return ErrCommandFailed.Wrapf("unmarshal fileinfo: %w", err)
+		return fmt.Errorf("unmarshal fileinfo: %w", err)
 	}
 	f.FModTime = time.Unix(f.ModtimeS, 0)
 	f.FName = strings.ReplaceAll(f.FName, "\\", "/")

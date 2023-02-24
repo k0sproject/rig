@@ -1,6 +1,6 @@
 //go:build windows
 
-package rig
+package agent
 
 import (
 	"github.com/Microsoft/go-winio"
@@ -16,7 +16,8 @@ const (
 // ErrSSHAgent is returned when connection to SSH agent fails
 var ErrSSHAgent = errstring.New("connect win ssh agent")
 
-func agentClient() (agent.Agent, error) {
+// NewClient on windows returns a pageant client or an open SSH agent client, whichever is available
+func NewClient() (agent.Agent, error) {
 	if pageant.Available() {
 		return pageant.New(), nil
 	}

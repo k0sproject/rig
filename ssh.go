@@ -18,6 +18,7 @@ import (
 	"github.com/k0sproject/rig/errstring"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
+	"github.com/k0sproject/rig/pkg/ssh/agent"
 	"github.com/k0sproject/rig/pkg/ssh/hostkey"
 	"github.com/kevinburke/ssh_config"
 	ssh "golang.org/x/crypto/ssh"
@@ -319,7 +320,7 @@ func (c *SSH) clientConfig() (*ssh.ClientConfig, error) {
 	config.HostKeyCallback = hkc
 
 	var signers []ssh.Signer
-	agent, err := agentClient()
+	agent, err := agent.NewClient()
 	if err != nil {
 		log.Tracef("%s: failed to get ssh agent client: %v", c, err)
 	} else {
@@ -479,7 +480,7 @@ const (
 
 // ExecStreams executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
-func (c *SSH) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (Waiter, error) {
+func (c *SSH) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (waiter, error) {
 	if c.client == nil {
 		return nil, ErrNotConnected
 	}
