@@ -15,12 +15,14 @@ import (
 	"golang.org/x/term"
 )
 
-func captureSignals(stdin io.WriteCloser, session *ssh.Session) {
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, os.Interrupt, syscall.SIGTSTP, syscall.SIGWINCH)
+// captureSignals intercepts interrupt / resize signals and sends them over to the writer
+func captureSignals(stdin io.Writer, session *ssh.Session) func() {
+	stopCh := make(chan struct{})
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTSTP, syscall.SIGWINCH)
 
 	go func() {
-		for sig := range ch {
+		for sig := range sigCh {
 			switch sig {
 			case os.Interrupt:
 				fmt.Fprintf(stdin, "\x03")
@@ -34,6 +36,14 @@ func captureSignals(stdin io.WriteCloser, session *ssh.Session) {
 			}
 		}
 	}()
+
+	go func() {
+		<-stopCh
+		signal.Stop(sigCh)
+		close(sigCh)
+	}()
+
+	return func() { close(stopCh) }
 }
 
 func termSizeWNCH() []byte {

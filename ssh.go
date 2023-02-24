@@ -646,7 +646,8 @@ func (c *SSH) ExecInteractive(cmd string) error {
 		_, _ = io.Copy(stdinpipe, os.Stdin)
 	}()
 
-	captureSignals(stdinpipe, session)
+	cancel := captureSignals(stdinpipe, session)
+	defer cancel()
 
 	if cmd == "" {
 		err = session.Shell()
