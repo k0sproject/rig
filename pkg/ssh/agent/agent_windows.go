@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/Microsoft/go-winio"
 	"github.com/davidmz/go-pageant"
-	"github.com/k0sproject/rig/errstring"
 	"golang.org/x/crypto/ssh/agent"
 )
 
