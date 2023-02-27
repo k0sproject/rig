@@ -14,7 +14,7 @@ type OpenRC struct{}
 // StartService starts a service
 func (i OpenRC) StartService(h Host, s string) error {
 	if err := h.Execf("rc-service %s start", s, exec.Sudo(h)); err != nil {
-		return exec.ErrRemote.Wrapf("failed to start service %s: %w", s, err)
+		return fmt.Errorf("failed to start service %s: %w", s, err)
 	}
 	return nil
 }
@@ -22,7 +22,7 @@ func (i OpenRC) StartService(h Host, s string) error {
 // StopService stops a service
 func (i OpenRC) StopService(h Host, s string) error {
 	if err := h.Execf("rc-service %s stop", s, exec.Sudo(h)); err != nil {
-		return exec.ErrRemote.Wrapf("failed to stop service %s: %w", s, err)
+		return fmt.Errorf("failed to stop service %s: %w", s, err)
 	}
 	return nil
 }
@@ -31,7 +31,7 @@ func (i OpenRC) StopService(h Host, s string) error {
 func (i OpenRC) ServiceScriptPath(h Host, s string) (string, error) {
 	out, err := h.ExecOutputf("rc-service -r %s 2> /dev/null", s, exec.Sudo(h))
 	if err != nil {
-		return "", exec.ErrRemote.Wrapf("failed to get service script path for %s: %w", s, err)
+		return "", fmt.Errorf("failed to get service script path for %s: %w", s, err)
 	}
 	return strings.TrimSpace(out), nil
 }
@@ -39,7 +39,7 @@ func (i OpenRC) ServiceScriptPath(h Host, s string) (string, error) {
 // RestartService restarts a service
 func (i OpenRC) RestartService(h Host, s string) error {
 	if err := h.Execf("rc-service %s restart", s, exec.Sudo(h)); err != nil {
-		return exec.ErrRemote.Wrapf("failed to restart service %s: %w", s, err)
+		return fmt.Errorf("failed to restart service %s: %w", s, err)
 	}
 	return nil
 }
@@ -52,7 +52,7 @@ func (i OpenRC) DaemonReload(_ Host) error {
 // EnableService enables a service
 func (i OpenRC) EnableService(h Host, s string) error {
 	if err := h.Execf("rc-update add %s", s, exec.Sudo(h)); err != nil {
-		return exec.ErrRemote.Wrapf("failed to enable service %s: %w", s, err)
+		return fmt.Errorf("failed to enable service %s: %w", s, err)
 	}
 	return nil
 }
@@ -60,7 +60,7 @@ func (i OpenRC) EnableService(h Host, s string) error {
 // DisableService disables a service
 func (i OpenRC) DisableService(h Host, s string) error {
 	if err := h.Execf("rc-update del %s", s, exec.Sudo(h)); err != nil {
-		return exec.ErrRemote.Wrapf("failed to disable service %s: %w", s, err)
+		return fmt.Errorf("failed to disable service %s: %w", s, err)
 	}
 	return nil
 }

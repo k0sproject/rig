@@ -3,6 +3,8 @@
 package agent
 
 import (
+	"errors"
+	"fmt"
 	"github.com/Microsoft/go-winio"
 	"github.com/davidmz/go-pageant"
 	"github.com/k0sproject/rig/errstring"
@@ -14,7 +16,7 @@ const (
 )
 
 // ErrSSHAgent is returned when connection to SSH agent fails
-var ErrSSHAgent = errstring.New("connect win ssh agent")
+var ErrSSHAgent = errors.New("connect win ssh agent")
 
 // NewClient on windows returns a pageant client or an open SSH agent client, whichever is available
 func NewClient() (agent.Agent, error) {
@@ -23,7 +25,7 @@ func NewClient() (agent.Agent, error) {
 	}
 	sock, err := winio.DialPipe(openSshAgentPipe, nil)
 	if err != nil {
-		return nil, ErrSSHAgent.Wrapf("can't connect to ssh agent: %w", err)
+		return nil, fmt.Errorf("%w: can't connect to ssh agent: %w", ErrSSHAgent, err)
 	}
 	return agent.NewClient(sock), nil
 }

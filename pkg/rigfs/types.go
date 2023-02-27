@@ -1,15 +1,15 @@
 package rigfs
 
 import (
+	"errors"
 	"io"
 	"io/fs"
 
-	"github.com/k0sproject/rig/errstring"
 	"github.com/k0sproject/rig/exec"
 )
 
 // ErrCommandFailed is returned when a remote command fails
-var ErrCommandFailed = errstring.New("command failed")
+var ErrCommandFailed = errors.New("command failed")
 
 // Waiter is an interface that has a Wait() function that blocks until a command is finished
 type Waiter interface {

@@ -92,7 +92,7 @@ func (c *WinRM) loadCertificates() error {
 	if c.CACertPath != "" {
 		ca, err := os.ReadFile(c.CACertPath)
 		if err != nil {
-			return ErrInvalidPath.Wrapf("load ca cert: %w", err)
+			return fmt.Errorf("%w: load ca-cerrt %s: %w", ErrInvalidPath, c.CACertPath, err)
 		}
 		c.caCert = ca
 	}
@@ -101,7 +101,7 @@ func (c *WinRM) loadCertificates() error {
 	if c.CertPath != "" {
 		cert, err := os.ReadFile(c.CertPath)
 		if err != nil {
-			return ErrInvalidPath.Wrapf("load cert: %w", err)
+			return fmt.Errorf("%w: load cert %s: %w", ErrInvalidPath, c.CertPath, err)
 		}
 		c.cert = cert
 	}
@@ -110,7 +110,7 @@ func (c *WinRM) loadCertificates() error {
 	if c.KeyPath != "" {
 		key, err := os.ReadFile(c.KeyPath)
 		if err != nil {
-			return ErrInvalidPath.Wrapf("load key: %w", err)
+			return fmt.Errorf("%w: load key %s: %w", ErrInvalidPath, key, err)
 		}
 		c.key = key
 	}
@@ -121,7 +121,7 @@ func (c *WinRM) loadCertificates() error {
 // Connect opens the WinRM connection
 func (c *WinRM) Connect() error {
 	if err := c.loadCertificates(); err != nil {
-		return ErrCantConnect.Wrapf("failed to load certificates: %w", err)
+		return fmt.Errorf("%w: failed to load certificates: %w", ErrCantConnect, err)
 	}
 
 	endpoint := &winrm.Endpoint{
@@ -227,7 +227,7 @@ func (c *Command) Wait() error {
 	log.Debugf("command finished")
 	var err error
 	if c.cmd.ExitCode() != 0 {
-		err = ErrCommandFailed.Wrapf("exit code %d", c.cmd.ExitCode())
+		err = fmt.Errorf("%w: exit code %d", ErrCommandFailed, c.cmd.ExitCode())
 	}
 	wg.Wait()
 	return err
@@ -242,17 +242,17 @@ func (c *WinRM) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.W
 	execOpts := exec.Build(opts...)
 	command, err := execOpts.Command(cmd)
 	if err != nil {
-		return nil, ErrCommandFailed.Wrapf("build command: %w", err)
+		return nil, fmt.Errorf("%w: build command: %w", ErrCommandFailed, err)
 	}
 
 	execOpts.LogCmd(c.String(), cmd)
 	shell, err := c.client.CreateShell()
 	if err != nil {
-		return nil, ErrCantConnect.Wrapf("create shell: %w", err)
+		return nil, fmt.Errorf("%w: create shell: %w", ErrCantConnect, err)
 	}
 	proc, err := shell.ExecuteWithContext(context.Background(), command)
 	if err != nil {
-		return nil, ErrCommandFailed.Wrapf("execute command: %w", err)
+		return nil, fmt.Errorf("%w: execute command: %w", ErrCommandFailed, err)
 	}
 	return &Command{sh: shell, cmd: proc, stdin: stdin, stdout: stdout, stderr: stderr}, nil
 }
@@ -262,7 +262,7 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:funlen,cy
 	execOpts := exec.Build(opts...)
 	shell, err := c.client.CreateShell()
 	if err != nil {
-		return fmt.Errorf("create shell: %w", err)
+		return fmt.Errorf("%w: create shell: %w", ErrCommandFailed, err)
 	}
 	defer shell.Close()
 
@@ -270,7 +270,7 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:funlen,cy
 
 	command, err := shell.ExecuteWithContext(context.Background(), cmd)
 	if err != nil {
-		return fmt.Errorf("execute command: %w", err)
+		return fmt.Errorf("%w: execute command: %w", ErrCommandFailed, err)
 	}
 
 	var wg sync.WaitGroup
@@ -332,10 +332,10 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:funlen,cy
 	command.Close()
 
 	if ec := command.ExitCode(); ec > 0 {
-		return ErrCommandFailed.Wrapf("non-zero exit code %d", ec)
+		return fmt.Errorf("%w: non-zero exit code: %d", ErrCommandFailed, ec)
 	}
 	if !execOpts.AllowWinStderr && gotErrors {
-		return ErrCommandFailed.Wrapf("received data in stderr")
+		return fmt.Errorf("%w: received data in stderr", ErrCommandFailed)
 	}
 
 	return nil

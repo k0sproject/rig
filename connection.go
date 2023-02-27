@@ -184,11 +184,11 @@ func (c *Connection) IsWindows() bool {
 // blocks until the command finishes and returns an error if the exit code is not zero.
 func (c Connection) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (rigfs.Waiter, error) {
 	if err := c.checkConnected(); err != nil {
-		return nil, ErrNotConnected.Wrapf("exec streams")
+		return nil, fmt.Errorf("%w: exec with streams: %w", ErrCommandFailed, err)
 	}
 	waiter, err := c.client.ExecStreams(cmd, stdin, stdout, stderr, opts...)
 	if err != nil {
-		return nil, ErrCommandFailed.Wrapf("exec (with streams): %w", err)
+		return nil, fmt.Errorf("%w: exec with streams: %w", ErrCommandFailed, err)
 	}
 	return waiter, nil
 }
@@ -200,7 +200,7 @@ func (c Connection) Exec(cmd string, opts ...exec.Option) error {
 	}
 
 	if err := c.client.Exec(cmd, opts...); err != nil {
-		return ErrCommandFailed.Wrapf("client exec: %w", err)
+		return fmt.Errorf("%w: client exec: %w", ErrCommandFailed, err)
 	}
 
 	return nil
@@ -222,14 +222,14 @@ func (c Connection) ExecOutput(cmd string, opts ...exec.Option) (string, error) 
 func (c *Connection) Connect() error {
 	if c.client == nil {
 		if err := defaults.Set(c); err != nil {
-			return ErrValidationFailed.Wrapf("set defaults: %w", err)
+			return fmt.Errorf("%w: set defaults: %w", ErrValidationFailed, err)
 		}
 	}
 
 	if err := c.client.Connect(); err != nil {
 		c.client = nil
 		log.Debugf("%s: failed to connect: %v", c, err)
-		return ErrNotConnected.Wrapf("client connect: %w", err)
+		return fmt.Errorf("%w: client connect: %w", ErrNotConnected, err)
 	}
 
 	if c.OSVersion == nil {
@@ -309,7 +309,7 @@ func (c *Connection) configureSudo() {
 // Sudo formats a command string to be run with elevated privileges
 func (c Connection) Sudo(cmd string) (string, error) {
 	if c.sudofunc == nil {
-		return "", ErrSudoRequired.Wrapf("user is not an administrator and passwordless access elevation has not been configured")
+		return "", fmt.Errorf("%w: user is not an administrator and passwordless access elevation has not been configured", ErrSudoRequired)
 	}
 
 	return c.sudofunc(cmd), nil
@@ -336,7 +336,7 @@ func (c Connection) ExecInteractive(cmd string) error {
 	}
 
 	if err := c.client.ExecInteractive(cmd); err != nil {
-		return ErrCommandFailed.Wrapf("client exec interactive: %w", err)
+		return fmt.Errorf("%w: client exec interactive: %w", ErrCommandFailed, err)
 	}
 
 	return nil
@@ -358,13 +358,13 @@ func (c *Connection) Upload(src, dst string, opts ...exec.Option) error {
 	}
 	local, err := os.Open(src)
 	if err != nil {
-		return ErrInvalidPath.Wrap(err)
+		return fmt.Errorf("%w: %w", ErrInvalidPath, err)
 	}
 	defer local.Close()
 
 	stat, err := local.Stat()
 	if err != nil {
-		return ErrInvalidPath.Wrapf("stat local file %s: %w", src, err)
+		return fmt.Errorf("%w: stat local file %s: %w", ErrInvalidPath, src, err)
 	}
 
 	shasum := sha256.New()
@@ -372,22 +372,22 @@ func (c *Connection) Upload(src, dst string, opts ...exec.Option) error {
 	fsys := c.Fsys()
 	remote, err := fsys.OpenFile(dst, rigfs.ModeCreate, rigfs.FileMode(stat.Mode()))
 	if err != nil {
-		return ErrInvalidPath.Wrapf("open remote file for writing: %w", err)
+		return fmt.Errorf("%w: open remote file %s for writing: %w", ErrInvalidPath, dst, err)
 	}
 	defer remote.Close()
 
 	if _, err := remote.CopyFromN(local, stat.Size(), shasum); err != nil {
-		return ErrUploadFailed.Wrapf("copy file to remote host: %w", err)
+		return fmt.Errorf("%w: copy file %s to remote host: %w", ErrUploadFailed, dst, err)
 	}
 
 	log.Debugf("%s: post-upload validate checksum of %s", c, dst)
 	remoteSum, err := fsys.Sha256(dst)
 	if err != nil {
-		return ErrUploadFailed.Wrapf("validate checksum of %s: %w", dst, err)
+		return fmt.Errorf("%w: validate %s checksum: %w", ErrUploadFailed, dst, err)
 	}
 
 	if remoteSum != fmt.Sprintf("%x", shasum.Sum(nil)) {
-		return ErrUploadFailed.Wrapf("checksum mismatch")
+		return fmt.Errorf("%w: checksum mismatch", ErrUploadFailed)
 	}
 
 	return nil

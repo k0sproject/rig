@@ -60,7 +60,7 @@ func (c *Localhost) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr 
 	execOpts := exec.Build(opts...)
 	command, err := c.command(cmd, execOpts)
 	if err != nil {
-		return nil, ErrCommandFailed.Wrapf("failed to build command: %w", err)
+		return nil, fmt.Errorf("%w: failed to build command: %w", ErrCommandFailed, err)
 	}
 
 	command.Stdin = stdin
@@ -70,7 +70,7 @@ func (c *Localhost) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr 
 	execOpts.LogCmd(name, cmd)
 
 	if err := command.Start(); err != nil {
-		return nil, ErrCommandFailed.Wrapf("failed to start command: %w", err)
+		return nil, fmt.Errorf("%w: failed to start: %w", ErrCommandFailed, err)
 	}
 
 	return command, nil

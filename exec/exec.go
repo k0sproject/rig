@@ -80,7 +80,7 @@ func (o *Options) Command(cmd string) (string, error) {
 
 	out, err := o.host.Sudo(cmd)
 	if err != nil {
-		return "", ErrSudo.Wrap(err)
+		return "", fmt.Errorf("%w: %w", ErrSudo, err)
 	}
 	return out, nil
 }

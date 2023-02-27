@@ -13,19 +13,18 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/k0sproject/rig/errstring"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
-	ps "github.com/k0sproject/rig/powershell"
+	ps "github.com/k0sproject/rig/pkg/powershell"
 )
 
 const bufSize = 32768
 
 var (
 	// ErrNotRunning is returned when the rigrcp process is not running
-	ErrNotRunning = errstring.New("rigrcp is not running")
+	ErrNotRunning = errors.New("rigrcp is not running")
 	// ErrRcpCommandFailed is returned when a command to the rigrcp process fails
-	ErrRcpCommandFailed = errstring.New("rigrcp command failed")
+	ErrRcpCommandFailed = errors.New("rigrcp command failed")
 )
 
 // rigWinRCPScript is a helper script for transferring files between local and remote systems
@@ -36,10 +35,11 @@ var rigWinRCPScript string
 var (
 	_ fs.File        = (*winFile)(nil)
 	_ fs.ReadDirFile = (*winDir)(nil)
-	_ fs.FS          = (*winFsys)(nil)
+	_ fs.FS          = (*WinFsys)(nil)
 )
 
-type winFsys struct {
+// WinFsys is a fs.FS implementation for remote Windows hosts
+type WinFsys struct {
 	conn connection
 	rcp  *winRCP
 	buf  []byte
@@ -72,17 +72,17 @@ func (r *rigrcpResponse) UnmarshalJSON(b []byte) error {
 	type rigresponse *rigrcpResponse
 	rr := rigresponse(r)
 	if err := json.Unmarshal(b, rr); err != nil {
-		return ErrCommandFailed.Wrapf("failed to unmarshal rigrcp response: %w", err)
+		return fmt.Errorf("%w: failed to unmarshal rigrcp response: %w", ErrCommandFailed, err)
 	}
 	if r.ErrString != "" {
-		r.Err = errstring.New(strings.TrimSpace(r.ErrString))
+		r.Err = fmt.Errorf("%w: %s", ErrCommandFailed, strings.TrimSpace(r.ErrString))
 	}
 	return nil
 }
 
 // NewWindowsFsys returns a new fs.FS implementing filesystem for Windows targets
-func NewWindowsFsys(conn connection, opts ...exec.Option) *winFsys {
-	return &winFsys{
+func NewWindowsFsys(conn connection, opts ...exec.Option) *WinFsys {
+	return &WinFsys{
 		conn: conn,
 		buf:  make([]byte, bufSize),
 		rcp:  &winRCP{conn: conn, opts: opts},
@@ -114,7 +114,7 @@ func (rcp *winRCP) run() error {
 
 	waiter, err := rcp.conn.ExecStreams(ps.CompressedCmd(rigWinRCPScript), stdinR, stdoutW, rcp.stderr, rcp.opts...)
 	if err != nil {
-		return ErrCommandFailed.Wrapf("failed to start rigrcp: %w", err)
+		return fmt.Errorf("%w: failed to start rigrcp: %w", ErrCommandFailed, err)
 	}
 	rcp.running = true
 	log.Tracef("started rigrcp")
@@ -155,11 +155,11 @@ func (rcp *winRCP) command(cmd string) (rigrcpResponse, error) {
 
 	log.Tracef("writing rigrcp command: %s", cmd)
 	if _, err := rcp.stdin.Write([]byte(cmd + "\n")); err != nil {
-		return res, ErrRcpCommandFailed.Wrap(err)
+		return res, fmt.Errorf("%w: %w", ErrRcpCommandFailed, err)
 	}
 	select {
 	case <-rcp.done:
-		return res, ErrRcpCommandFailed.Wrapf("rigrcp exited")
+		return res, fmt.Errorf("%w: rigrcp exited", ErrRcpCommandFailed)
 	case data := <-resp:
 		if data == nil {
 			return res, nil
@@ -168,14 +168,14 @@ func (rcp *winRCP) command(cmd string) (rigrcpResponse, error) {
 			return res, nil
 		}
 		if err := json.Unmarshal(data, &res); err != nil {
-			return res, ErrRcpCommandFailed.Wrapf("failed to unmarshal response: %w", err)
+			return res, fmt.Errorf("%w: failed to unmarshal response: %w", ErrRcpCommandFailed, err)
 		}
 		log.Tracef("rigrcp response: %+v", res)
 		if res.Err != nil {
 			if res.Err.Error() == "eof" {
 				return res, io.EOF
 			}
-			return res, ErrRcpCommandFailed.Wrapf("rigrcp error: %w", res.Err)
+			return res, fmt.Errorf("%w: %w", ErrRcpCommandFailed, res.Err)
 		}
 		return res, nil
 	}
@@ -183,7 +183,7 @@ func (rcp *winRCP) command(cmd string) (rigrcpResponse, error) {
 
 // winFile is a file on a Windows target. It implements fs.File.
 type winFile struct {
-	fsys *winFsys
+	fsys *WinFsys
 	path string
 }
 
@@ -195,10 +195,10 @@ type winFile struct {
 func (f *winFile) Seek(offset int64, whence int) (int64, error) {
 	resp, err := f.fsys.rcp.command(fmt.Sprintf("seek %d %d", offset, whence))
 	if err != nil {
-		return -1, &fs.PathError{Op: "seek", Path: f.path, Err: ErrRcpCommandFailed.Wrapf("failed to seek: %w", err)}
+		return -1, &fs.PathError{Op: "seek", Path: f.path, Err: fmt.Errorf("%w: seek: %w", ErrRcpCommandFailed, err)}
 	}
 	if resp.Seek == nil {
-		return -1, &fs.PathError{Op: "seek", Path: f.path, Err: ErrRcpCommandFailed.Wrapf("invalid response: %v", resp)}
+		return -1, &fs.PathError{Op: "seek", Path: f.path, Err: fmt.Errorf("%w: seek response: %v", ErrRcpCommandFailed, resp)}
 	}
 	return resp.Seek.Position, nil
 }
@@ -245,7 +245,7 @@ func (d *winDir) ReadDir(n int) ([]fs.DirEntry, error) {
 func (f *winFile) CopyFromN(src io.Reader, num int64, alt io.Writer) (int64, error) {
 	_, err := f.fsys.rcp.command(fmt.Sprintf("w %d", num))
 	if err != nil {
-		return 0, &fs.PathError{Op: "copy-to", Path: f.path, Err: ErrRcpCommandFailed.Wrapf("failed to copy: %w", err)}
+		return 0, &fs.PathError{Op: "copy-to", Path: f.path, Err: fmt.Errorf("%w: copy: %w", ErrRcpCommandFailed, err)}
 	}
 	var writer io.Writer
 	if alt != nil {
@@ -255,7 +255,7 @@ func (f *winFile) CopyFromN(src io.Reader, num int64, alt io.Writer) (int64, err
 	}
 	copied, err := io.CopyN(writer, src, num)
 	if err != nil {
-		return copied, &fs.PathError{Op: "copy-to", Path: f.path, Err: ErrRcpCommandFailed.Wrapf("error while copying: %w", err)}
+		return copied, &fs.PathError{Op: "copy-to", Path: f.path, Err: fmt.Errorf("%w: copy stream: %w", ErrRcpCommandFailed, err)}
 	}
 	return copied, nil
 }
@@ -267,10 +267,10 @@ func (f *winFile) Copy(dst io.Writer) (int64, error) {
 		return 0, io.EOF
 	}
 	if err != nil {
-		return 0, &fs.PathError{Op: "read", Path: f.path, Err: ErrRcpCommandFailed.Wrapf("failed to copy: %w", err)}
+		return 0, &fs.PathError{Op: "read", Path: f.path, Err: fmt.Errorf("%w: copy: %w", ErrRcpCommandFailed, err)}
 	}
 	if resp.Read == nil {
-		return 0, &fs.PathError{Op: "read", Path: f.path, Err: ErrRcpCommandFailed.Wrapf("invalid response: %v", resp)}
+		return 0, &fs.PathError{Op: "read", Path: f.path, Err: fmt.Errorf("%w: copy response: %v", ErrCommandFailed, resp)}
 	}
 	if resp.Read.Bytes == 0 {
 		return 0, io.EOF
@@ -282,12 +282,12 @@ func (f *winFile) Copy(dst io.Writer) (int64, error) {
 		totalRead += int64(read)
 		if err != nil {
 			f.fsys.mu.Unlock()
-			return totalRead, &fs.PathError{Op: "read", Path: f.path, Err: ErrRcpCommandFailed.Wrapf("failed to read: %w", err)}
+			return totalRead, &fs.PathError{Op: "read", Path: f.path, Err: fmt.Errorf("%w: copy (read): %w", ErrRcpCommandFailed, err)}
 		}
 		_, err = dst.Write(f.fsys.buf[:read])
 		f.fsys.mu.Unlock()
 		if err != nil {
-			return totalRead, &fs.PathError{Op: "write", Path: f.path, Err: ErrRcpCommandFailed.Wrapf("failed to write: %w", err)}
+			return totalRead, &fs.PathError{Op: "write", Path: f.path, Err: fmt.Errorf("%w: copy (write): %w", ErrRcpCommandFailed, err)}
 		}
 	}
 	return totalRead, nil
@@ -300,11 +300,11 @@ func (f *winFile) Write(p []byte) (int, error) {
 		return 0, io.EOF
 	}
 	if err != nil {
-		return 0, &fs.PathError{Op: "write", Path: f.path, Err: ErrRcpCommandFailed.Wrapf("failed to initiate write: %w", err)}
+		return 0, &fs.PathError{Op: "write", Path: f.path, Err: fmt.Errorf("%w: initiate write: %w", ErrRcpCommandFailed, err)}
 	}
 	written, err := f.fsys.rcp.stdin.Write(p)
 	if err != nil {
-		return written, &fs.PathError{Op: "write", Path: f.path, Err: ErrRcpCommandFailed.Wrapf("write error: %w", err)}
+		return written, &fs.PathError{Op: "write", Path: f.path, Err: fmt.Errorf("%w: write error: %w", ErrRcpCommandFailed, err)}
 	}
 	return written, nil
 }
@@ -316,10 +316,10 @@ func (f *winFile) Read(p []byte) (int, error) {
 		return 0, io.EOF
 	}
 	if err != nil {
-		return 0, &fs.PathError{Op: "read", Path: f.path, Err: ErrRcpCommandFailed.Wrapf("failed to read: %w", err)}
+		return 0, &fs.PathError{Op: "read", Path: f.path, Err: fmt.Errorf("%w: read: %w", ErrRcpCommandFailed, err)}
 	}
 	if resp.Read == nil {
-		return 0, &fs.PathError{Op: "read", Path: f.path, Err: ErrRcpCommandFailed.Wrapf("invalid response: %v", resp)}
+		return 0, &fs.PathError{Op: "read", Path: f.path, Err: fmt.Errorf("%w: read response: %v", ErrRcpCommandFailed, resp)}
 	}
 	if resp.Read.Bytes == 0 {
 		return 0, io.EOF
@@ -329,7 +329,7 @@ func (f *winFile) Read(p []byte) (int, error) {
 		read, err := f.fsys.rcp.stdout.Read(p[totalRead:resp.Read.Bytes])
 		totalRead += int64(read)
 		if err != nil {
-			return int(totalRead), &fs.PathError{Op: "read", Path: f.path, Err: ErrRcpCommandFailed.Wrapf("failed to read: %w", err)}
+			return int(totalRead), &fs.PathError{Op: "read", Path: f.path, Err: fmt.Errorf("%w: read: %w", ErrRcpCommandFailed, err)}
 		}
 	}
 	return int(totalRead), nil
@@ -344,7 +344,7 @@ func (f *winFile) Stat() (fs.FileInfo, error) {
 func (f *winFile) Close() error {
 	_, err := f.fsys.rcp.command("c")
 	if err != nil {
-		return &fs.PathError{Op: "close", Path: f.path, Err: ErrRcpCommandFailed.Wrapf("failed to close: %w", err)}
+		return &fs.PathError{Op: "close", Path: f.path, Err: fmt.Errorf("%w: close: %w", ErrRcpCommandFailed, err)}
 	}
 	return nil
 }
@@ -352,7 +352,7 @@ func (f *winFile) Close() error {
 // Open opens the named file for reading and returns fs.File.
 // Use OpenFile to get a file that can be written to or if you need any of the methods not
 // available on fs.File interface without type assertion.
-func (fsys *winFsys) Open(name string) (fs.File, error) {
+func (fsys *WinFsys) Open(name string) (fs.File, error) {
 	f, err := fsys.OpenFile(name, ModeRead, 0o644)
 	if err != nil {
 		return nil, err
@@ -361,7 +361,7 @@ func (fsys *winFsys) Open(name string) (fs.File, error) {
 }
 
 // OpenFile opens the named remote file with the specified FileMode. perm is ignored on Windows.
-func (fsys *winFsys) OpenFile(name string, mode FileMode, perm FileMode) (File, error) {
+func (fsys *WinFsys) OpenFile(name string, mode FileMode, perm FileMode) (File, error) {
 	var modeStr string
 	switch mode {
 	case ModeRead:
@@ -375,7 +375,7 @@ func (fsys *winFsys) OpenFile(name string, mode FileMode, perm FileMode) (File, 
 	case ModeCreate:
 		modeStr = "c"
 	default:
-		return nil, &fs.PathError{Op: "open", Path: name, Err: ErrRcpCommandFailed.Wrapf("invalid mode: %d", mode)}
+		return nil, &fs.PathError{Op: "open", Path: name, Err: fmt.Errorf("%w: invalid mode: %d", ErrRcpCommandFailed, mode)}
 	}
 
 	log.Debugf("opening remote file %s (mode %s)", name, modeStr, perm)
@@ -387,35 +387,35 @@ func (fsys *winFsys) OpenFile(name string, mode FileMode, perm FileMode) (File, 
 }
 
 // Stat returns fs.FileInfo for the remote file.
-func (fsys *winFsys) Stat(name string) (fs.FileInfo, error) {
+func (fsys *WinFsys) Stat(name string) (fs.FileInfo, error) {
 	resp, err := fsys.rcp.command(fmt.Sprintf("stat %s", filepath.FromSlash(name)))
 	if err != nil {
-		return nil, &fs.PathError{Op: "stat", Path: name, Err: ErrRcpCommandFailed.Wrapf("failed to stat: %w", err)}
+		return nil, &fs.PathError{Op: "stat", Path: name, Err: fmt.Errorf("%w: stat %s: %w", ErrRcpCommandFailed, name, err)}
 	}
 	if resp.Stat == nil {
-		return nil, &fs.PathError{Op: "stat", Path: name, Err: ErrRcpCommandFailed.Wrapf("invalid response: %v", resp)}
+		return nil, &fs.PathError{Op: "stat", Path: name, Err: fmt.Errorf("%w: stat response: %v", ErrRcpCommandFailed, resp)}
 	}
 	return resp.Stat, nil
 }
 
 // Sha256 returns the SHA256 hash of the remote file.
-func (fsys *winFsys) Sha256(name string) (string, error) {
+func (fsys *WinFsys) Sha256(name string) (string, error) {
 	resp, err := fsys.rcp.command(fmt.Sprintf("sum %s", filepath.FromSlash(name)))
 	if err != nil {
-		return "", &fs.PathError{Op: "sum", Path: name, Err: ErrRcpCommandFailed.Wrapf("failed to sum: %w", err)}
+		return "", &fs.PathError{Op: "sum", Path: name, Err: fmt.Errorf("%w: sha256sum: %w", ErrRcpCommandFailed, err)}
 	}
 	if resp.Sum == nil {
-		return "", &fs.PathError{Op: "sum", Path: name, Err: ErrRcpCommandFailed.Wrapf("invalid response: %v", resp)}
+		return "", &fs.PathError{Op: "sum", Path: name, Err: fmt.Errorf("%w: sha256sum response: %v", ErrRcpCommandFailed, resp)}
 	}
 	return resp.Sum.Sha256, nil
 }
 
 // ReadDir reads the directory named by dirname and returns a list of directory entries.
-func (fsys *winFsys) ReadDir(name string) ([]fs.DirEntry, error) {
+func (fsys *WinFsys) ReadDir(name string) ([]fs.DirEntry, error) {
 	name = strings.ReplaceAll(name, "/", "\\")
 	resp, err := fsys.rcp.command(fmt.Sprintf("dir %s", filepath.FromSlash(name)))
 	if err != nil {
-		return nil, &fs.PathError{Op: "readdir", Path: name, Err: ErrRcpCommandFailed.Wrapf("failed to readdir: %v: %w", err, fs.ErrNotExist)}
+		return nil, &fs.PathError{Op: "readdir", Path: name, Err: fmt.Errorf("%w: readdir: %w: %w", ErrRcpCommandFailed, err, fs.ErrNotExist)}
 	}
 	if resp.Dir == nil {
 		return nil, nil
@@ -428,9 +428,9 @@ func (fsys *winFsys) ReadDir(name string) ([]fs.DirEntry, error) {
 }
 
 // Delete removes the named file or (empty) directory.
-func (fsys *winFsys) Delete(name string) error {
+func (fsys *WinFsys) Delete(name string) error {
 	if err := fsys.conn.Exec(fmt.Sprintf("del %s", ps.DoubleQuote(filepath.FromSlash(name)))); err != nil {
-		return ErrCommandFailed.Wrapf("delete %s: %w", name, err)
+		return fmt.Errorf("%w: delete %s: %w", ErrCommandFailed, name, err)
 	}
 	return nil
 }
