@@ -56,11 +56,11 @@ func (c *Localhost) Disconnect() {}
 
 // ExecStreams executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
-func (c *Localhost) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (Waiter, error) {
+func (c *Localhost) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (waiter, error) {
 	execOpts := exec.Build(opts...)
 	command, err := c.command(cmd, execOpts)
 	if err != nil {
-		return nil, ErrCommandFailed.Wrapf("failed to build command: %w", err)
+		return nil, fmt.Errorf("%w: failed to build command: %w", ErrCommandFailed, err)
 	}
 
 	command.Stdin = stdin
@@ -70,7 +70,7 @@ func (c *Localhost) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr 
 	execOpts.LogCmd(name, cmd)
 
 	if err := command.Start(); err != nil {
-		return nil, ErrCommandFailed.Wrapf("failed to start command: %w", err)
+		return nil, fmt.Errorf("%w: failed to start: %w", ErrCommandFailed, err)
 	}
 
 	return command, nil

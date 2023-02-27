@@ -1,11 +1,12 @@
 //go:build windows
 
-package rig
+package agent
 
 import (
+	"errors"
+	"fmt"
 	"github.com/Microsoft/go-winio"
 	"github.com/davidmz/go-pageant"
-	"github.com/k0sproject/rig/errstring"
 	"golang.org/x/crypto/ssh/agent"
 )
 
@@ -14,15 +15,16 @@ const (
 )
 
 // ErrSSHAgent is returned when connection to SSH agent fails
-var ErrSSHAgent = errstring.New("connect win ssh agent")
+var ErrSSHAgent = errors.New("connect win ssh agent")
 
-func agentClient() (agent.Agent, error) {
+// NewClient on windows returns a pageant client or an open SSH agent client, whichever is available
+func NewClient() (agent.Agent, error) {
 	if pageant.Available() {
 		return pageant.New(), nil
 	}
 	sock, err := winio.DialPipe(openSshAgentPipe, nil)
 	if err != nil {
-		return nil, ErrSSHAgent.Wrapf("can't connect to ssh agent: %w", err)
+		return nil, fmt.Errorf("%w: can't connect to ssh agent: %w", ErrSSHAgent, err)
 	}
 	return agent.NewClient(sock), nil
 }

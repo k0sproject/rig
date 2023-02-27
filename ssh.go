@@ -15,9 +15,9 @@ import (
 	"github.com/acarl005/stripansi"
 	"github.com/creasty/defaults"
 	"github.com/google/shlex"
-	"github.com/k0sproject/rig/errstring"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
+	"github.com/k0sproject/rig/pkg/ssh/agent"
 	"github.com/k0sproject/rig/pkg/ssh/hostkey"
 	"github.com/kevinburke/ssh_config"
 	ssh "golang.org/x/crypto/ssh"
@@ -55,7 +55,7 @@ var (
 	knownHostsMU      sync.Mutex
 
 	// ErrChecksumMismatch is returned when the checksum of an uploaded file does not match expectation
-	ErrChecksumMismatch = errstring.New("checksum mismatch")
+	ErrChecksumMismatch = errors.New("checksum mismatch")
 )
 
 const hopefullyNonexistentHost = "thisH0stDoe5not3xist"
@@ -67,7 +67,7 @@ func homeDir() (string, error) {
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", ErrOS.Wrapf("failed to get user home directory: %w", err)
+		return "", fmt.Errorf("failed to get user home directory: %w", err)
 	}
 	return home, nil
 }
@@ -81,7 +81,7 @@ func expandPath(path string) (string, error) {
 		return homeDir()
 	}
 	if path[1] != '/' {
-		return "", ErrNotImplemented.Wrapf("~user/ style paths not supported")
+		return "", fmt.Errorf("%w: ~user/ style paths not supported", ErrNotImplemented)
 	}
 
 	home, err := homeDir()
@@ -93,7 +93,7 @@ func expandPath(path string) (string, error) {
 
 func expandAndValidatePath(path string) (string, error) {
 	if len(path) == 0 {
-		return "", ErrInvalidPath.Wrapf("path is empty")
+		return "", fmt.Errorf("%w: path is empty", ErrInvalidPath)
 	}
 
 	path, err := expandPath(path)
@@ -102,11 +102,11 @@ func expandAndValidatePath(path string) (string, error) {
 	}
 	stat, err := os.Stat(path)
 	if err != nil {
-		return "", ErrInvalidPath.Wrap(err)
+		return "", fmt.Errorf("%w: %w", ErrInvalidPath, err)
 	}
 
 	if stat.IsDir() {
-		return "", ErrInvalidPath.Wrapf("%s is a directory", path)
+		return "", fmt.Errorf("%w: %s is a directory", ErrInvalidPath, path)
 	}
 
 	return path, nil
@@ -248,7 +248,7 @@ func (c *SSH) IsWindows() bool {
 func knownhostsCallback(path string, permissive bool) (ssh.HostKeyCallback, error) {
 	cb, err := hostkey.KnownHostsFileCallback(path, permissive)
 	if err != nil {
-		return nil, ErrCantConnect.Wrapf("create host key validator: %w", err)
+		return nil, fmt.Errorf("%w: create host key validator: %w", ErrCantConnect, err)
 	}
 	return cb, nil
 }
@@ -319,7 +319,7 @@ func (c *SSH) clientConfig() (*ssh.ClientConfig, error) {
 	config.HostKeyCallback = hkc
 
 	var signers []ssh.Signer
-	agent, err := agentClient()
+	agent, err := agent.NewClient()
 	if err != nil {
 		log.Tracef("%s: failed to get ssh agent client: %v", c, err)
 	} else {
@@ -355,7 +355,7 @@ func (c *SSH) clientConfig() (*ssh.ClientConfig, error) {
 
 	if len(config.Auth) == 0 {
 		if len(signers) == 0 {
-			return nil, ErrCantConnect.Wrapf("no usable authentication method found")
+			return nil, fmt.Errorf("%w: no usable authentication method found", ErrCantConnect)
 		}
 		log.Debugf("%s: using all keys (%d) from ssh agent because a keypath was not explicitly given", c, len(signers))
 		config.Auth = append(config.Auth, ssh.PublicKeys(signers...))
@@ -367,12 +367,12 @@ func (c *SSH) clientConfig() (*ssh.ClientConfig, error) {
 // Connect opens the SSH connection
 func (c *SSH) Connect() error {
 	if err := defaults.Set(c); err != nil {
-		return ErrValidationFailed.Wrapf("set defaults: %w", err)
+		return fmt.Errorf("%w: set defaults: %w", ErrValidationFailed, err)
 	}
 
 	config, err := c.clientConfig()
 	if err != nil {
-		return ErrCantConnect.Wrapf("create config: %w", err)
+		return fmt.Errorf("%w: create config: %w", ErrCantConnect, err)
 	}
 
 	dst := net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
@@ -381,7 +381,7 @@ func (c *SSH) Connect() error {
 		clientDirect, err := ssh.Dial("tcp", dst, config)
 		if err != nil {
 			if errors.Is(err, hostkey.ErrHostKeyMismatch) {
-				return ErrCantConnect.Wrap(err)
+				return fmt.Errorf("%w: %w", ErrCantConnect, err)
 			}
 			return fmt.Errorf("ssh dial: %w", err)
 		}
@@ -391,7 +391,7 @@ func (c *SSH) Connect() error {
 
 	if err := c.Bastion.Connect(); err != nil {
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
-			return ErrCantConnect.Wrapf("bastion connect: %w", err)
+			return fmt.Errorf("%w: bastion connect: %w", ErrCantConnect, err)
 		}
 		return err
 	}
@@ -402,7 +402,7 @@ func (c *SSH) Connect() error {
 	client, chans, reqs, err := ssh.NewClientConn(bconn, dst, config)
 	if err != nil {
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
-			return ErrCantConnect.Wrapf("bastion client connect: %w", err)
+			return fmt.Errorf("%w: bastion client connect: %w", ErrCantConnect, err)
 		}
 		return fmt.Errorf("bastion client connect: %w", err)
 	}
@@ -413,7 +413,7 @@ func (c *SSH) Connect() error {
 
 func (c *SSH) pubkeySigner(signers []ssh.Signer, key ssh.PublicKey) (ssh.AuthMethod, error) {
 	if len(signers) == 0 {
-		return nil, ErrCantConnect.Wrapf("signer not found for public key")
+		return nil, fmt.Errorf("%w: signer not found for public key", ErrCantConnect)
 	}
 
 	for _, s := range signers {
@@ -423,14 +423,14 @@ func (c *SSH) pubkeySigner(signers []ssh.Signer, key ssh.PublicKey) (ssh.AuthMet
 		}
 	}
 
-	return nil, ErrAuthFailed.Wrapf("the provided key is a public key and is not known by agent")
+	return nil, fmt.Errorf("%w: the provided key is a public key and is not known by agent", ErrAuthFailed)
 }
 
 func (c *SSH) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMethod, error) {
 	log.Tracef("%s: checking identity file %s", c, path)
 	key, err := os.ReadFile(path)
 	if err != nil {
-		return nil, ErrCantConnect.Wrapf("read identity file: %w", err)
+		return nil, fmt.Errorf("%w: read identity file %s: %w", ErrCantConnect, path, err)
 	}
 
 	pubKey, _, _, _, err := ssh.ParseAuthorizedKey(key)
@@ -459,17 +459,17 @@ func (c *SSH) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMethod, err
 			log.Tracef("%s: asking for a password to decrypt %s", c, path)
 			pass, err := c.PasswordCallback()
 			if err != nil {
-				return nil, ErrCantConnect.Wrapf("password provider failed")
+				return nil, fmt.Errorf("%w: password provider failed: %w", ErrCantConnect, err)
 			}
 			signer, err := ssh.ParsePrivateKeyWithPassphrase(key, []byte(pass))
 			if err != nil {
-				return nil, ErrCantConnect.Wrapf("protected key decoding failed: %w", err)
+				return nil, fmt.Errorf("%w: protected key %s decoding failed: %w", ErrCantConnect, path, err)
 			}
 			return ssh.PublicKeys(signer), nil
 		}
 	}
 
-	return nil, ErrCantConnect.Wrapf("can't parse keyfile %s: %w", path, err)
+	return nil, fmt.Errorf("%w: can't parse keyfile: %s: %w", ErrCantConnect, path, err)
 }
 
 const (
@@ -479,7 +479,7 @@ const (
 
 // ExecStreams executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
-func (c *SSH) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (Waiter, error) {
+func (c *SSH) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (waiter, error) {
 	if c.client == nil {
 		return nil, ErrNotConnected
 	}
@@ -487,12 +487,12 @@ func (c *SSH) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Wri
 	execOpts := exec.Build(opts...)
 	cmd, err := execOpts.Command(cmd)
 	if err != nil {
-		return nil, ErrCommandFailed.Wrapf("build command: %w", err)
+		return nil, fmt.Errorf("%w: build command: %w", ErrCommandFailed, err)
 	}
 
 	session, err := c.client.NewSession()
 	if err != nil {
-		return nil, ErrCantConnect.Wrapf("session: %w", err)
+		return nil, fmt.Errorf("%w: create new session: %w", ErrCommandFailed, err)
 	}
 
 	session.Stdin = stdin
@@ -500,7 +500,7 @@ func (c *SSH) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Wri
 	session.Stderr = stderr
 
 	if err := session.Start(cmd); err != nil {
-		return nil, ErrCantConnect.Wrapf("start: %w", err)
+		return nil, fmt.Errorf("%w: start session: %w", ErrCommandFailed, err)
 	}
 
 	return session, nil
@@ -511,13 +511,13 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error { //nolint:funlen,cycl
 	execOpts := exec.Build(opts...)
 	session, err := c.client.NewSession()
 	if err != nil {
-		return fmt.Errorf("ssh new session: %w", err)
+		return fmt.Errorf("%w: ssh new session: %w", ErrCommandFailed, err)
 	}
 	defer session.Close()
 
 	cmd, err = execOpts.Command(cmd)
 	if err != nil {
-		return fmt.Errorf("build command: %w", err)
+		return fmt.Errorf("%w: build command: %w", ErrCommandFailed, err)
 	}
 
 	if len(execOpts.Stdin) == 0 && c.knowOs && !c.isWindows {
@@ -538,13 +538,13 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error { //nolint:funlen,cycl
 	stderr, _ := session.StderrPipe()
 
 	if err := session.Start(cmd); err != nil {
-		return fmt.Errorf("ssh session start: %w", err)
+		return fmt.Errorf("%w: ssh session start: %w", ErrCommandFailed, err)
 	}
 
 	if len(execOpts.Stdin) > 0 {
 		execOpts.LogStdin(c.String())
 		if _, err := io.WriteString(stdin, execOpts.Stdin); err != nil {
-			return fmt.Errorf("write stdin: %w", err)
+			return fmt.Errorf("%w: write stdin: %w", ErrCommandFailed, err)
 		}
 	}
 	stdin.Close()
@@ -599,7 +599,7 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error { //nolint:funlen,cycl
 	}
 
 	if c.knowOs && c.isWindows && (!execOpts.AllowWinStderr && gotErrors) {
-		return ErrCommandFailed.Wrapf("data in stderr")
+		return fmt.Errorf("%w: data in stderr", ErrCommandFailed)
 	}
 
 	return nil
@@ -609,7 +609,7 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error { //nolint:funlen,cycl
 func (c *SSH) ExecInteractive(cmd string) error {
 	session, err := c.client.NewSession()
 	if err != nil {
-		return fmt.Errorf("ssh new session: %w", err)
+		return fmt.Errorf("%w: ssh new session: %w", ErrCommandFailed, err)
 	}
 	defer session.Close()
 
@@ -619,7 +619,7 @@ func (c *SSH) ExecInteractive(cmd string) error {
 	fd := int(os.Stdin.Fd())
 	old, err := term.MakeRaw(fd)
 	if err != nil {
-		return ErrOS.Wrapf("make terminal raw: %w", err)
+		return fmt.Errorf("%w: make local terminal raw: %w", ErrOS, err)
 	}
 
 	defer func(fd int, old *term.State) {
@@ -628,24 +628,25 @@ func (c *SSH) ExecInteractive(cmd string) error {
 
 	rows, cols, err := term.GetSize(fd)
 	if err != nil {
-		return ErrOS.Wrapf("get terminal size: %w", err)
+		return fmt.Errorf("%w: get terminal size: %w", ErrOS, err)
 	}
 
 	modes := ssh.TerminalModes{ssh.ECHO: 1}
 	err = session.RequestPty("xterm", cols, rows, modes)
 	if err != nil {
-		return fmt.Errorf("request pty: %w", err)
+		return fmt.Errorf("%w: request pty: %w", ErrCommandFailed, err)
 	}
 
 	stdinpipe, err := session.StdinPipe()
 	if err != nil {
-		return fmt.Errorf("get stdin pipe: %w", err)
+		return fmt.Errorf("%w: get stdin pipe: %w", ErrCommandFailed, err)
 	}
 	go func() {
 		_, _ = io.Copy(stdinpipe, os.Stdin)
 	}()
 
-	captureSignals(stdinpipe, session)
+	cancel := captureSignals(stdinpipe, session)
+	defer cancel()
 
 	if cmd == "" {
 		err = session.Shell()
@@ -654,11 +655,11 @@ func (c *SSH) ExecInteractive(cmd string) error {
 	}
 
 	if err != nil {
-		return fmt.Errorf("ssh session: %w", err)
+		return fmt.Errorf("%w: ssh session: %w", ErrCommandFailed, err)
 	}
 
 	if err := session.Wait(); err != nil {
-		return fmt.Errorf("ssh session wait: %w", err)
+		return fmt.Errorf("%w: ssh session wait: %w", ErrCommandFailed, err)
 	}
 
 	return nil

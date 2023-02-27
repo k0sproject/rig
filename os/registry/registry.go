@@ -2,12 +2,13 @@
 package registry
 
 import (
+	"errors"
+
 	"github.com/k0sproject/rig"
-	"github.com/k0sproject/rig/errstring"
 )
 
 // ErrOSModuleNotFound is returned when no suitable OS support module is found
-var ErrOSModuleNotFound = errstring.New("os support module not found")
+var ErrOSModuleNotFound = errors.New("os support module not found")
 
 type (
 	buildFunc = func() interface{}

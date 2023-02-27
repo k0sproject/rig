@@ -8,9 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/k0sproject/rig/errstring"
 	"github.com/k0sproject/rig/log"
-	ps "github.com/k0sproject/rig/powershell"
+	ps "github.com/k0sproject/rig/pkg/powershell"
 )
 
 type resolveFunc func(*Connection) (OSVersion, error)
@@ -20,7 +19,7 @@ var (
 	// (consider making a PR)
 	Resolvers = []resolveFunc{resolveLinux, resolveDarwin, resolveWindows}
 
-	errAbort = errstring.New("base os detected, version resolving failed")
+	errAbort = errors.New("base os detected but version resolving failed")
 )
 
 type windowsVersion struct {
@@ -36,44 +35,44 @@ func GetOSVersion(conn *Connection) (OSVersion, error) {
 			return os, nil
 		}
 		if errors.Is(err, errAbort) {
-			return OSVersion{}, ErrNotSupported.Wrap(err)
+			return OSVersion{}, errors.Join(ErrNotSupported, err)
 		}
 		log.Tracef("resolver failed: %v", err)
 	}
-	return OSVersion{}, ErrNotSupported.Wrapf("unable to determine host os")
+	return OSVersion{}, fmt.Errorf("%w: unable to determine host os", ErrNotSupported)
 }
 
 func resolveLinux(conn *Connection) (OSVersion, error) {
 	if err := conn.Exec("uname | grep -q Linux"); err != nil {
-		return OSVersion{}, ErrCommandFailed.Wrapf("not a linux host: %w", err)
+		return OSVersion{}, fmt.Errorf("not a linux host (%w)", err)
 	}
 
 	output, err := conn.ExecOutput("cat /etc/os-release || cat /usr/lib/os-release")
 	if err != nil {
 		// at this point it is known that this is a linux host, so any error from here on should signal the resolver to not try the next
-		return OSVersion{}, errAbort.Wrapf("unable to read os-release file: %w", err)
+		return OSVersion{}, fmt.Errorf("%w: unable to read os-release file: %w", errAbort, err)
 	}
 
 	var version OSVersion
 	if err := parseOSReleaseFile(output, &version); err != nil {
-		return OSVersion{}, errAbort.Wrap(err)
+		return OSVersion{}, errors.Join(errAbort, err)
 	}
 	return version, nil
 }
 
 func resolveWindows(conn *Connection) (OSVersion, error) {
 	if !conn.IsWindows() {
-		return OSVersion{}, ErrCommandFailed.Wrapf("not a windows host")
+		return OSVersion{}, fmt.Errorf("%w: not a windows host", ErrCommandFailed)
 	}
 
 	script := ps.Cmd("Get-CimInstance -ClassName Win32_OperatingSystem | Select-Object Caption, Version | ConvertTo-Json")
 	output, err := conn.ExecOutput(script)
 	if err != nil {
-		return OSVersion{}, errAbort.Wrapf("unable to get windows version: %w", err)
+		return OSVersion{}, fmt.Errorf("%w: unable to get windows version: %w", errAbort, err)
 	}
 	var winver windowsVersion
 	if err := json.Unmarshal([]byte(output), &winver); err != nil {
-		return OSVersion{}, errAbort.Wrapf("unable to parse windows version: %w", err)
+		return OSVersion{}, fmt.Errorf("%w: unable to parse windows version: %w", errAbort, err)
 	}
 	return OSVersion{
 		ID:      "windows",
@@ -85,13 +84,13 @@ func resolveWindows(conn *Connection) (OSVersion, error) {
 
 func resolveDarwin(conn *Connection) (OSVersion, error) {
 	if err := conn.Exec("uname | grep -q Darwin"); err != nil {
-		return OSVersion{}, ErrCommandFailed.Wrapf("not a darwin host: %w", err)
+		return OSVersion{}, fmt.Errorf("%w: not a darwin host: %w", ErrCommandFailed, err)
 	}
 
 	// at this point it is known that this is a windows host, so any error from here on should signal the resolver to not try the next
 	version, err := conn.ExecOutput("sw_vers -productVersion")
 	if err != nil {
-		return OSVersion{}, errAbort.Wrapf("unable to determine darwin version: %w", err)
+		return OSVersion{}, fmt.Errorf("%w: unable to determine darwin version: %w", errAbort, err)
 	}
 
 	var name string
@@ -138,7 +137,7 @@ func parseOSReleaseFile(s string, version *OSVersion) error {
 	}
 
 	if version.ID == "" || version.Version == "" {
-		return ErrNotSupported.Wrapf("invalid or incomplete os-release file contents, at least ID and VERSION_ID required")
+		return fmt.Errorf("%w: invalid or incomplete os-release file contents, at least ID and VERSION_ID required", ErrNotSupported)
 	}
 
 	return nil
