@@ -15,7 +15,7 @@ import (
 func captureSignals(stdin io.Writer, session *ssh.Session) func() {
 	stopCh := make(chan struct{})
 	sigCh := make(chan os.Signal)
-	signal.Notify(ch, os.Interrupt)
+	signal.Notify(sigCh, os.Interrupt)
 
 	go func() {
 		for sig := range sigCh {
