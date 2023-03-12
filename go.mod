@@ -15,6 +15,7 @@ require (
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/stretchr/testify v1.8.1
 	golang.org/x/crypto v0.6.0
+	golang.org/x/exp v0.0.0-20230307190834-24139beb5833
 	golang.org/x/term v0.5.0
 )
 

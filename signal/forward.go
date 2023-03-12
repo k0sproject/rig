@@ -1,7 +1,5 @@
-//go:build !windows
-// +build !windows
-
-package rig
+// Package signal provides a simple way to forward signals to a remote process
+package signal
 
 import (
 	"encoding/binary"
@@ -11,27 +9,31 @@ import (
 	"os/signal"
 	"syscall"
 
-	ssh "golang.org/x/crypto/ssh"
 	"golang.org/x/term"
 )
 
-// captureSignals intercepts interrupt / resize signals and sends them over to the writer
-func captureSignals(stdin io.Writer, session *ssh.Session) func() {
+type cancelFunc func()
+
+type sshSession interface {
+	SendRequest(string, bool, []byte) (bool, error)
+}
+
+// Forward intercepts interrupt / resize signals and sends them over to the writer
+func Forward(out io.Writer, session sshSession) cancelFunc {
 	stopCh := make(chan struct{})
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTSTP, syscall.SIGWINCH)
+	signal.Notify(sigCh, TerminalSignals...)
 
 	go func() {
 		for sig := range sigCh {
 			switch sig {
 			case os.Interrupt:
-				fmt.Fprintf(stdin, "\x03")
+				fmt.Fprintf(out, "\x03")
 			case syscall.SIGTSTP:
-				fmt.Fprintf(stdin, "\x1a")
+				fmt.Fprintf(out, "\x1a")
 			case syscall.SIGWINCH:
-				_, err := session.SendRequest("window-change", false, termSizeWNCH())
-				if err != nil {
-					println("failed to relay window-change event: " + err.Error())
+				if s, ok := session.(sshSession); ok {
+					_, _ = s.SendRequest("window-change", false, termSizeWNCH())
 				}
 			}
 		}

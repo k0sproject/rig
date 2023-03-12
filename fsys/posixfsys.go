@@ -1,4 +1,4 @@
-package rigfs
+package fsys
 
 import (
 	"bytes"
@@ -29,12 +29,12 @@ var (
 
 // PosixFsys implements fs.FS for a remote filesystem that uses POSIX commands for access
 type PosixFsys struct {
-	conn connection
+	conn runner
 	opts []exec.Option
 }
 
 // NewPosixFsys returns a fs.FS implementation for a remote filesystem that uses POSIX commands for access
-func NewPosixFsys(conn connection, opts ...exec.Option) *PosixFsys {
+func NewPosixFsys(conn runner, opts ...exec.Option) *PosixFsys {
 	return &PosixFsys{conn: conn, opts: opts}
 }
 

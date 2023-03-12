@@ -1,71 +1,78 @@
-// Package log provides a simple pluggable logging interface
 package log
 
-import "fmt"
+import (
+	"io"
+	"sync/atomic"
 
-// Logger interface should be implemented by the logging library you wish to use
-type Logger interface {
-	Tracef(string, ...interface{})
-	Debugf(string, ...interface{})
-	Infof(string, ...interface{})
-	Warnf(string, ...interface{})
-	Errorf(string, ...interface{})
+	"golang.org/x/exp/slog"
+)
+
+// Relevant x/exp/slog types are shadowed here to avoid having to import it directly elsewhere
+// in the codebase. This will help with the eventual transition to stdlib slog if it is added or
+// some other logging library.
+
+type Attr = slog.Attr
+type Level = slog.Level
+type Leveler = slog.Leveler
+type Logger = slog.Logger
+type Value = slog.Value
+
+const (
+	LevelDebug = slog.LevelDebug // LevelDebug low level messages for diagnosing connection issues
+	LevelInfo  = slog.LevelInfo  // LevelInfo general informational messages such as stdout from a command
+	LevelWarn  = slog.LevelWarn  // LevelWarn warnings, such as ssh hostkey mismatch
+	LevelError = slog.LevelError // LevelError failure messages such as stderr from commands
+)
+
+var (
+	// These are slog.Attr functions (log.Bool("key", true), etc)
+	String   = slog.String
+	Int64    = slog.Int64
+	Int      = slog.Int
+	Bool     = slog.Bool
+	Duration = slog.Duration
+	Any      = slog.Any
+	AnyValue = slog.AnyValue
+
+	defaultLogger atomic.Value
+)
+
+func init() {
+	// Default logging handler is a no-op handler that will output nothing.
+	defaultLogger.Store(slog.New(NopHandler))
 }
 
-// Log can be assigned a proper logger, such as logrus configured to your liking.
-var Log Logger
+// Default returns the default Logger.
+func Default() *Logger { return defaultLogger.Load().(*Logger) } //nolint:forcetypeassert
 
-// Tracef logs a trace level log message
-func Tracef(t string, args ...interface{}) {
-	Log.Debugf(t, args...)
+// SetLogger sets the logger used by rig
+func SetLogger(l *Logger) {
+	defaultLogger.Store(l)
 }
 
-// Debugf logs a debug level log message
-func Debugf(t string, args ...interface{}) {
-	Log.Debugf(t, args...)
-}
-
-// Infof logs an info level log message
-func Infof(t string, args ...interface{}) {
-	Log.Infof(t, args...)
-}
-
-// Errorf logs an error level log message
-func Errorf(t string, args ...interface{}) {
-	Log.Errorf(t, args...)
-}
-
-// Warnf logs a warn level log message
-func Warnf(t string, args ...interface{}) {
-	Log.Warnf(t, args...)
-}
-
-// StdLog is a simplistic logger for rig
-type StdLog struct {
-	Logger
-}
-
-// Tracef prints a debug level log message
-func (l *StdLog) Tracef(t string, args ...interface{}) {
-	fmt.Println("TRACE", fmt.Sprintf(t, args...))
-}
-
-// Debugf prints a debug level log message
-func (l *StdLog) Debugf(t string, args ...interface{}) {
-	fmt.Println("DEBUG", fmt.Sprintf(t, args...))
-}
-
-// Infof prints an info level log message
-func (l *StdLog) Infof(t string, args ...interface{}) {
-	fmt.Println("INFO ", fmt.Sprintf(t, args...))
-}
-
-// Warnf prints a warn level log message
-func (l *StdLog) Warnf(t string, args ...interface{}) {
-	fmt.Println("WARN", fmt.Sprintf(t, args...))
-}
-
-// Errorf prints an error level log message
-func (l *StdLog) Errorf(t string, args ...interface{}) {
-	fmt.Println("ERROR", fmt.Sprintf(t, args...))
+// Enable logging at the given level.
+func Enable(w io.Writer, l Level) {
+	slogOpts := slog.HandlerOptions{
+		Level: l,
+		ReplaceAttr: func(_ []string, attr Attr) Attr {
+			switch attr.Key {
+			case slog.TimeKey:
+				// Don't output time, it will be added by the consuming logger
+				// if desired (easier to add than remove).
+				return slog.Attr{}
+			case slog.LevelKey:
+				// Everything from rig is considered debug, let the consuming
+				// logger display its own levels. WARN+ERROR left in for
+				// them to stand out.
+				if v, ok := attr.Value.Any().(Level); ok && v < LevelWarn {
+					return slog.Attr{}
+				}
+				return attr
+			default:
+				return attr
+			}
+		},
+	}
+	logger := slog.New(slogOpts.NewTextHandler(w))
+	SetLogger(logger)
 }

@@ -12,7 +12,7 @@ import (
 )
 
 type Host struct {
-	Connection
+	Config
 }
 
 type mockClient struct {
@@ -49,8 +49,8 @@ var stubSudofunc = func(in string) string {
 
 func TestHostFunctions(t *testing.T) {
 	h := Host{
-		Connection: Connection{
-			Localhost: &Localhost{
+		Config: Config{
+			Localhost: &LocalhostConfig{
 				Enabled: true,
 			},
 		},
@@ -66,8 +66,8 @@ func TestHostFunctions(t *testing.T) {
 	require.False(t, h.IsConnected())
 
 	h = Host{
-		Connection: Connection{
-			SSH: &SSH{
+		Config: Config{
+			SSH: &SSHConfig{
 				Address: "127.0.0.1",
 			},
 		},
@@ -79,8 +79,8 @@ func TestHostFunctions(t *testing.T) {
 
 func TestOutputWriter(t *testing.T) {
 	h := Host{
-		Connection: Connection{
-			Localhost: &Localhost{
+		Config: Config{
+			Localhost: &LocalhostConfig{
 				Enabled: true,
 			},
 		},
@@ -99,7 +99,7 @@ func TestOutputWriter(t *testing.T) {
 func TestGrouping(t *testing.T) {
 	mc := mockClient{}
 	h := Host{
-		Connection: Connection{
+		Config: Config{
 			client:   &mc,
 			sudofunc: stubSudofunc,
 		},
@@ -113,7 +113,7 @@ func TestGrouping(t *testing.T) {
 func TestSudo(t *testing.T) {
 	mc := mockClient{}
 	h := Host{
-		Connection: Connection{
+		Config: Config{
 			client:   &mc,
 			sudofunc: stubSudofunc,
 		},

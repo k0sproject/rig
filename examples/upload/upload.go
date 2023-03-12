@@ -20,7 +20,7 @@ type configurer interface {
 
 // Host is a host that utilizes rig for connections
 type Host struct {
-	rig.Connection
+	rig.Config
 
 	Configurer configurer
 }
@@ -60,8 +60,8 @@ func main() {
 
 	if *proto == "ssh" {
 		h = &Host{
-			Connection: rig.Connection{
-				SSH: &rig.SSH{
+			Config: rig.Config{
+				SSH: &rig.SSHConfig{
 					Address: *dh,
 					Port:    *dp,
 					User:    *usr,
@@ -70,8 +70,8 @@ func main() {
 		}
 	} else {
 		h = &Host{
-			Connection: rig.Connection{
-				WinRM: &rig.WinRM{
+			Config: rig.Config{
+				WinRM: &rig.WinRMConfig{
 					Address:  *dh,
 					Port:     *dp,
 					User:     *usr,

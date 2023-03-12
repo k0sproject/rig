@@ -26,7 +26,7 @@ type configurer interface {
 
 // Host is a host that utilizes rig for connections
 type Host struct {
-	rig.Connection
+	rig.Config
 
 	Configurer configurer
 }
@@ -46,8 +46,8 @@ func (h *Host) LoadOS() error {
 
 func main() {
 	h := &Host{
-		Connection: rig.Connection{
-			Localhost: &rig.Localhost{
+		Config: rig.Config{
+			Localhost: &rig.LocalhostConfig{
 				Enabled: true,
 			},
 		},

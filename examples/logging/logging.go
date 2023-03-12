@@ -13,7 +13,7 @@ func main() {
 	log.Infof("Testing INFO level logging: %s", "Hello")
 	log.Errorf("Testing ERROR level logging: %s", "Hello")
 
-	c := &rig.Localhost{Enabled: true}
+	c := &rig.LocalhostConfig{Enabled: true}
 	c.Exec("echo Hello, world", exec.StreamOutput())
 
 	log.Infof("testing without HideOutput()")

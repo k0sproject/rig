@@ -15,21 +15,8 @@ import (
 	"github.com/mitchellh/go-homedir"
 )
 
-// WinRM describes a WinRM connection with its configuration options
-type WinRM struct {
-	Address       string `yaml:"address" validate:"required,hostname|ip"`
-	User          string `yaml:"user" validate:"omitempty,gt=2" default:"Administrator"`
-	Port          int    `yaml:"port" default:"5985" validate:"gt=0,lte=65535"`
-	Password      string `yaml:"password,omitempty"`
-	UseHTTPS      bool   `yaml:"useHTTPS" default:"false"`
-	Insecure      bool   `yaml:"insecure" default:"false"`
-	UseNTLM       bool   `yaml:"useNTLM" default:"false"`
-	CACertPath    string `yaml:"caCertPath,omitempty" validate:"omitempty,file"`
-	CertPath      string `yaml:"certPath,omitempty" validate:"omitempty,file"`
-	KeyPath       string `yaml:"keyPath,omitempty" validate:"omitempty,file"`
-	TLSServerName string `yaml:"tlsServerName,omitempty" validate:"omitempty,hostname|ip"`
-	Bastion       *SSH   `yaml:"bastion,omitempty"`
-
+// WinRMConfig describes a WinRMConfig connection with its configuration options
+type WinRMConfig struct {
 	name string
 
 	caCert []byte
@@ -40,7 +27,7 @@ type WinRM struct {
 }
 
 // SetDefaults sets various default values
-func (c *WinRM) SetDefaults() {
+func (c *WinRMConfig) SetDefaults() {
 	if p, err := homedir.Expand(c.CACertPath); err == nil {
 		c.CACertPath = p
 	}
@@ -59,17 +46,17 @@ func (c *WinRM) SetDefaults() {
 }
 
 // Protocol returns the protocol name, "WinRM"
-func (c *WinRM) Protocol() string {
+func (c *WinRMConfig) Protocol() string {
 	return "WinRM"
 }
 
 // IPAddress returns the connection address
-func (c *WinRM) IPAddress() string {
+func (c *WinRMConfig) IPAddress() string {
 	return c.Address
 }
 
 // String returns the connection's printable name
-func (c *WinRM) String() string {
+func (c *WinRMConfig) String() string {
 	if c.name == "" {
 		c.name = fmt.Sprintf("[winrm] %s:%d", c.Address, c.Port)
 	}
@@ -78,16 +65,16 @@ func (c *WinRM) String() string {
 }
 
 // IsConnected returns true if the client is connected
-func (c *WinRM) IsConnected() bool {
+func (c *WinRMConfig) IsConnected() bool {
 	return c.client != nil
 }
 
 // IsWindows always returns true on winrm
-func (c *WinRM) IsWindows() bool {
+func (c *WinRMConfig) IsWindows() bool {
 	return true
 }
 
-func (c *WinRM) loadCertificates() error {
+func (c *WinRMConfig) loadCertificates() error {
 	c.caCert = nil
 	if c.CACertPath != "" {
 		ca, err := os.ReadFile(c.CACertPath)
@@ -119,7 +106,7 @@ func (c *WinRM) loadCertificates() error {
 }
 
 // Connect opens the WinRM connection
-func (c *WinRM) Connect() error {
+func (c *WinRMConfig) Connect() error {
 	if err := c.loadCertificates(); err != nil {
 		return fmt.Errorf("%w: failed to load certificates: %w", ErrCantConnect, err)
 	}
@@ -181,7 +168,7 @@ func (c *WinRM) Connect() error {
 }
 
 // Disconnect closes the WinRM connection
-func (c *WinRM) Disconnect() {
+func (c *WinRMConfig) Disconnect() {
 	c.client = nil
 }
 
@@ -235,7 +222,7 @@ func (c *Command) Wait() error {
 
 // ExecStreams executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
-func (c *WinRM) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (waiter, error) {
+func (c *WinRMConfig) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (waiter, error) {
 	if c.client == nil {
 		return nil, ErrNotConnected
 	}
@@ -258,7 +245,7 @@ func (c *WinRM) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.W
 }
 
 // Exec executes a command on the host
-func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:funlen,cyclop
+func (c *WinRMConfig) Exec(cmd string, opts ...exec.Option) error { //nolint:funlen,cyclop
 	execOpts := exec.Build(opts...)
 	shell, err := c.client.CreateShell()
 	if err != nil {
@@ -342,7 +329,7 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:funlen,cy
 }
 
 // ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host
-func (c *WinRM) ExecInteractive(cmd string) error {
+func (c *WinRMConfig) ExecInteractive(cmd string) error {
 	if cmd == "" {
 		cmd = "cmd"
 	}

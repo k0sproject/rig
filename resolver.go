@@ -12,7 +12,7 @@ import (
 	ps "github.com/k0sproject/rig/pkg/powershell"
 )
 
-type resolveFunc func(*Connection) (OSVersion, error)
+type resolveFunc func(*Config) (OSVersion, error)
 
 var (
 	// Resolvers exposes an array of resolve functions where you can add your own if you need to detect some OS rig doesn't already know about
@@ -28,7 +28,7 @@ type windowsVersion struct {
 }
 
 // GetOSVersion runs through the Resolvers and tries to figure out the OS version information
-func GetOSVersion(conn *Connection) (OSVersion, error) {
+func GetOSVersion(conn *Config) (OSVersion, error) {
 	for _, r := range Resolvers {
 		os, err := r(conn)
 		if err == nil {
@@ -42,7 +42,7 @@ func GetOSVersion(conn *Connection) (OSVersion, error) {
 	return OSVersion{}, fmt.Errorf("%w: unable to determine host os", ErrNotSupported)
 }
 
-func resolveLinux(conn *Connection) (OSVersion, error) {
+func resolveLinux(conn *Config) (OSVersion, error) {
 	if err := conn.Exec("uname | grep -q Linux"); err != nil {
 		return OSVersion{}, fmt.Errorf("not a linux host (%w)", err)
 	}
@@ -60,7 +60,7 @@ func resolveLinux(conn *Connection) (OSVersion, error) {
 	return version, nil
 }
 
-func resolveWindows(conn *Connection) (OSVersion, error) {
+func resolveWindows(conn *Config) (OSVersion, error) {
 	if !conn.IsWindows() {
 		return OSVersion{}, fmt.Errorf("%w: not a windows host", ErrCommandFailed)
 	}
@@ -82,7 +82,7 @@ func resolveWindows(conn *Connection) (OSVersion, error) {
 	}, nil
 }
 
-func resolveDarwin(conn *Connection) (OSVersion, error) {
+func resolveDarwin(conn *Config) (OSVersion, error) {
 	if err := conn.Exec("uname | grep -q Darwin"); err != nil {
 		return OSVersion{}, fmt.Errorf("%w: not a darwin host: %w", ErrCommandFailed, err)
 	}

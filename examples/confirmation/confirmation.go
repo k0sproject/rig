@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	c := &rig.Localhost{Enabled: true}
+	c := &rig.LocalhostConfig{Enabled: true}
 	exec.Confirm = true
 	exec.ConfirmFunc = func(s string) bool {
 		fmt.Println("Executing function:")

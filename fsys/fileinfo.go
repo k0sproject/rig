@@ -1,4 +1,4 @@
-package rigfs
+package fsys
 
 import (
 	"encoding/json"

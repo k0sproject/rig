@@ -1,4 +1,4 @@
-package rigfs
+package fsys
 
 import (
 	"errors"
@@ -11,16 +11,10 @@ import (
 // ErrCommandFailed is returned when a remote command fails
 var ErrCommandFailed = errors.New("command failed")
 
-// Waiter is an interface that has a Wait() function that blocks until a command is finished
-type Waiter interface {
-	Wait() error
-}
-
-type connection interface {
+type runner interface {
 	IsWindows() bool
-	Exec(string, ...exec.Option) error
-	ExecOutput(string, ...exec.Option) (string, error)
-	ExecStreams(string, io.ReadCloser, io.Writer, io.Writer, ...exec.Option) (Waiter, error)
+	Exec(string, io.ReadCloser, io.Writer, io.Writer, ...exec.Option) error
+	Start(string, io.ReadCloser, io.Writer, io.Writer, ...exec.Option) (exec.Process, error)
 }
 
 // File is a file in the remote filesystem
@@ -33,7 +27,7 @@ type File interface {
 }
 
 // Fsys is a filesystem on the remote host
-type Fsys interface {
+type FS interface {
 	fs.FS
 	OpenFile(string, FileMode, FileMode) (File, error)
 	Sha256(string) (string, error)

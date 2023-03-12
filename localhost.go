@@ -16,47 +16,47 @@ import (
 
 const name = "[local] localhost"
 
-// Localhost is a direct localhost connection
-type Localhost struct {
+// LocalhostConfig is a direct localhost connection
+type LocalhostConfig struct {
 	Enabled bool `yaml:"enabled" validate:"required,eq=true" default:"true"`
 }
 
 // Protocol returns the protocol name, "Local"
-func (c *Localhost) Protocol() string {
+func (c *LocalhostConfig) Protocol() string {
 	return "Local"
 }
 
 // IPAddress returns the connection address
-func (c *Localhost) IPAddress() string {
+func (c *LocalhostConfig) IPAddress() string {
 	return "127.0.0.1"
 }
 
 // String returns the connection's printable name
-func (c *Localhost) String() string {
+func (c *LocalhostConfig) String() string {
 	return name
 }
 
 // IsConnected for local connections is always true
-func (c *Localhost) IsConnected() bool {
+func (c *LocalhostConfig) IsConnected() bool {
 	return true
 }
 
 // IsWindows is true when running on a windows host
-func (c *Localhost) IsWindows() bool {
+func (c *LocalhostConfig) IsWindows() bool {
 	return runtime.GOOS == "windows"
 }
 
 // Connect on local connection does nothing
-func (c *Localhost) Connect() error {
+func (c *LocalhostConfig) Connect() error {
 	return nil
 }
 
 // Disconnect on local connection does nothing
-func (c *Localhost) Disconnect() {}
+func (c *LocalhostConfig) Disconnect() {}
 
 // ExecStreams executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
-func (c *Localhost) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (waiter, error) {
+func (c *LocalhostConfig) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (waiter, error) {
 	execOpts := exec.Build(opts...)
 	command, err := c.command(cmd, execOpts)
 	if err != nil {
@@ -77,7 +77,7 @@ func (c *Localhost) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr 
 }
 
 // Exec executes a command on the host
-func (c *Localhost) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop,funlen
+func (c *LocalhostConfig) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop,funlen
 	execOpts := exec.Build(opts...)
 	command, err := c.command(cmd, execOpts)
 	if err != nil {
@@ -146,7 +146,7 @@ func (c *Localhost) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclo
 	return nil
 }
 
-func (c *Localhost) command(cmd string, o *exec.Options) (*osexec.Cmd, error) {
+func (c *LocalhostConfig) command(cmd string, o *exec.Options) (*osexec.Cmd, error) {
 	cmd, err := o.Command(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("build command: %w", err)
@@ -160,7 +160,7 @@ func (c *Localhost) command(cmd string, o *exec.Options) (*osexec.Cmd, error) {
 }
 
 // ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host
-func (c *Localhost) ExecInteractive(cmd string) error {
+func (c *LocalhostConfig) ExecInteractive(cmd string) error {
 	if cmd == "" {
 		cmd = os.Getenv("SHELL") + " -l"
 	}
