@@ -117,7 +117,7 @@ func (c Windows) WriteFile(h Host, path string, data string, permissions string)
 	}
 	defer c.deleteTempFile(h, tempFile)
 
-	err = h.Exec(fmt.Sprintf(`powershell -Command "$Input | Out-File -FilePath %s"`, ps.SingleQuote(tempFile)), exec.Stdin(data), exec.RedactString(data))
+	err = h.Exec(fmt.Sprintf(`powershell -Command "$Input | Out-File -FilePath %s"`, ps.SingleQuote(tempFile)), exec.StdinPipe(data), exec.RedactString(data))
 	if err != nil {
 		return fmt.Errorf("failed to write to temporary file: %w", err)
 	}

@@ -1,15 +1,10 @@
 package exec
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"regexp"
-	"strings"
-	"sync"
 
 	"github.com/k0sproject/rig/iostream"
 	"github.com/k0sproject/rig/log"
@@ -17,60 +12,56 @@ import (
 
 var ErrSudoNotConfigured = errors.New("sudo not configured")
 
-// Option is a functional option
-type Option func(*Options)
-
 type RedactFn func(string) string
 type SudoFn func(string) (string, error)
 type ConfirmFn func(string) bool
 
 var RedactMask = "[REDACTED]"
 
-func DefaultSudoFn(cmd string) (string, error) {
-	return "", ErrSudoNotConfigured
-}
-
 // Options is a collection of exec options
 type Options struct {
-	Logger             *log.Logger
-	DisallowStderr     bool
-	DisableRedact      bool
-	DisableLogStreams  bool
-	RedactFuncs        []RedactFn
-	Stdin              io.Reader
-	Stdout             io.Writer
-	Stderr             io.Writer
-	Sudo               bool
-	SudoFn             SudoFn
-	SudoRepo           SudoProviderRepository
-	SudoProvider       SudoProvider
-	ConfirmFunc        ConfirmFn
-	stderrDataReceived bool
-	defers             []func()
+	Logger            *log.Logger
+	DisallowStderr    bool
+	DisableRedact     bool
+	disableLogStreams bool
+	RedactFuncs       []RedactFn
+	Stdin             io.Reader
+	Stdout            io.Writer
+	Stderr            io.Writer
+	Sudo              bool
+	SudoFn            SudoFn
+	sudoRepo          SudoProviderRepository
+	ConfirmFunc       ConfirmFn
+	PasswordFunc      PasswordCallback
+	wroteToStderr     bool
+	defers            []func()
 }
 
 func DefaultOptions() *Options {
 	return &Options{
-		Logger:         log.Default(),
-		SudoFn:         DefaultSudoFn,
-		DisallowStderr: false,
-		RedactFuncs:    nil,
+		Logger: log.Default(),
 	}
 }
 
 func (o *Options) clone() *Options {
 	return &Options{
-		DisallowStderr: o.DisallowStderr,
-		RedactFuncs:    append([]RedactFn{}, o.RedactFuncs...),
-		Stdin:          o.Stdin,
-		Stdout:         o.Stdout,
-		Stderr:         o.Stderr,
-		SudoFn:         o.SudoFn,
+		Logger:            o.Logger,
+		DisallowStderr:    o.DisallowStderr,
+		RedactFuncs:       append([]RedactFn{}, o.RedactFuncs...),
+		Stdin:             o.Stdin,
+		Stdout:            o.Stdout,
+		Stderr:            o.Stderr,
+		SudoFn:            o.SudoFn,
+		Sudo:              o.Sudo,
+		ConfirmFunc:       o.ConfirmFunc,
+		PasswordFunc:      o.PasswordFunc,
+		disableLogStreams: o.disableLogStreams,
+		sudoRepo:          o.sudoRepo,
 	}
 }
 
 func (o *Options) StderrDataReceived() bool {
-	return o.stderrDataReceived
+	return o.wroteToStderr
 }
 
 func (o *Options) With(opts ...Option) *Options {
@@ -142,11 +133,6 @@ func (o *Options) logStderr(row string) {
 	o.log(context.TODO(), log.LevelError, "stderr", log.Any("data", redact{row, o}))
 }
 
-func (o *Options) logWriter(fn func(string)) io.Writer {
-	io.Copy(iostream.ScanWriter(byte('\n'), fn), o.Stderr)
-	return iostream.ScanWriter(byte('\n'), fn)
-}
-
 func (o *Options) Defer(fn func()) {
 	o.defers = append(o.defers, fn)
 }
@@ -162,7 +148,7 @@ func (o *Options) InputReader() io.Reader {
 		return nil
 	}
 
-	if o.DisableLogStreams {
+	if o.disableLogStreams {
 		return o.Stdin
 	}
 
@@ -180,11 +166,11 @@ func (o *Options) ErrorWriter() io.Writer {
 
 	if o.DisallowStderr {
 		stderrWriters = append(stderrWriters, iostream.NopCallbackWriter(
-			func() { o.stderrDataReceived = true },
+			func() { o.wroteToStderr = true },
 		))
 	}
 
-	if !o.DisableLogStreams {
+	if !o.disableLogStreams {
 		logWriter := iostream.ScanWriter(byte('\n'), o.logStderr)
 		stderrWriters = append(stderrWriters, logWriter)
 		o.Defer(func() { logWriter.Close() })
@@ -199,7 +185,7 @@ func (o *Options) OutputWriter() io.Writer {
 		stdoutWriters = append(stdoutWriters, o.Stdout)
 	}
 
-	if !o.DisableLogStreams {
+	if !o.disableLogStreams {
 		logWriter := iostream.ScanWriter(byte('\n'), o.logStdout)
 		stdoutWriters = append(stdoutWriters, logWriter)
 		o.Defer(func() { logWriter.Close() })
@@ -223,117 +209,4 @@ func (o *Options) Command(cmd string) (string, error) {
 	}
 
 	return newCmd, nil
-}
-
-func Stdout(w io.Writer) Option {
-	return func(o *Options) {
-		o.Stdout = w
-	}
-}
-
-func StdinString(s string) Option {
-	return func(o *Options) {
-		o.Stdin = strings.NewReader(s)
-	}
-}
-
-func Stdin(r io.Reader) Option {
-	return func(o *Options) {
-		o.Stdin = r
-	}
-}
-
-func Stderr(w io.Writer) Option {
-	return func(o *Options) {
-		o.Stderr = w
-	}
-}
-
-func Redact(v ...string) Option {
-	return func(o *Options) {
-		o.RedactFuncs = append(o.RedactFuncs, func(s string) string {
-			for _, redact := range v {
-				s = strings.ReplaceAll(s, redact, RedactMask)
-			}
-			return s
-		})
-	}
-}
-
-func RedactRegex(r *regexp.Regexp) Option {
-	return func(o *Options) {
-		o.RedactFuncs = append(o.RedactFuncs, func(s string) string {
-			return r.ReplaceAllString(s, RedactMask)
-		})
-	}
-}
-
-func RedactFunc(f RedactFn) Option {
-	return func(o *Options) {
-		o.RedactFuncs = append(o.RedactFuncs, f)
-	}
-}
-
-func SudoFunc(f SudoFn) Option {
-	return func(o *Options) {
-		o.SudoFn = f
-	}
-}
-
-func Sudo() Option {
-	return func(o *Options) {
-		o.Sudo = true
-	}
-}
-
-func Confirm() Option {
-	return func(o *Options) {
-		var mutex sync.Mutex
-		o.ConfirmFunc = func(s string) bool {
-			mutex.Lock()
-			defer mutex.Unlock()
-			fmt.Println(s)
-			fmt.Print("Allow? [Y/n]: ")
-			reader := bufio.NewReader(os.Stdin)
-			text, _ := reader.ReadString('\n')
-			text = strings.TrimSpace(text)
-			return text == "" || text == "Y" || text == "y"
-		}
-	}
-}
-
-func DisableLogStreams() Option {
-	return func(o *Options) {
-		o.DisableLogStreams = true
-	}
-}
-
-func DisallowStderr() Option {
-	return func(o *Options) {
-		o.DisallowStderr = true
-	}
-}
-
-func AllowStderr() Option {
-	return func(o *Options) {
-		o.DisallowStderr = false
-	}
-}
-
-func Logger(l *log.Logger) Option {
-	return func(o *Options) {
-		o.Logger = l
-	}
-}
-
-func SudoRepository(repo SudoProviderRepository) Option {
-	return func(o *Options) {
-		o.SudoRepo = repo
-	}
-}
-
-func WithSudoProvider(sp SudoProvider) Option {
-	return func(o *Options) {
-		o.SudoFn = sp.Sudo
-	}
 }

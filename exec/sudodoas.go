@@ -13,11 +13,16 @@ type SudoDoas struct {
 	command string
 }
 
-func (s SudoDoas) Check(r *Runner) bool {
+var ErrNotSupportedOnWindows = fmt.Errorf("not supported on windows")
+
+func (s SudoDoas) New(r *Runner, _ PasswordCallback) (SudoFn, error) {
 	if r.IsWindows() {
-		return false
+		return nil, ErrNotSupportedOnWindows
 	}
-	return r.Execf("%s -n true", s.command) == nil
+	if err := r.Execf("%s -n true", s.command); err != nil {
+		return nil, fmt.Errorf("%s check failed: %w", s.command, err)
+	}
+	return s.Sudo, nil
 }
 
 func (s SudoDoas) Sudo(cmd string) (string, error) {

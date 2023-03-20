@@ -5,46 +5,46 @@ import (
 	"sync/atomic"
 )
 
-var ErrNoSudoFound = fmt.Errorf("no usable sudo method found")
+var (
+	ErrNoSudoFound                = fmt.Errorf("no usable sudo method found")
+	defaultSudoProviderRepository atomic.Value
+)
+
+type PasswordCallback func() (string, error)
 
 type SudoProvider interface {
-	Check(r *Runner) bool
-	Sudo(cmd string) (string, error)
+	New(*Runner, PasswordCallback) (SudoFn, error)
 }
 
 type SudoProviderRepository interface {
-	Find(r *Runner) (SudoProvider, error)
-	Register(string, SudoProvider)
+	Find(*Runner, PasswordCallback) (SudoProvider, error)
 }
 
-type InMemorySudoProviderRepository struct {
+type sudoProviderRepository struct {
 	providers map[string]SudoProvider
 }
 
-func (i InMemorySudoProviderRepository) Find(r *Runner) (SudoProvider, error) {
+func (i sudoProviderRepository) Find(r *Runner, cb PasswordCallback) (SudoFn, error) {
 	for _, p := range i.providers {
-		if p.Check(r) {
-			return p, nil
+		if fn, err := p.New(r, cb); err == nil {
+			return fn, nil
 		}
 	}
 	return nil, ErrNoSudoFound
 }
 
-func (i InMemorySudoProviderRepository) Register(name string, p SudoProvider) {
+func (i sudoProviderRepository) Register(name string, p SudoProvider) {
 	i.providers[name] = p
 }
 
-var defaultSudoProviderRepository atomic.Value
-
-func DefaultSudoProviderRepository() SudoProviderRepository {
-	return defaultSudoProviderRepository.Load().(SudoProviderRepository)
+func DefaultSudoProviderRepository() *SudoProviderRepository {
+	return defaultSudoProviderRepository.Load().(*SudoProviderRepository)
 }
 
 func init() {
-	defaultRepo := &InMemorySudoProviderRepository{}
+	defaultRepo := &sudoProviderRepository{}
 	defaultRepo.Register("nop", NopSudo{})
 	defaultRepo.Register("sudo", SudoDoas{command: "sudo"})
 	defaultRepo.Register("doas", SudoDoas{command: "doas"})
-	defaultRepo.Register("runas", WindowsNop{})
 	defaultSudoProviderRepository.Store(defaultRepo)
 }

@@ -1,14 +1,9 @@
 package rig
 
 import (
-	"fmt"
 	"net"
 
 	"github.com/k0sproject/rig/exec"
-	"github.com/k0sproject/rig/log"
-	"github.com/k0sproject/rig/protocol/localhost"
-	"github.com/k0sproject/rig/protocol/ssh"
-	"github.com/k0sproject/rig/protocol/winrm"
 )
 
 type connection interface {
@@ -20,7 +15,7 @@ type connection interface {
 
 type Client struct {
 	*exec.Runner
-	connection
+	exec.Client
 }
 
 func NewClient(config Config, opts ...Option) (*Client, error) {
@@ -31,28 +26,14 @@ func NewClient(config Config, opts ...Option) (*Client, error) {
 	if options.Client != nil {
 		conn = options.Client
 	} else {
-		var err error
-		if config.SSH != nil {
-			conn, err = ssh.NewClient(config.SSH)
-		} else if config.WinRM != nil {
-			conn, err = winrm.NewClient(config.WinRM)
-		} else if config.Localhost != nil && config.Localhost.Enabled {
-			conn, err = &localhost.Client{}, nil
-		} else {
-			return nil, fmt.Errorf("no suitable connection configuration provided")
-		}
+		client, err := config.NewClient(options.ClientOptions()...)
 
 		if err != nil {
 			return nil, err
 		}
+		conn = client
 	}
 
-	runner := exec.NewRunner(conn, options.ExecOpts...)
-	runner.SetLogger(
-		options.Logger().With(
-			log.String("client", conn.String()),
-		).WithGroup("runner"),
-	)
-
-	return &Client{runner, conn.(connection)}, nil
+	runner := exec.NewRunner(conn, options.ExecOptions()...)
+	return &Client{runner, conn}, nil
 }

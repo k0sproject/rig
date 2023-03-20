@@ -276,7 +276,7 @@ func (h *helperResponse) UnmarshalJSON(b []byte) error {
 func (fsys *PosixFsys) helper(args ...string) (*helperResponse, error) {
 	var res helperResponse
 	opts := fsys.opts
-	opts = append(opts, exec.Stdin(rigHelper))
+	opts = append(opts, exec.StdinPipe(rigHelper))
 	out, err := fsys.conn.ExecOutput(fmt.Sprintf("bash -s -- %s", shellescape.QuoteCommand(args)), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to execute helper: %w", ErrCommandFailed, err)

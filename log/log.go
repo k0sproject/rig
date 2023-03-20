@@ -46,14 +46,12 @@ func init() {
 func Default() *Logger { return defaultLogger.Load().(*Logger) } //nolint:forcetypeassert
 
 // SetLogger sets the logger used by rig
-func SetLogger(l *Logger) {
-	defaultLogger.Store(l)
-}
+func SetLogger(l *Logger) { defaultLogger.Store(l) }
 
-// Enable logging at the given level.
-func Enable(w io.Writer, l Level) {
+// New logging at the given level.
+func New(out io.Writer, lvl Level) *Logger {
 	slogOpts := slog.HandlerOptions{
-		Level: l,
+		Level: lvl,
 		ReplaceAttr: func(_ []string, attr Attr) Attr {
 			switch attr.Key {
 			case slog.TimeKey:
@@ -73,6 +71,17 @@ func Enable(w io.Writer, l Level) {
 			}
 		},
 	}
-	logger := slog.New(slogOpts.NewTextHandler(w))
-	SetLogger(logger)
+	return slog.New(slogOpts.NewTextHandler(out))
+}
+
+type Logging struct {
+	logger *Logger
+}
+
+func (l *Logging) Log() *Logger {
+	return l.logger
+}
+
+func (l *Logging) SetLogger(logger *Logger) {
+	l.logger = logger
 }

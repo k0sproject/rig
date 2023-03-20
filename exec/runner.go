@@ -33,10 +33,10 @@ func (r *Runner) IsWindows() bool {
 func NewRunner(client Client, opts ...Option) *Runner {
 	options := DefaultOptions().With(opts...)
 	if client.IsWindows() {
-		options = options.With(DisallowStderr())
+		options = options.With(AllowStderr(false))
 	}
 	options = options.With(
-		Logger(options.Logger.WithGroup("runner").With("client", client.String())),
+		WithLogger(options.Logger.WithGroup("runner").With("client", client.String())),
 	)
 	return &Runner{client: client, defaultOptions: options}
 }
@@ -65,10 +65,10 @@ func (r *Runner) StartCommand(ctx context.Context, command string, opts ...Optio
 	options := r.defaultOptions.With(opts...)
 
 	if options.Sudo && options.SudoFn == nil {
-		if options.SudoRepo == nil {
+		if options.sudoRepo == nil {
 			return nil, ErrSudoNotConfigured
 		}
-		sp, err := options.SudoRepo.Find(r)
+		sp, err := options.sudoRepo.Find(r)
 		if err != nil {
 			return nil, errors.Join(ErrSudoNotConfigured, err)
 		}
@@ -120,7 +120,7 @@ func (r *Runner) Execf(format string, argsAndOpts ...any) error {
 
 func (r *Runner) ExecOutput(command string, opts ...Option) (string, error) {
 	buf := &bytes.Buffer{}
-	opts = append(opts, Stdout(buf))
+	opts = append(opts, StdoutPipe(buf))
 	err := r.Exec(command, opts...)
 	return buf.String(), err
 }

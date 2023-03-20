@@ -234,7 +234,7 @@ func (c Linux) WriteFile(h Host, path string, data string, permissions string) e
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
 
-	if err := h.Execf(`cat > %s`, tempFile, exec.Stdin(data), exec.RedactString(data)); err != nil {
+	if err := h.Execf(`cat > %s`, tempFile, exec.StdinPipe(data), exec.RedactString(data)); err != nil {
 		return fmt.Errorf("failed to write temp file: %w", err)
 	}
 

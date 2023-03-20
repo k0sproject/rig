@@ -12,7 +12,7 @@ import (
 
 func main() {
 	c := &rig.LocalhostConfig{Enabled: true}
-	exec.Confirm = true
+	exec.WithConfirmationDialog = true
 	exec.ConfirmFunc = func(s string) bool {
 		fmt.Println("Executing function:")
 		fmt.Println(s)
