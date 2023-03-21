@@ -1,27 +1,19 @@
 package rig
 
 import (
-	"net"
-
+	"github.com/k0sproject/rig/client"
 	"github.com/k0sproject/rig/exec"
 )
 
-type connection interface {
-	Protocol() string
-	Address() net.Addr
-	String() string
-	Disconnect() error
-}
-
 type Client struct {
 	*exec.Runner
-	exec.Client
+	client.Connection
 }
 
 func NewClient(config Config, opts ...Option) (*Client, error) {
 	options := NewOptions(opts...)
 
-	var conn exec.Client
+	var conn client.Connection
 
 	if options.Client != nil {
 		conn = options.Client

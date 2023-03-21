@@ -50,7 +50,7 @@ var stubSudofunc = func(in string) string {
 func TestHostFunctions(t *testing.T) {
 	h := Host{
 		Config: Config{
-			Localhost: &LocalhostConfig{
+			LocalhostConfig: &LocalhostConfig{
 				Enabled: true,
 			},
 		},
@@ -67,7 +67,7 @@ func TestHostFunctions(t *testing.T) {
 
 	h = Host{
 		Config: Config{
-			SSH: &SSHConfig{
+			SSHConfig: &SSHConfig{
 				Address: "127.0.0.1",
 			},
 		},
@@ -80,7 +80,7 @@ func TestHostFunctions(t *testing.T) {
 func TestOutputWriter(t *testing.T) {
 	h := Host{
 		Config: Config{
-			Localhost: &LocalhostConfig{
+			LocalhostConfig: &LocalhostConfig{
 				Enabled: true,
 			},
 		},

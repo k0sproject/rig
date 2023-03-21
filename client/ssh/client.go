@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/k0sproject/rig/client"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/signal"
 	"golang.org/x/crypto/ssh"
@@ -28,7 +29,7 @@ type Client struct {
 	isWindows *bool
 }
 
-func NewClient(config *Config) (*Client, error) {
+func NewClient(config *Config, opts ...client.Option) (*Client, error) {
 	client := &Client{
 		name: "[ssh] " + net.JoinHostPort(config.Address, strconv.Itoa(*config.Port)),
 	}

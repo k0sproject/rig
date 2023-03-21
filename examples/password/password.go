@@ -18,7 +18,7 @@ func main() {
 	host := flag.String("host", "localhost", "Host")
 	flag.Parse()
 	conn := rig.Config{
-		SSH: &rig.SSHConfig{
+		SSHConfig: &rig.SSHConfig{
 			User:    *user,
 			Address: *host,
 			PasswordCallback: func() (string, error) {

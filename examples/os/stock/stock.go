@@ -47,7 +47,7 @@ func (h *Host) LoadOS() error {
 func main() {
 	h := &Host{
 		Config: rig.Config{
-			Localhost: &rig.LocalhostConfig{
+			LocalhostConfig: &rig.LocalhostConfig{
 				Enabled: true,
 			},
 		},

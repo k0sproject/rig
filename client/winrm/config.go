@@ -23,6 +23,6 @@ type Config struct {
 	Bastion       *ssh.Config `yaml:"bastion,omitempty"`
 }
 
-func (c *Config) NewClient(opts ...client.Option) (*Client, error) {
+func (c *Config) NewClient(opts ...client.Option) (client.Connection, error) {
 	return NewClient(c, opts...)
 }

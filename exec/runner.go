@@ -26,10 +26,6 @@ func (r *Runner) Sudo() *Runner {
 	}
 }
 
-func (r *Runner) IsWindows() bool {
-	return r.client.IsWindows()
-}
-
 func NewRunner(client Client, opts ...Option) *Runner {
 	options := DefaultOptions().With(opts...)
 	if client.IsWindows() {
@@ -68,11 +64,11 @@ func (r *Runner) StartCommand(ctx context.Context, command string, opts ...Optio
 		if options.sudoRepo == nil {
 			return nil, ErrSudoNotConfigured
 		}
-		sp, err := options.sudoRepo.Find(r)
+		sudofn, err := options.sudoRepo.Find(r, options.PasswordFunc)
 		if err != nil {
 			return nil, errors.Join(ErrSudoNotConfigured, err)
 		}
-		options.SudoFn = sp.Sudo
+		options.SudoFn = sudofn
 	}
 
 	cmd, err := options.Command(command)

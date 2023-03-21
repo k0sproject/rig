@@ -7,7 +7,7 @@ type NopSudo struct{}
 
 func (n NopSudo) New(r *Runner, _ PasswordCallback) (SudoFn, error) {
 	var cmd string
-	if r.IsWindows() {
+	if r.client.IsWindows() {
 		cmd = "net session >nul"
 	} else {
 		cmd = `[ "$(id -u)" = 0 ]`

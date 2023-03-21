@@ -159,7 +159,7 @@ func main() {
 		case "ssh":
 			h = &Host{
 				Config: rig.Config{
-					SSH: &rig.SSHConfig{
+					SSHConfig: &rig.SSHConfig{
 						Address:          address,
 						Port:             port,
 						User:             *usr,
@@ -171,7 +171,7 @@ func main() {
 		case "winrm":
 			h = &Host{
 				Config: rig.Config{
-					WinRM: &rig.WinRMConfig{
+					WinRMConfig: &rig.WinRMConfig{
 						Address:  *dh,
 						Port:     port,
 						User:     *usr,
@@ -184,7 +184,7 @@ func main() {
 		case "localhost":
 			h = &Host{
 				Config: rig.Config{
-					Localhost: &rig.LocalhostConfig{
+					LocalhostConfig: &rig.LocalhostConfig{
 						Enabled: true,
 					},
 				},

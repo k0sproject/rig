@@ -61,7 +61,7 @@ func main() {
 	if *proto == "ssh" {
 		h = &Host{
 			Config: rig.Config{
-				SSH: &rig.SSHConfig{
+				SSHConfig: &rig.SSHConfig{
 					Address: *dh,
 					Port:    *dp,
 					User:    *usr,
@@ -71,7 +71,7 @@ func main() {
 	} else {
 		h = &Host{
 			Config: rig.Config{
-				WinRM: &rig.WinRMConfig{
+				WinRMConfig: &rig.WinRMConfig{
 					Address:  *dh,
 					Port:     *dp,
 					User:     *usr,

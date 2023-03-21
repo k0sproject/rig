@@ -16,7 +16,7 @@ type SudoDoas struct {
 var ErrNotSupportedOnWindows = fmt.Errorf("not supported on windows")
 
 func (s SudoDoas) New(r *Runner, _ PasswordCallback) (SudoFn, error) {
-	if r.IsWindows() {
+	if r.client.IsWindows() {
 		return nil, ErrNotSupportedOnWindows
 	}
 	if err := r.Execf("%s -n true", s.command); err != nil {

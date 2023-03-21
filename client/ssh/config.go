@@ -3,7 +3,6 @@ package ssh
 import (
 	"github.com/k0sproject/rig/client"
 	"github.com/k0sproject/rig/log"
-	"golang.org/x/crypto/ssh"
 )
 
 // PasswordCallback is a function that is called when a passphrase is needed to decrypt a private key
@@ -20,6 +19,6 @@ type Config struct {
 	PasswordCallback PasswordCallback `yaml:"-"`
 }
 
-func (c Config) NewClient(opts ...client.Option) (*Client, error) {
-	return NewClient(&ssh.ClientConfig{})
+func (c *Config) NewClient(opts ...client.Option) (client.Connection, error) {
+	return NewClient(c, opts...)
 }

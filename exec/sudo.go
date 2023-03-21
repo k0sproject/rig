@@ -17,7 +17,7 @@ type SudoProvider interface {
 }
 
 type SudoProviderRepository interface {
-	Find(*Runner, PasswordCallback) (SudoProvider, error)
+	Find(*Runner, PasswordCallback) (SudoFn, error)
 }
 
 type sudoProviderRepository struct {

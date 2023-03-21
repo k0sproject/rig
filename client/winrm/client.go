@@ -7,6 +7,7 @@ import (
 	"net"
 	"strconv"
 
+	"github.com/k0sproject/rig/client"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/signal"
 	"github.com/masterzen/winrm"
@@ -76,7 +77,7 @@ func (c *Command) Wait() error {
 	return nil
 }
 
-func NewClient(config *Config) (*Client, error) {
+func NewClient(config *Config, opts ...client.Option) (*Client, error) {
 	addr := net.JoinHostPort(config.Address, strconv.Itoa(config.Port))
 	client := &Client{
 		addr: Addr(addr),

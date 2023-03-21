@@ -8,7 +8,7 @@ import (
 
 type Option func(*Options)
 type Options struct {
-	Client       exec.Client
+	Client       client.Connection
 	logger       *log.Logger
 	PasswordFunc func() (string, error)
 	execOpts     []exec.Option
@@ -62,7 +62,7 @@ func DefaultOptions() *Options {
 }
 
 // WithLocalhost sets the localhost connection configuration
-func WithClient(client exec.Client) Option {
+func WithClient(client client.Connection) Option {
 	return func(o *Options) {
 		if len(o.clientOpts) > 0 {
 			o.Logger().Warn("client options are ignored when client is set")
