@@ -4,6 +4,7 @@ package rig
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/k0sproject/rig/client"
 	"github.com/k0sproject/rig/client/localhost"
@@ -25,35 +26,19 @@ type Config struct {
 
 // NewClient creates a new client based on which protocol is configured
 func (c *Config) NewClient(opts ...client.Option) (client.Connection, error) {
-	configurer, err := c.getNonNil()
-	if err != nil {
-		return nil, err
-	}
-
-	conn, err := configurer.NewClient(opts...)
-	if err != nil {
-		return nil, err
-	}
-	return conn, nil
-}
-
-type clientConfigurer interface {
-	NewClient(...client.Option) (client.Connection, error)
-}
-
-func (c *Config) clientConfigurers() []clientConfigurer {
-	return []clientConfigurer{c.SSHConfig, c.WinRMConfig, c.LocalhostConfig}
-}
-
-func (c *Config) getNonNil() (clientConfigurer, error) {
+	var configurer clientConfigurer
 	var count int
-	var conf clientConfigurer
-
-	for _, v := range c.clientConfigurers() {
-		if v != nil {
-			count++
-			conf = v
-		}
+	if c.SSHConfig != nil {
+		configurer = c.SSHConfig
+		count++
+	}
+	if c.WinRMConfig != nil {
+		configurer = c.WinRMConfig
+		count++
+	}
+	if c.LocalhostConfig != nil {
+		configurer = c.LocalhostConfig
+		count++
 	}
 
 	switch {
@@ -63,5 +48,13 @@ func (c *Config) getNonNil() (clientConfigurer, error) {
 		return nil, ErrMultipleProtocolsConfigured
 	}
 
-	return conf, nil
+	conn, err := configurer.NewClient(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("combined config new client: %w", err)
+	}
+	return conn, nil
+}
+
+type clientConfigurer interface {
+	NewClient(...client.Option) (client.Connection, error)
 }

@@ -42,7 +42,7 @@ func DefaultSudoProviderRepository() *SudoProviderRepository {
 }
 
 func init() {
-	defaultRepo := &sudoProviderRepository{}
+	defaultRepo := &sudoProviderRepository{providers: make(map[string]SudoProvider)}
 	defaultRepo.Register("nop", NopSudo{})
 	defaultRepo.Register("sudo", SudoDoas{command: "sudo"})
 	defaultRepo.Register("doas", SudoDoas{command: "doas"})

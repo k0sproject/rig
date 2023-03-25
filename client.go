@@ -10,7 +10,7 @@ type Client struct {
 	client.Connection
 }
 
-func NewClient(config Config, opts ...Option) (*Client, error) {
+func NewClient(config clientConfigurer, opts ...Option) (*Client, error) {
 	options := NewOptions(opts...)
 
 	var conn client.Connection

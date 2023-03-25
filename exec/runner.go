@@ -125,3 +125,8 @@ func (r *Runner) ExecOutputf(format string, argsAndOpts ...any) (string, error) 
 	opts, args := Extract(argsAndOpts...)
 	return r.ExecOutput(fmt.Sprintf(format, args...), opts...)
 }
+
+// Run is a ExecOutput without options, for convenience to satisfy very simple interfaces without importing rig/exec
+func (r *Runner) Run(command string) (string, error) {
+	return r.ExecOutput(command)
+}
