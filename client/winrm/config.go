@@ -26,3 +26,6 @@ type Config struct {
 func (c *Config) NewClient(opts ...client.Option) (client.Connection, error) {
 	return NewClient(c, opts...)
 }
+
+// TODO there should be some way to import rig without importing winrm support.
+// so, winrm should somehow register itself as a client provider and be in a separate package with its own go.mod
