@@ -224,7 +224,7 @@ func (c Windows) StopService(h Host, s string) error {
 }
 
 // ServiceScriptPath returns the path to a service configuration file
-func (c Windows) ServiceScriptPath(_ Host, s string) (string, error) {
+func (c Windows) ServiceScriptPath(_ Host, _ string) (string, error) {
 	return "", fmt.Errorf("%w: service scripts not supported on windows", ErrCommandFailed)
 }
 
@@ -273,7 +273,7 @@ func (c Windows) MkDir(h Host, s string, opts ...exec.Option) error {
 }
 
 // Chmod on windows does nothing
-func (c Windows) Chmod(_ Host, s, perm string, opts ...exec.Option) error {
+func (c Windows) Chmod(_ Host, _, perm string, _ ...exec.Option) error {
 	return nil
 }
 

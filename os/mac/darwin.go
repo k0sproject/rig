@@ -46,7 +46,7 @@ func (c Darwin) StopService(h os.Host, s string) error {
 }
 
 // ServiceScriptPath returns the path to a service configuration file
-func (c Darwin) ServiceScriptPath(s string) (string, error) {
+func (c Darwin) ServiceScriptPath(_ string) (string, error) {
 	return "", fmt.Errorf("%w: service scripts are not supported on darwin", ErrNotImplemented)
 }
 

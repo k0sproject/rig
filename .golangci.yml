@@ -39,6 +39,7 @@ linters:
     - lll
     - gomnd
     - depguard
+    - tagalign
 
 linters-settings:
   funlen:
