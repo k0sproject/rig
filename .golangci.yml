@@ -38,6 +38,7 @@ linters:
     - dogsled
     - lll
     - gomnd
+    - depguard
 
 linters-settings:
   funlen:

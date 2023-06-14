@@ -71,7 +71,7 @@ func (i OpenRC) ServiceIsRunning(h Host, s string) bool {
 }
 
 // ServiceEnvironmentPath returns a path to an environment override file path
-func (i OpenRC) ServiceEnvironmentPath(h Host, s string) (string, error) {
+func (i OpenRC) ServiceEnvironmentPath(_ Host, s string) (string, error) {
 	return path.Join("/etc/conf.d", s), nil
 }
 
