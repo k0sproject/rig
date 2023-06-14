@@ -273,7 +273,7 @@ func (c Windows) MkDir(h Host, s string, opts ...exec.Option) error {
 }
 
 // Chmod on windows does nothing
-func (c Windows) Chmod(_ Host, _, perm string, _ ...exec.Option) error {
+func (c Windows) Chmod(_ Host, _, _ string, _ ...exec.Option) error {
 	return nil
 }
 
