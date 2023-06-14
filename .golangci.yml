@@ -38,6 +38,8 @@ linters:
     - dogsled
     - lll
     - gomnd
+    - depguard
+    - tagalign
 
 linters-settings:
   funlen:

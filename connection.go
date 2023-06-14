@@ -352,7 +352,7 @@ func (c *Connection) Disconnect() {
 
 // Upload copies a file from a local path src to the remote host path dst. For
 // smaller files you should probably use os.WriteFile
-func (c *Connection) Upload(src, dst string, opts ...exec.Option) error {
+func (c *Connection) Upload(src, dst string, _ ...exec.Option) error {
 	if err := c.checkConnected(); err != nil {
 		return err
 	}
