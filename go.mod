@@ -3,7 +3,7 @@ module github.com/k0sproject/rig
 go 1.20
 
 require (
-	github.com/Microsoft/go-winio v0.6.0
+	github.com/Microsoft/go-winio v0.6.1
 	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d
 	github.com/alessio/shellescape v1.4.1
 	github.com/creasty/defaults v1.6.0
