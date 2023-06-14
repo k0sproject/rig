@@ -26,7 +26,7 @@ import (
 
 // SSH describes an SSH connection
 type SSH struct {
-	Address          string           `yaml:"address" validate:"required,hostname|ip"`
+	Address          string           `yaml:"address" validate:"required,hostname_rfc1123|ip"`
 	User             string           `yaml:"user" validate:"required" default:"root"`
 	Port             int              `yaml:"port" default:"22" validate:"gt=0,lte=65535"`
 	KeyPath          *string          `yaml:"keyPath" validate:"omitempty"`
