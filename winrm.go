@@ -17,7 +17,7 @@ import (
 
 // WinRM describes a WinRM connection with its configuration options
 type WinRM struct {
-	Address       string `yaml:"address" validate:"required,hostname|ip"`
+	Address       string `yaml:"address" validate:"required,hostname_rfc1123|ip"`
 	User          string `yaml:"user" validate:"omitempty,gt=2" default:"Administrator"`
 	Port          int    `yaml:"port" default:"5985" validate:"gt=0,lte=65535"`
 	Password      string `yaml:"password,omitempty"`
@@ -27,7 +27,7 @@ type WinRM struct {
 	CACertPath    string `yaml:"caCertPath,omitempty" validate:"omitempty,file"`
 	CertPath      string `yaml:"certPath,omitempty" validate:"omitempty,file"`
 	KeyPath       string `yaml:"keyPath,omitempty" validate:"omitempty,file"`
-	TLSServerName string `yaml:"tlsServerName,omitempty" validate:"omitempty,hostname|ip"`
+	TLSServerName string `yaml:"tlsServerName,omitempty" validate:"omitempty,hostname_rfc1123|ip"`
 	Bastion       *SSH   `yaml:"bastion,omitempty"`
 
 	name string
