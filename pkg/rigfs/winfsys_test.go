@@ -15,4 +15,6 @@ func TestFormatPath(t *testing.T) {
 
 	require.Equal(t, "\"\\Users\\Public\\Documents\\foo.txt\"", fsys.formatPath("/Users/Public/Documents/foo.txt"))
 	require.Equal(t, "\"Users\\Public\\Documents\\foo.txt\"", fsys.formatPath("Users/Public", "Documents/foo.txt"))
+
+	require.Equal(t, "\"\\\\foo\\bar\\baz.txt\"", fsys.formatPath("\\\\foo\\bar\\baz.txt"))
 }
