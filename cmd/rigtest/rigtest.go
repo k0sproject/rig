@@ -290,9 +290,22 @@ func main() {
 			require.True(t, bytes.Equal(readSha.Sum(nil), shasum.Sum(nil)), "sha256 mismatch after io.copy from remote to local after seek")
 
 			require.NoError(t, destf.Close(), "close after seek + read")
-			require.NoError(t, fsys.Delete(fn), "remove file")
+			require.NoError(t, fsys.Remove(fn), "remove file")
 			_, err = destf.Stat()
 			require.ErrorIs(t, err, fs.ErrNotExist, "file still exists")
+
+			// fsys dirops
+			require.NoError(t, fsys.MkDirAll("tmpdir/nested", 0644), "make nested dir")
+			_, err = fsys.Stat("tmpdir")
+			require.NoError(t, err, "tmpdir was not created")
+			_, err = fsys.Stat("tmpdir/nested")
+			require.NoError(t, err, "tmpdir/nested was not created")
+
+			require.NoError(t, fsys.RemoveAll("tmpdir"), "remove recursive")
+			_, err = fsys.Stat("tmpdir/nested")
+			require.ErrorIs(t, err, fs.ErrNotExist, "nested dir still exists")
+			_, err = fsys.Stat("tmpdir")
+			require.ErrorIs(t, err, fs.ErrNotExist, "dir still exists")
 
 			require.NoError(t, h.Configurer.MkDir(h, "tmp/testdir/subdir"), "make dir")
 			require.NoError(t, h.Configurer.WriteFile(h, "tmp/testdir/subdir/testfile1", "test", "0644"), "write file")
