@@ -38,7 +38,9 @@ type Fsys interface {
 	OpenFile(string, FileMode, FileMode) (File, error)
 	Sha256(string) (string, error)
 	Stat(string) (fs.FileInfo, error)
-	Delete(string) error
+	Remove(string) error
+	RemoveAll(string) error
+	MkDirAll(string, FileMode) error
 }
 
 // FileMode is used to set the type of allowed operations when opening remote files

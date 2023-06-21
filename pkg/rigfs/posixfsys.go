@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"math/big"
+	"os"
 	"strings"
 	"time"
 
@@ -375,10 +376,40 @@ func (fsys *PosixFsys) ReadDir(name string) ([]fs.DirEntry, error) {
 	return entries, nil
 }
 
-// Delete removes the named file or (empty) directory.
-func (fsys *PosixFsys) Delete(name string) error {
+// Remove deletes the named file or (empty) directory.
+func (fsys *PosixFsys) Remove(name string) error {
 	if err := fsys.conn.Exec(fmt.Sprintf("rm -f %s", shellescape.Quote(name)), fsys.opts...); err != nil {
 		return fmt.Errorf("%w: delete %s: %w", ErrCommandFailed, name, err)
 	}
+	return nil
+}
+
+// RemoveAll removes path and any children it contains.
+func (fsys *PosixFsys) RemoveAll(name string) error {
+	if err := fsys.conn.Exec(fmt.Sprintf("rm -rf %s", shellescape.Quote(name)), fsys.opts...); err != nil {
+		return fmt.Errorf("%w: remove all %s: %w", ErrCommandFailed, name, err)
+	}
+	return nil
+}
+
+// MkDirAll creates a new directory structure with the specified name and permission bits.
+// If the directory already exists, MkDirAll does nothing and returns nil.
+func (fsys *PosixFsys) MkDirAll(name string, perm FileMode) error {
+	dir := shellescape.Quote(name)
+	if existing, err := fsys.Stat(name); err == nil {
+		if existing.IsDir() {
+			return nil
+		}
+		return fmt.Errorf("%w: mkdir %s: %w", ErrCommandFailed, name, fs.ErrExist)
+	}
+
+	if err := fsys.conn.Exec(fmt.Sprintf("mkdir -p %s", dir), fsys.opts...); err != nil {
+		return fmt.Errorf("%w: mkdir %s: %w", ErrCommandFailed, name, err)
+	}
+
+	if err := fsys.conn.Exec(fmt.Sprintf("chmod %#o %s", os.FileMode(perm).Perm(), dir), fsys.opts...); err != nil {
+		return fmt.Errorf("%w: chmod (mkdir) %s: %w", ErrCommandFailed, name, err)
+	}
+
 	return nil
 }

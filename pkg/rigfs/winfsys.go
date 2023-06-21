@@ -360,8 +360,8 @@ func (fsys *WinFsys) Open(name string) (fs.File, error) {
 	return f, nil
 }
 
-// OpenFile opens the named remote file with the specified FileMode. perm is ignored on Windows.
-func (fsys *WinFsys) OpenFile(name string, mode FileMode, perm FileMode) (File, error) {
+// OpenFile opens the named remote file with the specified FileMode. Permission bits are ignored on Windows.
+func (fsys *WinFsys) OpenFile(name string, mode FileMode, _ FileMode) (File, error) {
 	var modeStr string
 	switch mode {
 	case ModeRead:
@@ -378,7 +378,7 @@ func (fsys *WinFsys) OpenFile(name string, mode FileMode, perm FileMode) (File, 
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fmt.Errorf("%w: invalid mode: %d", ErrRcpCommandFailed, mode)}
 	}
 
-	log.Debugf("opening remote file %s (mode %s)", name, modeStr, perm)
+	log.Debugf("opening remote file %s (mode %s)", name, modeStr)
 	_, err := fsys.rcp.command(fmt.Sprintf("o %s %s", modeStr, filepath.FromSlash(name)))
 	if err != nil {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
@@ -427,10 +427,49 @@ func (fsys *WinFsys) ReadDir(name string) ([]fs.DirEntry, error) {
 	return entries, nil
 }
 
-// Delete removes the named file or (empty) directory.
-func (fsys *WinFsys) Delete(name string) error {
-	if err := fsys.conn.Exec(fmt.Sprintf("del %s", ps.DoubleQuote(filepath.FromSlash(name)))); err != nil {
-		return fmt.Errorf("%w: delete %s: %w", ErrCommandFailed, name, err)
+// Remove deletes the named file or (empty) directory.
+func (fsys *WinFsys) Remove(name string) error {
+	if existing, err := fsys.Stat(name); err == nil && existing.IsDir() {
+		return fsys.removeDir(name)
 	}
+
+	if err := fsys.conn.Exec(fmt.Sprintf("del %s", ps.DoubleQuote(filepath.FromSlash(name)))); err != nil {
+		return fmt.Errorf("%w: remove %s: %w", ErrCommandFailed, name, err)
+	}
+	return nil
+}
+
+// RemoveAll deletes the named file or directory and all its child items
+func (fsys *WinFsys) RemoveAll(name string) error {
+	if existing, err := fsys.Stat(name); err == nil && existing.IsDir() {
+		return fsys.removeDirAll(name)
+	}
+
+	if err := fsys.conn.Exec(fmt.Sprintf("del %s", ps.DoubleQuote(filepath.FromSlash(name)))); err != nil {
+		return fmt.Errorf("%w: remove all %s: %w", ErrCommandFailed, name, err)
+	}
+	return nil
+}
+
+func (fsys *WinFsys) removeDir(name string) error {
+	if err := fsys.conn.Exec(fmt.Sprintf("rmdir /q %s", ps.DoubleQuote(filepath.FromSlash(name)))); err != nil {
+		return fmt.Errorf("%w: rmdir %s: %w", ErrCommandFailed, name, err)
+	}
+	return nil
+}
+
+func (fsys *WinFsys) removeDirAll(name string) error {
+	if err := fsys.conn.Exec(fmt.Sprintf("rmdir /s /q %s", ps.DoubleQuote(filepath.FromSlash(name)))); err != nil {
+		return fmt.Errorf("%w: rmdir %s: %w", ErrCommandFailed, name, err)
+	}
+	return nil
+}
+
+// MkDirAll creates a directory named path, along with any necessary parents. The permission bits perm are ignored on Windows.
+func (fsys *WinFsys) MkDirAll(path string, _ FileMode) error {
+	if err := fsys.conn.Exec(fmt.Sprintf("mkdir -p %s", ps.DoubleQuote(filepath.FromSlash(path)))); err != nil {
+		return fmt.Errorf("%w: mkdir %s: %w", ErrCommandFailed, path, err)
+	}
+
 	return nil
 }
