@@ -360,8 +360,8 @@ func (fsys *WinFsys) Open(name string) (fs.File, error) {
 	return f, nil
 }
 
-// OpenFile opens the named remote file with the specified FileMode. perm is ignored on Windows.
-func (fsys *WinFsys) OpenFile(name string, mode FileMode, perm FileMode) (File, error) {
+// OpenFile opens the named remote file with the specified FileMode. Permission bits are ignored on Windows.
+func (fsys *WinFsys) OpenFile(name string, mode FileMode, _ FileMode) (File, error) {
 	var modeStr string
 	switch mode {
 	case ModeRead:
@@ -378,7 +378,7 @@ func (fsys *WinFsys) OpenFile(name string, mode FileMode, perm FileMode) (File, 
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fmt.Errorf("%w: invalid mode: %d", ErrRcpCommandFailed, mode)}
 	}
 
-	log.Debugf("opening remote file %s (mode %s)", name, modeStr, perm)
+	log.Debugf("opening remote file %s (mode %s)", name, modeStr)
 	_, err := fsys.rcp.command(fmt.Sprintf("o %s %s", modeStr, filepath.FromSlash(name)))
 	if err != nil {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
