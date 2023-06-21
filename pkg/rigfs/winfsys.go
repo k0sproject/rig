@@ -432,7 +432,7 @@ func (fsys *WinFsys) Remove(name string) error {
 		return fsys.removeDir(name)
 	}
 
-	if err := fsys.conn.Exec(fmt.Sprintf("del %s", ps.DoubleQuote(fsys.formatPath(name)))); err != nil {
+	if err := fsys.conn.Exec(fmt.Sprintf("del %s", fsys.formatPath(name))); err != nil {
 		return fmt.Errorf("%w: remove %s: %w", ErrCommandFailed, name, err)
 	}
 	return nil
@@ -444,21 +444,21 @@ func (fsys *WinFsys) RemoveAll(name string) error {
 		return fsys.removeDirAll(name)
 	}
 
-	if err := fsys.conn.Exec(fmt.Sprintf("del %s", ps.DoubleQuote(fsys.formatPath(name)))); err != nil {
+	if err := fsys.conn.Exec(fmt.Sprintf("del %s", fsys.formatPath(name))); err != nil {
 		return fmt.Errorf("%w: remove all %s: %w", ErrCommandFailed, name, err)
 	}
 	return nil
 }
 
 func (fsys *WinFsys) removeDir(name string) error {
-	if err := fsys.conn.Exec(fmt.Sprintf("rmdir /q %s", ps.DoubleQuote(fsys.formatPath(name)))); err != nil {
+	if err := fsys.conn.Exec(fmt.Sprintf("rmdir /q %s", fsys.formatPath(name))); err != nil {
 		return fmt.Errorf("%w: rmdir %s: %w", ErrCommandFailed, name, err)
 	}
 	return nil
 }
 
 func (fsys *WinFsys) removeDirAll(name string) error {
-	if err := fsys.conn.Exec(fmt.Sprintf("rmdir /s /q %s", ps.DoubleQuote(fsys.formatPath(name)))); err != nil {
+	if err := fsys.conn.Exec(fmt.Sprintf("rmdir /s /q %s", fsys.formatPath(name))); err != nil {
 		return fmt.Errorf("%w: rmdir %s: %w", ErrCommandFailed, name, err)
 	}
 	return nil
@@ -466,7 +466,7 @@ func (fsys *WinFsys) removeDirAll(name string) error {
 
 // MkDirAll creates a directory named path, along with any necessary parents. The permission bits perm are ignored on Windows.
 func (fsys *WinFsys) MkDirAll(path string, _ FileMode) error {
-	if err := fsys.conn.Exec(fmt.Sprintf("mkdir -p %s", ps.DoubleQuote(fsys.formatPath(path)))); err != nil {
+	if err := fsys.conn.Exec(fmt.Sprintf("mkdir -p %s", fsys.formatPath(path))); err != nil {
 		return fmt.Errorf("%w: mkdir %s: %w", ErrCommandFailed, path, err)
 	}
 
@@ -476,7 +476,7 @@ func (fsys *WinFsys) MkDirAll(path string, _ FileMode) error {
 // formatPath takes a path, either in windows\format or unix/format and returns a windows\format path.
 func (fsys *WinFsys) formatPath(elem ...string) string {
 	if strings.Contains(elem[0], ":") {
-		return strings.Join(elem, "\\")
+		return ps.DoubleQuote(strings.Join(elem, "\\"))
 	}
 
 	var elems []string
@@ -487,5 +487,5 @@ func (fsys *WinFsys) formatPath(elem ...string) string {
 			elems = append(elems, strings.Split(e, "/")...)
 		}
 	}
-	return strings.Join(elems, "\\")
+	return ps.DoubleQuote(strings.Join(elems, "\\"))
 }
