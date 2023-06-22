@@ -488,7 +488,7 @@ func (fsys *WinFsys) formatPath(path string) string {
 	}
 
 	if strings.HasSuffix(path, "\\") || strings.HasSuffix(path, "/") {
-		normalized = normalized + "\\"
+		normalized += "\\"
 	}
 
 	if strings.Contains(normalized, " ") {
