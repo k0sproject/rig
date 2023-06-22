@@ -474,18 +474,26 @@ func (fsys *WinFsys) MkDirAll(path string, _ FileMode) error {
 }
 
 // formatPath takes a path, either in windows\format or unix/format and returns a windows\format path.
-func (fsys *WinFsys) formatPath(elem ...string) string {
-	if strings.Contains(elem[0], ":") {
-		return ps.DoubleQuote(strings.Join(elem, "\\"))
+func (fsys *WinFsys) formatPath(path string) string {
+	parts := strings.FieldsFunc(path, func(c rune) bool {
+		return c == '\\' || c == '/'
+	})
+
+	normalized := strings.Join(parts, "\\")
+
+	if strings.HasPrefix(path, "\\\\") || strings.HasPrefix(path, "//") {
+		normalized = "\\\\" + normalized
+	} else if strings.HasPrefix(path, "\\") || strings.HasPrefix(path, "/") {
+		normalized = "\\" + normalized
 	}
 
-	var elems []string
-	for _, e := range elem {
-		if strings.Contains(e, "\\") {
-			elems = append(elems, strings.Split(e, "\\")...)
-		} else {
-			elems = append(elems, strings.Split(e, "/")...)
-		}
+	if strings.HasSuffix(path, "\\") || strings.HasSuffix(path, "/") {
+		normalized = normalized + "\\"
 	}
-	return ps.DoubleQuote(strings.Join(elems, "\\"))
+
+	if strings.Contains(normalized, " ") {
+		return ps.DoubleQuote(normalized)
+	}
+
+	return normalized
 }
