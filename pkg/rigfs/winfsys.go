@@ -411,8 +411,7 @@ func (fsys *WinFsys) Sha256(name string) (string, error) {
 
 // ReadDir reads the directory named by dirname and returns a list of directory entries.
 func (fsys *WinFsys) ReadDir(name string) ([]fs.DirEntry, error) {
-	name = strings.ReplaceAll(name, "/", "\\")
-	resp, err := fsys.rcp.command(fmt.Sprintf("dir %s", name))
+	resp, err := fsys.rcp.command(fmt.Sprintf("dir %s", ps.DoubleQuote(name)))
 	if err != nil {
 		return nil, &fs.PathError{Op: "readdir", Path: name, Err: fmt.Errorf("%w: readdir: %w: %w", ErrRcpCommandFailed, err, fs.ErrNotExist)}
 	}
@@ -432,7 +431,7 @@ func (fsys *WinFsys) Remove(name string) error {
 		return fsys.removeDir(name)
 	}
 
-	if err := fsys.conn.Exec(fmt.Sprintf("del %s", name)); err != nil {
+	if err := fsys.conn.Exec(fmt.Sprintf("del %s", ps.DoubleQuote(name))); err != nil {
 		return fmt.Errorf("%w: remove %s: %w", ErrCommandFailed, name, err)
 	}
 	return nil
@@ -444,30 +443,30 @@ func (fsys *WinFsys) RemoveAll(name string) error {
 		return fsys.removeDirAll(name)
 	}
 
-	if err := fsys.conn.Exec(fmt.Sprintf("del %s", name)); err != nil {
+	if err := fsys.conn.Exec(fmt.Sprintf("del %s", ps.DoubleQuote(name))); err != nil {
 		return fmt.Errorf("%w: remove all %s: %w", ErrCommandFailed, name, err)
 	}
 	return nil
 }
 
 func (fsys *WinFsys) removeDir(name string) error {
-	if err := fsys.conn.Exec(fmt.Sprintf("rmdir /q %s", name)); err != nil {
+	if err := fsys.conn.Exec(fmt.Sprintf("rmdir /q %s", ps.DoubleQuote(name))); err != nil {
 		return fmt.Errorf("%w: rmdir %s: %w", ErrCommandFailed, name, err)
 	}
 	return nil
 }
 
 func (fsys *WinFsys) removeDirAll(name string) error {
-	if err := fsys.conn.Exec(fmt.Sprintf("rmdir /s /q %s", name)); err != nil {
+	if err := fsys.conn.Exec(fmt.Sprintf("rmdir /s /q %s", ps.DoubleQuote(name))); err != nil {
 		return fmt.Errorf("%w: rmdir %s: %w", ErrCommandFailed, name, err)
 	}
 	return nil
 }
 
 // MkDirAll creates a directory named path, along with any necessary parents. The permission bits perm are ignored on Windows.
-func (fsys *WinFsys) MkDirAll(path string, _ FileMode) error {
-	if err := fsys.conn.Exec(fmt.Sprintf("mkdir -p %s", path)); err != nil {
-		return fmt.Errorf("%w: mkdir %s: %w", ErrCommandFailed, path, err)
+func (fsys *WinFsys) MkDirAll(name string, _ FileMode) error {
+	if err := fsys.conn.Exec(fmt.Sprintf("mkdir -p %s", ps.DoubleQuote(name))); err != nil {
+		return fmt.Errorf("%w: mkdir %s: %w", ErrCommandFailed, name, err)
 	}
 
 	return nil
