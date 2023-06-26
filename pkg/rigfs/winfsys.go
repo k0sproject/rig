@@ -378,7 +378,7 @@ func (fsys *WinFsys) OpenFile(name string, mode FileMode, _ FileMode) (File, err
 	}
 
 	log.Debugf("opening remote file %s (mode %s)", name, modeStr)
-	_, err := fsys.rcp.command(fmt.Sprintf("o %s %s", modeStr, fsys.formatPath(name)))
+	_, err := fsys.rcp.command(fmt.Sprintf("o %s %s", modeStr, name))
 	if err != nil {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
 	}
@@ -387,7 +387,7 @@ func (fsys *WinFsys) OpenFile(name string, mode FileMode, _ FileMode) (File, err
 
 // Stat returns fs.FileInfo for the remote file.
 func (fsys *WinFsys) Stat(name string) (fs.FileInfo, error) {
-	resp, err := fsys.rcp.command(fmt.Sprintf("stat %s", fsys.formatPath(name)))
+	resp, err := fsys.rcp.command(fmt.Sprintf("stat %s", name))
 	if err != nil {
 		return nil, &fs.PathError{Op: "stat", Path: name, Err: fmt.Errorf("%w: stat %s: %w", ErrRcpCommandFailed, name, err)}
 	}
@@ -399,7 +399,7 @@ func (fsys *WinFsys) Stat(name string) (fs.FileInfo, error) {
 
 // Sha256 returns the SHA256 hash of the remote file.
 func (fsys *WinFsys) Sha256(name string) (string, error) {
-	resp, err := fsys.rcp.command(fmt.Sprintf("sum %s", fsys.formatPath(name)))
+	resp, err := fsys.rcp.command(fmt.Sprintf("sum %s", name))
 	if err != nil {
 		return "", &fs.PathError{Op: "sum", Path: name, Err: fmt.Errorf("%w: sha256sum: %w", ErrRcpCommandFailed, err)}
 	}
@@ -412,7 +412,7 @@ func (fsys *WinFsys) Sha256(name string) (string, error) {
 // ReadDir reads the directory named by dirname and returns a list of directory entries.
 func (fsys *WinFsys) ReadDir(name string) ([]fs.DirEntry, error) {
 	name = strings.ReplaceAll(name, "/", "\\")
-	resp, err := fsys.rcp.command(fmt.Sprintf("dir %s", fsys.formatPath(name)))
+	resp, err := fsys.rcp.command(fmt.Sprintf("dir %s", name))
 	if err != nil {
 		return nil, &fs.PathError{Op: "readdir", Path: name, Err: fmt.Errorf("%w: readdir: %w: %w", ErrRcpCommandFailed, err, fs.ErrNotExist)}
 	}
@@ -432,7 +432,7 @@ func (fsys *WinFsys) Remove(name string) error {
 		return fsys.removeDir(name)
 	}
 
-	if err := fsys.conn.Exec(fmt.Sprintf("del %s", fsys.formatPath(name))); err != nil {
+	if err := fsys.conn.Exec(fmt.Sprintf("del %s", name)); err != nil {
 		return fmt.Errorf("%w: remove %s: %w", ErrCommandFailed, name, err)
 	}
 	return nil
@@ -444,21 +444,21 @@ func (fsys *WinFsys) RemoveAll(name string) error {
 		return fsys.removeDirAll(name)
 	}
 
-	if err := fsys.conn.Exec(fmt.Sprintf("del %s", fsys.formatPath(name))); err != nil {
+	if err := fsys.conn.Exec(fmt.Sprintf("del %s", name)); err != nil {
 		return fmt.Errorf("%w: remove all %s: %w", ErrCommandFailed, name, err)
 	}
 	return nil
 }
 
 func (fsys *WinFsys) removeDir(name string) error {
-	if err := fsys.conn.Exec(fmt.Sprintf("rmdir /q %s", fsys.formatPath(name))); err != nil {
+	if err := fsys.conn.Exec(fmt.Sprintf("rmdir /q %s", name)); err != nil {
 		return fmt.Errorf("%w: rmdir %s: %w", ErrCommandFailed, name, err)
 	}
 	return nil
 }
 
 func (fsys *WinFsys) removeDirAll(name string) error {
-	if err := fsys.conn.Exec(fmt.Sprintf("rmdir /s /q %s", fsys.formatPath(name))); err != nil {
+	if err := fsys.conn.Exec(fmt.Sprintf("rmdir /s /q %s", name)); err != nil {
 		return fmt.Errorf("%w: rmdir %s: %w", ErrCommandFailed, name, err)
 	}
 	return nil
@@ -466,34 +466,9 @@ func (fsys *WinFsys) removeDirAll(name string) error {
 
 // MkDirAll creates a directory named path, along with any necessary parents. The permission bits perm are ignored on Windows.
 func (fsys *WinFsys) MkDirAll(path string, _ FileMode) error {
-	if err := fsys.conn.Exec(fmt.Sprintf("mkdir -p %s", fsys.formatPath(path))); err != nil {
+	if err := fsys.conn.Exec(fmt.Sprintf("mkdir -p %s", path)); err != nil {
 		return fmt.Errorf("%w: mkdir %s: %w", ErrCommandFailed, path, err)
 	}
 
 	return nil
-}
-
-// formatPath takes a path, either in windows\format or unix/format and returns a windows\format path.
-func (fsys *WinFsys) formatPath(path string) string {
-	parts := strings.FieldsFunc(path, func(c rune) bool {
-		return c == '\\' || c == '/'
-	})
-
-	normalized := strings.Join(parts, "\\")
-
-	if strings.HasPrefix(path, "\\\\") || strings.HasPrefix(path, "//") {
-		normalized = "\\\\" + normalized
-	} else if strings.HasPrefix(path, "\\") || strings.HasPrefix(path, "/") {
-		normalized = "\\" + normalized
-	}
-
-	if strings.HasSuffix(path, "\\") || strings.HasSuffix(path, "/") {
-		normalized += "\\"
-	}
-
-	if strings.Contains(normalized, " ") {
-		return ps.DoubleQuote(normalized)
-	}
-
-	return normalized
 }
