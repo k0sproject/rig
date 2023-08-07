@@ -89,6 +89,11 @@ func SingleQuote(v string) string {
 
 // DoubleQuote escapes a string in a way that can be used as a windows file path
 func DoubleQuote(v string) string {
+	if v[0] == '"' && v[len(v)-1] == '"' {
+		// already quoted
+		return v
+	}
+
 	var buf strings.Builder
 	_, _ = buf.WriteRune('"')
 	for _, rune := range v {
