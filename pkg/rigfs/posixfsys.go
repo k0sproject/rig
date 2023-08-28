@@ -19,7 +19,7 @@ import (
 // rigHelper is a helper script to avoid having to write complex bash oneliners in Go
 // it's not a read-loop "daemon" like the windows counterpart rigrcp.ps1
 //
-//go:embed righelper.bash
+//go:embed righelper.sh
 var rigHelper string
 
 var (
@@ -278,7 +278,7 @@ func (fsys *PosixFsys) helper(args ...string) (*helperResponse, error) {
 	var res helperResponse
 	opts := fsys.opts
 	opts = append(opts, exec.Stdin(rigHelper))
-	out, err := fsys.conn.ExecOutput(fmt.Sprintf("bash -s -- %s", shellescape.QuoteCommand(args)), opts...)
+	out, err := fsys.conn.ExecOutput(fmt.Sprintf("sh -s -- %s", shellescape.QuoteCommand(args)), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to execute helper: %w", ErrCommandFailed, err)
 	}

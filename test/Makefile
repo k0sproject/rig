@@ -52,6 +52,9 @@ footloose.yaml: .ssh/identity $(footloose)
     --override \
 		--replicas $(REPLICAS)
 
+%.iid: Dockerfile.%
+	docker build --iidfile '$@' - < '$<'
+
 .PHONY: create-host
 create-host: footloose.yaml docker-network
 	$(footloose) create -c footloose.yaml
@@ -63,7 +66,7 @@ delete-host: footloose.yaml
 .PHONY: clean
 clean: delete-host
 	rm -f footloose.yaml identity rigtest
-	rm -rf .ssh
+	rm -rf .ssh *.iid
 	docker network rm footloose-cluster || true
 
 .PHONY: sshport
