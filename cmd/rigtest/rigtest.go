@@ -22,6 +22,7 @@ import (
 	_ "github.com/k0sproject/rig/os/support"
 	"github.com/k0sproject/rig/pkg/rigfs"
 	"github.com/kevinburke/ssh_config"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -59,6 +60,7 @@ type configurer interface {
 	FileExist(os.Host, string) bool
 	DeleteFile(os.Host, string) error
 	Stat(os.Host, string, ...exec.Option) (*os.FileInfo, error)
+	Touch(os.Host, string, time.Time, ...exec.Option) error
 	MkDir(os.Host, string, ...exec.Option) error
 }
 
@@ -218,6 +220,22 @@ func main() {
 
 		t.Run("os support module functions on %s", h)
 
+		stat, err := h.Configurer.Stat(h, fn)
+		require.Error(t, err, "no stat error")
+
+		now := time.Now()
+		err = h.Configurer.Touch(h, fn, now)
+		require.NoError(t, err, "touch error")
+
+		stat, err = h.Configurer.Stat(h, fn)
+		require.NoError(t, err, "stat error")
+		assert.Equal(t, filepath.Base(stat.Name()), filepath.Base(fn), "stat name not as expected")
+		assert.Equal(t, filepath.Base(stat.Name()), filepath.Base(fn), "stat name not as expected")
+		assert.Condition(t, func() bool {
+			actual := stat.ModTime()
+			return now.Equal(actual) || now.Truncate(time.Second).Equal(actual)
+		}, "Expected %s, got %s", now, stat.ModTime())
+
 		require.NoError(t, h.Configurer.WriteFile(h, fn, "test\ntest2\ntest3", "0644"), "write file")
 		if !h.Configurer.FileExist(h, fn) {
 			t.Fail("file does not exist after write")
@@ -227,10 +245,6 @@ func main() {
 		row, err := h.Configurer.ReadFile(h, fn)
 		require.NoError(t, err, "read file")
 		require.Equal(t, "test\ntest4\ntest3", row, "file content not as expected after line into file")
-
-		stat, err := h.Configurer.Stat(h, fn)
-		require.NoError(t, err, "stat error")
-		require.Equal(t, filepath.Base(stat.Name()), filepath.Base(fn), "stat name not as expected")
 
 		require.NoError(t, h.Configurer.DeleteFile(h, fn))
 		require.False(t, h.Configurer.FileExist(h, fn))

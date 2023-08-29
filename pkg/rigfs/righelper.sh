@@ -1,6 +1,5 @@
-#!/usr/bin/env bash
-
-shopt -s dotglob
+#!/usr/bin/env sh
+#shellcheck disable=SC3037,SC3043
 
 abs() (
   if [ -d "$1" ]; then
@@ -26,12 +25,12 @@ statjson() {
   if [ "$path" = "" ]; then
     throw "empty path"
   fi
-  if stat --help 2>&1 | grep -q -- --format; then
-    # GNU stat
-    file_info=$(stat --format="0%a %s %Y" "$path" 2> /dev/null)
+  if stat --help 2>&1 | grep -q -- 'GNU\|BusyBox'; then
+    # GNU/BusyBox stat
+    file_info=$(stat -c '0%a %s %Y' -- "$path" 2> /dev/null)
   else
     # BSD stat
-    file_info=$(stat -f "%Mp%Lp %z %m" "$path" 2> /dev/null)
+    file_info=$(stat -f '%Mp%Lp %z %m' "$path" 2> /dev/null)
   fi
   read -r unix_mode size mod_time <<EOF
 $file_info
@@ -44,7 +43,7 @@ EOF
   else
     is_dir=false
   fi
-  if [ "$embed" == "" ]; then
+  if [ -z "$embed" ]; then
     echo -n "{\"stat\":{\"size\":$size,\"unixMode\":$unix_mode,\"modTime\":$mod_time,\"isDir\":$is_dir,\"name\":\"$path\"}}"
   else
     echo -n "{\"size\":$size,\"unixMode\":$unix_mode,\"modTime\":$mod_time,\"isDir\":$is_dir,\"name\":\"$path\"}"
@@ -52,7 +51,7 @@ EOF
 }
 
 throw() {
-  echo -n "{\"error\":\"$@\"}"
+  echo -n "{\"error\":\"$*\"}"
   exit 1
 }
 
@@ -88,7 +87,8 @@ main() {
       fi
       echo -n "{\"dir\":["
       first=true
-      for file in "$path"/*; do
+      for file in "$path"/.* "$path"/*; do
+        case "$file" in "$path"/. | "$path"/..) continue ;; esac
         if [ "$first" = true ]; then
           first=false
         else
@@ -113,4 +113,5 @@ main() {
       ;;
   esac
 }
-main $@
+
+main "$@"

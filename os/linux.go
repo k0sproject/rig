@@ -406,16 +406,26 @@ func (c Linux) Chmod(h Host, s, perm string, opts ...exec.Option) error {
 // coreutils. Note that this is different from BSD coreutils.
 const gnuCoreutilsDateTimeLayout = "2006-01-02 15:04:05.999999999 -0700"
 
+// busyboxDateTimeLayout represents the date and time format that can be passed
+// to BusyBox. BusyBox will happily output the GNU format, but will fail to
+// parse it. Currently, there doesn't seem to be a way to support sub-second
+// precision.
+const busyboxDateTimeLayout = "2006-01-02 15:04:05"
+
 // Stat gets file / directory information
 func (c Linux) Stat(h Host, path string, opts ...exec.Option) (*FileInfo, error) {
-	cmd := `env -i LC_ALL=C stat --printf '%s\0%y\0%a\0%F' -- ` + shellescape.Quote(path)
+	cmd := `env -i LC_ALL=C stat -c '%s|%y|%a|%F' -- ` + shellescape.Quote(path)
 
 	out, err := h.ExecOutput(cmd, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat %s: %w", path, err)
 	}
 
-	fields := strings.SplitN(out, "\x00", 4)
+	fields := strings.SplitN(out, "|", 4)
+	if len(fields) != 4 {
+		err = fmt.Errorf("failed to stat %s: unrecognized output: %s", path, out) //nolint:goerr113
+		return nil, err
+	}
 
 	size, err := strconv.ParseInt(fields[0], 10, 64)
 	if err != nil {
@@ -444,8 +454,24 @@ func (c Linux) Stat(h Host, path string, opts ...exec.Option) (*FileInfo, error)
 // Touch updates a file's last modified time. It creates a new empty file if it
 // didn't exist prior to the call to Touch.
 func (c Linux) Touch(h Host, path string, ts time.Time, opts ...exec.Option) error {
-	cmd := fmt.Sprintf("env -i LC_ALL=C touch -m -d %s -- %s",
-		shellescape.Quote(ts.Format(gnuCoreutilsDateTimeLayout)),
+	utc := ts.UTC()
+
+	// The BusyBox format will be accepted by both BusyBox and GNU stat.
+	format := busyboxDateTimeLayout
+
+	// Sub-second precision in timestamps is supported by GNU, but not by
+	// BusyBox. If there is sub-second precision in the provided timestamp, try
+	// to detect BusyBox touch and if it's not BusyBox go on with the
+	// full-precision GNU format instead.
+	if !utc.Equal(utc.Truncate(time.Second)) {
+		out, err := h.ExecOutput("env -i LC_ALL=C TZ=UTC touch --help 2>&1")
+		if err != nil || !strings.Contains(out, "BusyBox") {
+			format = gnuCoreutilsDateTimeLayout
+		}
+	}
+
+	cmd := fmt.Sprintf("env -i LC_ALL=C TZ=UTC touch -m -d %s -- %s",
+		shellescape.Quote(utc.Format(format)),
 		shellescape.Quote(path),
 	)
 
