@@ -50,7 +50,7 @@ var KnownHostsPathFromEnv = func() (string, bool) {
 }
 
 // KnownHostsFileCallback returns a HostKeyCallback that uses a known hosts file to verify host keys
-func KnownHostsFileCallback(path string, permissive bool) (ssh.HostKeyCallback, error) {
+func KnownHostsFileCallback(path string, permissive, hash bool) (ssh.HostKeyCallback, error) {
 	if path == "/dev/null" {
 		return InsecureIgnoreHostKeyCallback, nil
 	}
@@ -67,13 +67,13 @@ func KnownHostsFileCallback(path string, permissive bool) (ssh.HostKeyCallback, 
 		return nil, fmt.Errorf("%w: knownhosts callback: %w", ErrCheckHostKey, err)
 	}
 
-	return wrapCallback(hkc, path, permissive), nil
+	return wrapCallback(hkc, path, permissive, hash), nil
 }
 
 // extends a knownhosts callback to not return an error when the key
 // is not found in the known_hosts file but instead adds it to the file as new
 // entry
-func wrapCallback(hkc ssh.HostKeyCallback, path string, permissive bool) ssh.HostKeyCallback {
+func wrapCallback(hkc ssh.HostKeyCallback, path string, permissive, hash bool) ssh.HostKeyCallback {
 	return ssh.HostKeyCallback(func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 		mu.Lock()
 		defer mu.Unlock()
@@ -99,6 +99,10 @@ func wrapCallback(hkc ssh.HostKeyCallback, path string, permissive bool) ssh.Hos
 		}
 
 		knownHostsEntry := knownhosts.Normalize(remote.String())
+		if hash {
+			knownHostsEntry = knownhosts.HashHostname(knownHostsEntry)
+		}
+
 		row := knownhosts.Line([]string{knownHostsEntry}, key)
 		row = fmt.Sprintf("%s\n", strings.TrimSpace(row))
 

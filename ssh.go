@@ -245,12 +245,34 @@ func (c *SSH) IsWindows() bool {
 	return c.isWindows
 }
 
-func knownhostsCallback(path string, permissive bool) (ssh.HostKeyCallback, error) {
-	cb, err := hostkey.KnownHostsFileCallback(path, permissive)
+func knownhostsCallback(path string, permissive, hash bool) (ssh.HostKeyCallback, error) {
+	cb, err := hostkey.KnownHostsFileCallback(path, permissive, hash)
 	if err != nil {
 		return nil, fmt.Errorf("%w: create host key validator: %w", ErrCantConnect, err)
 	}
 	return cb, nil
+}
+
+func isPermissive(c *SSH) bool {
+	if strict := c.getConfigAll("StrictHostkeyChecking"); len(strict) > 0 && strict[0] == "no" {
+		log.Debugf("%s: StrictHostkeyChecking is set to 'no'", c)
+		return true
+	}
+
+	return false
+}
+
+func shouldHash(c *SSH) bool {
+	var hash bool
+	if hashKnownHosts := c.getConfigAll("HashKnownHosts"); len(hashKnownHosts) == 1 {
+		hash := hashKnownHosts[0] == "yes"
+		if hash {
+			log.Debugf("%s: HashKnownHosts is set to %q, will hash newly added keys", c, hashKnownHosts[0])
+		} else {
+			log.Debugf("%s: HashKnownHosts is set to %q, won't hash newly added keys", c, hashKnownHosts[0])
+		}
+	}
+	return hash
 }
 
 func (c *SSH) hostkeyCallback() (ssh.HostKeyCallback, error) {
@@ -262,19 +284,15 @@ func (c *SSH) hostkeyCallback() (ssh.HostKeyCallback, error) {
 	knownHostsMU.Lock()
 	defer knownHostsMU.Unlock()
 
-	var permissive bool
-	strict := c.getConfigAll("StrictHostkeyChecking")
-	if len(strict) > 0 && strict[0] == "no" {
-		log.Debugf("%s: StrictHostkeyChecking is set to 'no'", c)
-		permissive = true
-	}
+	permissive := isPermissive(c)
+	hash := shouldHash(c)
 
 	if path, ok := hostkey.KnownHostsPathFromEnv(); ok {
 		if path == "" {
 			return hostkey.InsecureIgnoreHostKeyCallback, nil
 		}
 		log.Tracef("%s: using known_hosts file from SSH_KNOWN_HOSTS: %s", c, path)
-		return knownhostsCallback(path, permissive)
+		return knownhostsCallback(path, permissive, hash)
 	}
 
 	var khPath string
@@ -295,7 +313,7 @@ func (c *SSH) hostkeyCallback() (ssh.HostKeyCallback, error) {
 
 	if khPath != "" {
 		log.Tracef("%s: using known_hosts file from ssh config %s", c, khPath)
-		return knownhostsCallback(khPath, permissive)
+		return knownhostsCallback(khPath, permissive, hash)
 	}
 
 	log.Tracef("%s: using default known_hosts file %s", c, hostkey.DefaultKnownHostsPath)
@@ -304,7 +322,7 @@ func (c *SSH) hostkeyCallback() (ssh.HostKeyCallback, error) {
 		return nil, err
 	}
 
-	return knownhostsCallback(defaultPath, permissive)
+	return knownhostsCallback(defaultPath, permissive, hash)
 }
 
 func (c *SSH) clientConfig() (*ssh.ClientConfig, error) {
