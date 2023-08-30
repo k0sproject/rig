@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 RET=0
 set -e
@@ -20,7 +20,7 @@ sanity_check() {
   docker ps
   echo "* SSH port: $(ssh_port node0)"
   echo "* Testing stock ssh"
-  ssh -vvv -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i .ssh/identity -p $(ssh_port node0) root@127.0.0.1 echo "test-conn"
+  retry ssh -vvv -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i .ssh/identity -p $(ssh_port node0) root@127.0.0.1 echo "test-conn" || return $?
   set +e
   echo "* Testing footloose ssh"
   footloose ssh root@node0 echo test-conn | grep -q test-conn
@@ -197,8 +197,59 @@ rig_test_protected_key_from_path() {
   RET=$exit_code
 }
 
+rig_test_regular_user() {
+  color_echo "- Testing regular user"
+  make create-host
+  sshPort=$(ssh_port node0)
+
+  set -- -T -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i .ssh/identity -p "$sshPort"
+  retry ssh "$@" root@127.0.0.1 true || {
+    RET=$?
+    color_echo failed to SSH into machine >&2
+    return 0
+  }
+
+  ssh "$@" root@127.0.0.1 sh -euxC - <<EOF
+    groupadd --system rig-wheel
+    useradd -d /var/lib/rigtest-user -G rig-wheel -p '*' rigtest-user
+    mkdir -p /var/lib/rigtest-user/
+    cp -r /root/.ssh /var/lib/rigtest-user/.
+    chown -R rigtest-user:rigtest-user /var/lib/rigtest-user/
+    [ ! -d /etc/sudoers.d/ ] || {
+      echo '%rig-wheel ALL=(ALL)NOPASSWD:ALL' >/etc/sudoers.d/rig-wheel
+      chmod 0440 /etc/sudoers.d/rig-wheel
+    }
+    [ ! -d /etc/doas.d/ ] || {
+      echo 'permit nopass :rig-wheel' >/etc/doas.d/rig-wheel.conf
+      chmod 0440 /etc/doas.d/rig-wheel.conf
+    }
+EOF
+  RET=$?
+  [ $RET -eq 0 ] || {
+    color_echo failed to provision new user rigtest-user >&2
+    return 0
+  }
+
+  ssh "$@" rigtest-user@127.0.0.1 true || {
+    RET=$?
+    color_echo failed to SSH into machine as rigtest-user >&2
+    return 0
+  }
+
+  env -i HOME="$(pwd)" ./rigtest -host 127.0.0.1:"$sshPort" -user rigtest-user -keypath .ssh/identity
+}
+
+retry() {
+  local i
+  for i in 1 2 3 4 5; do
+    ! "$@" || return 0
+    sleep $i
+  done
+  "$@"
+}
+
 if ! sanity_check; then
-  echo "Sanity check failed"
+  color_echo Sanity check failed >&2
   exit 1
 fi
 
@@ -210,9 +261,9 @@ for test in $(declare -F|grep rig_test_|cut -d" " -f3); do
   make rigtest
   color_echo "\n###########################################################"
   RET=0
-  $test
+  $test || RET=$?
   if [ $RET -ne 0 ]; then
-    color_echo "Test $test failed"
+    color_echo "Test $test failed" >&2
     exit 1
   fi
   echo -e "\n\n\n"

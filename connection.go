@@ -276,13 +276,13 @@ func sudoSudo(cmd string) string {
 }
 
 func sudoDoas(cmd string) string {
-	return "doas -s -- " + cmd
+	return `doas -n -- "${SHELL-sh}" -c ` + shellescape.Quote(cmd)
 }
 
 var sudoChecks = map[string]sudofn{
-	`[ "$(id -u)" = 0 ]`: sudoNoop,
-	"sudo -n true":       sudoSudo,
-	"doas -n true":       sudoDoas,
+	`[ "$(id -u)" = 0 ]`:               sudoNoop,
+	"sudo -n true":                     sudoSudo,
+	`doas -n -- "${SHELL-sh}" -c true`: sudoDoas,
 }
 
 const sudoCheckWindows = `whoami | findstr /i "administrator"`
