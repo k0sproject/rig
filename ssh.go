@@ -8,6 +8,8 @@ import (
 	"io"
 	"net"
 	"os"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -49,7 +51,7 @@ type PasswordCallback func() (secret string, err error)
 
 var (
 	authMethodCache   = sync.Map{}
-	defaultKeypaths   = []string{"~/.ssh/id_rsa", "~/.ssh/identity", "~/.ssh/id_dsa"}
+	defaultKeypaths   = []string{"~/.ssh/id_rsa", "~/.ssh/identity", "~/.ssh/id_dsa", "~/.ssh/id_ecdsa", "~/.ssh/id_ed25519"}
 	dummyhostKeyPaths []string
 	globalOnce        sync.Once
 	knownHostsMU      sync.Mutex
@@ -114,7 +116,15 @@ func expandAndValidatePath(path string) (string, error) {
 
 func (c *SSH) keypathsFromConfig() []string {
 	log.Tracef("%s: trying to get a keyfile path from ssh config", c)
-	if idf := c.getConfigAll("IdentityFile"); len(idf) > 0 {
+	idf := c.getConfigAll("IdentityFile")
+	// https://github.com/kevinburke/ssh_config/blob/master/config.go#L254 says:
+	// TODO: IdentityFile has multiple default values that we should return
+	// To work around this, the hard coded list of known defaults are appended to the list
+	idf = append(idf, defaultKeypaths...)
+	sort.Strings(idf)
+	idf = slices.Compact(idf)
+
+	if len(idf) > 0 {
 		log.Tracef("%s: detected %d identity file paths from ssh config: %v", c, len(idf), idf)
 		return idf
 	}
@@ -125,11 +135,18 @@ func (c *SSH) keypathsFromConfig() []string {
 func (c *SSH) initGlobalDefaults() {
 	log.Tracef("discovering global default keypaths")
 	dummyHostIdentityFiles := SSHConfigGetAll(hopefullyNonexistentHost, "IdentityFile")
+	// https://github.com/kevinburke/ssh_config/blob/master/config.go#L254 says:
+	// TODO: IdentityFile has multiple default values that we should return
+	// To work around this, the hard coded list of known defaults are appended to the list
+	dummyHostIdentityFiles = append(dummyHostIdentityFiles, defaultKeypaths...)
+	sort.Strings(dummyHostIdentityFiles)
+	dummyHostIdentityFiles = slices.Compact(dummyHostIdentityFiles)
 	for _, keyPath := range dummyHostIdentityFiles {
-		if expanded, err := expandAndValidatePath(keyPath); err != nil {
+		if expanded, err := expandAndValidatePath(keyPath); err == nil {
 			dummyhostKeyPaths = append(dummyhostKeyPaths, expanded)
 		}
 	}
+	log.Tracef("global default keypaths from ssh config: %+v", dummyhostKeyPaths)
 }
 
 func findUniq(a, b []string) (string, bool) {
@@ -163,10 +180,6 @@ func (c *SSH) SetDefaults() {
 		c.KeyPath = nil
 
 		paths := c.keypathsFromConfig()
-		if len(paths) == 0 {
-			// no paths found in ssh config either, use defaults
-			paths = append(paths, defaultKeypaths...)
-		}
 
 		for _, p := range paths {
 			expanded, err := expandAndValidatePath(p)
