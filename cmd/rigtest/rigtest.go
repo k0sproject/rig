@@ -105,6 +105,7 @@ func main() {
 	pwd := flag.String("pass", "", "winrm password")
 	https := flag.Bool("https", false, "use https for winrm")
 	connectOnly := flag.Bool("connect", false, "just connect and quit")
+	sshKey := flag.String("ssh-private-key", "", "ssh private key")
 
 	fn := fmt.Sprintf("test_%s.txt", time.Now().Format("20060102150405"))
 
@@ -159,16 +160,34 @@ func main() {
 		var h *Host
 		switch *proto {
 		case "ssh":
-			h = &Host{
-				Connection: rig.Connection{
-					SSH: &rig.SSH{
-						Address:          address,
-						Port:             port,
-						User:             *usr,
-						KeyPath:          kp,
-						PasswordCallback: passfunc,
+			if *sshKey != "" {
+				// test with private key in a string
+				authM, err := rig.ParseSSHPrivateKey([]byte(*sshKey), rig.DefaultPasswordCallback)
+				if err != nil {
+					panic(err)
+				}
+				h = &Host{
+					Connection: rig.Connection{
+						SSH: &rig.SSH{
+							Address:     address,
+							Port:        port,
+							User:        *usr,
+							AuthMethods: authM,
+						},
 					},
-				},
+				}
+			} else {
+				h = &Host{
+					Connection: rig.Connection{
+						SSH: &rig.SSH{
+							Address:          address,
+							Port:             port,
+							User:             *usr,
+							KeyPath:          kp,
+							PasswordCallback: passfunc,
+						},
+					},
+				}
 			}
 		case "winrm":
 			h = &Host{

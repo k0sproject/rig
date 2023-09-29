@@ -170,6 +170,17 @@ rig_test_key_from_path() {
   RET=$exit_code
 }
 
+rig_test_key_from_memory() {
+  color_echo "- Testing connecting using a key from string"
+  make create-host
+  mv .ssh/identity .ssh/identity2
+  set +e
+  ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -ssh-private-key "$(cat .ssh/identity2)" -connect
+  local exit_code=$?
+  set -e
+  RET=$exit_code
+}
+
 rig_test_key_from_default_location() {
   color_echo "- Testing keypath from default location"
   make create-host

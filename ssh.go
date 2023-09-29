@@ -35,7 +35,15 @@ type SSH struct {
 	HostKey          string           `yaml:"hostKey,omitempty"`
 	Bastion          *SSH             `yaml:"bastion,omitempty"`
 	PasswordCallback PasswordCallback `yaml:"-"`
-	name             string
+
+	// AuthMethods can be used to pass in a list of ssh.AuthMethod objects
+	// for example to use a private key from memory:
+	//   ssh.PublicKeys(privateKey)
+	// For convenience, you can use ParseSSHPrivateKey() to parse a private key:
+	//   authMethods, err := rig.ParseSSHPrivateKey(key, rig.DefaultPassphraseCallback)
+	AuthMethods []ssh.AuthMethod `yaml:"-"`
+
+	name string
 
 	isWindows bool
 	knowOs    bool
@@ -338,7 +346,7 @@ func (c *SSH) hostkeyCallback() (ssh.HostKeyCallback, error) {
 	return knownhostsCallback(defaultPath, permissive, hash)
 }
 
-func (c *SSH) clientConfig() (*ssh.ClientConfig, error) {
+func (c *SSH) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
 	config := &ssh.ClientConfig{
 		User: c.User,
 	}
@@ -358,6 +366,11 @@ func (c *SSH) clientConfig() (*ssh.ClientConfig, error) {
 		if err != nil {
 			log.Debugf("%s: failed to list signers from ssh agent: %v", c, err)
 		}
+	}
+
+	if len(c.AuthMethods) > 0 {
+		log.Tracef("%s: using %d passed-in auth methods", c, len(c.AuthMethods))
+		config.Auth = c.AuthMethods
 	}
 
 	for _, keyPath := range c.keyPaths {
@@ -694,4 +707,42 @@ func (c *SSH) ExecInteractive(cmd string) error {
 	}
 
 	return nil
+}
+
+// ParseSSHPrivateKey is a convenience utility to parses a private key and
+// return []ssh.AuthMethod to be used in SSH{} AuthMethods field. This
+// way you can avoid importing golang.org/x/crypto/ssh in your code
+// and handle the passphrase prompt in a callback function.
+func ParseSSHPrivateKey(key []byte, callback PasswordCallback) ([]ssh.AuthMethod, error) {
+	signer, err := ssh.ParsePrivateKey(key)
+	if err == nil {
+		return []ssh.AuthMethod{ssh.PublicKeys(signer)}, nil
+	}
+	var ppErr *ssh.PassphraseMissingError
+	if !errors.As(err, &ppErr) {
+		return nil, fmt.Errorf("failed to parse key: %w", err)
+	}
+	if callback == nil {
+		return nil, fmt.Errorf("key is encrypted and no callback provided: %w", err)
+	}
+	pass, err := callback()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get passphrase: %w", err)
+	}
+	signer, err = ssh.ParsePrivateKeyWithPassphrase(key, []byte(pass))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse key with passphrase: %w", err)
+	}
+	return []ssh.AuthMethod{ssh.PublicKeys(signer)}, nil
+}
+
+// DefaultPasswordCallback is a default implementation for PasswordCallback
+func DefaultPasswordCallback() (string, error) {
+	fmt.Print("Enter passphrase: ")
+	pass, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Println()
+	if err != nil {
+		return "", fmt.Errorf("failed to read password: %w", err)
+	}
+	return string(pass), nil
 }
