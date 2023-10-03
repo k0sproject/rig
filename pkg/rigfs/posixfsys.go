@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"math/big"
 	"os"
 	"strings"
 	"time"
@@ -92,19 +91,11 @@ func (f *PosixFile) isWritable() bool {
 	return f.mode&ModeWrite != 0
 }
 
-// ddParams returns "optimal" parameters for a dd command to extract bytesToRead bytes at offset
-// from a file with fileSize length
-func (f *PosixFile) ddParams(offset int64, toRead int) (int, int64, int) {
-	offsetB := big.NewInt(offset)
-	toReadB := big.NewInt(int64(toRead))
+const blockSize = 4096
 
-	// find the greatest common divisor of the offset and the number of bytes to read
-	gcdB := big.NewInt(0)
-	gcdB.GCD(nil, nil, offsetB, toReadB)
-	blockSize := int(gcdB.Int64())
-
+func (f *PosixFile) ddParams(offset int64, numBytes int) (int, int64, int) {
 	skip := offset / int64(blockSize)
-	count := toRead / blockSize
+	count := (numBytes + blockSize - 1) / blockSize
 
 	return blockSize, skip, count
 }
@@ -139,29 +130,29 @@ func (f *PosixFile) Read(p []byte) (int, error) {
 	return copy(p, buf.Bytes()), nil
 }
 
-// Write writes len(p) bytes from p to the underlying data stream. It returns the number of bytes written from p (0 <= n <= len(p)) and any error encountered that caused the write to stop early.
 func (f *PosixFile) Write(p []byte) (int, error) {
 	if !f.isWritable() {
 		return 0, fmt.Errorf("%w: file %s is not open for writing", ErrCommandFailed, f.path)
 	}
 	bs, skip, count := f.ddParams(f.pos, len(p))
 	errbuf := bytes.NewBuffer(nil)
-	cmd, err := f.fsys.conn.ExecStreams(fmt.Sprintf("dd if=/dev/stdin of=%s bs=%d count=%d seek=%d", shellescape.Quote(f.path), bs, count, skip), io.NopCloser(bytes.NewReader(p)), io.Discard, errbuf, f.fsys.opts...)
+	cmd, err := f.fsys.conn.ExecStreams(fmt.Sprintf("dd if=/dev/stdin of=%s bs=%d count=%d seek=%d conv=notrunc", f.path, bs, count, skip), io.NopCloser(bytes.NewReader(p)), io.Discard, errbuf, f.fsys.opts...)
 	if err != nil {
 		return 0, fmt.Errorf("%w: write (dd): %w", ErrCommandFailed, err)
 	}
 	if err := cmd.Wait(); err != nil {
 		return 0, fmt.Errorf("%w: write (dd): %w (%s)", ErrCommandFailed, err, errbuf.String())
 	}
-	f.pos += int64(len(p))
+	written := len(p)
+	f.pos += int64(written)
 	if f.pos > f.size {
 		f.size = f.pos
-		f.isEOF = true
 	}
-	return len(p), nil
+	return written, nil
 }
 
-// CopyFromN copies n bytes from the remote file at src to the local file at dst
+// CopyFromN copies n bytes from the remote file. The alt writer can be used for progress
+// tracking, use nil when not needed.
 func (f *PosixFile) CopyFromN(src io.Reader, num int64, alt io.Writer) (int64, error) {
 	if !f.isWritable() {
 		return 0, fmt.Errorf("%w: file %s is not open for writing", ErrCommandFailed, f.path)

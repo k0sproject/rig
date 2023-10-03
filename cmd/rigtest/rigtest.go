@@ -99,7 +99,7 @@ func retry(fn func() error) error {
 func main() {
 	dh := flag.String("host", "127.0.0.1", "target host [+ :port], can give multiple comma separated")
 	usr := flag.String("user", "root", "user name")
-	proto := flag.String("proto", "ssh", "ssh/winrm")
+	proto := flag.String("proto", "ssh", "ssh/winrm/localhost/openssh")
 	kp := flag.String("keypath", "", "ssh keypath")
 	pc := flag.Bool("askpass", false, "ask ssh passwords")
 	pwd := flag.String("pass", "", "winrm password")
@@ -193,7 +193,7 @@ func main() {
 			h = &Host{
 				Connection: rig.Connection{
 					WinRM: &rig.WinRM{
-						Address:  *dh,
+						Address:  address,
 						Port:     port,
 						User:     *usr,
 						UseHTTPS: *https,
@@ -209,6 +209,24 @@ func main() {
 						Enabled: true,
 					},
 				},
+			}
+		case "openssh":
+			h = &Host{
+				Connection: rig.Connection{
+					OpenSSH: &rig.OpenSSH{
+						Address: address,
+						KeyPath: kp,
+					},
+				},
+			}
+			if *usr != "" {
+				h.OpenSSH.User = usr
+			}
+			if port != 22 && port != 0 {
+				h.OpenSSH.Port = &port
+			}
+			if cfgPath := goos.Getenv("SSH_CONFIG"); cfgPath != "" {
+				h.OpenSSH.ConfigPath = &cfgPath
 			}
 		default:
 			panic("unknown protocol " + *proto)

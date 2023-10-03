@@ -91,6 +91,7 @@ rig_test_ssh_config() {
   mv .ssh/identity .ssh/identity2
   echo "Host 127.0.0.1:$(ssh_port node0)" > .ssh/config
   echo "  IdentityFile .ssh/identity2" >> .ssh/config
+  chmod 0600 .ssh/config
   set +e
   HOME=. SSH_CONFIG=.ssh/config ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -connect
   local exit_code=$?
@@ -261,6 +262,21 @@ EOF
   env -i HOME="$(pwd)" ./rigtest -host 127.0.0.1:"$sshPort" -user rigtest-user -keypath .ssh/identity
 }
 
+rig_test_openssh_client() {
+  color_echo "- Testing openssh client protocol"
+  make create-host
+  echo "Host testhost" > .ssh/config
+  echo "  HostName 127.0.0.1" >> .ssh/config
+  echo "  Port $(ssh_port node0)" >> .ssh/config
+  echo "  User root" >> .ssh/config
+  echo "  IdentityFile $(pwd)/.ssh/identity" >> .ssh/config
+  set +e
+  SSH_CONFIG=.ssh/config ./rigtest -host testhost -proto openssh -user ""
+  local exit_code=$?
+  set -e
+  RET=$exit_code
+}
+
 retry() {
   local i
   for i in 1 2 3 4 5; do
@@ -270,7 +286,7 @@ retry() {
   "$@"
 }
 
-if ! sanity_check; then
+if [ -z "$FOCUS" ] && ! sanity_check; then
   color_echo Sanity check failed >&2
   exit 1
 fi
