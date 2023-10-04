@@ -17,7 +17,7 @@ var Log Logger
 
 // Tracef logs a trace level log message
 func Tracef(t string, args ...interface{}) {
-	Log.Debugf(t, args...)
+	Log.Tracef(t, args...)
 }
 
 // Debugf logs a debug level log message
