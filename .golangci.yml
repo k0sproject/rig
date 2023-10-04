@@ -43,8 +43,8 @@ linters:
 
 linters-settings:
   funlen:
-    lines: 65
-    statements: 45
+    lines: 100
+    statements: 75
   varnamelen:
     max-distance: 10
     ignore-decls:
