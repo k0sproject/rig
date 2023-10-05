@@ -275,6 +275,22 @@ rig_test_openssh_client() {
   RET=$exit_code
 }
 
+rig_test_openssh_client_no_multiplex() {
+  color_echo "- Testing openssh client protocol without ssh multiplexing"
+  make create-host
+  echo "Host testhost" > .ssh/config
+  echo "  HostName 127.0.0.1" >> .ssh/config
+  echo "  Port $(ssh_port node0)" >> .ssh/config
+  echo "  User root" >> .ssh/config
+  echo "  IdentityFile $(pwd)/.ssh/identity" >> .ssh/config
+  set +e
+  SSH_CONFIG=.ssh/config ./rigtest -host testhost -proto openssh -user "" -ssh-multiplex=false
+  local exit_code=$?
+  set -e
+  RET=$exit_code
+}
+
+
 retry() {
   local i
   for i in 1 2 3 4 5; do

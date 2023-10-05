@@ -177,8 +177,7 @@ func (c *OpenSSH) Connect() error {
 	}
 
 	if c.DisableMultiplexing {
-		err := c.Exec("exit 0")
-		if err != nil {
+		if err := c.Exec("exit 0", exec.StreamOutput()); err != nil {
 			return fmt.Errorf("failed to connect: %w", err)
 		}
 		c.isConnected = true
@@ -244,7 +243,7 @@ func (c *OpenSSH) closeControl() error {
 
 // Exec executes a command on the remote host
 func (c *OpenSSH) Exec(cmdStr string, opts ...exec.Option) error { //nolint:cyclop
-	if !c.isConnected {
+	if !c.DisableMultiplexing && !c.isConnected {
 		return ErrNotConnected
 	}
 
@@ -325,6 +324,9 @@ func (c *OpenSSH) Exec(cmdStr string, opts ...exec.Option) error { //nolint:cycl
 
 // ExecStreams executes a command on the remote host, streaming stdin, stdout and stderr
 func (c *OpenSSH) ExecStreams(cmdStr string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (waiter, error) {
+	if !c.DisableMultiplexing && !c.isConnected {
+		return nil, ErrNotConnected
+	}
 	execOpts := exec.Build(opts...)
 	command, err := execOpts.Command(cmdStr)
 	if err != nil {

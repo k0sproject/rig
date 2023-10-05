@@ -105,6 +105,7 @@ func main() {
 	https := flag.Bool("https", false, "use https for winrm")
 	connectOnly := flag.Bool("connect", false, "just connect and quit")
 	sshKey := flag.String("ssh-private-key", "", "ssh private key")
+	multiplex := flag.Bool("ssh-multiplex", true, "use ssh multiplexing")
 
 	fn := fmt.Sprintf("test_%s.txt", time.Now().Format("20060102150405"))
 
@@ -215,6 +216,7 @@ func main() {
 					OpenSSH: &rig.OpenSSH{
 						Address: address,
 						KeyPath: kp,
+						DisableMultiplexing: !*multiplex,
 					},
 				},
 			}
