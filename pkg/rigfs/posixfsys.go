@@ -8,6 +8,8 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,6 +40,8 @@ func NewPosixFsys(conn connection, opts ...exec.Option) *PosixFsys {
 	return &PosixFsys{conn: conn, opts: opts}
 }
 
+const defaultBlockSize = 4096
+
 // PosixFile implements fs.File for a remote file
 type PosixFile struct {
 	fsys   *PosixFsys
@@ -47,6 +51,8 @@ type PosixFile struct {
 	pos    int64
 	size   int64
 	mode   FileMode
+
+	blockSize int
 }
 
 // PosixDir implements fs.ReadDirFile for a remote directory
@@ -83,6 +89,22 @@ func (f *PosixDir) ReadDir(n int) ([]fs.DirEntry, error) {
 	return f.entries[old:f.hw], nil
 }
 
+func (f *PosixFile) fsBlockSize() int {
+	if f.blockSize > 0 {
+		return f.blockSize
+	}
+
+	out, err := f.fsys.conn.ExecOutput(fmt.Sprintf(`stat -c "%%s" %[1]s 2> /dev/null || stat -f "%%k" %[1]s`, shellescape.Quote(filepath.Dir(f.path))), f.fsys.opts...)
+	if err != nil {
+		// fall back to default
+		f.blockSize = defaultBlockSize
+	} else if bs, err := strconv.Atoi(strings.TrimSpace(out)); err == nil {
+		f.blockSize = bs
+	}
+
+	return f.blockSize
+}
+
 func (f *PosixFile) isReadable() bool {
 	return f.mode&ModeRead != 0
 }
@@ -91,13 +113,18 @@ func (f *PosixFile) isWritable() bool {
 	return f.mode&ModeWrite != 0
 }
 
-const blockSize = 4096
-
 func (f *PosixFile) ddParams(offset int64, numBytes int) (int, int64, int) {
-	skip := offset / int64(blockSize)
-	count := (numBytes + blockSize - 1) / blockSize
+	bs := f.fsBlockSize()
 
-	return blockSize, skip, count
+	if numBytes < bs {
+		bs = numBytes
+		skip := offset / int64(bs)
+		return bs, skip, 1
+	}
+
+	skip := offset / int64(bs)
+	count := numBytes / bs
+	return bs, skip, count
 }
 
 // Stat returns a FileInfo describing the named file
@@ -113,9 +140,13 @@ func (f *PosixFile) Read(p []byte) (int, error) {
 	if !f.isReadable() {
 		return 0, fmt.Errorf("%w: file %s is not open for reading", ErrCommandFailed, f.path)
 	}
-	bs, skip, count := f.ddParams(f.pos, len(p))
 	errbuf := bytes.NewBuffer(nil)
+
+	bs, skip, count := f.ddParams(f.pos, len(p))
+	toRead := bs * count
 	buf := bytes.NewBuffer(nil)
+	errbuf.Reset()
+
 	cmd, err := f.fsys.conn.ExecStreams(fmt.Sprintf("dd if=%s bs=%d skip=%d count=%d", shellescape.Quote(f.path), bs, skip, count), nil, buf, errbuf, f.fsys.opts...)
 	if err != nil {
 		return 0, fmt.Errorf("%w: failed to execute dd: %w (%s)", ErrCommandFailed, err, errbuf.String())
@@ -123,31 +154,49 @@ func (f *PosixFile) Read(p []byte) (int, error) {
 	if err := cmd.Wait(); err != nil {
 		return 0, fmt.Errorf("%w: read (dd): %w (%s)", ErrCommandFailed, err, errbuf.String())
 	}
-	f.pos += int64(buf.Len())
-	if buf.Len() < len(p) {
+
+	readBytes := copy(p, buf.Bytes())
+	f.pos += int64(readBytes)
+	if readBytes < len(p) || readBytes < toRead {
 		f.isEOF = true
+		return readBytes, io.EOF
 	}
-	return copy(p, buf.Bytes()), nil
+	return readBytes, nil
 }
 
 func (f *PosixFile) Write(p []byte) (int, error) {
 	if !f.isWritable() {
 		return 0, fmt.Errorf("%w: file %s is not open for writing", ErrCommandFailed, f.path)
 	}
-	bs, skip, count := f.ddParams(f.pos, len(p))
-	errbuf := bytes.NewBuffer(nil)
-	cmd, err := f.fsys.conn.ExecStreams(fmt.Sprintf("dd if=/dev/stdin of=%s bs=%d count=%d seek=%d conv=notrunc", f.path, bs, count, skip), io.NopCloser(bytes.NewReader(p)), io.Discard, errbuf, f.fsys.opts...)
-	if err != nil {
-		return 0, fmt.Errorf("%w: write (dd): %w", ErrCommandFailed, err)
+
+	var written int
+	remaining := p
+	for written < len(p) {
+		bs, skip, count := f.ddParams(f.pos, len(remaining))
+		toWrite := bs * count
+
+		errbuf := bytes.NewBuffer(nil)
+		limitedReader := bytes.NewReader(remaining[:toWrite])
+		cmd, err := f.fsys.conn.ExecStreams(fmt.Sprintf("dd if=/dev/stdin of=%s bs=%d count=%d seek=%d conv=notrunc", f.path, bs, count, skip), io.NopCloser(limitedReader), io.Discard, errbuf, f.fsys.opts...)
+		if err != nil {
+			return 0, fmt.Errorf("%w: write (dd): %w", ErrCommandFailed, err)
+		}
+		if err := cmd.Wait(); err != nil {
+			return 0, fmt.Errorf("%w: write (dd): %w (%s)", ErrCommandFailed, err, errbuf.String())
+		}
+
+		written += toWrite
+		remaining = remaining[toWrite:]
+		f.pos += int64(toWrite)
+		if f.pos > f.size {
+			f.size = f.pos
+		}
 	}
-	if err := cmd.Wait(); err != nil {
-		return 0, fmt.Errorf("%w: write (dd): %w (%s)", ErrCommandFailed, err, errbuf.String())
+
+	if written < len(p) {
+		return written, io.ErrShortWrite
 	}
-	written := len(p)
-	f.pos += int64(written)
-	if f.pos > f.size {
-		f.size = f.pos
-	}
+
 	return written, nil
 }
 

@@ -30,6 +30,16 @@ sanity_check() {
   RET=$exit_code
 }
 
+rig_test_key_from_path() {
+  color_echo "- Testing regular keypath and host functions"
+  make create-host
+  mv .ssh/identity .ssh/identity2
+  set +e
+  ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -keypath .ssh/identity2 
+  local exit_code=$?
+  set -e
+  RET=$exit_code
+}
 
 rig_test_agent_with_public_key() {
   color_echo "- Testing connection using agent and providing a path to public key"
@@ -159,18 +169,6 @@ rig_test_ssh_config_no_strict() {
   RET=$exit_code
 }
 
-
-rig_test_key_from_path() {
-  color_echo "- Testing regular keypath and host functions"
-  make create-host
-  mv .ssh/identity .ssh/identity2
-  set +e
-  ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -keypath .ssh/identity2 
-  local exit_code=$?
-  set -e
-  RET=$exit_code
-}
-
 rig_test_key_from_memory() {
   color_echo "- Testing connecting using a key from string"
   make create-host
@@ -187,7 +185,7 @@ rig_test_key_from_default_location() {
   make create-host
   mv .ssh/identity .ssh/id_ecdsa
   set +e
-  HOME=$(pwd) ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root
+  HOME=$(pwd) ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -connect
   local exit_code=$?
   set -e
   RET=$exit_code
