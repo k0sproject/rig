@@ -37,12 +37,9 @@ jobs:
       fail-fast: false
       matrix:
         image:
-          - quay.io/footloose/ubuntu18.04
-          - quay.io/footloose/centos7
-          # - quay.io/footloose/amazonlinux2  ( not recognized )
-          - quay.io/footloose/debian10
-          # - quay.io/footloose/fedora29 ( not recognized )
-          - alpine-3.18.iid
+          - quay.io/k0sproject/bootloose-ubuntu20.04
+          - quay.io/k0sproject/bootloose-debian12
+          - quay.io/k0sproject/bootloose-alpine3.18
     needs: build
     runs-on: ubuntu-20.04
     steps:
@@ -59,21 +56,8 @@ jobs:
         sudo apt-get update
         sudo apt-get install expect
 
-    - name: Prepare footloose image
-      id: prepare-footloose-image
-      env:
-        IMAGE: ${{ matrix.image }}
-      run: |
-        case "$IMAGE" in
-        *.iid)
-          make -C test "$IMAGE"
-          IMAGE="$(cat "test/$IMAGE")"
-          ;;
-        esac
-        echo image="$IMAGE" >> $GITHUB_OUTPUT
-
     - name: Run integration tests
       env:
-        LINUX_IMAGE: ${{ steps.prepare-footloose-image.outputs.image }}
+        LINUX_IMAGE: ${{ matrix.image }}
       run: make -C test test
 

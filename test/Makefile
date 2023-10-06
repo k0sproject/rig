@@ -3,15 +3,15 @@ KEY_SIZE ?= 4096
 KEY_PASSPHRASE ?= ""
 KEY_PATH ?= ".ssh/identity"
 REPLICAS ?= 1
-LINUX_IMAGE ?= "quay.io/footloose/centos7"
+LINUX_IMAGE ?= "quay.io/k0sproject/bootloose-ubuntu20.04"
 
 .PHONY: test
 test: rigtest
 	./test.sh
 
-footloose := $(shell which footloose)
-ifeq ($(footloose),)
-footloose := $(shell go env GOPATH)/bin/footloose
+bootloose := $(shell which bootloose)
+ifeq ($(bootloose),)
+bootloose := $(shell go env GOPATH)/bin/bootloose
 endif
 
 envsubst := $(shell which envsubst)
@@ -28,8 +28,8 @@ endif
 rigtest:
 	go build -o rigtest ../cmd/rigtest
 
-$(footloose):
-	go install github.com/weaveworks/footloose/...@0.6.3
+$(bootloose):
+	go install github.com/k0sproject/bootloose@latest
 
 .ssh:
 	mkdir -p .ssh
@@ -40,38 +40,35 @@ $(footloose):
 
 .PHONY: docker-network
 docker-network:
-	docker network inspect footloose-cluster || docker network create footloose-cluster --subnet 172.16.86.0/24 --gateway 172.16.86.1 --attachable
+	docker network inspect bootloose-cluster || docker network create bootloose-cluster --subnet 172.16.86.0/24 --gateway 172.16.86.1 --attachable
 
-footloose.yaml: .ssh/identity $(footloose)
-	$(footloose) config create \
-		--config footloose.yaml \
+bootloose.yaml: .ssh/identity $(bootloose)
+	$(bootloose) config create \
+		--config bootloose.yaml \
 	  --image $(LINUX_IMAGE) \
 		--name rigtest \
 	  --key .ssh/identity \
-		--networks footloose-cluster \
+		--networks bootloose-cluster \
     --override \
 		--replicas $(REPLICAS)
 
-%.iid: Dockerfile.%
-	docker build --iidfile '$@' - < '$<'
-
 .PHONY: create-host
-create-host: footloose.yaml docker-network
-	$(footloose) create -c footloose.yaml
+create-host: bootloose.yaml docker-network
+	$(bootloose) create -c bootloose.yaml
 
 .PHONY: delete-host
-delete-host: footloose.yaml
-	$(footloose) delete -c footloose.yaml
+delete-host: bootloose.yaml
+	$(bootloose) delete -c bootloose.yaml
 
 .PHONY: clean
 clean: delete-host
-	rm -f footloose.yaml identity rigtest
-	rm -rf .ssh *.iid
-	docker network rm footloose-cluster || true
+	rm -f bootloose.yaml identity rigtest
+	rm -rf .ssh
+	docker network rm bootloose-cluster || true
 
 .PHONY: sshport
 sshport:
-	@$(footloose) show node0 -o json|grep hostPort|grep -oE "[0-9]+"
+	@$(bootloose) show node0 -o json|grep hostPort|grep -oE "[0-9]+"
 
 .PHONY: run
 run: rigtest create-host

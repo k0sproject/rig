@@ -8,22 +8,22 @@ color_echo() {
 }
 
 ssh_port() {
-	footloose show $1 -o json|grep hostPort|grep -oE "[0-9]+"
+	bootloose show $1 -o json|grep hostPort|grep -oE "[0-9]+"
 }
 
 sanity_check() {
-  color_echo "- Testing footloose machine connection"
+  color_echo "- Testing bootloose machine connection"
   make create-host
-  echo "* Footloose status"
-  footloose status
+  echo "* bootloose status"
+  bootloose status
   echo "* Docker ps"
   docker ps
   echo "* SSH port: $(ssh_port node0)"
   echo "* Testing stock ssh"
   retry ssh -vvv -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i .ssh/identity -p $(ssh_port node0) root@127.0.0.1 echo "test-conn" || return $?
   set +e
-  echo "* Testing footloose ssh"
-  footloose ssh root@node0 echo test-conn | grep -q test-conn
+  echo "* Testing bootloose ssh"
+  bootloose ssh root@node0 echo test-conn | grep -q test-conn
   local exit_code=$?
   set -e
   make clean
@@ -214,7 +214,7 @@ rig_test_protected_key_from_path() {
   ' $port1 $port2
   local exit_code=$?
   set -e
-  rm footloose.yaml
+  rm bootloose.yaml
   make delete-host REPLICAS=2
   RET=$exit_code
 }
