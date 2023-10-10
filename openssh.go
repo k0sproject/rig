@@ -390,13 +390,6 @@ func (c *OpenSSH) Disconnect() {
 		return
 	}
 
-	c.controlMutex.Lock()
-	defer c.controlMutex.Unlock()
-
-	if !c.isConnected {
-		return
-	}
-
 	if err := c.closeControl(); err != nil {
 		log.Warnf("%s: failed to close control master: %v", c, err)
 	}
