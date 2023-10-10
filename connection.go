@@ -75,6 +75,7 @@ type Connection struct {
 	WinRM     *WinRM     `yaml:"winRM,omitempty"`
 	SSH       *SSH       `yaml:"ssh,omitempty"`
 	Localhost *Localhost `yaml:"localhost,omitempty"`
+	OpenSSH   *OpenSSH   `yaml:"openSSH,omitempty"`
 
 	OSVersion *OSVersion `yaml:"-"`
 
@@ -404,6 +405,10 @@ func (c *Connection) configuredClient() client {
 
 	if c.SSH != nil {
 		return c.SSH
+	}
+
+	if c.OpenSSH != nil {
+		return c.OpenSSH
 	}
 
 	return nil

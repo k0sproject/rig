@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
@@ -99,13 +98,14 @@ func retry(fn func() error) error {
 func main() {
 	dh := flag.String("host", "127.0.0.1", "target host [+ :port], can give multiple comma separated")
 	usr := flag.String("user", "root", "user name")
-	proto := flag.String("proto", "ssh", "ssh/winrm")
+	proto := flag.String("proto", "ssh", "ssh/winrm/localhost/openssh")
 	kp := flag.String("keypath", "", "ssh keypath")
 	pc := flag.Bool("askpass", false, "ask ssh passwords")
 	pwd := flag.String("pass", "", "winrm password")
 	https := flag.Bool("https", false, "use https for winrm")
 	connectOnly := flag.Bool("connect", false, "just connect and quit")
 	sshKey := flag.String("ssh-private-key", "", "ssh private key")
+	multiplex := flag.Bool("ssh-multiplex", true, "use ssh multiplexing")
 
 	fn := fmt.Sprintf("test_%s.txt", time.Now().Format("20060102150405"))
 
@@ -193,7 +193,7 @@ func main() {
 			h = &Host{
 				Connection: rig.Connection{
 					WinRM: &rig.WinRM{
-						Address:  *dh,
+						Address:  address,
 						Port:     port,
 						User:     *usr,
 						UseHTTPS: *https,
@@ -209,6 +209,25 @@ func main() {
 						Enabled: true,
 					},
 				},
+			}
+		case "openssh":
+			h = &Host{
+				Connection: rig.Connection{
+					OpenSSH: &rig.OpenSSH{
+						Address: address,
+						KeyPath: kp,
+						DisableMultiplexing: !*multiplex,
+					},
+				},
+			}
+			if *usr != "" {
+				h.OpenSSH.User = usr
+			}
+			if port != 22 && port != 0 {
+				h.OpenSSH.Port = &port
+			}
+			if cfgPath := goos.Getenv("SSH_CONFIG"); cfgPath != "" {
+				h.OpenSSH.ConfigPath = &cfgPath
 			}
 		default:
 			panic("unknown protocol " + *proto)
@@ -268,64 +287,71 @@ func main() {
 		require.NoError(t, h.Configurer.DeleteFile(h, fn))
 		require.False(t, h.Configurer.FileExist(h, fn))
 
-		testFileSize := int64(1 << (10 * 2)) // 1MB
 		fsyses := []rigfs.Fsys{h.Fsys(), h.SudoFsys()}
 
 		for idx, fsys := range fsyses {
-			t.Run("fsys functions (%d) on %s", idx+1, h)
+			for _, testFileSize := range []int64{
+				int64(500),           // less than one block on most filesystems
+				int64(1 << (10 * 2)), // exactly 1MB
+				int64(4096),          // exactly one block on most filesystems
+				int64(4097),          // plus 1
+			} {
+				t.Run("fsys (%d) functions for file size %d on %s", idx+1, testFileSize, h)
 
-			origin := io.LimitReader(rand.Reader, testFileSize)
-			shasum := sha256.New()
-			reader := io.TeeReader(origin, shasum)
+				origin := io.LimitReader(rand.Reader, testFileSize)
+				shasum := sha256.New()
+				reader := io.TeeReader(origin, shasum)
 
-			destf, err := fsys.OpenFile(fn, rigfs.ModeCreate, 0644)
-			require.NoError(t, err, "open file")
+				destf, err := fsys.OpenFile(fn, rigfs.ModeCreate, 0644)
+				require.NoError(t, err, "open file")
 
-			n, err := io.Copy(destf, reader)
-			require.NoError(t, err, "io.copy file from local to remote")
-			require.Equal(t, testFileSize, n, "file size not as expected after copy")
+				n, err := io.Copy(destf, reader)
+				require.NoError(t, err, "io.copy file from local to remote")
+				require.Equal(t, testFileSize, n, "file size not as expected after copy")
 
-			require.NoError(t, destf.Close(), "error while closing file")
+				require.NoError(t, destf.Close(), "error while closing file")
 
-			fstat, err := fsys.Stat(fn)
-			require.NoError(t, err, "stat error")
-			require.Equal(t, testFileSize, fstat.Size(), "file size not as expected in stat result")
+				fstat, err := fsys.Stat(fn)
+				require.NoError(t, err, "stat error")
+				require.Equal(t, testFileSize, fstat.Size(), "file size not as expected in stat result")
 
-			destSum, err := fsys.Sha256(fn)
-			require.NoError(t, err, "sha256 error")
+				destSum, err := fsys.Sha256(fn)
+				require.NoError(t, err, "sha256 error")
 
-			require.Equal(t, fmt.Sprintf("%x", shasum.Sum(nil)), destSum, "sha256 mismatch after io.copy from local to remote")
+				require.Equal(t, fmt.Sprintf("%x", shasum.Sum(nil)), destSum, "sha256 mismatch after io.copy from local to remote")
 
-			destf, err = fsys.OpenFile(fn, rigfs.ModeRead, 0644)
-			require.NoError(t, err, "open file for read")
+				destf, err = fsys.OpenFile(fn, rigfs.ModeRead, 0644)
+				require.NoError(t, err, "open file for read")
 
-			readSha := sha256.New()
-			n, err = io.Copy(readSha, destf)
-			require.NoError(t, err, "io.copy file from remote to local")
+				readSha := sha256.New()
+				n, err = io.Copy(readSha, destf)
+				require.NoError(t, err, "io.copy file from remote to local")
 
-			require.Equal(t, testFileSize, n, "file size not as expected after copy from remote to local")
+				require.Equal(t, testFileSize, n, "file size not as expected after copy from remote to local")
 
-			fstat, err = destf.Stat()
-			require.NoError(t, err, "stat error after read")
-			require.Equal(t, testFileSize, fstat.Size(), "file size not as expected in stat result after read")
-			require.True(t, bytes.Equal(readSha.Sum(nil), shasum.Sum(nil)), "sha256 mismatch after io.copy from remote to local")
+				fstat, err = destf.Stat()
+				require.NoError(t, err, "stat error after read")
+				require.Equal(t, testFileSize, fstat.Size(), "file size not as expected in stat result after read")
+				require.Equal(t, readSha.Sum(nil), shasum.Sum(nil), "sha256 mismatch after io.copy from remote to local")
 
-			_, err = destf.Seek(0, 0)
-			require.NoError(t, err, "seek")
+				_, err = destf.Seek(0, 0)
+				require.NoError(t, err, "seek")
 
-			readSha.Reset()
+				readSha.Reset()
 
-			n, err = io.Copy(readSha, destf)
-			require.NoError(t, err, "io.copy file from remote to local after seek")
+				n, err = io.Copy(readSha, destf)
+				require.NoError(t, err, "io.copy file from remote to local after seek")
 
-			require.Equal(t, testFileSize, n, "file size not as expected after copy from remote to local after seek")
+				require.Equal(t, testFileSize, n, "file size not as expected after copy from remote to local after seek")
 
-			require.True(t, bytes.Equal(readSha.Sum(nil), shasum.Sum(nil)), "sha256 mismatch after io.copy from remote to local after seek")
+				require.Equal(t, readSha.Sum(nil), shasum.Sum(nil), "sha256 mismatch after io.copy from remote to local after seek")
 
-			require.NoError(t, destf.Close(), "close after seek + read")
-			require.NoError(t, fsys.Remove(fn), "remove file")
-			_, err = destf.Stat()
-			require.ErrorIs(t, err, fs.ErrNotExist, "file still exists")
+				require.NoError(t, destf.Close(), "close after seek + read")
+				require.NoError(t, fsys.Remove(fn), "remove file")
+				_, err = destf.Stat()
+				require.ErrorIs(t, err, fs.ErrNotExist, "file still exists")
+			}
+			t.Run("fsys (%d) dir ops on %s", idx+1, h)
 
 			// fsys dirops
 			require.NoError(t, fsys.MkDirAll("tmpdir/nested", 0644), "make nested dir")

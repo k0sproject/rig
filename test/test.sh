@@ -30,6 +30,16 @@ sanity_check() {
   RET=$exit_code
 }
 
+rig_test_key_from_path() {
+  color_echo "- Testing regular keypath and host functions"
+  make create-host
+  mv .ssh/identity .ssh/identity2
+  set +e
+  ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -keypath .ssh/identity2 
+  local exit_code=$?
+  set -e
+  RET=$exit_code
+}
 
 rig_test_agent_with_public_key() {
   color_echo "- Testing connection using agent and providing a path to public key"
@@ -91,6 +101,7 @@ rig_test_ssh_config() {
   mv .ssh/identity .ssh/identity2
   echo "Host 127.0.0.1:$(ssh_port node0)" > .ssh/config
   echo "  IdentityFile .ssh/identity2" >> .ssh/config
+  chmod 0600 .ssh/config
   set +e
   HOME=. SSH_CONFIG=.ssh/config ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -connect
   local exit_code=$?
@@ -158,18 +169,6 @@ rig_test_ssh_config_no_strict() {
   RET=$exit_code
 }
 
-
-rig_test_key_from_path() {
-  color_echo "- Testing regular keypath and host functions"
-  make create-host
-  mv .ssh/identity .ssh/identity2
-  set +e
-  ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -keypath .ssh/identity2 
-  local exit_code=$?
-  set -e
-  RET=$exit_code
-}
-
 rig_test_key_from_memory() {
   color_echo "- Testing connecting using a key from string"
   make create-host
@@ -186,7 +185,7 @@ rig_test_key_from_default_location() {
   make create-host
   mv .ssh/identity .ssh/id_ecdsa
   set +e
-  HOME=$(pwd) ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root
+  HOME=$(pwd) ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -connect
   local exit_code=$?
   set -e
   RET=$exit_code
@@ -261,6 +260,37 @@ EOF
   env -i HOME="$(pwd)" ./rigtest -host 127.0.0.1:"$sshPort" -user rigtest-user -keypath .ssh/identity
 }
 
+rig_test_openssh_client() {
+  color_echo "- Testing openssh client protocol"
+  make create-host
+  echo "Host testhost" > .ssh/config
+  echo "  HostName 127.0.0.1" >> .ssh/config
+  echo "  Port $(ssh_port node0)" >> .ssh/config
+  echo "  User root" >> .ssh/config
+  echo "  IdentityFile $(pwd)/.ssh/identity" >> .ssh/config
+  set +e
+  SSH_CONFIG=.ssh/config ./rigtest -host testhost -proto openssh -user ""
+  local exit_code=$?
+  set -e
+  RET=$exit_code
+}
+
+rig_test_openssh_client_no_multiplex() {
+  color_echo "- Testing openssh client protocol without ssh multiplexing"
+  make create-host
+  echo "Host testhost" > .ssh/config
+  echo "  HostName 127.0.0.1" >> .ssh/config
+  echo "  Port $(ssh_port node0)" >> .ssh/config
+  echo "  User root" >> .ssh/config
+  echo "  IdentityFile $(pwd)/.ssh/identity" >> .ssh/config
+  set +e
+  SSH_CONFIG=.ssh/config ./rigtest -host testhost -proto openssh -user "" -ssh-multiplex=false
+  local exit_code=$?
+  set -e
+  RET=$exit_code
+}
+
+
 retry() {
   local i
   for i in 1 2 3 4 5; do
@@ -270,7 +300,7 @@ retry() {
   "$@"
 }
 
-if ! sanity_check; then
+if [ -z "$FOCUS" ] && ! sanity_check; then
   color_echo Sanity check failed >&2
   exit 1
 fi

@@ -551,7 +551,7 @@ func (c *SSH) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Wri
 }
 
 // Exec executes a command on the host
-func (c *SSH) Exec(cmd string, opts ...exec.Option) error { //nolint:funlen,cyclop
+func (c *SSH) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop
 	execOpts := exec.Build(opts...)
 	session, err := c.client.NewSession()
 	if err != nil {

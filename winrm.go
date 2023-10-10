@@ -258,7 +258,7 @@ func (c *WinRM) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.W
 }
 
 // Exec executes a command on the host
-func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:funlen,cyclop
+func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop
 	execOpts := exec.Build(opts...)
 	shell, err := c.client.CreateShell()
 	if err != nil {
