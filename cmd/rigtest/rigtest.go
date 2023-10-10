@@ -214,8 +214,8 @@ func main() {
 			h = &Host{
 				Connection: rig.Connection{
 					OpenSSH: &rig.OpenSSH{
-						Address: address,
-						KeyPath: kp,
+						Address:             address,
+						KeyPath:             kp,
 						DisableMultiplexing: !*multiplex,
 					},
 				},
@@ -395,5 +395,7 @@ func main() {
 			require.Equal(t, "testfile1", foundFiles[2].Name(), "walk dir found testfile1")
 			require.Equal(t, "testfile2", foundFiles[3].Name(), "walk dir found testfile2")
 		}
+		t.Run("disconnect %s", h.Address())
+		h.Disconnect()
 	}
 }
