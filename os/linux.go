@@ -464,7 +464,7 @@ func (c Linux) Touch(h Host, path string, ts time.Time, opts ...exec.Option) err
 	// to detect BusyBox touch and if it's not BusyBox go on with the
 	// full-precision GNU format instead.
 	if !utc.Equal(utc.Truncate(time.Second)) {
-		out, err := h.ExecOutput("env -i LC_ALL=C TZ=UTC touch --help 2>&1")
+		out, err := h.ExecOutput("env -i LC_ALL=C TZ=UTC touch --help 2>&1", exec.HideOutput(), exec.HideCommand())
 		if err != nil || !strings.Contains(out, "BusyBox") {
 			format = gnuCoreutilsDateTimeLayout
 		}
