@@ -372,7 +372,7 @@ func (c *Connection) Upload(src, dst string, _ ...exec.Option) error {
 	shasum := sha256.New()
 
 	fsys := c.Fsys()
-	remote, err := fsys.OpenFile(dst, rigfs.ModeCreate, rigfs.FileMode(stat.Mode()))
+	remote, err := fsys.OpenFile(dst, os.O_CREATE|os.O_WRONLY, stat.Mode())
 	if err != nil {
 		return fmt.Errorf("%w: open remote file %s for writing: %w", ErrInvalidPath, dst, err)
 	}

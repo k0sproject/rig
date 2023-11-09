@@ -36,29 +36,6 @@ func (f *FileInfo) UnmarshalJSON(b []byte) error {
 	}
 	f.FModTime = time.Unix(f.ModtimeS, 0)
 	f.FName = strings.ReplaceAll(f.FName, "\\", "/")
-
-	var newmode fs.FileMode
-
-	if f.FMode&1 != 0 { // "Readonly"
-		newmode = 0o444
-	}
-	if f.FMode&16 != 0 { // "Directory"
-		newmode |= fs.ModeDir | 0o544
-	}
-	if f.FMode&64 != 0 { // "Device"
-		newmode |= fs.ModeCharDevice
-	}
-	if f.FMode&4096 != 0 { // "Offline"
-		newmode |= fs.ModeIrregular
-	}
-	if f.FMode&1024 != 0 { // "ReparsePoint"
-		newmode |= fs.ModeIrregular
-		newmode |= fs.ModeSymlink
-	}
-	if f.FMode&256 != 0 { // "Temporary"
-		newmode |= fs.ModeTemporary
-	}
-	f.FMode = newmode
 	return nil
 }
 

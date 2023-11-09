@@ -35,21 +35,10 @@ type File interface {
 // Fsys is a filesystem on the remote host
 type Fsys interface {
 	fs.FS
-	OpenFile(path string, mode FileMode, perm FileMode) (File, error)
+	OpenFile(path string, flag int, perm fs.FileMode) (File, error)
 	Sha256(path string) (string, error)
 	Stat(path string) (fs.FileInfo, error)
 	Remove(path string) error
 	RemoveAll(path string) error
-	MkDirAll(path string, perm FileMode) error
+	MkDirAll(path string, perm fs.FileMode) error
 }
-
-// FileMode is used to set the type of allowed operations when opening remote files
-type FileMode int
-
-const (
-	ModeRead      FileMode = 1                    // ModeRead = Read only
-	ModeWrite     FileMode = 2                    // ModeWrite = Write only
-	ModeReadWrite FileMode = ModeRead | ModeWrite // ModeReadWrite = Read and Write
-	ModeCreate    FileMode = 4 | ModeWrite        // ModeCreate = Create a new file or truncate an existing one. Includes write permission.
-	ModeAppend    FileMode = 8 | ModeCreate       // ModeAppend = Append to an existing file. Includes create and write permissions.
-)
