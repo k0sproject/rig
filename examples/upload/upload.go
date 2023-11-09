@@ -14,8 +14,8 @@ import (
 )
 
 type configurer interface {
-	Pwd(os.Host) string
-	CheckPrivilege(os.Host) error
+	Pwd(host os.Host) string
+	CheckPrivilege(host os.Host) error
 }
 
 // Host is a host that utilizes rig for connections
@@ -33,7 +33,11 @@ func (h *Host) LoadOS() error {
 		return err
 	}
 
-	h.Configurer = bf().(configurer)
+	c, ok := bf().(configurer)
+	if !ok {
+		return fmt.Errorf("OS %s does not support configurer interface", *h.OSVersion)
+	}
+	h.Configurer = c
 
 	return nil
 }

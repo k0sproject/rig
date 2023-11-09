@@ -19,16 +19,16 @@ type Linux struct{}
 
 // initSystem interface defines an init system - the OS's system to manage services (systemd, openrc for example)
 type initSystem interface {
-	StartService(initsystem.Host, string) error
-	StopService(initsystem.Host, string) error
-	RestartService(initsystem.Host, string) error
-	DisableService(initsystem.Host, string) error
-	EnableService(initsystem.Host, string) error
-	ServiceIsRunning(initsystem.Host, string) bool
-	ServiceScriptPath(initsystem.Host, string) (string, error)
-	DaemonReload(initsystem.Host) error
-	ServiceEnvironmentPath(initsystem.Host, string) (string, error)
-	ServiceEnvironmentContent(map[string]string) string
+	StartService(host initsystem.Host, service string) error
+	StopService(host initsystem.Host, service string) error
+	RestartService(host initsystem.Host, service string) error
+	DisableService(host initsystem.Host, service string) error
+	EnableService(host initsystem.Host, service string) error
+	ServiceIsRunning(host initsystem.Host, service string) bool
+	ServiceScriptPath(host initsystem.Host, service string) (string, error)
+	DaemonReload(host initsystem.Host) error
+	ServiceEnvironmentPath(host initsystem.Host, srvice string) (string, error)
+	ServiceEnvironmentContent(envs map[string]string) string
 }
 
 // ErrInitSystemNotSupported is returned when the init system is not supported

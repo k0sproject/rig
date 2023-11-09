@@ -3,7 +3,7 @@ package initsystem
 
 // Host interface for init system
 type Host interface {
-	Execf(string, ...interface{}) error
-	ExecOutputf(string, ...interface{}) (string, error)
-	Sudo(string) (string, error)
+	Execf(cmd string, args ...any) error
+	ExecOutputf(cmd string, args ...any) (string, error)
+	Sudo(cmd string) (string, error)
 }

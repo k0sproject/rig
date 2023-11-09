@@ -133,7 +133,7 @@ func init() {
 		func(os rig.OSVersion) bool {
 			return os.ID == "darwin"
 		},
-		func() interface{} {
+		func() any {
 			return Darwin{}
 		},
 	)
