@@ -99,9 +99,11 @@ main() {
       echo -n "]}"
       ;;
     "touch")
-      local perm="$3"
       touch "$path" && echo -n "{}"
-      chmod "$perm" "$path"
+      ;;
+    "chmod")
+      local perm="$3"
+      chmod "$perm" "$path" && echo -n "{}"
       ;;
     "truncate")
       local pos="$3"
