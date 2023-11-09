@@ -208,7 +208,7 @@ func (f *PosixFile) CopyFromN(src io.Reader, num int64, alt io.Writer) (int64, e
 	}
 	var ddCmd string
 	if f.pos+num >= f.size {
-		if _, err := f.fsys.helper("truncate", f.path, fmt.Sprintf("%d", f.pos)); err != nil {
+		if _, err := f.fsys.helper("truncate", f.path, strconv.FormatInt(f.pos, 10)); err != nil {
 			return 0, fmt.Errorf("%w: truncate %s for writing: %w", ErrCommandFailed, f.path, err)
 		}
 		ddCmd = fmt.Sprintf("dd if=/dev/stdin of=%s bs=16M oflag=append conv=notrunc", shellescape.Quote(f.path))

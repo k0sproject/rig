@@ -18,9 +18,9 @@ type Waiter interface {
 
 type connection interface {
 	IsWindows() bool
-	Exec(string, ...exec.Option) error
-	ExecOutput(string, ...exec.Option) (string, error)
-	ExecStreams(string, io.ReadCloser, io.Writer, io.Writer, ...exec.Option) (Waiter, error)
+	Exec(cmd string, opts ...exec.Option) error
+	ExecOutput(cmd string, opts ...exec.Option) (string, error)
+	ExecStreams(cmd string, stdin io.ReadCloser, stdout io.Writer, stderr io.Writer, opts ...exec.Option) (Waiter, error)
 }
 
 // File is a file in the remote filesystem
@@ -28,19 +28,19 @@ type File interface {
 	fs.File
 	io.WriteCloser
 	io.Seeker
-	Copy(io.Writer) (int64, error)
-	CopyFromN(io.Reader, int64, io.Writer) (int64, error)
+	Copy(dest io.Writer) (int64, error)
+	CopyFromN(src io.Reader, count int64, dest io.Writer) (int64, error)
 }
 
 // Fsys is a filesystem on the remote host
 type Fsys interface {
 	fs.FS
-	OpenFile(string, FileMode, FileMode) (File, error)
-	Sha256(string) (string, error)
-	Stat(string) (fs.FileInfo, error)
-	Remove(string) error
-	RemoveAll(string) error
-	MkDirAll(string, FileMode) error
+	OpenFile(path string, mode FileMode, perm FileMode) (File, error)
+	Sha256(path string) (string, error)
+	Stat(path string) (fs.FileInfo, error)
+	Remove(path string) error
+	RemoveAll(path string) error
+	MkDirAll(path string, perm FileMode) error
 }
 
 // FileMode is used to set the type of allowed operations when opening remote files

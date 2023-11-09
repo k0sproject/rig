@@ -26,17 +26,17 @@ import (
 )
 
 type TestingT interface {
-	Errorf(format string, args ...interface{})
+	Errorf(format string, args ...any)
 	FailNow()
 }
 
 type testRunner struct{}
 
-func (t testRunner) Run(name string, args ...interface{}) {
+func (t testRunner) Run(name string, args ...any) {
 	fmt.Println("* Running test:", fmt.Sprintf(name, args...))
 }
 
-func (t testRunner) Errorf(format string, args ...interface{}) {
+func (t testRunner) Errorf(format string, args ...any) {
 	println(fmt.Sprintf(format, args...))
 }
 

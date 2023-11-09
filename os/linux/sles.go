@@ -31,7 +31,7 @@ func init() {
 		func(os rig.OSVersion) bool {
 			return os.ID == "sles"
 		},
-		func() interface{} {
+		func() any {
 			return SLES{}
 		},
 	)

@@ -20,17 +20,17 @@ var (
 	Confirm = false
 
 	// DebugFunc can be replaced to direct the output of exec logging into your own function (standard sprintf interface)
-	DebugFunc = func(s string, args ...interface{}) {
+	DebugFunc = func(s string, args ...any) {
 		log.Debugf(s, args...)
 	}
 
 	// InfoFunc can be replaced to direct the output of exec logging into your own function (standard sprintf interface)
-	InfoFunc = func(s string, args ...interface{}) {
+	InfoFunc = func(s string, args ...any) {
 		log.Infof(s, args...)
 	}
 
 	// ErrorFunc can be replaced to direct the output of exec logging into your own function (standard sprintf interface)
-	ErrorFunc = func(s string, args ...interface{}) {
+	ErrorFunc = func(s string, args ...any) {
 		log.Errorf(s, args...)
 	}
 
@@ -69,7 +69,7 @@ type Options struct {
 }
 
 type host interface {
-	Sudo(string) (string, error)
+	Sudo(cmd string) (string, error)
 }
 
 // Command returns the command wrapped in a sudo if sudo is enabled or the original command
@@ -117,21 +117,21 @@ func (o *Options) LogStdin(prefix string) {
 }
 
 // LogDebugf is a conditional debug logger
-func (o *Options) LogDebugf(s string, args ...interface{}) {
+func (o *Options) LogDebugf(s string, args ...any) {
 	if o.LogDebug {
 		DebugFunc(s, args...)
 	}
 }
 
 // LogInfof is a conditional info logger
-func (o *Options) LogInfof(s string, args ...interface{}) {
+func (o *Options) LogInfof(s string, args ...any) {
 	if o.LogInfo {
 		InfoFunc(s, args...)
 	}
 }
 
 // LogErrorf is a conditional error logger
-func (o *Options) LogErrorf(s string, args ...interface{}) {
+func (o *Options) LogErrorf(s string, args ...any) {
 	if o.LogError {
 		ErrorFunc(s, args...)
 	}

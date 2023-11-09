@@ -4,6 +4,7 @@ package rig
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -28,9 +29,9 @@ type client interface {
 	Connect() error
 	Disconnect()
 	IsWindows() bool
-	Exec(string, ...exec.Option) error
-	ExecStreams(string, io.ReadCloser, io.Writer, io.Writer, ...exec.Option) (waiter, error)
-	ExecInteractive(string) error
+	Exec(cmd string, opts ...exec.Option) error
+	ExecStreams(cmd string, stdin io.ReadCloser, stdout io.Writer, stderr io.Writer, opts ...exec.Option) (waiter, error)
+	ExecInteractive(cmd string) error
 	String() string
 	Protocol() string
 	IPAddress() string
@@ -387,7 +388,7 @@ func (c *Connection) Upload(src, dst string, _ ...exec.Option) error {
 		return fmt.Errorf("%w: validate %s checksum: %w", ErrUploadFailed, dst, err)
 	}
 
-	if remoteSum != fmt.Sprintf("%x", shasum.Sum(nil)) {
+	if remoteSum != hex.EncodeToString(shasum.Sum(nil)) {
 		return fmt.Errorf("%w: checksum mismatch", ErrUploadFailed)
 	}
 

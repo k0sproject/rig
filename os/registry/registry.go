@@ -11,7 +11,7 @@ import (
 var ErrOSModuleNotFound = errors.New("os support module not found")
 
 type (
-	buildFunc = func() interface{}
+	buildFunc = func() any
 	matchFunc = func(rig.OSVersion) bool
 )
 
