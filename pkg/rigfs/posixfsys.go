@@ -368,16 +368,20 @@ func (fsys *PosixFsys) Open(name string) (fs.File, error) {
 	return &file, nil
 }
 
-// OpenFile is the generalized open call; most users will use Open instead.
+// OpenFile is the generalized open call; most users will use Open instead.. The perms are ignored if the file exists.
 func (fsys *PosixFsys) OpenFile(name string, mode FileMode, perm FileMode) (File, error) {
 	var pos int64
 	info, err := fsys.Stat(name)
 	if err != nil {
+		// file exists
 		switch {
 		case mode&ModeRead == ModeRead:
 			return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
 		case mode&ModeCreate == ModeCreate:
-			if _, err := fsys.helper("touch", name, fmt.Sprintf("%#o", perm)); err != nil {
+			if _, err := fsys.helper("touch", name); err != nil {
+				return nil, err
+			}
+			if _, err := fsys.helper("chmod", name, fmt.Sprintf("%#o", perm)); err != nil {
 				return nil, err
 			}
 		}
@@ -390,8 +394,10 @@ func (fsys *PosixFsys) OpenFile(name string, mode FileMode, perm FileMode) (File
 	case mode&ModeAppend == ModeAppend:
 		pos = info.Size()
 	case mode&ModeCreate == ModeCreate:
-		if _, err := fsys.helper("truncate", name, "0"); err != nil {
-			return nil, err
+		if info.Size() > 0 {
+			if _, err := fsys.helper("truncate", name, "0"); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return &PosixFile{fsys: fsys, path: name, isOpen: true, size: info.Size(), pos: pos, mode: mode}, nil
