@@ -352,29 +352,30 @@ func (f *winFile) Close() error {
 // Use OpenFile to get a file that can be written to or if you need any of the methods not
 // available on fs.File interface without type assertion.
 func (fsys *WinFsys) Open(name string) (fs.File, error) {
-	f, err := fsys.OpenFile(name, ModeRead, 0o644)
+	f, err := fsys.OpenFile(name, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, err
 	}
 	return f, nil
 }
 
-// OpenFile opens the named remote file with the specified FileMode. Permission bits are ignored on Windows.
-func (fsys *WinFsys) OpenFile(name string, mode FileMode, _ FileMode) (File, error) {
+// OpenFile opens the named remote file with the specified flags. os.O_EXCL and permission bits are ignored on Windows.
+// For a description of the flags, see https://pkg.go.dev/os#pkg-constants
+func (fsys *WinFsys) OpenFile(name string, flags int, _ fs.FileMode) (File, error) {
 	var modeStr string
-	switch mode {
-	case ModeRead:
+	switch {
+	case flags&os.O_RDONLY == os.O_RDONLY:
 		modeStr = "ro"
-	case ModeWrite:
+	case flags&os.O_WRONLY == os.O_WRONLY:
 		modeStr = "w"
-	case ModeReadWrite:
+	case flags&os.O_RDWR == os.O_RDWR:
 		modeStr = "rw"
-	case ModeAppend:
+	case flags&os.O_APPEND == os.O_APPEND:
 		modeStr = "a"
-	case ModeCreate:
+	case flags&os.O_CREATE == os.O_CREATE:
 		modeStr = "c"
 	default:
-		return nil, &fs.PathError{Op: "open", Path: name, Err: fmt.Errorf("%w: invalid mode: %d", ErrRcpCommandFailed, mode)}
+		return nil, &fs.PathError{Op: "open", Path: name, Err: fmt.Errorf("%w: invalid mode: %d", ErrRcpCommandFailed, flags)}
 	}
 
 	log.Debugf("opening remote file %s (mode %s)", name, modeStr)
@@ -463,8 +464,8 @@ func (fsys *WinFsys) removeDirAll(name string) error {
 	return nil
 }
 
-// MkDirAll creates a directory named path, along with any necessary parents. The permission bits perm are ignored on Windows.
-func (fsys *WinFsys) MkDirAll(name string, _ FileMode) error {
+// MkDirAll creates a directory named path, along with any necessary parents. The permission bits are ignored on Windows.
+func (fsys *WinFsys) MkDirAll(name string, _ fs.FileMode) error {
 	if err := fsys.conn.Exec(fmt.Sprintf("mkdir -p %s", ps.DoubleQuote(name))); err != nil {
 		return fmt.Errorf("%w: mkdir %s: %w", ErrCommandFailed, name, err)
 	}

@@ -302,7 +302,7 @@ func main() {
 				shasum := sha256.New()
 				reader := io.TeeReader(origin, shasum)
 
-				destf, err := fsys.OpenFile(fn, rigfs.ModeCreate, 0644)
+				destf, err := fsys.OpenFile(fn, goos.O_CREATE|goos.O_WRONLY, 0644)
 				require.NoError(t, err, "open file")
 
 				n, err := io.Copy(destf, reader)
@@ -320,7 +320,7 @@ func main() {
 
 				require.Equal(t, fmt.Sprintf("%x", shasum.Sum(nil)), destSum, "sha256 mismatch after io.copy from local to remote")
 
-				destf, err = fsys.OpenFile(fn, rigfs.ModeRead, 0644)
+				destf, err = fsys.OpenFile(fn, goos.O_RDONLY, 0)
 				require.NoError(t, err, "open file for read")
 
 				readSha := sha256.New()

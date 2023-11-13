@@ -4,6 +4,7 @@ import (
 	"bytes"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -11,7 +12,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig/exec"
@@ -40,7 +40,10 @@ func NewPosixFsys(conn connection, opts ...exec.Option) *PosixFsys {
 	return &PosixFsys{conn: conn, opts: opts}
 }
 
-const defaultBlockSize = 4096
+const (
+	defaultBlockSize = 4096
+	supportedFlags   = os.O_RDONLY | os.O_WRONLY | os.O_RDWR | os.O_CREATE | os.O_EXCL | os.O_TRUNC | os.O_APPEND | os.O_SYNC
+)
 
 // PosixFile implements fs.File for a remote file
 type PosixFile struct {
@@ -50,7 +53,8 @@ type PosixFile struct {
 	isEOF  bool
 	pos    int64
 	size   int64
-	mode   FileMode
+	mode   fs.FileMode
+	flags  int
 
 	blockSize int
 }
@@ -106,11 +110,11 @@ func (f *PosixFile) fsBlockSize() int {
 }
 
 func (f *PosixFile) isReadable() bool {
-	return f.mode&ModeRead != 0
+	return f.isOpen && (f.flags&os.O_WRONLY != os.O_WRONLY || f.flags&os.O_RDWR == os.O_RDWR)
 }
 
 func (f *PosixFile) isWritable() bool {
-	return f.mode&ModeWrite != 0
+	return f.isOpen && f.flags&os.O_WRONLY != 0
 }
 
 func (f *PosixFile) ddParams(offset int64, numBytes int) (int, int64, int) {
@@ -357,50 +361,81 @@ func (fsys *PosixFsys) Sha256(name string) (string, error) {
 
 // Open opens the named file for reading.
 func (fsys *PosixFsys) Open(name string) (fs.File, error) {
-	info, err := fsys.Stat(name)
-	if err != nil {
-		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
-	}
-	file := PosixFile{fsys: fsys, path: name, isOpen: true, size: info.Size(), mode: ModeRead}
-	if info.IsDir() {
-		return &PosixDir{PosixFile: file}, nil
-	}
-	return &file, nil
+	return fsys.OpenFile(name, os.O_RDONLY, 0)
 }
 
-// OpenFile is the generalized open call; most users will use Open instead.. The perms are ignored if the file exists.
-func (fsys *PosixFsys) OpenFile(name string, mode FileMode, perm FileMode) (File, error) {
+func (fsys *PosixFsys) createFile(name string, perm fs.FileMode) error {
+	if _, err := fsys.helper("touch", name); err != nil {
+		return err
+	}
+
+	if _, err := fsys.helper("chmod", name, fmt.Sprintf("%#o", perm)); err != nil {
+		return err
+	}
+	return nil
+}
+
+// OpenFile is used to open a file with access/creation flags for reading or writing. For info on flags,
+// see https://pkg.go.dev/os#pkg-constants
+func (fsys *PosixFsys) OpenFile(name string, flags int, perm fs.FileMode) (File, error) { //nolint:cyclop
+	if flags&^supportedFlags != 0 {
+		return nil, fmt.Errorf("%w: unsupported flags: %d", ErrCommandFailed, flags)
+	}
+
 	var pos int64
 	info, err := fsys.Stat(name)
-	if err != nil {
-		// file exists
-		switch {
-		case mode&ModeRead == ModeRead:
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	fileExists := err == nil
+
+	switch fileExists {
+	case false:
+		switch flags & os.O_CREATE {
+		case 0:
 			return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
-		case mode&ModeCreate == ModeCreate:
-			if _, err := fsys.helper("touch", name); err != nil {
+		default:
+			if err := fsys.createFile(name, perm); err != nil {
 				return nil, err
 			}
-			if _, err := fsys.helper("chmod", name, fmt.Sprintf("%#o", perm)); err != nil {
+
+			// re-stat to ensure file is now there and get the correct bits if there's a umask
+			i, err := fsys.Stat(name)
+			if err != nil {
 				return nil, err
 			}
+			info = i
 		}
-		info = &FileInfo{FName: name, FMode: fs.FileMode(perm), FSize: 0, FIsDir: false, FModTime: time.Now(), fsys: fsys}
-	}
-	if info.IsDir() {
-		return nil, &fs.PathError{Op: "open", Path: name, Err: fmt.Errorf("%w: is a directory", fs.ErrPermission)}
-	}
-	switch {
-	case mode&ModeAppend == ModeAppend:
-		pos = info.Size()
-	case mode&ModeCreate == ModeCreate:
-		if info.Size() > 0 {
+	case true:
+		switch {
+		case info.IsDir():
+			return nil, &fs.PathError{Op: "open", Path: name, Err: fmt.Errorf("%w: is a directory", fs.ErrInvalid)}
+		case flags&(os.O_CREATE|os.O_EXCL) == (os.O_CREATE | os.O_EXCL):
+			return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrExist}
+		case flags&os.O_TRUNC != 0:
 			if _, err := fsys.helper("truncate", name, "0"); err != nil {
 				return nil, err
 			}
+			i, err := fsys.Stat(name)
+			if err != nil {
+				return nil, err
+			}
+			info = i
+		case flags&os.O_APPEND != 0:
+			pos = info.Size()
 		}
 	}
-	return &PosixFile{fsys: fsys, path: name, isOpen: true, size: info.Size(), pos: pos, mode: mode}, nil
+
+	f := &PosixFile{
+		fsys:   fsys,
+		path:   name,
+		isOpen: true,
+		size:   info.Size(),
+		pos:    pos,
+		mode:   info.Mode(),
+		flags:  flags,
+	}
+	return f, nil
 }
 
 // ReadDir reads the directory named by dirname and returns a list of directory entries
@@ -440,7 +475,7 @@ func (fsys *PosixFsys) RemoveAll(name string) error {
 
 // MkDirAll creates a new directory structure with the specified name and permission bits.
 // If the directory already exists, MkDirAll does nothing and returns nil.
-func (fsys *PosixFsys) MkDirAll(name string, perm FileMode) error {
+func (fsys *PosixFsys) MkDirAll(name string, perm fs.FileMode) error {
 	dir := shellescape.Quote(name)
 	if existing, err := fsys.Stat(name); err == nil {
 		if existing.IsDir() {
@@ -449,11 +484,11 @@ func (fsys *PosixFsys) MkDirAll(name string, perm FileMode) error {
 		return fmt.Errorf("%w: mkdir %s: %w", ErrCommandFailed, name, fs.ErrExist)
 	}
 
-	if err := fsys.conn.Exec(fmt.Sprintf("mkdir -p %s", dir), fsys.opts...); err != nil {
+	if err := fsys.conn.Exec(fmt.Sprintf("mkdir -p %s", shellescape.Quote(dir)), fsys.opts...); err != nil {
 		return fmt.Errorf("%w: mkdir %s: %w", ErrCommandFailed, name, err)
 	}
 
-	if err := fsys.conn.Exec(fmt.Sprintf("chmod %#o %s", os.FileMode(perm).Perm(), dir), fsys.opts...); err != nil {
+	if err := fsys.conn.Exec(fmt.Sprintf("chmod %#o %s", perm, shellescape.Quote(dir)), fsys.opts...); err != nil {
 		return fmt.Errorf("%w: chmod (mkdir) %s: %w", ErrCommandFailed, name, err)
 	}
 
