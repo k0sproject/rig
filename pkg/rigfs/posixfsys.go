@@ -2,8 +2,6 @@ package rigfs
 
 import (
 	"bytes"
-	_ "embed"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -12,16 +10,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig/exec"
 )
-
-// rigHelper is a helper script to avoid having to write complex bash oneliners in Go
-// it's not a read-loop "daemon" like the windows counterpart rigrcp.ps1
-//
-//go:embed righelper.sh
-var rigHelper string
 
 var (
 	_ fs.File        = (*PosixFile)(nil)
@@ -33,6 +26,8 @@ var (
 type PosixFsys struct {
 	conn connection
 	opts []exec.Option
+
+	statCmd *string
 }
 
 // NewPosixFsys returns a fs.FS implementation for a remote filesystem that uses POSIX commands for access
@@ -69,10 +64,10 @@ type PosixDir struct {
 // ReadDir returns a list of directory entries
 func (f *PosixDir) ReadDir(n int) ([]fs.DirEntry, error) {
 	if n == 0 {
-		return f.PosixFile.fsys.ReadDir(f.path)
+		return f.fsys.ReadDir(f.path)
 	}
 	if f.entries == nil {
-		entries, err := f.PosixFile.fsys.ReadDir(f.path)
+		entries, err := f.fsys.ReadDir(f.path)
 		if err != nil {
 			return nil, err
 		}
@@ -212,7 +207,8 @@ func (f *PosixFile) CopyFromN(src io.Reader, num int64, alt io.Writer) (int64, e
 	}
 	var ddCmd string
 	if f.pos+num >= f.size {
-		if _, err := f.fsys.helper("truncate", f.path, strconv.FormatInt(f.pos, 10)); err != nil {
+		// truncate to current position
+		if err := f.fsys.Truncate(f.path, f.pos); err != nil {
 			return 0, fmt.Errorf("%w: truncate %s for writing: %w", ErrCommandFailed, f.path, err)
 		}
 		ddCmd = fmt.Sprintf("dd if=/dev/stdin of=%s bs=16M oflag=append conv=notrunc", shellescape.Quote(f.path))
@@ -298,81 +294,262 @@ func (f *PosixFile) Seek(offset int64, whence int) (int64, error) {
 	return f.pos, nil
 }
 
-type helperResponse struct {
-	Err       error        `json:"-"`
-	ErrString string       `json:"error"`
-	Stat      *FileInfo    `json:"stat"`
-	Dir       []*FileInfo  `json:"dir"`
-	Sum       *sumResponse `json:"sum"`
-}
+var (
+	statCmdGNU = "stat -c '%%#f %%s %%.9Y //%%n//' -- %s 2> /dev/null"
+	statCmdBSD = "stat -f '%%#p %%z %%Fm //%%N//' -- %s 2> /dev/null"
+)
 
-func (h *helperResponse) UnmarshalJSON(b []byte) error {
-	type helperresponse *helperResponse
-	hr := helperresponse(h)
-	if err := json.Unmarshal(b, hr); err != nil {
-		return fmt.Errorf("%w: unmarshal helper response: %w", ErrCommandFailed, err)
-	}
-	if hr.ErrString != "" {
-		hr.Err = fmt.Errorf("%w: %s", ErrCommandFailed, strings.TrimSpace(hr.ErrString))
+func (fsys *PosixFsys) initStat() error {
+	if fsys.statCmd == nil {
+		var opts []exec.Option
+		copy(opts, fsys.opts)
+		opts = append(opts, exec.HideOutput())
+		out, err := fsys.conn.ExecOutput("stat --help 2>&1", opts...)
+		if err != nil {
+			return fmt.Errorf("%w: can't access stat command: %w", ErrCommandFailed, err)
+		}
+		if strings.Contains(out, "BusyBox") || strings.Contains(out, "--format=") {
+			fsys.statCmd = &statCmdGNU
+		} else {
+			fsys.statCmd = &statCmdBSD
+		}
 	}
 	return nil
 }
 
-func (fsys *PosixFsys) helper(args ...string) (*helperResponse, error) {
-	var res helperResponse
-	opts := fsys.opts
-	opts = append(opts, exec.Stdin(rigHelper))
-	out, err := fsys.conn.ExecOutput(fmt.Sprintf("sh -s -- %s", shellescape.QuoteCommand(args)), opts...)
+func posixBitsToFileMode(bits int64) fs.FileMode {
+	var mode fs.FileMode
+
+	switch bits & 0o170000 {
+	case 0o040000: // Directory
+		mode |= fs.ModeDir
+	case 0o100000: // Regular file
+		// nop, no specific FileMode for regular files
+	case 0o120000: // Symbolic link
+		mode |= fs.ModeSymlink
+	case 0o060000: // Block device
+		mode |= fs.ModeDevice
+	case 0o020000: // Character device
+		mode |= fs.ModeDevice | fs.ModeCharDevice
+	case 0o010000: // FIFO (Named pipe)
+		mode |= fs.ModeNamedPipe
+	case 0o140000: // Socket
+		mode |= fs.ModeSocket
+	}
+
+	// Mapping permission bits
+	mode |= fs.FileMode(bits & 0o777) // Owner, group, and other permissions
+
+	// Mapping special permission bits
+	if bits&0o4000 != 0 { // Set-user-ID
+		mode |= fs.ModeSetuid
+	}
+	if bits&0o2000 != 0 { // Set-group-ID
+		mode |= fs.ModeSetgid
+	}
+	if bits&0o1000 != 0 { // Sticky bit
+		mode |= fs.ModeSticky
+	}
+
+	return mode
+}
+
+func (fsys *PosixFsys) parseStat(stat string) (*FileInfo, error) {
+	// output looks like: 0x81a4 0 1699970097.220228000 //test_20231114155456.txt//
+	parts := strings.SplitN(stat, " ", 4)
+	if len(parts) != 4 {
+		return nil, fmt.Errorf("%w: stat parse output %s", ErrCommandFailed, stat)
+	}
+
+	res := &FileInfo{fsys: fsys}
+
+	if strings.HasPrefix(parts[0], "0x") {
+		m, err := strconv.ParseInt(parts[0][2:], 16, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%w: stat parse mode %s: %w", ErrCommandFailed, stat, err)
+		}
+		res.FMode = posixBitsToFileMode(m)
+	} else {
+		m, err := strconv.ParseInt(parts[0], 8, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%w: stat parse mode %s: %w", ErrCommandFailed, stat, err)
+		}
+		res.FMode = posixBitsToFileMode(m)
+	}
+
+	res.FIsDir = res.FMode&fs.ModeDir != 0
+
+	size, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to execute helper: %w", ErrCommandFailed, err)
+		return nil, fmt.Errorf("%w: stat parse size %s: %w", ErrCommandFailed, stat, err)
 	}
-	if err := json.Unmarshal([]byte(out), &res); err != nil {
-		return nil, fmt.Errorf("%w: helper response unmarshal: %w", ErrCommandFailed, err)
+	res.FSize = size
+
+	timeParts := strings.SplitN(parts[2], ".", 2)
+	mtime, err := strconv.ParseInt(timeParts[0], 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("%w: stat parse mtime %s: %w", ErrCommandFailed, stat, err)
 	}
-	if res.Err != nil {
-		return &res, res.Err
+	var mtimeNano int64
+	if len(timeParts) == 2 {
+		mtimeNano, err = strconv.ParseInt(timeParts[1], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%w: stat parse mtime ns %s: %w", ErrCommandFailed, stat, err)
+		}
 	}
-	return &res, nil
+	res.FModTime = time.Unix(mtime, mtimeNano)
+	res.FName = strings.TrimSuffix(strings.TrimPrefix(parts[3], "//"), "//")
+
+	return res, nil
+}
+
+func (fsys *PosixFsys) multiStat(names ...string) ([]fs.FileInfo, error) {
+	if err := fsys.initStat(); err != nil {
+		return nil, err
+	}
+	var idx int
+	res := make([]fs.FileInfo, 0, len(names))
+	var batch strings.Builder
+	for idx < len(names) {
+		batch.Reset()
+		// build max 1kb batches of names to stat
+		for batch.Len() < 1024 && idx < len(names) {
+			if names[idx] != "" {
+				batch.WriteString(shellescape.Quote(names[idx]))
+				if idx < len(names)-1 {
+					batch.WriteRune(' ')
+				}
+			}
+			idx++
+		}
+
+		out, err := fsys.conn.ExecOutput(fmt.Sprintf(*fsys.statCmd, batch.String()), fsys.opts...)
+		if err != nil {
+			if len(names) == 1 {
+				return nil, &fs.PathError{Op: "stat", Path: names[0], Err: fs.ErrNotExist}
+			}
+			return nil, fmt.Errorf("%w: stat %s: %w", ErrCommandFailed, names, err)
+		}
+		lines := strings.Split(out, "\n")
+		for _, line := range lines {
+			if line == "" {
+				continue
+			}
+			info, err := fsys.parseStat(line)
+			if err != nil {
+				return res, err
+			}
+			res = append(res, info)
+		}
+	}
+	return res, nil
 }
 
 // Stat returns the FileInfo structure describing file.
 func (fsys *PosixFsys) Stat(name string) (fs.FileInfo, error) {
-	res, err := fsys.helper("stat", name)
+	items, err := fsys.multiStat(name)
 	if err != nil {
-		return nil, &fs.PathError{Op: "stat", Path: name, Err: fmt.Errorf("%w: %w", fs.ErrNotExist, err)}
+		return nil, err
 	}
-	if res.Stat == nil {
-		return nil, fmt.Errorf("%w: helper stat response empty", ErrCommandFailed)
+	switch len(items) {
+	case 0:
+		return nil, &fs.PathError{Op: "stat", Path: name, Err: fs.ErrNotExist}
+	case 1:
+		return items[0], nil
+	default:
+		return nil, fmt.Errorf("%w: stat %s: too many results", ErrCommandFailed, name)
 	}
-	return res.Stat, nil
 }
 
 // Sha256 returns the sha256 checksum of the file at path
 func (fsys *PosixFsys) Sha256(name string) (string, error) {
-	res, err := fsys.helper("sum", name)
+	out, err := fsys.conn.ExecOutput(fmt.Sprintf("sha256sum -b %s", shellescape.Quote(name)), fsys.opts...)
 	if err != nil {
-		return "", err
+		if isNotExist(err) {
+			return "", &fs.PathError{Op: "sha256sum", Path: name, Err: fs.ErrNotExist}
+		}
+		return "", fmt.Errorf("%w: sha256sum %s: %w", ErrCommandFailed, name, err)
 	}
-	if res.Sum == nil {
-		return "", fmt.Errorf("%w: helper sum response empty", ErrCommandFailed)
+	sha := strings.Fields(out)[0]
+	if len(sha) != 64 {
+		return "", fmt.Errorf("%w: sha256sum invalid output %s: %s", ErrCommandFailed, name, out)
 	}
-	return res.Sum.Sha256, nil
+	return sha, nil
+}
+
+// Touch creates a new empty file at path or updates the timestamp of an existing file to the current time
+func (fsys *PosixFsys) Touch(name string) error {
+	err := fsys.conn.Exec(fmt.Sprintf("touch %s", shellescape.Quote(name)), fsys.opts...)
+	if err != nil {
+		return fmt.Errorf("%w: touch %s: %w", ErrCommandFailed, name, err)
+	}
+	return nil
+}
+
+// second precision touch for busybox or when nanoseconds are zero
+func (fsys *PosixFsys) secTouchT(name string, t time.Time) error {
+	utc := t.UTC()
+	// most touches support giving the timestamp as @unixtime
+	cmd := fmt.Sprintf("env -i LC_ALL=C TZ=UTC touch -m -d @%d -- %s",
+		utc.Unix(),
+		shellescape.Quote(name),
+	)
+	if err := fsys.conn.Exec(cmd, fsys.opts...); err != nil {
+		return fmt.Errorf("%w: touch %s: %w", ErrCommandFailed, name, err)
+	}
+	return nil
+}
+
+// nanosecond precision touch for stats that support it
+func (fsys *PosixFsys) nsecTouchT(name string, t time.Time) error {
+	utc := t.UTC()
+	cmd := fmt.Sprintf("env -i LC_ALL=C TZ=UTC touch -m -d %s -- %s",
+		shellescape.Quote(
+			fmt.Sprintf("%s.%09d", utc.Format("2006-01-02T15:04:05"), t.Nanosecond()),
+		),
+		shellescape.Quote(name),
+	)
+	if err := fsys.conn.Exec(cmd, fsys.opts...); err != nil {
+		return fmt.Errorf("%w: touch (ns) %s: %w", ErrCommandFailed, name, err)
+	}
+	return nil
+}
+
+// TouchT creates a new empty file at path or updates the timestamp of an existing file to the specified time
+func (fsys *PosixFsys) TouchT(name string, t time.Time) error {
+	if t.Nanosecond() == 0 {
+		return fsys.secTouchT(name, t)
+	}
+
+	if err := fsys.nsecTouchT(name, t); err != nil {
+		// fallback to second precision
+		return fsys.secTouchT(name, t)
+	}
+	return nil
+}
+
+// Truncate changes the size of the named file or creates a new file if it doesn't exist
+func (fsys *PosixFsys) Truncate(name string, size int64) error {
+	if err := fsys.conn.Exec(fmt.Sprintf("truncate -s %d %s", size, shellescape.Quote(name)), fsys.opts...); err != nil {
+		return fmt.Errorf("%w: truncate %s: %w", ErrCommandFailed, name, err)
+	}
+	return nil
+}
+
+// Chmod changes the mode of the named file to mode
+func (fsys *PosixFsys) Chmod(name string, mode fs.FileMode) error {
+	if err := fsys.conn.Exec(fmt.Sprintf("chmod %#o %s", mode, shellescape.Quote(name)), fsys.opts...); err != nil {
+		if isNotExist(err) {
+			return &fs.PathError{Op: "chmod", Path: name, Err: fs.ErrNotExist}
+		}
+		return fmt.Errorf("%w: chmod %s: %w", ErrCommandFailed, name, err)
+	}
+	return nil
 }
 
 // Open opens the named file for reading.
 func (fsys *PosixFsys) Open(name string) (fs.File, error) {
 	return fsys.OpenFile(name, os.O_RDONLY, 0)
-}
-
-func (fsys *PosixFsys) createFile(name string, perm fs.FileMode) error {
-	if _, err := fsys.helper("touch", name); err != nil {
-		return err
-	}
-
-	if _, err := fsys.helper("chmod", name, fmt.Sprintf("%#o", perm)); err != nil {
-		return err
-	}
-	return nil
 }
 
 // OpenFile is used to open a file with access/creation flags for reading or writing. For info on flags,
@@ -395,7 +572,11 @@ func (fsys *PosixFsys) OpenFile(name string, flags int, perm fs.FileMode) (File,
 		case 0:
 			return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
 		default:
-			if err := fsys.createFile(name, perm); err != nil {
+			if err := fsys.Touch(name); err != nil {
+				return nil, err
+			}
+
+			if err := fsys.Chmod(name, perm); err != nil {
 				return nil, err
 			}
 
@@ -413,7 +594,7 @@ func (fsys *PosixFsys) OpenFile(name string, flags int, perm fs.FileMode) (File,
 		case flags&(os.O_CREATE|os.O_EXCL) == (os.O_CREATE | os.O_EXCL):
 			return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrExist}
 		case flags&os.O_TRUNC != 0:
-			if _, err := fsys.helper("truncate", name, "0"); err != nil {
+			if err := fsys.Truncate(name, 0); err != nil {
 				return nil, err
 			}
 			i, err := fsys.Stat(name)
@@ -426,7 +607,7 @@ func (fsys *PosixFsys) OpenFile(name string, flags int, perm fs.FileMode) (File,
 		}
 	}
 
-	f := &PosixFile{
+	file := &PosixFile{
 		fsys:   fsys,
 		path:   name,
 		isOpen: true,
@@ -435,26 +616,47 @@ func (fsys *PosixFsys) OpenFile(name string, flags int, perm fs.FileMode) (File,
 		mode:   info.Mode(),
 		flags:  flags,
 	}
-	return f, nil
+	if info.IsDir() {
+		return &PosixDir{PosixFile: *file}, nil
+	}
+	return file, nil
 }
 
 // ReadDir reads the directory named by dirname and returns a list of directory entries
 func (fsys *PosixFsys) ReadDir(name string) ([]fs.DirEntry, error) {
+	if err := fsys.initStat(); err != nil {
+		return nil, err
+	}
+
 	if name == "" {
 		name = "."
 	}
-	res, err := fsys.helper("dir", name)
+
+	out, err := fsys.conn.ExecOutput(fmt.Sprintf("find %[1]s -maxdepth 1 -print0 | sort -z", shellescape.Quote(name)), fsys.opts...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: read dir (find) %s: %w", ErrCommandFailed, name, err)
 	}
-	if res.Dir == nil {
-		return nil, fmt.Errorf("%w: helper dir response empty", ErrCommandFailed)
+	items := strings.Split(out, "\x00")
+	if len(items) == 0 || (len(items) == 1 && items[0] == "") {
+		return nil, &fs.PathError{Op: "read dir", Path: name, Err: fs.ErrNotExist}
 	}
-	entries := make([]fs.DirEntry, len(res.Dir))
-	for i, entry := range res.Dir {
-		entries[i] = entry
+	if items[0] != name {
+		return nil, &fs.PathError{Op: "read dir", Path: name, Err: fs.ErrNotExist}
 	}
-	return entries, nil
+	if len(items) == 1 {
+		return nil, nil
+	}
+
+	res := make([]fs.DirEntry, 0, len(items)-1)
+	infos, err := fsys.multiStat(items[1:]...)
+	for _, entry := range infos {
+		info, ok := entry.(fs.DirEntry)
+		if !ok {
+			return res, fmt.Errorf("%w: read dir: entry is not a FileInfo %s", ErrCommandFailed, name)
+		}
+		res = append(res, info)
+	}
+	return res, err
 }
 
 // Remove deletes the named file or (empty) directory.
@@ -463,6 +665,10 @@ func (fsys *PosixFsys) Remove(name string) error {
 		return fmt.Errorf("%w: delete %s: %w", ErrCommandFailed, name, err)
 	}
 	return nil
+}
+
+func isNotExist(err error) bool {
+	return err != nil && (errors.Is(err, fs.ErrNotExist) || strings.Contains(err.Error(), "No such file or directory"))
 }
 
 // RemoveAll removes path and any children it contains.
