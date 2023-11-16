@@ -4,7 +4,7 @@ on: [pull_request]
 
 jobs:
 
-  build:
+  build-linux:
     runs-on: ubuntu-20.04
     steps:
     - uses: actions/checkout@v4
@@ -15,24 +15,13 @@ jobs:
         go-version-file: go.mod
         check-latest: true
 
-    - name: Go modules cache
-      uses: actions/cache@v3
-      with:
-        path: ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
-
     - name: Build
       run: go build -v ./...
     
-    - name: Build windows
-      run: GOOS=windows GOARCH=amd64 go build -v ./...
-
     - name: Test
       run: go test -v ./...
 
-  integration:
+  integration-linux:
     strategy:
       fail-fast: false
       matrix:
@@ -40,7 +29,7 @@ jobs:
           - quay.io/k0sproject/bootloose-ubuntu20.04
           - quay.io/k0sproject/bootloose-debian12
           - quay.io/k0sproject/bootloose-alpine3.18
-    needs: build
+    needs: build-linux
     runs-on: ubuntu-20.04
     steps:
     - uses: actions/checkout@v4
@@ -61,3 +50,68 @@ jobs:
         LINUX_IMAGE: ${{ matrix.image }}
       run: make -C test test
 
+  windows:
+    runs-on: windows-2022
+    steps:
+    - name: Set up WinRM
+      run: |
+        Set-Item WSMan:\localhost\Service\AllowUnencrypted -Value $True
+        Get-ChildItem WSMan:\Localhost\listener | Remove-Item -Recurse
+
+        Set-Item -Path WSMan:\LocalHost\MaxTimeoutms -Value '1800000'
+        Set-Item -Path WSMan:\LocalHost\Shell\MaxMemoryPerShellMB -Value '1024'
+        Set-Item -Path WSMan:\LocalHost\Service\AllowUnencrypted -Value 'false'
+        Set-Item -Path WSMan:\LocalHost\Service\Auth\Basic -Value 'true'
+        Set-Item -Path WSMan:\LocalHost\Service\Auth\CredSSP -Value 'true'
+
+        New-NetFirewallRule -Name "WINRM-HTTPS-In-TCP" `
+            -DisplayName "Windows Remote Management (HTTPS-In)" `
+            -Description "Inbound rule for Windows Remote Management via WS-Management. [TCP 5986]" `
+            -Group "Windows Remote Management" `
+            -Program "System" `
+            -Protocol TCP `
+            -LocalPort "5986" `
+            -Action Allow `
+            -Profile Domain,Private
+
+        $Hostname = [System.Net.Dns]::GetHostByName((hostname)).HostName.ToUpper()
+        $pfx = New-SelfSignedCertificate -CertstoreLocation Cert:\LocalMachine\My -DnsName $Hostname
+        $certThumbprint = $pfx.Thumbprint
+        $certSubjectName = $pfx.SubjectName.Name.TrimStart("CN = ").Trim()
+
+        New-Item -Path WSMan:\LocalHost\Listener -Address * -Transport HTTPS -Hostname $certSubjectName -CertificateThumbPrint $certThumbprint -Port "5986" -force
+
+        Restart-Service WinRM
+
+        $Username = "winrmuser"
+        $Password = ConvertTo-SecureString "Password123" -AsPlainText -Force
+        New-LocalUser -Name $Username -Password $Password -FullName "WinRM User" -Description "Local user for WinRM testing"
+        Add-LocalGroupMember -Group "Administrators" -Member $Username
+
+        $Credentials = New-Object System.Management.Automation.PSCredential ($Username, $Password)
+
+        # try it out:
+        $SessionOptions = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
+        $Session = New-PSSession -ComputerName "localhost" -Credential $Credentials -Authentication Basic -UseSSL:$true -SessionOption $SessionOptions
+
+        Invoke-Command -Session $Session -ScriptBlock { cmd.exe /c ver.exe }
+    
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version-file: go.mod
+
+    - name: Test
+      run: go test -v ./...
+
+    - name: Build rigtest
+      run: |
+        go install ./cmd/rigtest
+        rigtest --help
+    
+    
+    - name: Run rigtest
+      run: |
+        rigtest.exe -proto winrm -host 127.0.0.1:5986 -user winrmuser -pass Password123 -https
