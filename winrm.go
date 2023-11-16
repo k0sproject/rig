@@ -244,6 +244,9 @@ func (c *WinRM) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.W
 	if err != nil {
 		return nil, fmt.Errorf("%w: build command: %w", ErrCommandFailed, err)
 	}
+	if len(command) > 8191 {
+		return nil, fmt.Errorf("%w: command too long (%d/%d)", ErrCommandFailed, len(command), 8191)
+	}
 
 	execOpts.LogCmd(c.String(), cmd)
 	shell, err := c.client.CreateShell()
