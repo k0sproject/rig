@@ -378,8 +378,9 @@ func main() {
 			_, err = fsys.Stat("rigtmpdir")
 			require.ErrorIs(t, err, fs.ErrNotExist, "dir still exists")
 
-			// create test files
+			// create test dir structure
 			require.NoError(t, fsys.MkDirAll("rigtmpdir/testdir/subdir", 0644), "make dir")
+
 			for _, fn := range []string{"rigtmpdir/testdir/subdir/testfile1", "rigtmpdir/testdir/testfile2"} {
 				f, err := fsys.OpenFile(fn, goos.O_CREATE|goos.O_WRONLY, 0644)
 				require.NoError(t, err, "open file using OpenFile")
