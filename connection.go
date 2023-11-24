@@ -174,6 +174,9 @@ func (c *Connection) SudoFsys() rigfs.Fsys {
 
 // IsWindows returns true on windows hosts
 func (c *Connection) IsWindows() bool {
+	if c.OSVersion != nil {
+		return c.OSVersion.ID == "windows"
+	}
 	if !c.IsConnected() {
 		if client := c.configuredClient(); client != nil {
 			return client.IsWindows()
@@ -287,30 +290,55 @@ var sudoChecks = map[string]sudofn{
 	`doas -n -- "${SHELL-sh}" -c true`: sudoDoas,
 }
 
-const sudoCheckWindows = `whoami | findstr /i "administrator"`
-
+// sudoWindows is a no-op on windows - the user must already be an admin or UAC must be disabled
+// and the user must belong to Administrators. if that is the case, the user should be able to
+// do anything.
 func sudoWindows(cmd string) string {
-	return "runas /user:Administrator " + cmd
+	return cmd
 }
 
 func (c *Connection) configureSudo() {
-	if c.OSVersion.ID == "windows" {
-		if c.Exec(sudoCheckWindows) == nil {
-			c.sudofunc = sudoWindows
+	if !c.IsWindows() {
+		for check, fn := range sudoChecks {
+			if c.Exec(check) == nil {
+				c.sudofunc = fn
+				return
+			}
 		}
+	}
+	out, err := c.ExecOutput(`whoami`)
+	if err != nil {
 		return
 	}
-	for check, fn := range sudoChecks {
-		if c.Exec(check) == nil {
-			c.sudofunc = fn
-			return
-		}
+	parts := strings.Split(out, `\`)
+	if strings.ToLower(parts[len(parts)-1]) == "administrator" {
+		// user is already the administrator
+		c.sudofunc = sudoWindows
+		return
+	}
+
+	if c.Exec(`net user "%USERNAME%" | findstr /B /C:"Local Group Memberships" | findstr /C:"*Administrators"`) != nil {
+		// user is not in the Administrators group
+		return
+	}
+
+	out, err = c.ExecOutput(`reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "EnableLUA"`)
+	if err != nil {
+		return
+	}
+	if strings.Contains(out, "0x0") {
+		// UAC is disabled and the user is in the Administrators group - expect sudo to work
+		c.sudofunc = sudoWindows
+		return
 	}
 }
 
 // Sudo formats a command string to be run with elevated privileges
 func (c Connection) Sudo(cmd string) (string, error) {
 	if c.sudofunc == nil {
+		if c.IsWindows() {
+			return "", fmt.Errorf("%w: UAC is enabled and user is not 'Administrator'", ErrSudoRequired)
+		}
 		return "", fmt.Errorf("%w: user is not an administrator and passwordless access elevation has not been configured", ErrSudoRequired)
 	}
 

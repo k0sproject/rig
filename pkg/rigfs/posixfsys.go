@@ -572,12 +572,15 @@ func (fsys *PosixFsys) OpenFile(name string, flags int, perm fs.FileMode) (File,
 		case 0:
 			return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
 		default:
-			if err := fsys.Touch(name); err != nil {
-				return nil, err
+			if _, err := fsys.Stat(filepath.Dir(name)); err != nil {
+				if errors.Is(err, fs.ErrNotExist) {
+					return nil, &fs.PathError{Op: "open", Path: name, Err: fmt.Errorf("%w: parent directory does not exist", fs.ErrNotExist)}
+				}
+				return nil, &fs.PathError{Op: "open", Path: name, Err: fmt.Errorf("%w: failed to stat parent directory", fs.ErrInvalid)}
 			}
 
-			if err := fsys.Chmod(name, perm); err != nil {
-				return nil, err
+			if err := fsys.conn.Exec(fmt.Sprintf("install -m %#o /dev/null %s", perm, shellescape.Quote(name)), fsys.opts...); err != nil {
+				return nil, &fs.PathError{Op: "open", Path: name, Err: err}
 			}
 
 			// re-stat to ensure file is now there and get the correct bits if there's a umask
@@ -690,12 +693,8 @@ func (fsys *PosixFsys) MkDirAll(name string, perm fs.FileMode) error {
 		return fmt.Errorf("%w: mkdir %s: %w", ErrCommandFailed, name, fs.ErrExist)
 	}
 
-	if err := fsys.conn.Exec(fmt.Sprintf("mkdir -p %s", shellescape.Quote(dir)), fsys.opts...); err != nil {
+	if err := fsys.conn.Exec(fmt.Sprintf("install -d -m %#o %s", perm, shellescape.Quote(dir)), fsys.opts...); err != nil {
 		return fmt.Errorf("%w: mkdir %s: %w", ErrCommandFailed, name, err)
-	}
-
-	if err := fsys.conn.Exec(fmt.Sprintf("chmod %#o %s", perm, shellescape.Quote(dir)), fsys.opts...); err != nil {
-		return fmt.Errorf("%w: chmod (mkdir) %s: %w", ErrCommandFailed, name, err)
 	}
 
 	return nil

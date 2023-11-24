@@ -1,4 +1,6 @@
 begin {
+  Set-Alias NO New-Object
+  
   class Stat {
     [int]$size
     [int]$mode
@@ -6,306 +8,292 @@ begin {
     [int]$modTime
     [bool]$isDir
     [string]$name
-    Stat([System.IO.FileSystemInfo]$fi) {
-      if ($fi.Exists -eq $false) {
+    Stat([IO.FileSystemInfo]$fi){
+      if($fi.Exists -eq $false){
         throw ("file not found")
       }
-      $this.isDir = ($fi.Attributes -band [System.IO.FileAttributes]::Directory)
-      $this.modTime = [int](Get-Date ($fi.LastWriteTimeUtc).ToUniversalTime() -UFormat %s)
-      $this.size = [int]$fi.Length
-      $this.unixMode = [int]$fi.UnixFileMode
-      $this.mode = [int]$fi.Attributes
-      $this.name = $fi.FullName
+      $this.isDir=($fi.Attributes -band [IO.FileAttributes]::Directory)
+      $this.modTime=[int](Get-Date ($fi.LastWriteTimeUtc).ToUniversalTime() -UFormat %s)
+      $this.size=[int]$fi.Length
+      $this.unixMode=[int]$fi.UnixFileMode
+      $this.mode=[int]$fi.Attributes
+      $this.name=$fi.FullName
     }
   }
 
-  # returns FileInfo or DirectoryInfo for the given path depending on whether it is a file or a directory
-  function Get-FSInfo($path) {
-    try {
-      $path = Resolve-Path $Path
-    } catch {
-      if (![System.IO.Path]::IsPathRooted($path)) {
-        $path = Join-Path $pwd $path
+  class FileContext {
+    [IO.FileStream]$f
+    [bool]$EOF
+
+    FileContext([IO.FileStream]$f){
+        $this.f=$f
+    }
+  }
+
+  class FM {
+    hidden [hashtable]$f = @{}
+
+    [string] Add($ctx) {
+      $id=[guid]::NewGuid().ToString()
+      $this.f[$id] = $ctx
+      return $id
+    }
+
+    [FileContext] Get([string]$id) {
+      if ($this.f.ContainsKey($id)) {
+          return $this.f[$id]
+      } else {
+          throw "file not open"
       }
     }
 
-    if (Test-Path $path -PathType Container) {
-        return (New-Object System.IO.DirectoryInfo($Path))
+    [void] Del([string]$id) {
+      if ($this.f.ContainsKey($id)) {
+          $v=$this.f[$id].f
+          $this.f.Remove($id)
+          $v.Close()
+          $v.Dispose()
+          $v=$null
+      }
     }
-    return (New-Object System.IO.FileInfo($Path))
-  }
 
-  # throws when a file isn't open
-  function Check-Open($f) {
-    if ($f -eq $null) {
-      throw "file not open"
+    [void] Close() {
+      $this.f.Values|ForEach-Object {
+        $this.Del($_)
+      }
     }
   }
 
-  # converts an object to json, writes it to the stream, and sends a zero byte to mark the end
-  function Write-JSON($stream, $obj) {
-    $json = ConvertTo-Json -InputObject $obj -Depth 10 -Compress
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
-    $stream.Write($bytes, 0, $bytes.Length)
-    $stream.WriteByte(0)
+  function FSInfo($path){
+    try {
+      $p=Resolve-Path $path
+    } catch {
+      if(![IO.Path]::IsPathRooted($path)){
+        $p=Join-Path $pwd $path
+      }
+    }
+
+    if(Test-Path $p -PathType Container){
+        return (NO IO.DirectoryInfo($p))
+    }
+    return (NO IO.FileInfo($p))
   }
 
-	$bufferSize = 32768
+  function Emit($s, $obj){
+    $j=ConvertTo-Json -InputObject $obj -Depth 10 -Compress
+    $b=[System.Text.Encoding]::UTF8.GetBytes($j)
+    $s.Write($b, 0, $b.Length)
+    $s.WriteByte(0)
+  }
+
+	$bufSize=32768
   
-  $DebugPreference = "Continue"
-  $ErrorActionPreference = "Stop"
-  $ProgressPreference = "SilentlyContinue"
-  
-  $position = 0
-  $eof = $false
-  $file = $null
+  $DebugPreference="Continue"
+  $ErrorActionPreference="Stop"
+  $ProgressPreference="SilentlyContinue"
 
   # import the GetStdHandle function from kernel32.dll to get a raw stdin handle
   # it seems this kills the powershell window when the script is done, but that
   # is acceptable as this is only run in a dedicated shell
-  $MethodDefinitions = @'
-[DllImport("kernel32.dll", SetLastError = true)]
+  $MethodDefinitions=@'
+[DllImport("kernel32.dll", SetLastError=true)]
 public static extern IntPtr GetStdHandle(int nStdHandle);
 '@
-  $Kernel32 = Add-Type -MemberDefinition $MethodDefinitions -Name 'Kernel32' -Namespace 'Win32' -PassThru
-  $stdinHandle = $Kernel32::GetStdHandle(-10)
-  $stdin = New-Object System.IO.FileStream $stdinHandle, ([System.IO.FileAccess]::Read), ([System.IO.FileShare]::Read), 16384, $false
-  $stdinStream = New-Object System.IO.StreamReader $stdin
+  $Kernel32=Add-Type -MemberDefinition $MethodDefinitions -Name 'Kernel32' -Namespace 'Win32' -PassThru
+  $inHandle=$Kernel32::GetStdHandle(-10)
+  $in=NO IO.FileStream $inHandle, ([IO.FileAccess]::Read), ([IO.FileShare]::Read), 16384, $false
+  $inStream=NO IO.StreamReader $in
 
-  # get a raw stdout handle
-  [Console]::OutputEncoding = [System.Text.Encoding]::ASCII
-  $stdout = [System.Console]::OpenStandardOutput()
+  [Console]::OutputEncoding=[System.Text.Encoding]::ASCII
+  $out=[System.Console]::OpenStandardOutput()
 
-  $buf = New-Object byte[] $bufferSize
+  $buf=NO byte[] $bufSize
+  # create a file manager
+  $fm=[FM]::new()
 
-  while(!$stdinStream.EndOfStream) {
+  while(!$inStream.EndOfStream){
     try {
-      $command = $stdinStream.ReadLine()
-      $parts = $command -split " "
+      $command=$inStream.ReadLine()
+      $arg=$command -split " "
 
-      switch ($parts[0]) {
+      switch ($arg[0]){
         'stat' {
-          $path = $parts[1..($parts.Length-1)] -join " "
-          try {
-            $fi = Get-FSInfo $path
-          } catch {
-            Write-JSON $stdout @{"error" = "get-fsinfo: $($_.Exception.Message)"}
-            continue
+          $p=$arg[1..($arg.Length-1)] -join " "
+          $fi=FSInfo $p
+          $info=NO Stat $fi
+          $o=@{
+            stat=$info
           }
-          $info = New-Object Stat $fi
-          $output = @{
-            stat = $info
-          }
-          Write-JSON $stdout $output
-        }
-        'sum' {
-          $path = $parts[1..($parts.Length-1)] -join " "
-          $fi = Get-FSInfo $path
-          $sum = (Get-FileHash $fi.FullName -Algorithm SHA256).Hash.ToLower()
-          $props = @{
-            sha256 = $sum
-          }
-          $output = @{
-            sum = $props
-          }
-          Write-JSON $stdout $output
+          Emit $out $o
         }
         'dir' {
-          $path = $parts[1..($parts.Length-1)] -join " "
-          $di = Get-FSInfo $path
-          if (!$di.Exists) {
+          $p=$arg[1..($arg.Length-1)] -join " "
+          $di=FSInfo $p
+          if($di -is [IO.FileInfo]){
+            throw "not a directory"
+          }
+          if(!$di.Exists){
             throw "directory not found"
           }
           try {
-            $di.GetAccessControl() | Out-Null
+            $di.GetAccessControl()|Out-Null
           } catch {
             throw "access denied"
           }
-          if ($di.GetType().Name -ne "DirectoryInfo") {
-            throw "not a directory"
-          }
-          $infos = @()
-          $di.GetFileSystemInfos() | ForEach-Object {
-            $info = New-Object Stat $_
+          $infos=@()
+          $di.GetFileSystemInfos()|ForEach-Object {
+            $info=NO Stat $_
             $infos += $info
           }
-          $output = @{
-            dir = $infos
+          $o=@{
+            dir=$infos
           }
-          Write-JSON $stdout $output
+          Emit $out $o
         }
-        # command "o" = open a file
-        # second parameter is the mode (ro = readonly, c = create/truncate, a = create/append, rw = read/write)
-        # last parameter is the path
+        # open
         'o' { 
-          if ($file -ne $null) {
-            throw "file already open"
-          }
-          $mode = $parts[1]
-          $path = $parts[2..($parts.Length-1)] -join " "
-          try {
-            $fi = Get-FSInfo $path
-          } catch {
-            Write-JSON $stdout @{"error" = "get-fsinfo: $($_.Exception.Message)"}
-            continue
-          }
-          $path = $fi.FullName
+          $mode=$arg[1]
+          $p=$arg[2..($arg.Length-1)] -join " "
+          $fi=FSInfo $p
+          $p=$fi.FullName
 
-          $fmode = $null
-          switch ($mode) {
-            'ro' {
-              $fmode = [System.IO.FileMode]::Open
-            }
-            'w' {
-              $fmode = [System.IO.FileMode]::CreateNew
-            }
-            'rw' {
-              $fmode = [System.IO.FileMode]::ReadWrite
-            }
-            'c' {
-              if ($fi.Exists) {
-                $fmode = [System.IO.FileMode]::Truncate
-              } else {
-                $fmode = [System.IO.FileMode]::Create
-              }
-            }
-            'a' {
-              $fmode = [System.IO.FileMode]::Append
-            }
-            default {
-              throw "invalid mode"
-            }
+          $fmode=$null
+          $m=[IO.FileMode]
+          switch ($mode){
+            'ro' {$fmode=$m::Open}
+            'w' {$fmode=$m::CreateNew}
+            'rw' {$fmode=$m::ReadWrite}
+            'c' {if($fi.Exists){$fmode=$m::Truncate} else {$fmode=$m::Create}}
+            'a' {$fmode=$m::Append}
+            default {throw "invalid mode"}
           }
 
-          $file = New-Object System.IO.FileStream($path, $fmode)
-          $position = $file.Position
-          $eof = ($file.Length -eq $position)
-
-          $props = @{
-            size = $file.Length
+          $f=NO IO.FileStream($p, $fmode)
+          $ctx=[FileContext]::new($f)
+          $id=$fm.Add($ctx)
+          $props=@{
+            id=$id
+            pos=$ctx.f.Position
+            eof=$ctx.EOF
+            name=$ctx.f.Name
           }
-          $output = @{
-             stat = $props
+          $o=@{
+             open=$props
           }
-          Write-JSON $stdout $output
+          Emit $out $o
         }
-        # command "seek" = seek to a position in the file
-        # the first parameter is the offset
-        # the second parameter is the origin (0 = start, 1 = current, 2 = end)
+        # seek
         'seek' {
-          Check-Open $file
-          $pos = [int]$parts[1]
-          $whence = [int]$parts[2]
-          switch ($whence) {
-            0 { $position = $pos }
-            1 { $position += $pos }
-            2 { $position = $file.Length - [Math]::Abs($pos) }
+          $ctx=$fm.Get($arg[1])
+          $f=$ctx.f
+          $whence=[int]$arg[2]
+          $pos=$arg[3]
+          $cp=$f.Position
+          switch ($whence){
+            0 {$cp=$pos}
+            1 {$cp+=$pos}
+            2 {$cp=$f.Length-[Math]::Abs($pos)}
             default {
               throw "invalid whence"
             }
           }
-          $file.Position = $position
-          $eof = ($file.Position -eq $file.Length)
-          $props = @{
-            position = $position
+          $f.Position=$cp
+          $ctx.EOF=$cp -ge $f.Length
+          $props=@{
+            position=[int64]$cp
           }
-          $output = @{
-             seek = $props
+          $o=@{
+             seek=$props
           }
-          Write-JSON $stdout $output
+          Emit $out $o
         }
-        # command "read" = read bytes from the file
-        # the only parameter is the number of bytes to read. -1 means read until EOF
+        # read
         'r' {
-          Check-Open $file
-
-          if ($eof) {
+          $ctx=$fm.Get($arg[1])
+          if($ctx.EOF){
             throw "eof"
           }
-
-          $count = [int]$parts[1]
-          if ($count -eq 0) {
-            throw "zero count"
-          }
-
-          if ($count -eq -1) {
-            $totalbytes = $file.Length - $position
-            $position = $file.Length
-            $eof = $true
-            $props = @{
-              bytes = $totalbytes
-            }
-            $output = @{
-               read = $props
-              }
-            Write-JSON $stdout $output
-            $stdout.Flush()
-            $file.CopyTo($stdout)
-            $stdout.Flush()
-            continue
-          }
-
-          if ($count -gt $bufferSize) { 
-            throw ("count exceeds buffer size " + $bufferSize)
-          }
-
-          if ($file.EndOfStream) {
-            $eof = $true
-            throw "eof"
-          }
-
-          $bytesRead = $file.Read($buf, 0, $count)
-
-          if ($bytesRead -eq 0) {
-            $eof = $true
-            throw "eof"
-          }
-          $position += $bytesRead
-          $props = @{
-            bytes = $bytesRead
-          }
-          $output = @{
-             read = $props
-          }
-          Write-JSON $stdout $output
-          $stdout.Flush()
-          $stdout.Write($buf, 0, $bytesRead)
-          $stdout.Flush()
-        }
-        # command "w" = write bytes to the opened file from stdin
-        # the only parameter is the number of bytes to write
-        'w' {
-          Check-Open $file
-          if (-not ($file -is [System.IO.FileStream] -and $file.CanWrite)) {
+          if(-not ($f -is [IO.FileStream] -and $f.CanRead)){
             throw "file not open for writing"
           }
 
-          $count = [int]$parts[1]
-          if ($count -eq 0) {
+          $cnt=[int]$arg[2]
+          if($cnt -eq 0){
             throw "zero count"
           }
-          $stdout.WriteByte(0)
 
-          $bytesRead = 0
-          $totalBytesRead = 0
-          while ($totalBytesRead -lt $count) {
-            $bytesToRead = [Math]::Min($bufferSize, $count - $totalBytesRead)
-            $bytesRead = $stdin.Read($buf, 0, $bytesToRead)
-            $file.Write($buf, 0, $bytesRead)
-            $position = $file.Position
-            $totalBytesRead += $bytesRead
+          $f=$ctx.f
+
+          if($cnt -eq -1){
+            $total=$f.Length - $f.Position
+            $pos=$f.Length
+            $props=@{
+              bytes=$total
+            }
+            $o=@{
+               read=$props
+              }
+            Emit $out $o
+            $out.Flush()
+            $f.CopyTo($out)
+            $out.Flush()
+            $ctx.EOF=$true
+            continue
           }
-          $eof = $true
+
+          if($cnt -gt $bufSize){ 
+            throw ("count exceeds buffer size "+$bufSize)
+          }
+
+          if($f.EndOfStream){
+            $ctx.EOF=$true
+            throw "eof"
+          }
+
+          $b=$f.Read($buf, 0, $count)
+
+          if($b -eq 0){
+            $ctx.EOF=$true
+            throw "eof"
+          }
+          $props=@{
+            bytes=$b
+          }
+          $o=@{
+             read=$props
+          }
+          Emit $out $o
+          $out.Flush()
+          $out.Write($buf, 0, $b)
+          $out.Flush()
         }
-        # command "c" = close the opened file
+        # write
+        'w' {
+          $ctx=$fm.Get($arg[1])
+          $f=$ctx.f
+          if(-not ($f -is [IO.FileStream] -and $f.CanWrite)){
+            throw "file not open for writing"
+          }
+
+          $count=[int]$arg[2]
+          if($count -eq 0){
+            throw "zero count"
+          }
+          $out.WriteByte(0)
+
+          $rt=0
+          while ($rt -lt $count){
+            $toRead=[Math]::Min($bufSize, $count - $rt)
+            $r=$in.Read($buf, 0, $toRead)
+            $f.Write($buf, 0, $r)
+            $rt += $r
+          }
+          $ctx.EOF=$true
+        }
+        # close
         'c' {
-          Check-Open $file
-          $file.Close()
-          $file.Dispose()
-          $file = $null
-          $eof = $false
-          $position = 0
-          $stdout.WriteByte(0)
+          $fm.Del($arg[1])
+          $out.WriteByte(0)
         }
         'q' {
           throw "quit"
@@ -315,19 +303,14 @@ public static extern IntPtr GetStdHandle(int nStdHandle);
         }
       }
     } catch {
-      if ($_.Exception.Message -eq "quit") {
+      if($_.Exception.Message -eq "quit"){
         break
       }
-      $output = @{
-         error = $_.Exception.Message
+      $msg=@{
+         error=$_.Exception.Message
       }
-      Write-JSON $stdout $output
+      Emit $out $msg
     }
   }
-}
-end {
-  if ($file -ne $null) {
-    $file.Close()
-    $file.Dispose()
-  }
+  $fm.Close()
 }

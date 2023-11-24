@@ -106,6 +106,7 @@ func main() {
 	connectOnly := flag.Bool("connect", false, "just connect and quit")
 	sshKey := flag.String("ssh-private-key", "", "ssh private key")
 	multiplex := flag.Bool("ssh-multiplex", true, "use ssh multiplexing")
+	fsysOnly := flag.Bool("fsys", false, "only test rigfs operations")
 
 	fn := fmt.Sprintf("test_%s.txt", time.Now().Format("20060102150405"))
 
@@ -253,41 +254,52 @@ func main() {
 			continue
 		}
 
-		t.Run("load os %s", h.Address())
-		require.NoError(t, h.LoadOS(), "load os")
+		if !*fsysOnly {
+			t.Run("load os %s", h.Address())
+			require.NoError(t, h.LoadOS(), "load os")
 
-		t.Run("os support module functions on %s", h)
+			t.Run("os support module functions on %s", h)
 
-		stat, err := h.Configurer.Stat(h, fn)
-		require.Error(t, err, "no stat error")
+			stat, err := h.Configurer.Stat(h, fn)
+			require.Error(t, err, "no stat error")
 
-		now := time.Now()
-		err = h.Configurer.Touch(h, fn, now)
-		require.NoError(t, err, "touch error")
+			now := time.Now()
+			err = h.Configurer.Touch(h, fn, now)
+			require.NoError(t, err, "touch error")
 
-		stat, err = h.Configurer.Stat(h, fn)
-		require.NoError(t, err, "stat error")
-		assert.Equal(t, filepath.Base(stat.Name()), filepath.Base(fn), "stat name not as expected")
-		assert.Equal(t, filepath.Base(stat.Name()), filepath.Base(fn), "stat name not as expected")
-		assert.Condition(t, func() bool {
-			actual := stat.ModTime()
-			return now.Equal(actual) || now.Truncate(time.Second).Equal(actual)
-		}, "Expected %s, got %s", now, stat.ModTime())
+			stat, err = h.Configurer.Stat(h, fn)
+			require.NoError(t, err, "stat error")
+			assert.Equal(t, filepath.Base(stat.Name()), filepath.Base(fn), "stat name not as expected")
+			assert.Equal(t, filepath.Base(stat.Name()), filepath.Base(fn), "stat name not as expected")
+			assert.Condition(t, func() bool {
+				actual := stat.ModTime()
+				return now.Equal(actual) || now.Truncate(time.Second).Equal(actual)
+			}, "Expected %s, got %s", now, stat.ModTime())
 
-		require.NoError(t, h.Configurer.WriteFile(h, fn, "test\ntest2\ntest3", "0644"), "write file")
-		if !h.Configurer.FileExist(h, fn) {
-			t.Fail("file does not exist after write")
+			require.NoError(t, h.Configurer.WriteFile(h, fn, "test\ntest2\ntest3", "0644"), "write file")
+			if !h.Configurer.FileExist(h, fn) {
+				t.Fail("file does not exist after write")
+			}
+			require.NoError(t, h.Configurer.LineIntoFile(h, fn, "test2", "test4"), "line into file")
+
+			row, err := h.Configurer.ReadFile(h, fn)
+			require.NoError(t, err, "read file")
+			require.Equal(t, "test\ntest4\ntest3", row, "file content not as expected after line into file")
+
+			require.NoError(t, h.Configurer.DeleteFile(h, fn))
+			require.False(t, h.Configurer.FileExist(h, fn))
 		}
-		require.NoError(t, h.Configurer.LineIntoFile(h, fn, "test2", "test4"), "line into file")
 
-		row, err := h.Configurer.ReadFile(h, fn)
-		require.NoError(t, err, "read file")
-		require.Equal(t, "test\ntest4\ntest3", row, "file content not as expected after line into file")
-
-		require.NoError(t, h.Configurer.DeleteFile(h, fn))
-		require.False(t, h.Configurer.FileExist(h, fn))
-
-		fsyses := []rigfs.Fsys{h.Fsys(), h.SudoFsys()}
+		fsyses := []rigfs.Fsys{h.Fsys()}
+		if !h.IsWindows() {
+			// on windows using sudo makes no difference - the commands will be executed identically
+			// you just might not have permissions to do so. the only access elevation for command line
+			// on windows is "runas /user:Administrator" which requires you to enter the password of
+			// the Administator account.
+			//
+			// on linux, we'll test the sudo fsys as well
+			fsyses = append(fsyses, h.SudoFsys())
+		}
 
 		for idx, fsys := range fsyses {
 			for _, testFileSize := range []int64{
@@ -303,7 +315,7 @@ func main() {
 				reader := io.TeeReader(origin, shasum)
 
 				destf, err := fsys.OpenFile(fn, goos.O_CREATE|goos.O_WRONLY, 0644)
-				require.NoError(t, err, "open file")
+				require.NoError(t, err, "open file using OpenFile")
 
 				n, err := io.Copy(destf, reader)
 				require.NoError(t, err, "io.copy file from local to remote")
@@ -354,25 +366,32 @@ func main() {
 			t.Run("fsys (%d) dir ops on %s", idx+1, h)
 
 			// fsys dirops
-			require.NoError(t, fsys.MkDirAll("tmpdir/nested", 0644), "make nested dir")
-			_, err = fsys.Stat("tmpdir")
-			require.NoError(t, err, "tmpdir was not created")
-			_, err = fsys.Stat("tmpdir/nested")
+			require.NoError(t, fsys.MkDirAll("rigtmpdir/nested", 0644), "make nested dir")
+			_, err = fsys.Stat("rigtmpdir")
+			require.NoError(t, err, "rigtmpdir was not created")
+			_, err = fsys.Stat("rigtmpdir/nested")
 			require.NoError(t, err, "tmpdir/nested was not created")
 
-			require.NoError(t, fsys.RemoveAll("tmpdir"), "remove recursive")
-			_, err = fsys.Stat("tmpdir/nested")
+			require.NoError(t, fsys.RemoveAll("rigtmpdir"), "remove recursive")
+			_, err = fsys.Stat("rigtmpdir/nested")
 			require.ErrorIs(t, err, fs.ErrNotExist, "nested dir still exists")
-			_, err = fsys.Stat("tmpdir")
+			_, err = fsys.Stat("rigtmpdir")
 			require.ErrorIs(t, err, fs.ErrNotExist, "dir still exists")
 
-			require.NoError(t, h.Configurer.MkDir(h, "tmp/testdir/subdir"), "make dir")
-			require.NoError(t, h.Configurer.WriteFile(h, "tmp/testdir/subdir/testfile1", "test", "0644"), "write file")
-			require.NoError(t, h.Configurer.WriteFile(h, "tmp/testdir/testfile2", "test", "0644"), "write file")
+			// create test dir structure
+			require.NoError(t, fsys.MkDirAll("rigtmpdir/testdir/subdir", 0755), "make dir")
+
+			for _, fn := range []string{"rigtmpdir/testdir/subdir/testfile1", "rigtmpdir/testdir/testfile2"} {
+				f, err := fsys.OpenFile(fn, goos.O_CREATE|goos.O_WRONLY, 0644)
+				require.NoError(t, err, "open file using OpenFile")
+				_, err = f.Write([]byte("test"))
+				require.NoError(t, err, "write to file")
+				require.NoError(t, f.Close(), "close file")
+			}
 
 			var foundFiles []fs.DirEntry
 
-			err = fs.WalkDir(fsys, "tmp/testdir", func(path string, d fs.DirEntry, err error) error {
+			err = fs.WalkDir(fsys, "rigtmpdir/testdir", func(path string, d fs.DirEntry, err error) error {
 				if err != nil {
 					println("error walking", path, err)
 					return err
