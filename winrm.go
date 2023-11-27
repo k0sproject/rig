@@ -198,7 +198,6 @@ type Command struct {
 func (c *Command) Wait() error {
 	var wg sync.WaitGroup
 	defer c.sh.Close()
-	defer c.cmd.Close()
 	if c.stdin == nil {
 		c.cmd.Stdin.Close()
 	} else {
@@ -331,8 +330,6 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop
 	command.Wait()
 
 	wg.Wait()
-
-	command.Close()
 
 	if ec := command.ExitCode(); ec > 0 {
 		return fmt.Errorf("%w: non-zero exit code: %d", ErrCommandFailed, ec)
