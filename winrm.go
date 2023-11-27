@@ -265,8 +265,6 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:funlen,cy
 
 	wg.Wait()
 
-	command.Close()
-
 	if ec := command.ExitCode(); ec > 0 {
 		return ErrCommandFailed.Wrapf("non-zero exit code %d", ec)
 	}
