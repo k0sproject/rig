@@ -39,7 +39,7 @@ func (m *mockClient) Exec(cmd string, opts ...exec.Option) error {
 
 	return nil
 }
-func (m *mockClient) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (waiter, error) {
+func (m *mockClient) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (exec.Waiter, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 

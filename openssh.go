@@ -323,7 +323,7 @@ func (c *OpenSSH) Exec(cmdStr string, opts ...exec.Option) error { //nolint:cycl
 }
 
 // ExecStreams executes a command on the remote host, streaming stdin, stdout and stderr
-func (c *OpenSSH) ExecStreams(cmdStr string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (waiter, error) {
+func (c *OpenSSH) ExecStreams(cmdStr string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (exec.Waiter, error) {
 	if !c.DisableMultiplexing && !c.isConnected {
 		return nil, ErrNotConnected
 	}

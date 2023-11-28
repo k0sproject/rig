@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,12 +15,12 @@ import (
 
 	"github.com/acarl005/stripansi"
 	"github.com/creasty/defaults"
-	"github.com/google/shlex"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
 	"github.com/k0sproject/rig/pkg/ssh/agent"
 	"github.com/k0sproject/rig/pkg/ssh/hostkey"
 	"github.com/kevinburke/ssh_config"
+	"github.com/mattn/go-shellwords"
 	ssh "golang.org/x/crypto/ssh"
 	"golang.org/x/term"
 )
@@ -43,7 +42,8 @@ type SSH struct {
 	//   authMethods, err := rig.ParseSSHPrivateKey(key, rig.DefaultPassphraseCallback)
 	AuthMethods []ssh.AuthMethod `yaml:"-"`
 
-	name string
+	alias string
+	name  string
 
 	isWindows bool
 	knowOs    bool
@@ -122,6 +122,27 @@ func expandAndValidatePath(path string) (string, error) {
 	return path, nil
 }
 
+// compact replaces consecutive runs of equal elements with a single copy.
+// This is like the uniq command found on Unix.
+//
+// Taken from stdlib's slices package, to work around a problem on github actions
+// (package slices is not in GOROOT (/opt/hostedtoolcache/go/1.20.12/x64/src/slices)
+func compact[S ~[]E, E comparable](slice S) S {
+	if len(slice) < 2 {
+		return slice
+	}
+	i := 1
+	for k := 1; k < len(slice); k++ {
+		if slice[k] != slice[k-1] {
+			if i != k {
+				slice[i] = slice[k]
+			}
+			i++
+		}
+	}
+	return slice[:i]
+}
+
 func (c *SSH) keypathsFromConfig() []string {
 	log.Tracef("%s: trying to get a keyfile path from ssh config", c)
 	idf := c.getConfigAll("IdentityFile")
@@ -130,7 +151,7 @@ func (c *SSH) keypathsFromConfig() []string {
 	// To work around this, the hard coded list of known defaults are appended to the list
 	idf = append(idf, defaultKeypaths...)
 	sort.Strings(idf)
-	idf = slices.Compact(idf)
+	idf = compact(idf)
 
 	if len(idf) > 0 {
 		log.Tracef("%s: detected %d identity file paths from ssh config: %v", c, len(idf), idf)
@@ -148,7 +169,7 @@ func (c *SSH) initGlobalDefaults() {
 	// To work around this, the hard coded list of known defaults are appended to the list
 	dummyHostIdentityFiles = append(dummyHostIdentityFiles, defaultKeypaths...)
 	sort.Strings(dummyHostIdentityFiles)
-	dummyHostIdentityFiles = slices.Compact(dummyHostIdentityFiles)
+	dummyHostIdentityFiles = compact(dummyHostIdentityFiles)
 	for _, keyPath := range dummyHostIdentityFiles {
 		if expanded, err := expandAndValidatePath(keyPath); err == nil {
 			dummyhostKeyPaths = append(dummyhostKeyPaths, expanded)
@@ -189,6 +210,21 @@ func (c *SSH) SetDefaults() {
 
 		paths := c.keypathsFromConfig()
 
+		if c.Port == 0 || c.Port == 22 {
+			ports := c.getConfigAll("Port")
+			if len(ports) > 0 {
+				if p, err := strconv.Atoi(ports[0]); err == nil {
+					c.Port = p
+				}
+			}
+		}
+
+		addrs := c.getConfigAll("HostName")
+		if len(addrs) > 0 {
+			c.alias = c.Address
+			c.Address = addrs[0]
+		}
+
 		for _, p := range paths {
 			expanded, err := expandAndValidatePath(p)
 			if err != nil {
@@ -221,11 +257,9 @@ func (c *SSH) IPAddress() string {
 // you can override it with your own implementation for testing purposes
 var SSHConfigGetAll = ssh_config.GetAll
 
-// try with port, if no results, try without
 func (c *SSH) getConfigAll(key string) []string {
-	dst := net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
-	if val := SSHConfigGetAll(dst, key); len(val) > 0 {
-		return val
+	if c.alias != "" {
+		return SSHConfigGetAll(c.alias, key)
 	}
 	return SSHConfigGetAll(c.Address, key)
 }
@@ -322,8 +356,9 @@ func (c *SSH) hostkeyCallback() (ssh.HostKeyCallback, error) {
 	kfs := c.getConfigAll("UserKnownHostsFile")
 	// splitting the result as for some reason ssh_config sometimes seems to
 	// return a single string containing space separated paths
-	if files, err := shlex.Split(strings.Join(kfs, " ")); err == nil {
+	if files, err := shellwords.Parse(strings.Join(kfs, " ")); err == nil {
 		for _, f := range files {
+			log.Tracef("%s: trying known_hosts file from ssh config %s", c, f)
 			exp, err := expandPath(f)
 			if err == nil {
 				khPath = exp
@@ -523,7 +558,7 @@ const (
 
 // ExecStreams executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
-func (c *SSH) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (waiter, error) {
+func (c *SSH) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (exec.Waiter, error) {
 	if c.client == nil {
 		return nil, ErrNotConnected
 	}
@@ -533,6 +568,8 @@ func (c *SSH) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Wri
 	if err != nil {
 		return nil, fmt.Errorf("%w: build command: %w", ErrCommandFailed, err)
 	}
+
+	execOpts.LogCmd(c.String(), cmd)
 
 	session, err := c.client.NewSession()
 	if err != nil {
@@ -551,7 +588,7 @@ func (c *SSH) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Wri
 }
 
 // Exec executes a command on the host
-func (c *SSH) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop
+func (c *SSH) Exec(cmd string, opts ...exec.Option) error { //nolint:gocognit,cyclop
 	execOpts := exec.Build(opts...)
 	session, err := c.client.NewSession()
 	if err != nil {
@@ -617,7 +654,7 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop
 		}
 	}()
 
-	gotErrors := false
+	var errors []string
 
 	wg.Add(1)
 	go func() {
@@ -625,12 +662,14 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop
 		outputScanner := bufio.NewScanner(stderr)
 
 		for outputScanner.Scan() {
-			gotErrors = true
-			execOpts.AddOutput(c.String(), "", outputScanner.Text()+"\n")
+			msg := outputScanner.Text()
+			if msg != "" {
+				errors = append(errors, msg)
+				execOpts.LogErrorf("%s: %s", c, msg)
+			}
 		}
 
 		if err := outputScanner.Err(); err != nil {
-			gotErrors = true
 			execOpts.LogErrorf("%s: %s", c, err.Error())
 		}
 	}()
@@ -642,8 +681,8 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop
 		return fmt.Errorf("ssh session wait: %w", err)
 	}
 
-	if c.knowOs && c.isWindows && (!execOpts.AllowWinStderr && gotErrors) {
-		return fmt.Errorf("%w: data in stderr", ErrCommandFailed)
+	if c.knowOs && c.isWindows && (!execOpts.AllowWinStderr && len(errors) > 0) {
+		return fmt.Errorf("%w: received data in stderr: %s", ErrCommandFailed, strings.Join(errors, "\n"))
 	}
 
 	return nil

@@ -12,25 +12,21 @@ import (
 
 	"github.com/alessio/shellescape"
 	"github.com/creasty/defaults"
-	"github.com/google/shlex"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
 	rigos "github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/pkg/rigfs"
+	"github.com/mattn/go-shellwords"
 )
 
 var _ rigos.Host = (*Connection)(nil)
-
-type waiter interface {
-	Wait() error
-}
 
 type client interface {
 	Connect() error
 	Disconnect()
 	IsWindows() bool
 	Exec(cmd string, opts ...exec.Option) error
-	ExecStreams(cmd string, stdin io.ReadCloser, stdout io.Writer, stderr io.Writer, opts ...exec.Option) (waiter, error)
+	ExecStreams(cmd string, stdin io.ReadCloser, stdout io.Writer, stderr io.Writer, opts ...exec.Option) (exec.Waiter, error)
 	ExecInteractive(cmd string) error
 	String() string
 	Protocol() string
@@ -187,7 +183,7 @@ func (c *Connection) IsWindows() bool {
 
 // ExecStreams executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
-func (c Connection) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (rigfs.Waiter, error) {
+func (c Connection) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (exec.Waiter, error) {
 	if err := c.checkConnected(); err != nil {
 		return nil, fmt.Errorf("%w: exec with streams: %w", ErrCommandFailed, err)
 	}
@@ -255,7 +251,7 @@ func sudoNoop(cmd string) string {
 }
 
 func sudoSudo(cmd string) string {
-	parts, err := shlex.Split(cmd)
+	parts, err := shellwords.Parse(cmd)
 	if err != nil {
 		return "sudo -s -- " + cmd
 	}
@@ -400,14 +396,19 @@ func (c *Connection) Upload(src, dst string, _ ...exec.Option) error {
 	shasum := sha256.New()
 
 	fsys := c.Fsys()
-	remote, err := fsys.OpenFile(dst, os.O_CREATE|os.O_WRONLY, stat.Mode())
+	remote, err := fsys.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, stat.Mode())
 	if err != nil {
 		return fmt.Errorf("%w: open remote file %s for writing: %w", ErrInvalidPath, dst, err)
 	}
 	defer remote.Close()
 
-	if _, err := remote.CopyFromN(local, stat.Size(), shasum); err != nil {
+	localReader := io.TeeReader(local, shasum)
+	if _, err := io.Copy(remote, localReader); err != nil {
+		_ = remote.Close()
 		return fmt.Errorf("%w: copy file %s to remote host: %w", ErrUploadFailed, dst, err)
+	}
+	if err := remote.Close(); err != nil {
+		return fmt.Errorf("%w: close remote file %s: %w", ErrUploadFailed, dst, err)
 	}
 
 	log.Debugf("%s: post-upload validate checksum of %s", c, dst)

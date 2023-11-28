@@ -2,6 +2,7 @@ package os
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -256,11 +257,15 @@ func (c Linux) InstallFile(h Host, src, dst, permissions string) error {
 
 // ReadFile reads a files contents from the host.
 func (c Linux) ReadFile(h Host, path string) (string, error) {
-	out, err := h.ExecOutputf("cat -- %s 2> /dev/null", shellescape.Quote(path), exec.HideOutput(), exec.Sudo(h))
+	out := bytes.NewBuffer(nil)
+	cmd, err := h.ExecStreams(fmt.Sprintf("cat -- %s 2> /dev/null", shellescape.Quote(path)), nil, out, nil, exec.Sudo(h))
 	if err != nil {
 		return "", fmt.Errorf("failed to read file %s: %w", path, err)
 	}
-	return out, nil
+	if err := cmd.Wait(); err != nil {
+		return "", fmt.Errorf("failed to read file %s: %w", path, err)
+	}
+	return out.String(), nil
 }
 
 // DeleteFile deletes a file from the host.
@@ -479,4 +484,13 @@ func (c Linux) Touch(h Host, path string, ts time.Time, opts ...exec.Option) err
 		return fmt.Errorf("failed to touch %s: %w", path, err)
 	}
 	return nil
+}
+
+// Sha256sum calculates the sha256 checksum of a file
+func (c Linux) Sha256sum(h Host, path string, opts ...exec.Option) (string, error) {
+	out, err := h.ExecOutput(fmt.Sprintf("sha256sum -b -- %s 2> /dev/null", shellescape.Quote(path)), opts...)
+	if err != nil {
+		return "", fmt.Errorf("failed to shasum %s: %w", path, err)
+	}
+	return strings.Split(out, " ")[0], nil
 }

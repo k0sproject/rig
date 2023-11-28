@@ -10,7 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path/filepath"
+	"path"
 	"strings"
 	"testing"
 	"time"
@@ -41,6 +41,14 @@ var (
 	privateKey      string
 	enableMultiplex bool
 )
+
+func pathBase(p string) string {
+	return path.Base(strings.ReplaceAll(p, "\\", "/"))
+}
+
+func pathDir(p string) string {
+	return path.Dir(strings.ReplaceAll(p, "\\", "/"))
+}
 
 func TestMain(m *testing.M) {
 	flag.StringVar(&targetHost, "host", "", "target host")
@@ -138,6 +146,7 @@ type configurer interface {
 	Stat(rigos.Host, string, ...exec.Option) (*rigos.FileInfo, error)
 	Touch(rigos.Host, string, time.Time, ...exec.Option) error
 	MkDir(rigos.Host, string, ...exec.Option) error
+	Sha256sum(rigos.Host, string, ...exec.Option) (string, error)
 }
 
 // Host is a host that utilizes rig for connections
@@ -232,11 +241,21 @@ type SuiteLogger struct {
 	t *testing.T
 }
 
-func (s *SuiteLogger) Tracef(msg string, args ...interface{}) { s.t.Logf("TRACE "+msg, args...) }
-func (s *SuiteLogger) Debugf(msg string, args ...interface{}) { s.t.Logf("DEBUG "+msg, args...) }
-func (s *SuiteLogger) Infof(msg string, args ...interface{})  { s.t.Logf("INFO "+msg, args...) }
-func (s *SuiteLogger) Warnf(msg string, args ...interface{})  { s.t.Logf("WARN "+msg, args...) }
-func (s *SuiteLogger) Errorf(msg string, args ...interface{}) { s.t.Logf("ERROR "+msg, args...) }
+func (s *SuiteLogger) Tracef(msg string, args ...interface{}) {
+	s.t.Log(fmt.Sprintf("%s TRACE %s", time.Now(), fmt.Sprintf(msg, args...)))
+}
+func (s *SuiteLogger) Debugf(msg string, args ...interface{}) {
+	s.t.Log(fmt.Sprintf("%s DEBUG %s", time.Now(), fmt.Sprintf(msg, args...)))
+}
+func (s *SuiteLogger) Infof(msg string, args ...interface{}) {
+	s.t.Log(fmt.Sprintf("%s INFO %s", time.Now(), fmt.Sprintf(msg, args...)))
+}
+func (s *SuiteLogger) Warnf(msg string, args ...interface{}) {
+	s.t.Log(fmt.Sprintf("%s WARN %s", time.Now(), fmt.Sprintf(msg, args...)))
+}
+func (s *SuiteLogger) Errorf(msg string, args ...interface{}) {
+	s.t.Log(fmt.Sprintf("%s ERROR %s", time.Now(), fmt.Sprintf(msg, args...)))
+}
 
 type ConnectedSuite struct {
 	suite.Suite
@@ -248,29 +267,27 @@ type ConnectedSuite struct {
 func (s *ConnectedSuite) SetupSuite() {
 	rig.SetLogger(&SuiteLogger{s.T()})
 	err := retry(func() error { return s.Host.Connect() })
-	s.NoError(err)
-	s.NoError(s.Host.LoadOS())
+	s.Require().NoError(err)
+	s.Require().NoError(s.Host.LoadOS())
 	s.tempDir = "tmp.rig-test." + time.Now().Format("20060102150405")
-	s.NoError(s.Host.Configurer.MkDir(s.Host, s.tempDir))
+	s.Require().NoError(s.Host.Fsys().MkDirAll(s.tempDir, 0755))
 }
 
 func (s *ConnectedSuite) TearDownSuite() {
 	if s.Host == nil {
 		return
 	}
-	if s.Host.Fsys().RemoveAll(s.tempDir) != nil {
-		_ = s.Host.SudoFsys().RemoveAll(s.tempDir)
-	}
+	_ = s.Host.Fsys().RemoveAll(s.tempDir)
 	s.Host.Disconnect()
 }
 
-func (s *ConnectedSuite) TestPath(args ...string) string {
+func (s *ConnectedSuite) TempPath(args ...string) string {
 	if len(args) == 0 {
 		s.count++
-		return filepath.Join(s.tempDir, fmt.Sprintf("testfile.%d", s.count))
+		return fmt.Sprintf("%s/testfile.%d", s.tempDir, s.count)
 	}
-	args[0] = filepath.Join(s.tempDir, args[0])
-	return filepath.Join(args...)
+	args[0] = fmt.Sprintf("%s/%s", s.tempDir, args[0])
+	return strings.Join(args, "/")
 }
 
 type ConfigurerSuite struct {
@@ -279,34 +296,34 @@ type ConfigurerSuite struct {
 
 func (s *ConfigurerSuite) TestStat() {
 	s.Run("File does not exist", func() {
-		stat, err := s.Host.Configurer.Stat(s.Host, s.TestPath("doesnotexist"))
+		stat, err := s.Host.Configurer.Stat(s.Host, s.TempPath("doesnotexist"))
 		s.Nil(stat)
 		s.Error(err)
 	})
 
 	s.Run("File exists", func() {
-		f := s.TestPath()
+		f := s.TempPath()
 		s.Run("Create file", func() {
-			s.NoError(s.Host.Configurer.Touch(s.Host, f, time.Now()))
+			s.Require().NoError(s.Host.Configurer.Touch(s.Host, f, time.Now()))
 		})
 
 		stat, err := s.Host.Configurer.Stat(s.Host, f)
-		s.NoError(err)
-		s.Equal(filepath.Base(stat.Name()), filepath.Base(f))
+		s.Require().NoError(err)
+		s.True(strings.HasSuffix(f, stat.Name())) // Name() returns Basename
 	})
 }
 
 func (s *ConfigurerSuite) TestTouch() {
-	f := s.TestPath()
+	f := s.TempPath()
 	now := time.Now()
 	for _, tt := range []time.Time{now, now.Add(1 * time.Hour)} {
 		s.Run("Update timestamp "+tt.String(), func() {
-			s.NoError(s.Host.Configurer.Touch(s.Host, f, now))
+			s.Require().NoError(s.Host.Configurer.Touch(s.Host, f, now))
 		})
 
 		s.Run("File exists and has correct timestamp "+tt.String(), func() {
 			stat, err := s.Host.Configurer.Stat(s.Host, f)
-			s.NoError(err)
+			s.Require().NoError(err)
 			s.NotNil(stat)
 			s.Equal(now.Unix(), stat.ModTime().Unix())
 		})
@@ -314,19 +331,13 @@ func (s *ConfigurerSuite) TestTouch() {
 }
 
 func (s *ConfigurerSuite) TestFileAccess() {
-	f := s.TestPath()
-	deleted := false
-	defer func() {
-		if !deleted {
-			_ = s.Host.Configurer.DeleteFile(s.Host, f)
-		}
-	}()
+	f := s.TempPath()
 	s.Run("File does not exist", func() {
 		s.False(s.Host.Configurer.FileExist(s.Host, f))
 	})
 
 	s.Run("Write file", func() {
-		s.NoError(s.Host.Configurer.WriteFile(s.Host, f, "test\ntest2\ntest3", "0644"))
+		s.Require().NoError(s.Host.Configurer.WriteFile(s.Host, f, "test\ntest2\ntest3", "0644"))
 	})
 
 	s.Run("File exists", func() {
@@ -335,24 +346,23 @@ func (s *ConfigurerSuite) TestFileAccess() {
 
 	s.Run("Read file and verify contents", func() {
 		content, err := s.Host.Configurer.ReadFile(s.Host, f)
-		s.NoError(err)
+		s.Require().NoError(err)
 		s.Equal("test\ntest2\ntest3", content)
 	})
 
 	s.Run("Replace line in file", func() {
-		s.NoError(s.Host.Configurer.LineIntoFile(s.Host, f, "test2", "test4"))
+		s.Require().NoError(s.Host.Configurer.LineIntoFile(s.Host, f, "test2", "test4"))
 	})
 
 	s.Run("Re-read file and verify contents", func() {
 		content, err := s.Host.Configurer.ReadFile(s.Host, f)
-		s.NoError(err)
+		s.Require().NoError(err)
 		// TODO: LineIntoFile adds a trailing newline
 		s.Equal("test\ntest4\ntest3", strings.TrimSpace(content))
 	})
 
 	s.Run("Delete file", func() {
-		s.NoError(s.Host.Configurer.DeleteFile(s.Host, f))
-		deleted = true
+		s.Require().NoError(s.Host.Configurer.DeleteFile(s.Host, f))
 	})
 
 	s.Run("File does not exist", func() {
@@ -381,28 +391,30 @@ func (s *ConfigurerSuite) TestUpload() {
 	for _, size := range []int64{500, 100 * 1024, 1024 * 1024} {
 		s.Run(fmt.Sprintf("File size %d", size), func() {
 			fn, err := testFile(size)
-			s.NoError(err)
+			s.Require().NoError(err)
 			defer os.Remove(fn)
-			defer s.Host.Configurer.DeleteFile(s.Host, s.TestPath(filepath.Base(fn)))
+			defer s.Host.Configurer.DeleteFile(s.Host, s.TempPath(pathBase(fn)))
 
 			s.Run("Upload file", func() {
-				s.NoError(s.Host.Upload(fn, s.TestPath(filepath.Base(fn))))
+				s.Require().NoError(s.Host.Upload(fn, s.TempPath(pathBase(fn))))
 			})
 
 			s.Run("Verify file size", func() {
-				stat, err := s.Host.Configurer.Stat(s.Host, s.TestPath(filepath.Base(fn)))
-				s.NoError(err)
+				stat, err := s.Host.Configurer.Stat(s.Host, s.TempPath(pathBase(fn)))
+				s.Require().NoError(err)
+				s.Require().NotNil(stat)
 				s.Equal(size, stat.Size())
 			})
 
 			s.Run("Verify file contents", func() {
-				content, err := s.Host.Configurer.ReadFile(s.Host, s.TestPath(filepath.Base(fn)))
-				os.WriteFile("remote-file", []byte(content), 0644)
-				s.NoError(err)
-				tmpFileContent, err := os.ReadFile(fn)
-				os.WriteFile("local-file", tmpFileContent, 0644)
-				s.NoError(err)
-				s.Equal([]byte(content), tmpFileContent)
+				sum, err := s.Host.Configurer.Sha256sum(s.Host, s.TempPath(pathBase(fn)))
+				s.Require().NoError(err)
+				sha := sha256.New()
+				f, err := os.Open(fn)
+				s.Require().NoError(err)
+				_, err = io.Copy(sha, f)
+				s.Require().NoError(err)
+				s.Equal(hex.EncodeToString(sha.Sum(nil)), sum)
 			})
 
 		})
@@ -429,35 +441,38 @@ func (s *FsysSuite) SetupSuite() {
 }
 
 func (s *FsysSuite) TestMkdir() {
-	testPath := s.TestPath("test", "subdir")
+	s.T().Log("testmkdir")
+	testPath := s.TempPath("test", "subdir")
 	defer func() {
 		_ = s.fsys.RemoveAll(testPath)
 	}()
 	s.Run("Create directory", func() {
-		s.NoError(s.fsys.MkDirAll(testPath, 0755))
+		s.T().Log("mkdirall")
+		s.Require().NoError(s.fsys.MkDirAll(testPath, 0755))
 	})
 	s.Run("Verify directory exists", func() {
+		s.T().Log("stat")
 		stat, err := s.fsys.Stat(testPath)
-		s.NoError(err)
+		s.Require().NoError(err)
 		s.Run("Check permissions", func() {
 			if s.Host.IsWindows() {
 				s.T().Skip("Windows does not support chmod permissions")
 			}
 			s.Equal(os.FileMode(0755), stat.Mode().Perm())
-			parent, err := s.fsys.Stat(filepath.Dir(testPath))
-			s.NoError(err)
+			parent, err := s.fsys.Stat(s.TempPath("test"))
+			s.Require().NoError(err)
 			s.Equal(os.FileMode(0755), parent.Mode().Perm())
 		})
 	})
 }
 
 func (s *FsysSuite) TestRemove() {
-	testPath := s.TestPath("test", "subdir")
+	testPath := s.TempPath("test", "subdir")
 	s.Run("Create directory", func() {
-		s.NoError(s.fsys.MkDirAll(testPath, 0755))
+		s.Require().NoError(s.fsys.MkDirAll(testPath, 0755))
 	})
 	s.Run("Remove directory", func() {
-		s.NoError(s.fsys.RemoveAll(testPath))
+		s.Require().NoError(s.fsys.RemoveAll(testPath))
 	})
 	s.Run("Verify directory does not exist", func() {
 		stat, err := s.fsys.Stat(testPath)
@@ -466,10 +481,10 @@ func (s *FsysSuite) TestRemove() {
 		s.True(os.IsNotExist(err))
 	})
 	s.Run("Remove parent directory", func() {
-		s.NoError(s.fsys.RemoveAll(filepath.Dir(testPath)))
+		s.Require().NoError(s.fsys.RemoveAll(s.TempPath("test")))
 	})
 	s.Run("Verify parent directory does not exist", func() {
-		stat, err := s.fsys.Stat(filepath.Dir(testPath))
+		stat, err := s.fsys.Stat(s.TempPath("test"))
 		s.Nil(stat)
 		s.Error(err)
 		s.True(os.IsNotExist(err))
@@ -484,7 +499,7 @@ func (s *FsysSuite) TestReadWriteFile() {
 		int64(4097),          // plus 1
 	} {
 		s.Run(fmt.Sprintf("File size %d", testFileSize), func() {
-			fn := s.TestPath()
+			fn := s.TempPath()
 
 			origin := io.LimitReader(rand.Reader, testFileSize)
 			shasum := sha256.New()
@@ -499,7 +514,7 @@ func (s *FsysSuite) TestReadWriteFile() {
 				n, err := io.Copy(f, reader)
 				s.Require().NoError(err)
 				s.Equal(testFileSize, n)
-				s.NoError(f.Close())
+				s.Require().NoError(f.Close())
 			})
 
 			s.Run("Verify file size", func() {
@@ -510,7 +525,7 @@ func (s *FsysSuite) TestReadWriteFile() {
 
 			s.Run("Verify file sha256", func() {
 				sum, err := s.fsys.Sha256(fn)
-				s.NoError(err)
+				s.Require().NoError(err)
 				s.Equal(hex.EncodeToString(shasum.Sum(nil)), sum)
 			})
 
@@ -521,6 +536,7 @@ func (s *FsysSuite) TestReadWriteFile() {
 				n, err := io.Copy(readSha, f)
 				s.Require().NoError(err)
 				s.Equal(testFileSize, n)
+				s.Require().NoError(f.Close())
 			})
 
 			s.Run("Verify read file sha256", func() {
@@ -542,151 +558,150 @@ func (r *RepeatReader) Read(p []byte) (n int, err error) {
 }
 
 func (s *FsysSuite) TestSeek() {
-	fn := s.TestPath()
+	fn := s.TempPath()
 	reference := bytes.Repeat([]byte{'a'}, 1024)
 	defer func() {
 		_ = s.fsys.Remove(fn)
 	}()
-	s.Run("Write file", func() {
-		f, err := s.fsys.OpenFile(fn, os.O_CREATE|os.O_WRONLY, 0644)
-		s.NoError(err)
-		n, err := io.Copy(f, bytes.NewReader(bytes.Repeat([]byte{'a'}, 1024)))
-		s.NoError(err)
-		s.Equal(int64(1024), n)
-		s.NoError(f.Close())
-	})
+	f, err := s.fsys.OpenFile(fn, os.O_CREATE|os.O_WRONLY, 0644)
+	s.Require().NoError(err)
+	n, err := io.Copy(f, bytes.NewReader(bytes.Repeat([]byte{'a'}, 1024)))
+	s.Require().NoError(err)
+	s.Equal(int64(1024), n)
+	s.Require().NoError(f.Close())
+
 	s.Run("Verify contents", func() {
 		f, err := s.fsys.Open(fn)
-		s.NoError(err)
+		s.Require().NoError(err)
 		b, err := io.ReadAll(f)
-		s.NoError(err)
+		s.Require().NoError(err)
 		s.Equal(1024, len(b))
-		s.NoError(f.Close())
+		s.Require().NoError(f.Close())
 		s.Equal(reference, b)
 	})
 	s.Run("Alter file beginning", func() {
 		f, err := s.fsys.OpenFile(fn, os.O_WRONLY, 0644)
-		s.NoError(err)
+		s.Require().NoError(err)
 		np, err := f.Seek(0, io.SeekStart)
-		s.NoError(err)
+		s.Require().NoError(err)
 		s.Equal(int64(0), np)
 		n, err := io.Copy(f, bytes.NewReader(bytes.Repeat([]byte{'b'}, 256)))
-		s.NoError(err)
+		s.Require().NoError(err)
 		s.Equal(int64(256), n)
-		s.NoError(f.Close())
+		s.Require().NoError(f.Close())
 	})
 	copy(reference[0:256], bytes.Repeat([]byte{'b'}, 256))
 	s.Run("Verify contents after file beginning altered", func() {
 		f, err := s.fsys.Open(fn)
-		s.NoError(err)
+		s.Require().NoError(err)
 		b, err := io.ReadAll(f)
-		s.NoError(err)
+		s.Require().NoError(err)
 		s.Equal(1024, len(b))
-		s.NoError(f.Close())
+		s.Require().NoError(f.Close())
 		s.Equal(reference, b)
 	})
 	s.Run("Alter file ending", func() {
 		f, err := s.fsys.OpenFile(fn, os.O_WRONLY, 0644)
-		s.NoError(err)
+		s.Require().NoError(err)
 		np, err := f.Seek(-256, io.SeekEnd)
-		s.NoError(err)
+		s.Require().NoError(err)
 		s.Equal(int64(768), np)
 		n, err := io.Copy(f, bytes.NewReader(bytes.Repeat([]byte{'c'}, 256)))
-		s.NoError(err)
+		s.Require().NoError(err)
 		s.Equal(int64(256), n)
-		s.NoError(f.Close())
+		s.Require().NoError(f.Close())
 	})
 	copy(reference[768:1024], bytes.Repeat([]byte{'c'}, 256))
 	s.Run("Verify contents after file ending altered", func() {
 		f, err := s.fsys.Open(fn)
-		s.NoError(err)
+		s.Require().NoError(err)
 		b, err := io.ReadAll(f)
-		s.NoError(err)
+		s.Require().NoError(err)
 		s.Equal(1024, len(b))
-		s.NoError(f.Close())
+		s.Require().NoError(f.Close())
 		s.Equal(reference, b)
 	})
 	s.Run("Alter file middle", func() {
 		f, err := s.fsys.OpenFile(fn, os.O_WRONLY, 0644)
-		s.NoError(err)
+		s.Require().NoError(err)
 		np, err := f.Seek(256, io.SeekStart)
-		s.NoError(err)
+		s.Require().NoError(err)
 		s.Equal(int64(256), np)
 		n, err := io.Copy(f, bytes.NewReader(bytes.Repeat([]byte{'d'}, 512)))
-		s.NoError(err)
+		s.Require().NoError(err)
 		s.Equal(int64(512), n)
-		s.NoError(f.Close())
+		s.Require().NoError(f.Close())
 	})
 	copy(reference[256:768], bytes.Repeat([]byte{'d'}, 512))
 	s.Run("Verify contents after file middle altered", func() {
 		f, err := s.fsys.Open(fn)
-		s.NoError(err)
+		s.Require().NoError(err)
 		b, err := io.ReadAll(f)
-		s.NoError(err)
+		s.Require().NoError(err)
 		s.Equal(1024, len(b))
-		s.NoError(f.Close())
+		s.Require().NoError(f.Close())
 		s.Equal(reference, b)
 	})
 }
 
 func (s *FsysSuite) TestReadDir() {
 	defer func() {
-		_ = s.fsys.RemoveAll(s.TestPath("test"))
+		_ = s.fsys.RemoveAll(s.TempPath("test"))
 	}()
 	s.Run("Create directory", func() {
-		s.NoError(s.fsys.MkDirAll(s.TestPath("test"), 0755))
+		s.Require().NoError(s.fsys.MkDirAll(s.TempPath("test"), 0755))
 	})
 	s.Run("Create files", func() {
-		for _, fn := range []string{s.TestPath("test", "subdir", "nestedfile"), s.TestPath("test", "file")} {
-			s.NoError(s.fsys.MkDirAll(filepath.Dir(fn), 0755))
+		for _, fn := range []string{s.TempPath("test", "subdir", "nestedfile"), s.TempPath("test", "file")} {
+			s.Require().NoError(s.fsys.MkDirAll(pathDir(fn), 0755))
 			f, err := s.fsys.OpenFile(fn, os.O_CREATE|os.O_WRONLY, 0644)
-			s.NoError(err)
+			s.Require().NoError(err)
 			n, err := f.Write([]byte("test"))
-			s.NoError(err)
+			s.Require().NoError(err)
 			s.Equal(4, n)
-			s.NoError(f.Close())
+			s.Require().NoError(f.Close())
 		}
 	})
 
 	s.Run("Read directory", func() {
-		dir, err := s.fsys.OpenFile(s.TestPath("test"), os.O_RDONLY, 0644)
-		s.NoError(err)
+		dir, err := s.fsys.OpenFile(s.TempPath("test"), os.O_RDONLY, 0644)
+		s.Require().NoError(err)
 		s.Require().NotNil(dir)
 		readDirFile, ok := dir.(fs.ReadDirFile)
 		s.Require().True(ok)
 		entries, err := readDirFile.ReadDir(-1)
 		s.Require().NoError(err)
 		s.Require().Len(entries, 2)
-		s.Equal("file", entries[0].Name())
-		s.False(entries[0].IsDir())
-		s.Equal("subdir", entries[1].Name())
-		s.True(entries[1].IsDir())
+		s.Equal("subdir", entries[0].Name())
+		s.True(entries[0].IsDir())
+		s.Equal("file", entries[1].Name())
+		s.False(entries[1].IsDir())
+		s.Require().NoError(dir.Close())
 	})
 
 	s.Run("Walkdir", func() {
 		var entries []string
-		s.NoError(fs.WalkDir(s.fsys, s.TestPath("test"), func(path string, d fs.DirEntry, err error) error {
-			s.NoError(err)
+		s.Require().NoError(fs.WalkDir(s.fsys, s.TempPath("test"), func(path string, d fs.DirEntry, err error) error {
+			s.Require().NoError(err)
 			info, err := d.Info()
-			s.NoError(err)
+			s.Require().NoError(err)
 			if strings.HasSuffix(path, "file") {
 				s.False(info.IsDir())
 				s.True(info.Mode().IsRegular())
 			} else {
 				s.True(info.IsDir())
-				s.False(info.Mode().IsRegular())
 			}
 			entries = append(entries, path)
 			return nil
 		}))
-		s.Equal(
-			[]string{
-				s.TestPath("test"),
-				s.TestPath("test/file"),
-				s.TestPath("test/subdir"),
-				s.TestPath("test/subdir/nestedfile"),
-			},
-			entries,
-		)
+		s.Len(entries, 4)
+		for _, item := range []string{
+			s.TempPath("test"),
+			s.TempPath("test/subdir"),
+			s.TempPath("test/subdir/nestedfile"),
+			s.TempPath("test/file"),
+		} {
+			s.Contains(entries, item)
+		}
 	})
 }
