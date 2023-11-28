@@ -6,7 +6,7 @@ REPLICAS ?= 1
 LINUX_IMAGE ?= "quay.io/k0sproject/bootloose-ubuntu20.04"
 
 .PHONY: test
-test: rigtest
+test: gomod 
 	./test.sh
 
 bootloose := $(shell which bootloose)
@@ -24,15 +24,15 @@ ifeq ($(sshkeygen),)
 $(error 'ssh-keygen' NOT found in path, please install it and re-run)
 endif
 
-.PHONY: rigtest
-rigtest:
-	go build -o rigtest ../cmd/rigtest
-
 $(bootloose):
 	go install github.com/k0sproject/bootloose@latest
 
 .ssh:
 	mkdir -p .ssh
+
+.PHONY: gomod
+gomod: 
+	go mod download
 
 .ssh/identity: .ssh
 	rm -f .ssh/identity
@@ -62,7 +62,7 @@ delete-host: bootloose.yaml
 
 .PHONY: clean
 clean: delete-host
-	rm -f bootloose.yaml identity rigtest
+	rm -f bootloose.yaml identity
 	rm -rf .ssh
 	docker network rm bootloose-cluster || true
 
@@ -71,9 +71,9 @@ sshport:
 	@$(bootloose) show node0 -o json|grep hostPort|grep -oE "[0-9]+"
 
 .PHONY: run
-run: rigtest create-host
-	./rigtest \
-		-host 127.0.0.1:$(shell $(MAKE) sshport) \
-	  -keypath $(KEY_PATH) \
+run: create-host gomod
+	go test -v ./... -args \
+		-host 127.0.0.1 \
+		-port $(shell $(MAKE) sshport) \
+	  -ssh-keypath $(KEY_PATH) \
 		-user root
-
