@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -192,49 +193,35 @@ type Command struct {
 	stdin  io.ReadCloser
 	stdout io.Writer
 	stderr io.Writer
+	wg     sync.WaitGroup
 }
 
 // Wait blocks until the command finishes
 func (c *Command) Wait() error {
-	var wg sync.WaitGroup
 	defer c.sh.Close()
-	if c.stdin == nil {
-		c.cmd.Stdin.Close()
-	} else {
-		wg.Add(1)
-		go func() {
-			defer c.cmd.Stdin.Close()
-			defer wg.Done()
-			log.Debugf("copying data to stdin")
-			_, err := io.Copy(c.cmd.Stdin, c.stdin)
-			if err != nil {
-				log.Errorf("copying data to command stdin failed: %v", err)
-			}
-		}()
-	}
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		_, _ = io.Copy(c.stdout, c.cmd.Stdout)
-	}()
-	go func() {
-		defer wg.Done()
-		_, _ = io.Copy(c.stderr, c.cmd.Stderr)
-	}()
+	defer c.cmd.Close()
 
+	c.wg.Wait()
 	c.cmd.Wait()
 	log.Debugf("command finished")
 	var err error
 	if c.cmd.ExitCode() != 0 {
 		err = fmt.Errorf("%w: exit code %d", ErrCommandFailed, c.cmd.ExitCode())
 	}
-	wg.Wait()
 	return err
+}
+
+// Close terminates the command
+func (c *Command) Close() error {
+	if err := c.cmd.Close(); err != nil {
+		return fmt.Errorf("close command: %w", err)
+	}
+	return nil
 }
 
 // ExecStreams executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
-func (c *WinRM) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (waiter, error) {
+func (c *WinRM) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (exec.Waiter, error) {
 	if c.client == nil {
 		return nil, ErrNotConnected
 	}
@@ -256,7 +243,42 @@ func (c *WinRM) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.W
 	if err != nil {
 		return nil, fmt.Errorf("%w: execute command: %w", ErrCommandFailed, err)
 	}
-	return &Command{sh: shell, cmd: proc, stdin: stdin, stdout: stdout, stderr: stderr}, nil
+	res := &Command{sh: shell, cmd: proc, stdin: stdin, stdout: stdout, stderr: stderr}
+	if res.stdin == nil {
+		proc.Stdin.Close()
+	} else {
+		res.wg.Add(1)
+		go func() {
+			defer res.wg.Done()
+			log.Debugf("copying data to command stdin")
+			n, err := io.Copy(res.cmd.Stdin, res.stdin)
+			if err != nil {
+				log.Errorf("copying data to command stdin failed: %v", err)
+			}
+			log.Debugf("finished copying %d bytes to stdin", n)
+		}()
+	}
+	res.wg.Add(2)
+	started := time.Now()
+	go func() {
+		defer res.wg.Done()
+		log.Debugf("copying data from command stdout")
+		n, err := io.Copy(res.stdout, res.cmd.Stdout)
+		if err != nil {
+			log.Errorf("copying data from command stdout failed after %s: %v", time.Since(started), err)
+		}
+		log.Debugf("finished copying %d bytes from stdout", n)
+	}()
+	go func() {
+		defer res.wg.Done()
+		log.Debugf("copying data from command stderr")
+		n, err := io.Copy(res.stderr, res.cmd.Stderr)
+		if err != nil {
+			log.Errorf("copying data from command stderr failed after %s: %v", time.Since(started), err)
+		}
+		log.Debugf("finished copying %d bytes from stderr", n)
+	}()
+	return res, nil
 }
 
 // Exec executes a command on the host
@@ -274,6 +296,7 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop
 	if err != nil {
 		return fmt.Errorf("%w: execute command: %w", ErrCommandFailed, err)
 	}
+	defer command.Close()
 
 	var wg sync.WaitGroup
 
@@ -308,7 +331,7 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop
 		}
 	}()
 
-	gotErrors := false
+	var errors []string
 
 	wg.Add(1)
 	go func() {
@@ -316,26 +339,27 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop
 		outputScanner := bufio.NewScanner(command.Stderr)
 
 		for outputScanner.Scan() {
-			gotErrors = true
-			execOpts.AddOutput(c.String(), "", outputScanner.Text()+"\n")
+			msg := outputScanner.Text()
+			if msg != "" {
+				errors = append(errors, msg)
+				execOpts.LogErrorf("%s: %s", c, msg)
+			}
 		}
 
 		if err := outputScanner.Err(); err != nil {
-			gotErrors = true
 			execOpts.LogErrorf("%s: %s", c, err.Error())
 		}
 		command.Stderr.Close()
 	}()
 
-	command.Wait()
-
 	wg.Wait()
+	command.Wait()
 
 	if ec := command.ExitCode(); ec > 0 {
 		return fmt.Errorf("%w: non-zero exit code: %d", ErrCommandFailed, ec)
 	}
-	if !execOpts.AllowWinStderr && gotErrors {
-		return fmt.Errorf("%w: received data in stderr", ErrCommandFailed)
+	if !execOpts.AllowWinStderr && len(errors) > 0 {
+		return fmt.Errorf("%w: received data in stderr: %s", ErrCommandFailed, strings.Join(errors, "\n"))
 	}
 
 	return nil

@@ -4,7 +4,7 @@ on: [pull_request]
 
 jobs:
 
-  build-linux:
+  unit-linux:
     runs-on: ubuntu-20.04
     steps:
     - uses: actions/checkout@v4
@@ -13,13 +13,11 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version-file: go.mod
-        check-latest: true
 
-    - name: Build
-      run: go build -v ./...
-    
     - name: Test
-      run: go test -v ./...
+      run: |
+        go mod download
+        go test -v ./...
 
   integration-linux:
     strategy:
@@ -29,7 +27,7 @@ jobs:
           - quay.io/k0sproject/bootloose-ubuntu20.04
           - quay.io/k0sproject/bootloose-debian12
           - quay.io/k0sproject/bootloose-alpine3.18
-    needs: build-linux
+    needs: unit-linux
     runs-on: ubuntu-20.04
     steps:
     - uses: actions/checkout@v4
@@ -38,7 +36,6 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version-file: go.mod
-        check-latest: true
     
     - name: install test dependencies
       run: |
@@ -48,12 +45,16 @@ jobs:
     - name: Run integration tests
       env:
         LINUX_IMAGE: ${{ matrix.image }}
-      run: make -C test test
+      run: |
+        cd test
+        go mod download
+        make test
 
   windows:
     runs-on: windows-2022
     steps:
     - name: Set up WinRM
+      shell: pwsh
       run: |
         Set-Item WSMan:\localhost\Service\AllowUnencrypted -Value $True
         Get-ChildItem WSMan:\Localhost\listener | Remove-Item -Recurse
@@ -102,16 +103,14 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version-file: go.mod
-
-    - name: Test
-      run: go test -v ./...
-
-    - name: Build rigtest
-      run: |
-        go install ./cmd/rigtest
-        rigtest --help
     
-    
-    - name: Run rigtest
+    - name: Unit test
       run: |
-        rigtest.exe -proto winrm -host 127.0.0.1:5986 -user winrmuser -pass Password123 -https
+        go mod download
+        go test -v ./...
+
+    - name: Integration test
+      run: |
+        cd test
+        go mod download
+        go test -v ./ -args -protocol winrm -host 127.0.0.1 -port 5986 -user winrmuser -winrm-password Password123 -winrm-https

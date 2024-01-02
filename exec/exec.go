@@ -3,6 +3,7 @@ package exec
 
 import (
 	"bufio"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
@@ -47,6 +48,11 @@ var (
 	mutex sync.Mutex
 )
 
+// Waiter is a process that can be waited to finish
+type Waiter interface {
+	Wait() error
+}
+
 // Option is a functional option for the exec package
 type Option func(*Options)
 
@@ -85,6 +91,23 @@ func (o *Options) Command(cmd string) (string, error) {
 	return out, nil
 }
 
+func decodeEncoded(cmd string) string {
+	if !strings.Contains(cmd, "powershell") {
+		return cmd
+	}
+
+	parts := strings.Split(cmd, " ")
+	for i, p := range parts {
+		if p == "-E" || p == "-EncodedCommand" && len(parts) > i+1 {
+			decoded, err := base64.StdEncoding.DecodeString(parts[i+1])
+			if err == nil {
+				parts[i+1] = strings.ReplaceAll(string(decoded), "\x00", "")
+			}
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
 // LogCmd is for logging the command to be executed
 func (o *Options) LogCmd(prefix, cmd string) {
 	if Confirm {
@@ -97,9 +120,9 @@ func (o *Options) LogCmd(prefix, cmd string) {
 	}
 
 	if o.LogCommand {
-		DebugFunc("%s: executing `%s`", prefix, o.Redact(cmd))
+		DebugFunc("%s: executing `%s`", prefix, o.Redact(decodeEncoded(cmd)))
 	} else {
-		DebugFunc("%s: executing [REDACTED]", prefix)
+		DebugFunc("%s: executing command", prefix)
 	}
 }
 

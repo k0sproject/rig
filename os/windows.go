@@ -2,6 +2,7 @@ package os
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io/fs"
 	"strconv"
@@ -9,9 +10,10 @@ import (
 	"time"
 
 	"github.com/k0sproject/rig/exec"
-	"github.com/k0sproject/rig/log"
 	ps "github.com/k0sproject/rig/pkg/powershell"
 )
+
+var errNotSupported = errors.New("not supported on windows")
 
 // Windows is the base package for windows OS support
 type Windows struct{}
@@ -46,7 +48,7 @@ func (c Windows) InstallPackage(h Host, s ...string) error {
 
 // InstallFile on windows is a regular file move operation
 func (c Windows) InstallFile(h Host, src, dst, _ string) error {
-	if err := h.Execf("move /y %s %s", ps.DoubleQuote(src), ps.DoubleQuote(dst), exec.Sudo(h)); err != nil {
+	if err := h.Execf("move /y %s %s", ps.DoubleQuotePath(src), ps.DoubleQuotePath(dst), exec.Sudo(h)); err != nil {
 		return fmt.Errorf("failed to move %s to %s: %w", src, dst, err)
 	}
 	return nil
@@ -103,36 +105,17 @@ func (c Windows) SELinuxEnabled(_ Host) bool {
 // WriteFile writes file to host with given contents. Do not use for large files.
 // The permissions argument is ignored on windows.
 func (c Windows) WriteFile(h Host, path string, data string, _ string) error {
-	if data == "" {
-		return fmt.Errorf("%w: empty content for writing to %s", ErrCommandFailed, path)
-	}
-
-	if path == "" {
-		return fmt.Errorf("%w: empty path for file writing %s", ErrCommandFailed, path)
-	}
-
-	tempFile, err := h.ExecOutput("powershell -Command \"New-TemporaryFile | Write-Host\"")
+	err := h.Exec(fmt.Sprintf(`powershell -Command "$Input | Out-File -FilePath %s"`, ps.DoubleQuotePath(path)), exec.Stdin(data), exec.RedactString(data))
 	if err != nil {
-		return fmt.Errorf("failed to create temporary file: %w", err)
-	}
-	defer c.deleteTempFile(h, tempFile)
-
-	err = h.Exec(fmt.Sprintf(`powershell -Command "$Input | Out-File -FilePath %s"`, ps.SingleQuote(tempFile)), exec.Stdin(data), exec.RedactString(data))
-	if err != nil {
-		return fmt.Errorf("failed to write to temporary file: %w", err)
-	}
-
-	err = h.Exec(fmt.Sprintf(`powershell -Command "Move-Item -Force -Path %s -Destination %s"`, ps.SingleQuote(tempFile), ps.SingleQuote(path)))
-	if err != nil {
-		return fmt.Errorf("failed to move temporary file to %s: %w", path, err)
+		return fmt.Errorf("failed to write to file %s: %w", path, err)
 	}
 
 	return nil
 }
 
-// ReadFile reads a files contents from the host.
+// ReadFile reads a file's contents from the host.
 func (c Windows) ReadFile(h Host, path string) (string, error) {
-	out, err := h.ExecOutput(fmt.Sprintf(`type %s`, ps.DoubleQuote(path)), exec.HideOutput())
+	out, err := h.ExecOutput(fmt.Sprintf(`type %s`, ps.DoubleQuotePath(path)), exec.HideOutput())
 	if err != nil {
 		return "", fmt.Errorf("failed to read file %s: %w", path, err)
 	}
@@ -141,21 +124,15 @@ func (c Windows) ReadFile(h Host, path string) (string, error) {
 
 // DeleteFile deletes a file from the host.
 func (c Windows) DeleteFile(h Host, path string) error {
-	if err := h.Exec(fmt.Sprintf(`del /f %s`, ps.DoubleQuote(path))); err != nil {
+	if err := h.Exec(fmt.Sprintf(`del /f %s`, ps.DoubleQuotePath(path))); err != nil {
 		return fmt.Errorf("failed to delete file %s: %w", path, err)
 	}
 	return nil
 }
 
-func (c Windows) deleteTempFile(h Host, path string) {
-	if err := c.DeleteFile(h, path); err != nil {
-		log.Debugf("failed to delete temporary file %s: %v", path, err)
-	}
-}
-
 // FileExist checks if a file exists on the host
 func (c Windows) FileExist(h Host, path string) bool {
-	return h.Exec(fmt.Sprintf(`powershell -Command "if (!(Test-Path -Path \"%s\")) { exit 1 }"`, path)) == nil
+	return h.Exec(fmt.Sprintf(`powershell -Command "if (!(Test-Path -Path \"%s\")) { exit 1 }"`, ps.DoubleQuotePath(path))) == nil
 }
 
 // UpdateEnvironment updates the hosts's environment variables
@@ -209,7 +186,7 @@ func (c Windows) Reboot(h Host) error {
 
 // StartService starts a service
 func (c Windows) StartService(h Host, s string) error {
-	if err := h.Execf(`sc start "%s"`, s); err != nil {
+	if err := h.Execf(`sc start %s`, ps.DoubleQuote(s)); err != nil {
 		return fmt.Errorf("failed to start service %s: %w", s, err)
 	}
 	return nil
@@ -217,7 +194,7 @@ func (c Windows) StartService(h Host, s string) error {
 
 // StopService stops a service
 func (c Windows) StopService(h Host, s string) error {
-	if err := h.Execf(`sc stop "%s"`, s); err != nil {
+	if err := h.Execf(`sc stop %s`, ps.DoubleQuote(s)); err != nil {
 		return fmt.Errorf("failed to stop service %s: %w", s, err)
 	}
 	return nil
@@ -225,12 +202,12 @@ func (c Windows) StopService(h Host, s string) error {
 
 // ServiceScriptPath returns the path to a service configuration file
 func (c Windows) ServiceScriptPath(_ Host, _ string) (string, error) {
-	return "", fmt.Errorf("%w: service scripts not supported on windows", ErrCommandFailed)
+	return "", errNotSupported
 }
 
 // RestartService restarts a service
 func (c Windows) RestartService(h Host, s string) error {
-	if err := h.Execf(ps.Cmd(fmt.Sprintf(`Restart-Service "%s"`, s))); err != nil {
+	if err := h.Execf(ps.Cmd(fmt.Sprintf(`Restart-Service %s`, ps.DoubleQuote(s)))); err != nil {
 		return fmt.Errorf("failed to restart service %s: %w", s, err)
 	}
 	return nil
@@ -243,7 +220,7 @@ func (c Windows) DaemonReload(_ Host) error {
 
 // EnableService enables a service
 func (c Windows) EnableService(h Host, s string) error {
-	if err := h.Execf(`sc.exe config "%s" start=enabled`, s); err != nil {
+	if err := h.Execf(`sc.exe config %s start=enabled`, ps.DoubleQuote(s)); err != nil {
 		return fmt.Errorf("failed to enable service %s: %w", s, err)
 	}
 
@@ -252,7 +229,7 @@ func (c Windows) EnableService(h Host, s string) error {
 
 // DisableService disables a service
 func (c Windows) DisableService(h Host, s string) error {
-	if err := h.Execf(`sc.exe config "%s" start=disabled`, s); err != nil {
+	if err := h.Execf(`sc.exe config %s start=disabled`, ps.DoubleQuote(s)); err != nil {
 		return fmt.Errorf("failed to disable service %s: %w", s, err)
 	}
 	return nil
@@ -260,7 +237,7 @@ func (c Windows) DisableService(h Host, s string) error {
 
 // ServiceIsRunning returns true if a service is running
 func (c Windows) ServiceIsRunning(h Host, s string) bool {
-	return h.Execf(`sc.exe query "%s" | findstr "RUNNING"`, s) == nil
+	return h.Execf(`sc.exe query %s | findstr "RUNNING"`, ps.DoubleQuote(s)) == nil
 }
 
 // MkDir creates a directory (including intermediate directories)
@@ -281,7 +258,7 @@ func (c Windows) Chmod(_ Host, _, _ string, _ ...exec.Option) error {
 func (c Windows) Stat(h Host, path string, opts ...exec.Option) (*FileInfo, error) {
 	info := &FileInfo{FName: path, FMode: fs.FileMode(0)}
 
-	out, err := h.ExecOutput(ps.Cmd(fmt.Sprintf("[System.Math]::Truncate((Get-Date -Date ((Get-Item %s).LastWriteTime.ToUniversalTime()) -UFormat %%s))", ps.DoubleQuote(path))), opts...)
+	out, err := h.ExecOutput(ps.Cmd(fmt.Sprintf("[System.Math]::Truncate((Get-Date -Date ((Get-Item -LiteralPath %s).LastWriteTime.ToUniversalTime()) -UFormat %%s))", ps.DoubleQuotePath(path))), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file %s modtime: %w", path, err)
 	}
@@ -291,7 +268,7 @@ func (c Windows) Stat(h Host, path string, opts ...exec.Option) (*FileInfo, erro
 	}
 	info.FModTime = time.Unix(ts, 0)
 
-	out, err = h.ExecOutput(ps.Cmd(fmt.Sprintf("(Get-Item %s).Length", ps.DoubleQuote(path))), opts...)
+	out, err = h.ExecOutput(ps.Cmd(fmt.Sprintf("(Get-Item -LiteralPath %s).Length", ps.DoubleQuotePath(path))), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file %s size: %w", path, err)
 	}
@@ -301,7 +278,7 @@ func (c Windows) Stat(h Host, path string, opts ...exec.Option) (*FileInfo, erro
 	}
 	info.FSize = size
 
-	out, err = h.ExecOutput(ps.Cmd(fmt.Sprintf("(Get-Item %s).GetType().Name", ps.DoubleQuote(path))), opts...)
+	out, err = h.ExecOutput(ps.Cmd(fmt.Sprintf("(Get-Item -LiteralPath %s).GetType().Name", ps.DoubleQuotePath(path))), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file %s type: %w", path, err)
 	}
@@ -313,12 +290,12 @@ func (c Windows) Stat(h Host, path string, opts ...exec.Option) (*FileInfo, erro
 // Touch updates a file's last modified time or creates a new empty file
 func (c Windows) Touch(h Host, path string, ts time.Time, opts ...exec.Option) error {
 	if !c.FileExist(h, path) {
-		if err := h.Exec(ps.Cmd(fmt.Sprintf("Set-Content -Path %s -value $null", ps.DoubleQuote(path))), opts...); err != nil {
+		if err := h.Exec(ps.Cmd(fmt.Sprintf("Set-Content -LiteralPath %s -value $null", ps.DoubleQuotePath(path))), opts...); err != nil {
 			return fmt.Errorf("failed to create file %s: %w", path, err)
 		}
 	}
 
-	err := h.Exec(ps.Cmd(fmt.Sprintf("(Get-Item %s).LastWriteTime = (Get-Date %s)", ps.DoubleQuote(path), ps.DoubleQuote(ts.Format(time.RFC3339)))), opts...)
+	err := h.Exec(ps.Cmd(fmt.Sprintf("(Get-Item -LiteralPath %s).LastWriteTime = (Get-Date %s)", ps.DoubleQuotePath(path), ps.DoubleQuote(ts.Format(time.RFC3339)))), opts...)
 	if err != nil {
 		return fmt.Errorf("failed to update file %s timestamp: %w", path, err)
 	}
@@ -354,4 +331,13 @@ func (c Windows) LineIntoFile(h Host, path, matcher, newLine string) error {
 	}
 
 	return c.WriteFile(h, path, writer.String(), "0644")
+}
+
+// Sha256sum returns the sha256sum of a file
+func (c Windows) Sha256sum(h Host, path string, opts ...exec.Option) (string, error) {
+	sum, err := h.ExecOutput(ps.Cmd(fmt.Sprintf("(Get-FileHash %s -Algorithm SHA256).Hash.ToLower()", ps.DoubleQuotePath(path))), opts...)
+	if err != nil {
+		return "", fmt.Errorf("failed to get sha256sum for %s: %w", path, err)
+	}
+	return strings.TrimSpace(sum), nil
 }

@@ -87,7 +87,7 @@ func SingleQuote(v string) string {
 	return buf.String()
 }
 
-// DoubleQuote escapes a string in a way that can be used as a windows file path
+// DoubleQuote adds double quotes around a string and escapes any double quotes inside.
 func DoubleQuote(v string) string {
 	if v[0] == '"' && v[len(v)-1] == '"' {
 		// already quoted
@@ -106,4 +106,15 @@ func DoubleQuote(v string) string {
 	}
 	_, _ = buf.WriteRune('"')
 	return buf.String()
+}
+
+// DoubleQuotePath adds double quotes around a string and escapes any double quotes inside.
+// It also converts forward slashes to backslashes.
+func DoubleQuotePath(v string) string {
+	return DoubleQuote(ToWindowsPath(v))
+}
+
+// ToWindowsPath converts a unix-style forward slash separated path to a windows-style path
+func ToWindowsPath(v string) string {
+	return strings.ReplaceAll(v, "/", "\\")
 }

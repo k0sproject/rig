@@ -4,11 +4,11 @@ RET=0
 set -e
 
 color_echo() {
-  echo -e "\033[1;31m$@\033[0m"
+  echo -e "\033[1;31m$*\033[0m"
 }
 
 ssh_port() {
-	bootloose show $1 -o json|grep hostPort|grep -oE "[0-9]+"
+	bootloose show "$1" -o json|grep hostPort|grep -oE "[0-9]+"
 }
 
 sanity_check() {
@@ -20,11 +20,11 @@ sanity_check() {
   docker ps
   echo "* SSH port: $(ssh_port node0)"
   echo "* Testing stock ssh"
-  retry ssh -vvv -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i .ssh/identity -p $(ssh_port node0) root@127.0.0.1 echo "test-conn" || return $?
+  retry ssh -vvv -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i .ssh/identity -p "$(ssh_port node0)" root@127.0.0.1 echo "test-conn" || return $?
   set +e
   echo "* Testing bootloose ssh"
   bootloose ssh root@node0 echo test-conn | grep -q test-conn
-  local exit_code=$?
+  exit_code=$?
   set -e
   make clean
   RET=$exit_code
@@ -35,8 +35,8 @@ rig_test_key_from_path() {
   make create-host
   mv .ssh/identity .ssh/identity2
   set +e
-  ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -keypath .ssh/identity2 
-  local exit_code=$?
+  go test -v ./ -args -host 127.0.0.1 -port "$(ssh_port node0)" -user root -ssh-keypath .ssh/identity2 
+  exit_code=$?
   set -e
   RET=$exit_code
 }
@@ -44,14 +44,14 @@ rig_test_key_from_path() {
 rig_test_agent_with_public_key() {
   color_echo "- Testing connection using agent and providing a path to public key"
   make create-host
-  eval $(ssh-agent -s)
+  eval "$(ssh-agent -s)"
   ssh-add .ssh/identity
   rm -f .ssh/identity
   set +e
-  HOME=$(pwd) SSH_AUTH_SOCK=$SSH_AUTH_SOCK ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -keypath .ssh/identity.pub -connect
-  local exit_code=$?
+  HOME=$(pwd) SSH_AUTH_SOCK=$SSH_AUTH_SOCK go test -v ./ -args -host 127.0.0.1 -port "$(ssh_port node0)" -user root -ssh-keypath .ssh/identity.pub -connect
+  exit_code=$?
   set -e
-  kill $SSH_AGENT_PID
+  kill "$SSH_AGENT_PID"
   export SSH_AGENT_PID=
   export SSH_AUTH_SOCK=
   RET=$exit_code
@@ -60,7 +60,7 @@ rig_test_agent_with_public_key() {
 rig_test_agent_with_private_key() {
   color_echo "- Testing connection using agent and providing a path to protected private key"
   make create-host KEY_PASSPHRASE=testPhrase
-  eval $(ssh-agent -s)
+  eval "$(ssh-agent -s)"
   expect -c '
     spawn ssh-add .ssh/identity
     expect "?:"
@@ -69,8 +69,8 @@ rig_test_agent_with_private_key() {
   '
   set +e
   # path points to a private key, rig should try to look for the .pub for it 
-  HOME=$(pwd) SSH_AUTH_SOCK=$SSH_AUTH_SOCK ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -keypath .ssh/identity -connect
-  local exit_code=$?
+  HOME=$(pwd) SSH_AUTH_SOCK=$SSH_AUTH_SOCK go test -v ./ -args -host 127.0.0.1 -port "$(ssh_port node0)" -user root -ssh-keypath .ssh/identity -connect
+  exit_code=$?
   set -e
   kill $SSH_AGENT_PID
   export SSH_AGENT_PID=
@@ -81,13 +81,13 @@ rig_test_agent_with_private_key() {
 rig_test_agent() {
   color_echo "- Testing connection using any key from agent (empty keypath)"
   make create-host
-  eval $(ssh-agent -s)
+  eval "$(ssh-agent -s)"
   ssh-add .ssh/identity
   rm -f .ssh/identity
   set +e
   ssh-add -l
-  HOME=. SSH_AUTH_SOCK=$SSH_AUTH_SOCK ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -keypath "" -connect
-  local exit_code=$?
+  HOME=$(pwd) SSH_AUTH_SOCK=$SSH_AUTH_SOCK go test -v ./ -args -host 127.0.0.1 -port "$(ssh_port node0)" -user root -ssh-keypath "" -connect
+  exit_code=$?
   set -e
   kill $SSH_AGENT_PID
   export SSH_AGENT_PID=
@@ -99,12 +99,12 @@ rig_test_ssh_config() {
   color_echo "- Testing getting identity path from ssh config"
   make create-host
   mv .ssh/identity .ssh/identity2
-  echo "Host 127.0.0.1:$(ssh_port node0)" > .ssh/config
-  echo "  IdentityFile .ssh/identity2" >> .ssh/config
+  echo "Host 127.0.0.1" > .ssh/config
+  echo "  IdentityFile $(pwd)/.ssh/identity2" >> .ssh/config
   chmod 0600 .ssh/config
   set +e
-  HOME=. SSH_CONFIG=.ssh/config ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -connect
-  local exit_code=$?
+  HOME=$(pwd) go test -v ./ -args -ssh-configpath .ssh/config -host 127.0.0.1 -port "$(ssh_port node0)" -user root -connect
+  exit_code=$?
   set -e
   RET=$exit_code
 }
@@ -112,14 +112,18 @@ rig_test_ssh_config() {
 rig_test_ssh_config_strict() {
   color_echo "- Testing StrictHostkeyChecking=yes in ssh config"
   make create-host
-  local addr="127.0.0.1:$(ssh_port node0)"
-  echo "Host ${addr}" > .ssh/config
-  echo "  IdentityFile .ssh/identity" >> .ssh/config
+  port="$(ssh_port node0)"
+  echo "Host testhost" > .ssh/config
+  echo "  User root" >> .ssh/config
+  echo "  HostName 127.0.0.1" >> .ssh/config
+  echo "  Port ${port}" >> .ssh/config
+  echo "  IdentityFile $(pwd)/.ssh/identity" >> .ssh/config
   echo "  UserKnownHostsFile $(pwd)/.ssh/known" >> .ssh/config
+  echo "  StrictHostKeyChecking yes" >> .ssh/config
   cat .ssh/config
   set +e
-  HOME=. SSH_CONFIG=.ssh/config ./rigtest -host "${addr}" -user root -connect
-  local exit_code=$?
+  HOME=$(pwd) go test -v ./ -args -ssh-configpath .ssh/config -host testhost -connect
+  exit_code=$?
   set -e
   if [ $exit_code -ne 0 ]; then
     echo "  * Failed first checkpoint"
@@ -129,10 +133,11 @@ rig_test_ssh_config_strict() {
   echo "  * Passed first checkpoint"
   cat .ssh/known
   # modify the known hosts file to make it mismatch
-  echo "${addr} ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBBgejI9UJnRY/i4HNM/os57oFcRjE77gEbVfUkuGr5NRh3N7XxUnnBKdzrAiQNPttUjKmUm92BN7nCUxbwsoSPw=" > .ssh/known
+  echo "[127.0.0.1]:$port ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBBgejI9UJnRY/i4HNM/os57oFcRjE77gEbVfUkuGr5NRh3N7XxUnnBKdzrAiQNPttUjKmUm92BN7nCUxbwsoSPw=" > .ssh/known
+  echo "[127.0.0.1]:$port ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBGZKwBdFeIPlDWe7otNy4E2Im8+GnQtsukJ5dIuzDGb" >> .ssh/known
   cat .ssh/known
   set +e
-  HOME=. SSH_CONFIG=.ssh/config ./rigtest -host "${addr}" -user root -connect
+  HOME=$(pwd) go test -v ./ -args -ssh-configpath .ssh/config -host testhost -connect
   exit_code=$?
   set -e
 
@@ -148,22 +153,27 @@ rig_test_ssh_config_strict() {
 rig_test_ssh_config_no_strict() {
   color_echo "- Testing StrictHostkeyChecking=no in ssh config"
   make create-host
-  local addr="127.0.0.1:$(ssh_port node0)"
-  echo "Host ${addr}" > .ssh/config
+  port="$(ssh_port node0)"
+  echo "Host testhost" > .ssh/config
+  echo "  User root" >> .ssh/config
+  echo "  HostName 127.0.0.1" >> .ssh/config
+  echo "  Port ${port}" >> .ssh/config
   echo "  UserKnownHostsFile $(pwd)/.ssh/known" >> .ssh/config
   echo "  StrictHostKeyChecking no" >> .ssh/config
+  cat .ssh/config
   set +e
-  HOME=. SSH_CONFIG=.ssh/config ./rigtest -host "${addr}" -user root -connect
-  local exit_code=$?
+  HOME=$(pwd) go test -v ./ -args -ssh-configpath .ssh/config -host testhost -connect
+  exit_code=$?
   set -e
   if [ $? -ne 0 ]; then
     RET=1
     return
   fi
   # modify the known hosts file to make it mismatch
-  echo "${addr} ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBBgejI9UJnRY/i4HNM/os57oFcRjE77gEbVfUkuGr5NRh3N7XxUnnBKdzrAiQNPttUjKmUm92BN7nCUxbwsoSPw=" > .ssh/known
+  echo "[127.0.0.1]:$port ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBBgejI9UJnRY/i4HNM/os57oFcRjE77gEbVfUkuGr5NRh3N7XxUnnBKdzrAiQNPttUjKmUm92BN7nCUxbwsoSPw=" > .ssh/known
+  echo "[127.0.0.1]:$port ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBGZKwBdFeIPlDWe7otNy4E2Im8+GnQtsukJ5dIuzDGb" >> .ssh/known
   set +e
-  HOME=. SSH_CONFIG=.ssh/config ./rigtest -host "${addr}" -user root -connect
+  HOME=$(pwd) go test -v ./ -args -ssh-configpath .ssh/config -host testhost -connect
   exit_code=$?
   set -e
   RET=$exit_code
@@ -174,8 +184,8 @@ rig_test_key_from_memory() {
   make create-host
   mv .ssh/identity .ssh/identity2
   set +e
-  ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -ssh-private-key "$(cat .ssh/identity2)" -connect
-  local exit_code=$?
+  go test -v ./ -args -host 127.0.0.1 -port "$(ssh_port node0)" -user root -ssh-private-key "$(cat .ssh/identity2)" -connect
+  exit_code=$?
   set -e
   RET=$exit_code
 }
@@ -185,36 +195,9 @@ rig_test_key_from_default_location() {
   make create-host
   mv .ssh/identity .ssh/id_ecdsa
   set +e
-  HOME=$(pwd) ./rigtest -host 127.0.0.1:$(ssh_port node0) -user root -connect
-  local exit_code=$?
+  HOME=$(pwd) go test -v ./ -args -host 127.0.0.1 -port "$(ssh_port node0)" -user root -connect
+  exit_code=$?
   set -e
-  RET=$exit_code
-}
-
-rig_test_protected_key_from_path() {
-  color_echo "- Testing regular keypath to encrypted key, two hosts"
-  make create-host KEY_PASSPHRASE=testPhrase REPLICAS=2
-  set +e
-  ssh_port node0 > .ssh/port_A
-  ssh_port node1 > .ssh/port_B
-  expect -c '
-  
-    set fp [open .ssh/port_A r]
-    set PORTA [read -nonewline $fp]
-    close $fp
-    set fp [open .ssh/port_B r]
-    set PORTB [read -nonewline $fp]
-    close $fp
-
-    spawn ./rigtest -host 127.0.0.1:$PORTA,127.0.0.1:$PORTB -user root -keypath .ssh/identity -askpass true -connect
-    expect "Password:"
-    send "testPhrase\n"
-    expect eof"
-  ' $port1 $port2
-  local exit_code=$?
-  set -e
-  rm bootloose.yaml
-  make delete-host REPLICAS=2
   RET=$exit_code
 }
 
@@ -257,7 +240,7 @@ EOF
     return 0
   }
 
-  env -i HOME="$(pwd)" ./rigtest -host 127.0.0.1:"$sshPort" -user rigtest-user -keypath .ssh/identity
+  HOME="$(pwd)" go test -v ./ -args -host 127.0.0.1 -port "$sshPort" -user rigtest-user -ssh-keypath .ssh/identity
 }
 
 rig_test_openssh_client() {
@@ -268,9 +251,10 @@ rig_test_openssh_client() {
   echo "  Port $(ssh_port node0)" >> .ssh/config
   echo "  User root" >> .ssh/config
   echo "  IdentityFile $(pwd)/.ssh/identity" >> .ssh/config
+  cat .ssh/config
   set +e
-  SSH_CONFIG=.ssh/config ./rigtest -host testhost -proto openssh -user ""
-  local exit_code=$?
+  go test -v ./ -args -ssh-configpath .ssh/config -host testhost -protocol openssh -user ""
+  exit_code=$?
   set -e
   RET=$exit_code
 }
@@ -283,9 +267,10 @@ rig_test_openssh_client_no_multiplex() {
   echo "  Port $(ssh_port node0)" >> .ssh/config
   echo "  User root" >> .ssh/config
   echo "  IdentityFile $(pwd)/.ssh/identity" >> .ssh/config
+  cat .ssh/config
   set +e
-  SSH_CONFIG=.ssh/config ./rigtest -host testhost -proto openssh -user "" -ssh-multiplex=false
-  local exit_code=$?
+  go test -v ./ -args -ssh-configpath .ssh/config -host testhost -protocol openssh -user "" -openssh-multiplex=false
+  exit_code=$?
   set -e
   RET=$exit_code
 }
@@ -310,7 +295,6 @@ for test in $(declare -F|grep rig_test_|cut -d" " -f3); do
     continue
   fi
   make clean
-  make rigtest
   color_echo "\n###########################################################"
   RET=0
   $test || RET=$?

@@ -14,12 +14,14 @@ import (
 
 	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/log"
 )
 
 var (
-	_ fs.File        = (*PosixFile)(nil)
-	_ fs.ReadDirFile = (*PosixDir)(nil)
-	_ fs.FS          = (*PosixFsys)(nil)
+	_          fs.File        = (*PosixFile)(nil)
+	_          fs.ReadDirFile = (*PosixDir)(nil)
+	_          fs.FS          = (*PosixFsys)(nil)
+	errInvalid                = errors.New("invalid")
 )
 
 // PosixFsys implements fs.FS for a remote filesystem that uses POSIX commands for access
@@ -42,8 +44,8 @@ const (
 
 // PosixFile implements fs.File for a remote file
 type PosixFile struct {
+	withPath
 	fsys   *PosixFsys
-	path   string
 	isOpen bool
 	isEOF  bool
 	pos    int64
@@ -57,35 +59,19 @@ type PosixFile struct {
 // PosixDir implements fs.ReadDirFile for a remote directory
 type PosixDir struct {
 	PosixFile
-	entries []fs.DirEntry
-	hw      int
+	buffer *dirEntryBuffer
 }
 
 // ReadDir returns a list of directory entries
 func (f *PosixDir) ReadDir(n int) ([]fs.DirEntry, error) {
-	if n == 0 {
-		return f.fsys.ReadDir(f.path)
-	}
-	if f.entries == nil {
+	if f.buffer == nil {
 		entries, err := f.fsys.ReadDir(f.path)
 		if err != nil {
 			return nil, err
 		}
-		f.entries = entries
-		f.hw = 0
+		f.buffer = newDirEntryBuffer(entries)
 	}
-	if f.hw >= len(f.entries) {
-		return nil, io.EOF
-	}
-	var min int
-	if n > len(f.entries)-f.hw {
-		min = len(f.entries) - f.hw
-	} else {
-		min = n
-	}
-	old := f.hw
-	f.hw += min
-	return f.entries[old:f.hw], nil
+	return f.buffer.Next(n)
 }
 
 func (f *PosixFile) fsBlockSize() int {
@@ -112,18 +98,18 @@ func (f *PosixFile) isWritable() bool {
 	return f.isOpen && f.flags&os.O_WRONLY != 0
 }
 
-func (f *PosixFile) ddParams(offset int64, numBytes int) (int, int64, int) {
-	bs := f.fsBlockSize()
+func (f *PosixFile) ddParams(offset int64, numBytes int) (blocksize int, skip int64, count int) { //nolint:nonamedreturns // for readability
+	optimalBs := f.fsBlockSize()
 
-	if numBytes < bs {
-		bs = numBytes
-		skip := offset / int64(bs)
-		return bs, skip, 1
+	// if numBytes aligns with the optimal block size, use it; otherwise, use bs = 1
+	bs := optimalBs
+	if numBytes%optimalBs != 0 {
+		bs = 1
 	}
 
-	skip := offset / int64(bs)
-	count := numBytes / bs
-	return bs, skip, count
+	s := offset / int64(bs)
+	c := (numBytes + bs - 1) / bs
+	return bs, s, c
 }
 
 // Stat returns a FileInfo describing the named file
@@ -137,36 +123,46 @@ func (f *PosixFile) Read(p []byte) (int, error) {
 		return 0, io.EOF
 	}
 	if !f.isReadable() {
-		return 0, fmt.Errorf("%w: file %s is not open for reading", ErrCommandFailed, f.path)
+		return 0, fmt.Errorf("%w: file %s is not open for reading", fs.ErrClosed, f.path)
 	}
-	errbuf := bytes.NewBuffer(nil)
 
 	bs, skip, count := f.ddParams(f.pos, len(p))
-	toRead := bs * count
-	buf := bytes.NewBuffer(nil)
-	errbuf.Reset()
 
-	cmd, err := f.fsys.conn.ExecStreams(fmt.Sprintf("dd if=%s bs=%d skip=%d count=%d", shellescape.Quote(f.path), bs, skip, count), nil, buf, errbuf, f.fsys.opts...)
+	cmdStr := fmt.Sprintf("dd if=%s bs=%d skip=%d count=%d", shellescape.Quote(f.path), bs, skip, count)
+
+	// Execute the command
+	buf := bytes.NewBuffer(nil)
+	errbuf := bytes.NewBuffer(nil)
+	cmd, err := f.fsys.conn.ExecStreams(cmdStr, nil, buf, errbuf, f.fsys.opts...)
 	if err != nil {
-		return 0, fmt.Errorf("%w: failed to execute dd: %w (%s)", ErrCommandFailed, err, errbuf.String())
+		return 0, fmt.Errorf("failed to execute dd: %w (%s)", err, errbuf.String())
 	}
 	if err := cmd.Wait(); err != nil {
-		return 0, fmt.Errorf("%w: read (dd): %w (%s)", ErrCommandFailed, err, errbuf.String())
+		return 0, fmt.Errorf("read (dd): %w (%s)", err, errbuf.String())
 	}
 
-	readBytes := copy(p, buf.Bytes())
-	f.pos += int64(readBytes)
-	if readBytes < len(p) || readBytes < toRead {
-		f.isEOF = true
-		return readBytes, io.EOF
+	readBytes := buf.Bytes()
+
+	// Trim extra data if readBytes is larger than the requested size
+	if len(readBytes) > len(p) {
+		readBytes = readBytes[:len(p)]
 	}
-	return readBytes, nil
+
+	copied := copy(p, readBytes)
+	f.pos += int64(copied)
+
+	if copied < len(p) {
+		f.isEOF = true
+	}
+	return copied, nil
 }
 
 func (f *PosixFile) Write(p []byte) (int, error) {
 	if !f.isWritable() {
-		return 0, fmt.Errorf("%w: file %s is not open for writing", ErrCommandFailed, f.path)
+		return 0, fmt.Errorf("%w: file %s is not open for writing", fs.ErrClosed, f.path)
 	}
+
+	log.Debugf("writing %d bytes to %s", len(p), f.path)
 
 	var written int
 	remaining := p
@@ -176,12 +172,16 @@ func (f *PosixFile) Write(p []byte) (int, error) {
 
 		errbuf := bytes.NewBuffer(nil)
 		limitedReader := bytes.NewReader(remaining[:toWrite])
-		cmd, err := f.fsys.conn.ExecStreams(fmt.Sprintf("dd if=/dev/stdin of=%s bs=%d count=%d seek=%d conv=notrunc", f.path, bs, count, skip), io.NopCloser(limitedReader), io.Discard, errbuf, f.fsys.opts...)
+		cmd, err := f.fsys.conn.ExecStreams(
+			fmt.Sprintf("dd if=/dev/stdin of=%s bs=%d count=%d seek=%d conv=notrunc", f.path, bs, count, skip),
+			io.NopCloser(limitedReader), io.Discard, errbuf,
+			f.fsys.opts...,
+		)
 		if err != nil {
-			return 0, fmt.Errorf("%w: write (dd): %w", ErrCommandFailed, err)
+			return 0, fmt.Errorf("write (dd): %w", err)
 		}
 		if err := cmd.Wait(); err != nil {
-			return 0, fmt.Errorf("%w: write (dd): %w (%s)", ErrCommandFailed, err, errbuf.String())
+			return 0, fmt.Errorf("write (dd): %w (%s)", err, errbuf.String())
 		}
 
 		written += toWrite
@@ -199,68 +199,22 @@ func (f *PosixFile) Write(p []byte) (int, error) {
 	return written, nil
 }
 
-// CopyFromN copies n bytes from the remote file. The alt writer can be used for progress
-// tracking, use nil when not needed.
-func (f *PosixFile) CopyFromN(src io.Reader, num int64, alt io.Writer) (int64, error) {
-	if !f.isWritable() {
-		return 0, fmt.Errorf("%w: file %s is not open for writing", ErrCommandFailed, f.path)
-	}
-	var ddCmd string
-	if f.pos+num >= f.size {
-		// truncate to current position
-		if err := f.fsys.Truncate(f.path, f.pos); err != nil {
-			return 0, fmt.Errorf("%w: truncate %s for writing: %w", ErrCommandFailed, f.path, err)
-		}
-		ddCmd = fmt.Sprintf("dd if=/dev/stdin of=%s bs=16M oflag=append conv=notrunc", shellescape.Quote(f.path))
-	} else {
-		ddCmd = fmt.Sprintf("dd if=/dev/stdin of=%s bs=1 seek=%d conv=notrunc", shellescape.Quote(f.path), f.pos)
-	}
-	limited := io.LimitReader(src, num)
-	var reader io.Reader
-	if alt != nil {
-		reader = io.TeeReader(limited, alt)
-	} else {
-		reader = limited
-	}
-
-	errbuf := bytes.NewBuffer(nil)
-	cmd, err := f.fsys.conn.ExecStreams(ddCmd, io.NopCloser(reader), io.Discard, errbuf, f.fsys.opts...)
-	if err != nil {
-		return 0, fmt.Errorf("%w: failed to execute dd (copy-from): %w (%s)", ErrCommandFailed, err, errbuf.String())
-	}
-	if err != nil {
-		return 0, fmt.Errorf("%w: copy-from: %w", ErrCommandFailed, err)
-	}
-	f.pos += num
-	if f.pos >= f.size {
-		f.isEOF = true
-		f.size = f.pos
-	}
-	if err != nil {
-		return 0, &fs.PathError{Op: "copy-from", Path: f.path, Err: fmt.Errorf("%w: error while copying: %w", ErrRcpCommandFailed, err)}
-	}
-	if err := cmd.Wait(); err != nil {
-		return 0, &fs.PathError{Op: "copy-from", Path: f.path, Err: fmt.Errorf("%w: error while copying: %w (%s)", ErrRcpCommandFailed, err, errbuf.String())}
-	}
-	return num, nil
-}
-
 // Copy copies the remote file at src to the local file at dst
 func (f *PosixFile) Copy(dst io.Writer) (int64, error) {
 	if f.isEOF {
 		return 0, io.EOF
 	}
 	if !f.isReadable() {
-		return 0, fmt.Errorf("%w: file %s is not open for reading", ErrCommandFailed, f.path)
+		return 0, f.pathErr("copy", fmt.Errorf("%w: file %s is not open for reading", fs.ErrClosed, f.path))
 	}
 	bs, skip, count := f.ddParams(f.pos, int(f.size-f.pos))
 	errbuf := bytes.NewBuffer(nil)
 	cmd, err := f.fsys.conn.ExecStreams(fmt.Sprintf("dd if=%s bs=%d skip=%d count=%d", shellescape.Quote(f.path), bs, skip, count), nil, dst, errbuf, f.fsys.opts...)
 	if err != nil {
-		return 0, fmt.Errorf("%w: failed to execute dd (copy): %w (%s)", ErrCommandFailed, err, errbuf.String())
+		return 0, f.pathErr("copy", fmt.Errorf("failed to execute dd: %w (%s)", err, errbuf.String()))
 	}
 	if err := cmd.Wait(); err != nil {
-		return 0, fmt.Errorf("%w: copy (dd): %w (%s)", ErrCommandFailed, err, errbuf.String())
+		return 0, f.pathErr("copy", fmt.Errorf("dd: %w (%s)", err, errbuf.String()))
 	}
 	f.pos = f.size
 	f.isEOF = true
@@ -274,9 +228,9 @@ func (f *PosixFile) Close() error {
 }
 
 // Seek sets the offset for the next Read or Write to offset, interpreted according to whence:
-// 0 means relative to the origin of the file,
-// 1 means relative to the current offset, and
-// 2 means relative to the end.
+// io.SeekStart means relative to the origin of the file,
+// io.SeekCurrent means relative to the current offset, and
+// io.SeekEnd means relative to the end.
 // Seek returns the new offset relative to the start of the file and an error, if any.
 func (f *PosixFile) Seek(offset int64, whence int) (int64, error) {
 	switch whence {
@@ -287,7 +241,7 @@ func (f *PosixFile) Seek(offset int64, whence int) (int64, error) {
 	case io.SeekEnd:
 		f.pos = f.size + offset
 	default:
-		return 0, fmt.Errorf("%w: invalid whence: %d", ErrCommandFailed, whence)
+		return 0, fmt.Errorf("%w: whence: %d", errInvalid, whence)
 	}
 	f.isEOF = f.pos >= f.size
 
@@ -306,7 +260,7 @@ func (fsys *PosixFsys) initStat() error {
 		opts = append(opts, exec.HideOutput())
 		out, err := fsys.conn.ExecOutput("stat --help 2>&1", opts...)
 		if err != nil {
-			return fmt.Errorf("%w: can't access stat command: %w", ErrCommandFailed, err)
+			return fmt.Errorf("can't access stat command: %w", err)
 		}
 		if strings.Contains(out, "BusyBox") || strings.Contains(out, "--format=") {
 			fsys.statCmd = &statCmdGNU
@@ -358,7 +312,7 @@ func (fsys *PosixFsys) parseStat(stat string) (*FileInfo, error) {
 	// output looks like: 0x81a4 0 1699970097.220228000 //test_20231114155456.txt//
 	parts := strings.SplitN(stat, " ", 4)
 	if len(parts) != 4 {
-		return nil, fmt.Errorf("%w: stat parse output %s", ErrCommandFailed, stat)
+		return nil, fmt.Errorf("%w: parse stat output %s", errInvalid, stat)
 	}
 
 	res := &FileInfo{fsys: fsys}
@@ -366,13 +320,13 @@ func (fsys *PosixFsys) parseStat(stat string) (*FileInfo, error) {
 	if strings.HasPrefix(parts[0], "0x") {
 		m, err := strconv.ParseInt(parts[0][2:], 16, 64)
 		if err != nil {
-			return nil, fmt.Errorf("%w: stat parse mode %s: %w", ErrCommandFailed, stat, err)
+			return nil, fmt.Errorf("parse stat mode %s: %w", stat, err)
 		}
 		res.FMode = posixBitsToFileMode(m)
 	} else {
 		m, err := strconv.ParseInt(parts[0], 8, 64)
 		if err != nil {
-			return nil, fmt.Errorf("%w: stat parse mode %s: %w", ErrCommandFailed, stat, err)
+			return nil, fmt.Errorf("parse stat mode %s: %w", stat, err)
 		}
 		res.FMode = posixBitsToFileMode(m)
 	}
@@ -381,20 +335,20 @@ func (fsys *PosixFsys) parseStat(stat string) (*FileInfo, error) {
 
 	size, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("%w: stat parse size %s: %w", ErrCommandFailed, stat, err)
+		return nil, fmt.Errorf("parse stat size %s: %w", stat, err)
 	}
 	res.FSize = size
 
 	timeParts := strings.SplitN(parts[2], ".", 2)
 	mtime, err := strconv.ParseInt(timeParts[0], 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("%w: stat parse mtime %s: %w", ErrCommandFailed, stat, err)
+		return nil, fmt.Errorf("parse stat mtime %s: %w", stat, err)
 	}
 	var mtimeNano int64
 	if len(timeParts) == 2 {
 		mtimeNano, err = strconv.ParseInt(timeParts[1], 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("%w: stat parse mtime ns %s: %w", ErrCommandFailed, stat, err)
+			return nil, fmt.Errorf("parse stat mtime ns %s: %w", stat, err)
 		}
 	}
 	res.FModTime = time.Unix(mtime, mtimeNano)
@@ -426,9 +380,9 @@ func (fsys *PosixFsys) multiStat(names ...string) ([]fs.FileInfo, error) {
 		out, err := fsys.conn.ExecOutput(fmt.Sprintf(*fsys.statCmd, batch.String()), fsys.opts...)
 		if err != nil {
 			if len(names) == 1 {
-				return nil, &fs.PathError{Op: "stat", Path: names[0], Err: fs.ErrNotExist}
+				return nil, &fs.PathError{Op: OpStat, Path: names[0], Err: fs.ErrNotExist}
 			}
-			return nil, fmt.Errorf("%w: stat %s: %w", ErrCommandFailed, names, err)
+			return nil, fmt.Errorf("stat %s: %w", names, err)
 		}
 		lines := strings.Split(out, "\n")
 		for _, line := range lines {
@@ -453,11 +407,11 @@ func (fsys *PosixFsys) Stat(name string) (fs.FileInfo, error) {
 	}
 	switch len(items) {
 	case 0:
-		return nil, &fs.PathError{Op: "stat", Path: name, Err: fs.ErrNotExist}
+		return nil, &fs.PathError{Op: OpStat, Path: name, Err: fs.ErrNotExist}
 	case 1:
 		return items[0], nil
 	default:
-		return nil, fmt.Errorf("%w: stat %s: too many results", ErrCommandFailed, name)
+		return nil, fmt.Errorf("%w: stat %s: too many results", errInvalid, name)
 	}
 }
 
@@ -468,11 +422,11 @@ func (fsys *PosixFsys) Sha256(name string) (string, error) {
 		if isNotExist(err) {
 			return "", &fs.PathError{Op: "sha256sum", Path: name, Err: fs.ErrNotExist}
 		}
-		return "", fmt.Errorf("%w: sha256sum %s: %w", ErrCommandFailed, name, err)
+		return "", fmt.Errorf("sha256sum %s: %w", name, err)
 	}
 	sha := strings.Fields(out)[0]
 	if len(sha) != 64 {
-		return "", fmt.Errorf("%w: sha256sum invalid output %s: %s", ErrCommandFailed, name, out)
+		return "", fmt.Errorf("%w: sha256sum invalid output %s: %s", errInvalid, name, out)
 	}
 	return sha, nil
 }
@@ -481,7 +435,7 @@ func (fsys *PosixFsys) Sha256(name string) (string, error) {
 func (fsys *PosixFsys) Touch(name string) error {
 	err := fsys.conn.Exec(fmt.Sprintf("touch %s", shellescape.Quote(name)), fsys.opts...)
 	if err != nil {
-		return fmt.Errorf("%w: touch %s: %w", ErrCommandFailed, name, err)
+		return fmt.Errorf("touch %s: %w", name, err)
 	}
 	return nil
 }
@@ -495,7 +449,7 @@ func (fsys *PosixFsys) secTouchT(name string, t time.Time) error {
 		shellescape.Quote(name),
 	)
 	if err := fsys.conn.Exec(cmd, fsys.opts...); err != nil {
-		return fmt.Errorf("%w: touch %s: %w", ErrCommandFailed, name, err)
+		return fmt.Errorf("touch %s: %w", name, err)
 	}
 	return nil
 }
@@ -510,7 +464,7 @@ func (fsys *PosixFsys) nsecTouchT(name string, t time.Time) error {
 		shellescape.Quote(name),
 	)
 	if err := fsys.conn.Exec(cmd, fsys.opts...); err != nil {
-		return fmt.Errorf("%w: touch (ns) %s: %w", ErrCommandFailed, name, err)
+		return fmt.Errorf("touch (ns) %s: %w", name, err)
 	}
 	return nil
 }
@@ -531,7 +485,7 @@ func (fsys *PosixFsys) TouchT(name string, t time.Time) error {
 // Truncate changes the size of the named file or creates a new file if it doesn't exist
 func (fsys *PosixFsys) Truncate(name string, size int64) error {
 	if err := fsys.conn.Exec(fmt.Sprintf("truncate -s %d %s", size, shellescape.Quote(name)), fsys.opts...); err != nil {
-		return fmt.Errorf("%w: truncate %s: %w", ErrCommandFailed, name, err)
+		return fmt.Errorf("truncate %s: %w", name, err)
 	}
 	return nil
 }
@@ -542,7 +496,7 @@ func (fsys *PosixFsys) Chmod(name string, mode fs.FileMode) error {
 		if isNotExist(err) {
 			return &fs.PathError{Op: "chmod", Path: name, Err: fs.ErrNotExist}
 		}
-		return fmt.Errorf("%w: chmod %s: %w", ErrCommandFailed, name, err)
+		return fmt.Errorf("chmod %s: %w", name, err)
 	}
 	return nil
 }
@@ -552,72 +506,80 @@ func (fsys *PosixFsys) Open(name string) (fs.File, error) {
 	return fsys.OpenFile(name, os.O_RDONLY, 0)
 }
 
+func (fsys *PosixFsys) openNew(name string, flags int, perm fs.FileMode) (fs.FileInfo, error) {
+	if flags&os.O_CREATE == 0 {
+		return nil, &fs.PathError{Op: OpOpen, Path: name, Err: fs.ErrNotExist}
+	}
+
+	if _, err := fsys.Stat(filepath.Dir(name)); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, &fs.PathError{Op: OpOpen, Path: name, Err: fmt.Errorf("%w: parent directory does not exist", fs.ErrNotExist)}
+		}
+		return nil, &fs.PathError{Op: OpOpen, Path: name, Err: fmt.Errorf("%w: failed to stat parent directory", fs.ErrInvalid)}
+	}
+
+	if err := fsys.conn.Exec(fmt.Sprintf("install -m %#o /dev/null %s", perm, shellescape.Quote(name)), fsys.opts...); err != nil {
+		return nil, &fs.PathError{Op: OpOpen, Path: name, Err: err}
+	}
+
+	// re-stat to ensure file is now there and get the correct bits if there's a umask
+	return fsys.Stat(name)
+}
+
+func (fsys *PosixFsys) openExisting(name string, flags int, info fs.FileInfo) (fs.FileInfo, error) {
+	// directories can't be opened for writing
+	if info.IsDir() && flags&(os.O_WRONLY|os.O_RDWR|os.O_CREATE|os.O_EXCL) != 0 {
+		return nil, &fs.PathError{Op: OpOpen, Path: name, Err: fmt.Errorf("%w: is a directory", fs.ErrInvalid)}
+	}
+
+	// if O_CREATE and O_EXCL are set, the file must not exist
+	if flags&(os.O_CREATE|os.O_EXCL) == (os.O_CREATE | os.O_EXCL) {
+		return nil, &fs.PathError{Op: OpOpen, Path: name, Err: fs.ErrExist}
+	}
+
+	if flags&os.O_TRUNC != 0 {
+		if err := fsys.Truncate(name, 0); err != nil {
+			return nil, err
+		}
+	}
+
+	return fsys.Stat(name)
+}
+
 // OpenFile is used to open a file with access/creation flags for reading or writing. For info on flags,
 // see https://pkg.go.dev/os#pkg-constants
-func (fsys *PosixFsys) OpenFile(name string, flags int, perm fs.FileMode) (File, error) { //nolint:cyclop
+func (fsys *PosixFsys) OpenFile(name string, flags int, perm fs.FileMode) (File, error) {
 	if flags&^supportedFlags != 0 {
-		return nil, fmt.Errorf("%w: unsupported flags: %d", ErrCommandFailed, flags)
+		return nil, fmt.Errorf("%w: unsupported flags: %d", errInvalid, flags)
+	}
+
+	info, err := fsys.Stat(name)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			return nil, err
+		}
+		info, err = fsys.openNew(name, flags, perm)
+	} else {
+		info, err = fsys.openExisting(name, flags, info)
+	}
+
+	if err != nil {
+		return nil, err
 	}
 
 	var pos int64
-	info, err := fsys.Stat(name)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, err
-	}
-	fileExists := err == nil
-
-	switch fileExists {
-	case false:
-		switch flags & os.O_CREATE {
-		case 0:
-			return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
-		default:
-			if _, err := fsys.Stat(filepath.Dir(name)); err != nil {
-				if errors.Is(err, fs.ErrNotExist) {
-					return nil, &fs.PathError{Op: "open", Path: name, Err: fmt.Errorf("%w: parent directory does not exist", fs.ErrNotExist)}
-				}
-				return nil, &fs.PathError{Op: "open", Path: name, Err: fmt.Errorf("%w: failed to stat parent directory", fs.ErrInvalid)}
-			}
-
-			if err := fsys.conn.Exec(fmt.Sprintf("install -m %#o /dev/null %s", perm, shellescape.Quote(name)), fsys.opts...); err != nil {
-				return nil, &fs.PathError{Op: "open", Path: name, Err: err}
-			}
-
-			// re-stat to ensure file is now there and get the correct bits if there's a umask
-			i, err := fsys.Stat(name)
-			if err != nil {
-				return nil, err
-			}
-			info = i
-		}
-	case true:
-		switch {
-		case info.IsDir():
-			return nil, &fs.PathError{Op: "open", Path: name, Err: fmt.Errorf("%w: is a directory", fs.ErrInvalid)}
-		case flags&(os.O_CREATE|os.O_EXCL) == (os.O_CREATE | os.O_EXCL):
-			return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrExist}
-		case flags&os.O_TRUNC != 0:
-			if err := fsys.Truncate(name, 0); err != nil {
-				return nil, err
-			}
-			i, err := fsys.Stat(name)
-			if err != nil {
-				return nil, err
-			}
-			info = i
-		case flags&os.O_APPEND != 0:
-			pos = info.Size()
-		}
+	if flags&os.O_APPEND != 0 {
+		pos = info.Size()
 	}
 
 	file := &PosixFile{
-		fsys:   fsys,
-		path:   name,
-		isOpen: true,
-		size:   info.Size(),
-		pos:    pos,
-		mode:   info.Mode(),
-		flags:  flags,
+		withPath: withPath{name},
+		fsys:     fsys,
+		isOpen:   true,
+		size:     info.Size(),
+		pos:      pos,
+		mode:     info.Mode(),
+		flags:    flags,
 	}
 	if info.IsDir() {
 		return &PosixDir{PosixFile: *file}, nil
@@ -635,9 +597,9 @@ func (fsys *PosixFsys) ReadDir(name string) ([]fs.DirEntry, error) {
 		name = "."
 	}
 
-	out, err := fsys.conn.ExecOutput(fmt.Sprintf("find %[1]s -maxdepth 1 -print0 | sort -z", shellescape.Quote(name)), fsys.opts...)
+	out, err := fsys.conn.ExecOutput(fmt.Sprintf("find %s -maxdepth 1 -print0", shellescape.Quote(name)), fsys.opts...)
 	if err != nil {
-		return nil, fmt.Errorf("%w: read dir (find) %s: %w", ErrCommandFailed, name, err)
+		return nil, fmt.Errorf("read dir (find) %s: %w", name, err)
 	}
 	items := strings.Split(out, "\x00")
 	if len(items) == 0 || (len(items) == 1 && items[0] == "") {
@@ -653,11 +615,9 @@ func (fsys *PosixFsys) ReadDir(name string) ([]fs.DirEntry, error) {
 	res := make([]fs.DirEntry, 0, len(items)-1)
 	infos, err := fsys.multiStat(items[1:]...)
 	for _, entry := range infos {
-		info, ok := entry.(fs.DirEntry)
-		if !ok {
-			return res, fmt.Errorf("%w: read dir: entry is not a FileInfo %s", ErrCommandFailed, name)
+		if info, ok := entry.(fs.DirEntry); ok {
+			res = append(res, info)
 		}
-		res = append(res, info)
 	}
 	return res, err
 }
@@ -665,7 +625,7 @@ func (fsys *PosixFsys) ReadDir(name string) ([]fs.DirEntry, error) {
 // Remove deletes the named file or (empty) directory.
 func (fsys *PosixFsys) Remove(name string) error {
 	if err := fsys.conn.Exec(fmt.Sprintf("rm -f %s", shellescape.Quote(name)), fsys.opts...); err != nil {
-		return fmt.Errorf("%w: delete %s: %w", ErrCommandFailed, name, err)
+		return fmt.Errorf("delete %s: %w", name, err)
 	}
 	return nil
 }
@@ -677,7 +637,7 @@ func isNotExist(err error) bool {
 // RemoveAll removes path and any children it contains.
 func (fsys *PosixFsys) RemoveAll(name string) error {
 	if err := fsys.conn.Exec(fmt.Sprintf("rm -rf %s", shellescape.Quote(name)), fsys.opts...); err != nil {
-		return fmt.Errorf("%w: remove all %s: %w", ErrCommandFailed, name, err)
+		return fmt.Errorf("remove all %s: %w", name, err)
 	}
 	return nil
 }
@@ -690,11 +650,11 @@ func (fsys *PosixFsys) MkDirAll(name string, perm fs.FileMode) error {
 		if existing.IsDir() {
 			return nil
 		}
-		return fmt.Errorf("%w: mkdir %s: %w", ErrCommandFailed, name, fs.ErrExist)
+		return fmt.Errorf("mkdir %s: %w", name, fs.ErrExist)
 	}
 
 	if err := fsys.conn.Exec(fmt.Sprintf("install -d -m %#o %s", perm, shellescape.Quote(dir)), fsys.opts...); err != nil {
-		return fmt.Errorf("%w: mkdir %s: %w", ErrCommandFailed, name, err)
+		return fmt.Errorf("mkdir %s: %w", name, err)
 	}
 
 	return nil
