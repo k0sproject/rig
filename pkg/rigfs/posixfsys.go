@@ -162,10 +162,6 @@ func (f *PosixFile) Write(p []byte) (int, error) {
 		return 0, fmt.Errorf("%w: file %s is not open for writing", fs.ErrClosed, f.path)
 	}
 
-	var opts []exec.Option
-	copy(opts, f.fsys.opts)
-	opts = append(opts, exec.HideCommand())
-
 	var written int
 	remaining := p
 	for written < len(p) {
@@ -177,7 +173,7 @@ func (f *PosixFile) Write(p []byte) (int, error) {
 		cmd, err := f.fsys.conn.ExecStreams(
 			fmt.Sprintf("dd if=/dev/stdin of=%s bs=%d count=%d seek=%d conv=notrunc", f.path, bs, count, skip),
 			io.NopCloser(limitedReader), io.Discard, errbuf,
-			opts...,
+			f.fsys.opts...,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("write (dd): %w", err)
