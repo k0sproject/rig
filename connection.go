@@ -403,7 +403,7 @@ func (c *Connection) Upload(src, dst string, _ ...exec.Option) error {
 	defer remote.Close()
 
 	localReader := io.TeeReader(local, shasum)
-	if _, err := io.Copy(remote, localReader); err != nil {
+	if _, err := remote.CopyFrom(localReader); err != nil {
 		_ = remote.Close()
 		return fmt.Errorf("%w: copy file %s to remote host: %w", ErrUploadFailed, dst, err)
 	}
