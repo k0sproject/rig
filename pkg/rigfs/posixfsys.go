@@ -14,7 +14,6 @@ import (
 
 	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig/exec"
-	"github.com/k0sproject/rig/log"
 )
 
 var (
@@ -162,8 +161,6 @@ func (f *PosixFile) Write(p []byte) (int, error) {
 	if !f.isWritable() {
 		return 0, fmt.Errorf("%w: file %s is not open for writing", fs.ErrClosed, f.path)
 	}
-
-	log.Debugf("writing %d bytes to %s", len(p), f.path)
 
 	var written int
 	remaining := p
