@@ -19,6 +19,7 @@ import (
 
 var (
 	_          fs.File        = (*PosixFile)(nil)
+	_          File           = (*PosixFile)(nil)
 	_          fs.ReadDirFile = (*PosixDir)(nil)
 	_          fs.FS          = (*PosixFsys)(nil)
 	errInvalid                = errors.New("invalid")
@@ -199,26 +200,53 @@ func (f *PosixFile) Write(p []byte) (int, error) {
 	return written, nil
 }
 
-// Copy copies the remote file at src to the local file at dst
-func (f *PosixFile) Copy(dst io.Writer) (int64, error) {
+// CopyTo copies the remote file to the writer dst
+func (f *PosixFile) CopyTo(dst io.Writer) (int64, error) {
 	if f.isEOF {
 		return 0, io.EOF
 	}
 	if !f.isReadable() {
-		return 0, f.pathErr("copy", fmt.Errorf("%w: file %s is not open for reading", fs.ErrClosed, f.path))
+		return 0, f.pathErr(OpCopyTo, fmt.Errorf("%w: file %s is not open for reading", fs.ErrClosed, f.path))
 	}
 	bs, skip, count := f.ddParams(f.pos, int(f.size-f.pos))
 	errbuf := bytes.NewBuffer(nil)
-	cmd, err := f.fsys.conn.ExecStreams(fmt.Sprintf("dd if=%s bs=%d skip=%d count=%d", shellescape.Quote(f.path), bs, skip, count), nil, dst, errbuf, f.fsys.opts...)
+	counter := &ByteCounter{}
+	writer := io.MultiWriter(dst, counter)
+	cmd, err := f.fsys.conn.ExecStreams(fmt.Sprintf("dd if=%s bs=%d skip=%d count=%d", shellescape.Quote(f.path), bs, skip, count), nil, writer, errbuf, f.fsys.opts...)
 	if err != nil {
-		return 0, f.pathErr("copy", fmt.Errorf("failed to execute dd: %w (%s)", err, errbuf.String()))
+		return 0, f.pathErr(OpCopyTo, fmt.Errorf("failed to execute dd: %w (%s)", err, errbuf.String()))
 	}
 	if err := cmd.Wait(); err != nil {
-		return 0, f.pathErr("copy", fmt.Errorf("dd: %w (%s)", err, errbuf.String()))
+		return 0, f.pathErr(OpCopyTo, fmt.Errorf("dd: %w (%s)", err, errbuf.String()))
 	}
-	f.pos = f.size
+	f.pos += counter.Count()
 	f.isEOF = true
-	return f.size - f.pos, nil
+	return counter.Count(), nil
+}
+
+// CopyFrom copies the local reader src to the remote file
+func (f *PosixFile) CopyFrom(src io.Reader) (int64, error) {
+	if !f.isWritable() {
+		return 0, f.pathErr(OpCopyFrom, fmt.Errorf("%w: file %s is not open for writing", fs.ErrClosed, f.path))
+	}
+	if err := f.fsys.Truncate(f.Name(), f.pos); err != nil {
+		return 0, f.pathErr(OpCopyFrom, fmt.Errorf("truncate: %w", err))
+	}
+	counter := &ByteCounter{}
+	tee := io.NopCloser(io.TeeReader(src, counter))
+	errbuf := bytes.NewBuffer(nil)
+
+	cmd, err := f.fsys.conn.ExecStreams(fmt.Sprintf("dd if=/dev/stdin of=%s bs=%d seek=%d conv=notrunc", shellescape.Quote(f.path), f.fsBlockSize(), f.pos), tee, io.Discard, errbuf, f.fsys.opts...)
+	if err != nil {
+		return 0, f.pathErr(OpCopyFrom, fmt.Errorf("exec dd: %w", err))
+	}
+	if err := cmd.Wait(); err != nil {
+		return 0, f.pathErr(OpCopyFrom, fmt.Errorf("dd: %w: %s", err, errbuf.String()))
+	}
+
+	f.pos += counter.Count()
+	f.size = f.pos
+	return counter.Count(), nil
 }
 
 // Close closes the file, rendering it unusable for I/O. It returns an error, if any.

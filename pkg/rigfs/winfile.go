@@ -118,6 +118,38 @@ func (f *winFile) Read(p []byte) (int, error) {
 	return total, nil
 }
 
+// CopyTo copies the remote file to the provided io.Writer.
+func (f *winFile) CopyTo(dst io.Writer) (int64, error) {
+	if f.closed {
+		return 0, f.pathErr(OpCopyTo, fs.ErrClosed)
+	}
+	resp, err := f.command("r -1")
+	if err != nil {
+		return 0, f.pathErr(OpCopyTo, fmt.Errorf("read: %w", err))
+	}
+	if resp.N == 0 {
+		return 0, f.pathErr(OpCopyTo, io.EOF)
+	}
+	total := int64(0)
+	for total < resp.N {
+		n, err := io.CopyN(dst, f.stdout, resp.N-total)
+		total += n
+		if err != nil {
+			return total, f.pathErr(OpCopyTo, fmt.Errorf("copy: %w", err))
+		}
+	}
+	return total, nil
+}
+
+// CopyFrom copies the provided io.Reader to the remote file.
+func (f *winFile) CopyFrom(src io.Reader) (int64, error) {
+	n, err := io.Copy(f, src)
+	if err != nil {
+		return n, f.pathErr(OpCopyFrom, fmt.Errorf("io.copy: %w", err))
+	}
+	return n, nil
+}
+
 func fAccess(flags int) string {
 	switch {
 	case flags&(os.O_WRONLY|os.O_TRUNC|os.O_APPEND) != 0:

@@ -546,6 +546,63 @@ func (s *FsysSuite) TestReadWriteFile() {
 	}
 }
 
+func (s *FsysSuite) TestReadWriteFileCopy() {
+	for _, testFileSize := range []int64{
+		int64(500),           // less than one block on most filesystems
+		int64(1 << (10 * 2)), // exactly 1MB
+		int64(4096),          // exactly one block on most filesystems
+		int64(4097),          // plus 1
+	} {
+		s.Run(fmt.Sprintf("File size %d", testFileSize), func() {
+			fn := s.TempPath()
+
+			origin := io.LimitReader(rand.Reader, testFileSize)
+			shasum := sha256.New()
+			reader := io.TeeReader(origin, shasum)
+
+			defer func() {
+				_ = s.fsys.Remove(fn)
+			}()
+			s.Run("Write file", func() {
+				f, err := s.fsys.OpenFile(fn, os.O_CREATE|os.O_WRONLY, 0644)
+				s.Require().NoError(err)
+				n, err := f.CopyFrom(reader)
+				s.Require().NoError(err)
+				s.Equal(testFileSize, n)
+				s.Require().NoError(f.Close())
+			})
+
+			s.Run("Verify file size", func() {
+				stat, err := s.fsys.Stat(fn)
+				s.Require().NoError(err)
+				s.Equal(testFileSize, stat.Size())
+			})
+
+			s.Run("Verify file sha256", func() {
+				sum, err := s.fsys.Sha256(fn)
+				s.Require().NoError(err)
+				s.Equal(hex.EncodeToString(shasum.Sum(nil)), sum)
+			})
+
+			readSha := sha256.New()
+			s.Run("Read file", func() {
+				fsf, err := s.fsys.Open(fn)
+				s.Require().NoError(err)
+				f, ok := fsf.(rigfs.File)
+				s.Require().True(ok)
+				n, err := f.CopyTo(readSha)
+				s.Require().NoError(err)
+				s.Equal(testFileSize, n)
+				s.Require().NoError(f.Close())
+			})
+
+			s.Run("Verify read file sha256", func() {
+				s.Equal(shasum.Sum(nil), readSha.Sum(nil))
+			})
+		})
+	}
+}
+
 type RepeatReader struct {
 	data []byte
 }
