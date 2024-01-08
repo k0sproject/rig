@@ -3,12 +3,14 @@ package rigfs
 import "io/fs"
 
 const (
-	OpClose = "close" // OpClose Close operation
-	OpOpen  = "open"  // OpOpen Open operation
-	OpRead  = "read"  // OpRead Read operation
-	OpSeek  = "seek"  // OpSeek Seek operation
-	OpStat  = "stat"  // OpStat Stat operation
-	OpWrite = "write" // OpWrite Write operation
+	OpClose    = "close"     // OpClose Close operation
+	OpOpen     = "open"      // OpOpen Open operation
+	OpRead     = "read"      // OpRead Read operation
+	OpSeek     = "seek"      // OpSeek Seek operation
+	OpStat     = "stat"      // OpStat Stat operation
+	OpWrite    = "write"     // OpWrite Write operation
+	OpCopyTo   = "copy-to"   // OpCopyTo CopyTo operation
+	OpCopyFrom = "copy-from" // OpCopyFrom CopyFrom operation
 )
 
 type withPath struct {

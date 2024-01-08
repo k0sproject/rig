@@ -3,6 +3,7 @@ package rigfs
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 
@@ -29,6 +30,14 @@ func (f *winDir) Seek(_ int64, _ int) (int64, error) {
 }
 
 func (f *winDir) Write(_ []byte) (int, error) {
+	return 0, f.pathErr("write", fmt.Errorf("%w: is a directory", fs.ErrInvalid))
+}
+
+func (f *winDir) CopyTo(_ io.Writer) (int64, error) {
+	return 0, f.pathErr("write", fmt.Errorf("%w: is a directory", fs.ErrInvalid))
+}
+
+func (f *winDir) CopyFrom(_ io.Reader) (int64, error) {
 	return 0, f.pathErr("write", fmt.Errorf("%w: is a directory", fs.ErrInvalid))
 }
 

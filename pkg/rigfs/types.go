@@ -18,12 +18,19 @@ type connection interface {
 	ExecStreams(cmd string, stdin io.ReadCloser, stdout io.Writer, stderr io.Writer, opts ...exec.Option) (exec.Waiter, error)
 }
 
+// Copier is a file-like struct that can copy data to and from io.Reader and io.Writer
+type Copier interface {
+	CopyFrom(src io.Reader) (int64, error)
+	CopyTo(dst io.Writer) (int64, error)
+}
+
 // File is a file in the remote filesystem
 type File interface {
 	fs.File
 	io.Seeker
 	io.ReadCloser
 	io.Writer
+	Copier
 }
 
 // Fsys is a filesystem on the remote host
