@@ -132,14 +132,14 @@ func ensureDir(path string) error {
 	return nil
 }
 
-func ensureFile(filePath string) error {
+func ensureFile(path string) error {
 	if fileExists(filePath) {
 		return nil
 	}
-	if err := ensureDir(filepath.Dir(filePath)); err != nil {
+	if err := ensureDir(filepath.Dir(path)); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(filePath, os.O_CREATE|os.O_APPEND, 0o600)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
 		return fmt.Errorf("failed to create known_hosts file: %w", err)
 	}
