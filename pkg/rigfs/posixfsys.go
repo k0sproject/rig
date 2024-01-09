@@ -7,7 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path/filepath"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -79,7 +79,7 @@ func (f *PosixFile) fsBlockSize() int {
 		return f.blockSize
 	}
 
-	out, err := f.fsys.conn.ExecOutput(fmt.Sprintf(`stat -c "%%s" %[1]s 2> /dev/null || stat -f "%%k" %[1]s`, shellescape.Quote(filepath.Dir(f.path))), f.fsys.opts...)
+	out, err := f.fsys.conn.ExecOutput(fmt.Sprintf(`stat -c "%%s" %[1]s 2> /dev/null || stat -f "%%k" %[1]s`, shellescape.Quote(path.Dir(f.path))), f.fsys.opts...)
 	if err != nil {
 		// fall back to default
 		f.blockSize = defaultBlockSize
@@ -536,7 +536,7 @@ func (fsys *PosixFsys) openNew(name string, flags int, perm fs.FileMode) (fs.Fil
 		return nil, &fs.PathError{Op: OpOpen, Path: name, Err: fs.ErrNotExist}
 	}
 
-	if _, err := fsys.Stat(filepath.Dir(name)); err != nil {
+	if _, err := fsys.Stat(path.Dir(name)); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, &fs.PathError{Op: OpOpen, Path: name, Err: fmt.Errorf("%w: parent directory does not exist", fs.ErrNotExist)}
 		}
