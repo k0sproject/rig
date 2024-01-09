@@ -280,12 +280,6 @@ func sudoDoas(cmd string) string {
 	return `doas -n -- "${SHELL-sh}" -c ` + shellescape.Quote(cmd)
 }
 
-var sudoChecks = map[string]sudofn{
-	`[ "$(id -u)" = 0 ]`:               sudoNoop,
-	"sudo -n true":                     sudoSudo,
-	`doas -n -- "${SHELL-sh}" -c true`: sudoDoas,
-}
-
 // sudoWindows is a no-op on windows - the user must already be an admin or UAC must be disabled
 // and the user must belong to Administrators. if that is the case, the user should be able to
 // do anything.
@@ -295,13 +289,23 @@ func sudoWindows(cmd string) string {
 
 func (c *Connection) configureSudo() {
 	if !c.IsWindows() {
-		for check, fn := range sudoChecks {
-			if c.Exec(check) == nil {
-				c.sudofunc = fn
-				return
-			}
+		if c.Exec(`[ "$(id -u)" = 0 ]`) == nil {
+			// user is already root
+			c.sudofunc = sudoNoop
+			return
 		}
+		if c.Exec(`sudo -n true`) == nil {
+			// user has passwordless sudo
+			c.sudofunc = sudoSudo
+			return
+		}
+		if c.Exec(`doas -n -- "${SHELL-sh}" -c true`) == nil {
+			// user has passwordless doas
+			c.sudofunc = sudoDoas
+		}
+		return
 	}
+
 	out, err := c.ExecOutput(`whoami`)
 	if err != nil {
 		return
@@ -335,7 +339,7 @@ func (c Connection) Sudo(cmd string) (string, error) {
 		if c.IsWindows() {
 			return "", fmt.Errorf("%w: UAC is enabled and user is not 'Administrator'", ErrSudoRequired)
 		}
-		return "", fmt.Errorf("%w: user is not an administrator and passwordless access elevation has not been configured", ErrSudoRequired)
+		return "", fmt.Errorf("%w: user is not root and passwordless access elevation (sudo, doas) has not been configured", ErrSudoRequired)
 	}
 
 	return c.sudofunc(cmd), nil
