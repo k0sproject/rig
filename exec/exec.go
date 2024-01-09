@@ -305,7 +305,7 @@ func Build(opts ...Option) *Options {
 		LogInfo:      false,
 		LogCommand:   true,
 		LogDebug:     true,
-		LogError:     true,
+		LogError:     false,
 		LogOutput:    true,
 		StreamOutput: false,
 		Sudo:         false,
