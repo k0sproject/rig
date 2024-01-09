@@ -222,6 +222,13 @@ func StreamOutput() Option {
 	}
 }
 
+// LogError exec option for enabling or disabling live error logging during exec
+func LogError(v bool) Option {
+	return func(o *Options) {
+		o.LogError = v
+	}
+}
+
 // HideCommand exec option for hiding the command-string and stdin contents from the logs
 func HideCommand() Option {
 	return func(o *Options) {
@@ -298,7 +305,7 @@ func Build(opts ...Option) *Options {
 		LogInfo:      false,
 		LogCommand:   true,
 		LogDebug:     true,
-		LogError:     true,
+		LogError:     false,
 		LogOutput:    true,
 		StreamOutput: false,
 		Sudo:         false,
