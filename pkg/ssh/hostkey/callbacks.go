@@ -133,7 +133,7 @@ func ensureDir(path string) error {
 }
 
 func ensureFile(path string) error {
-	if fileExists(filePath) {
+	if fileExists(path) {
 		return nil
 	}
 	if err := ensureDir(filepath.Dir(path)); err != nil {
