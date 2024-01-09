@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -136,7 +136,7 @@ func ensureFile(filePath string) error {
 	if fileExists(filePath) {
 		return nil
 	}
-	if err := ensureDir(path.Dir(filePath)); err != nil {
+	if err := ensureDir(filepath.Dir(filePath)); err != nil {
 		return err
 	}
 	f, err := os.OpenFile(filePath, os.O_CREATE|os.O_APPEND, 0o600)
