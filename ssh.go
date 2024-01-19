@@ -432,7 +432,7 @@ func (c *SSH) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
 		}
 	}
 
-	if len(config.Auth) == 0 {
+	if len(c.AuthMethods) == 0 {
 		if len(signers) == 0 {
 			return nil, fmt.Errorf("%w: no usable authentication method found", ErrCantConnect)
 		}
