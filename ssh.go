@@ -433,7 +433,7 @@ func (c *SSH) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
 	}
 
 	if len(c.AuthMethods) == 0 {
-		if len(signers) == 0 {
+		if len(config.Auth) == 0 && len(signers) == 0 {
 			return nil, fmt.Errorf("%w: no usable authentication method found", ErrCantConnect)
 		}
 		log.Debugf("%s: using all keys (%d) from ssh agent because a keypath was not explicitly given", c, len(signers))
