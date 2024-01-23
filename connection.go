@@ -159,7 +159,7 @@ func (c *Connection) Fsys() rigfs.Fsys {
 	return c.fsys
 }
 
-// SudoFsys returns a fs.FS compatible filesystem interface for accessing files on remote hosts with sudo permissions
+// SudoFsys returns an fs.FS compatible filesystem interface for accessing files on remote hosts with sudo permissions
 func (c *Connection) SudoFsys() rigfs.Fsys {
 	if c.sudofsys == nil {
 		c.sudofsys = rigfs.NewFsys(c, exec.Sudo(c))
