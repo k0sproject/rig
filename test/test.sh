@@ -95,6 +95,26 @@ rig_test_agent() {
   RET=$exit_code
 }
 
+rig_test_agent_and_invalid_key() {
+  color_echo "- Testing connection using any key from agent (empty keypath) when there is an invalid key in the agent and filesystem"
+  make create-host
+  eval "$(ssh-agent -s)"
+  ssh-keygen -f .ssh/id_rsa -N ""
+  ssh-add .ssh/id_rsa
+  ssh-add .ssh/identity
+  rm -f .ssh/identity
+  set +e
+  ssh-add -l
+  HOME=$(pwd) SSH_AUTH_SOCK=$SSH_AUTH_SOCK go test -v ./ -args -host 127.0.0.1 -port "$(ssh_port node0)" -user root -ssh-keypath "" -connect
+  exit_code=$?
+  set -e
+  kill $SSH_AGENT_PID
+  export SSH_AGENT_PID=
+  export SSH_AUTH_SOCK=
+  rm -f .ssh/id_rsa
+  RET=$exit_code
+}
+
 rig_test_ssh_config() {
   color_echo "- Testing getting identity path from ssh config"
   make create-host
