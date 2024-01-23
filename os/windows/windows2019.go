@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/k0sproject/rig"
+	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/os/registry"
 )
@@ -19,8 +20,8 @@ func init() {
 		func(os rig.OSVersion) bool {
 			return os.ID == "windows" && strings.HasPrefix(os.Version, "10.0.")
 		},
-		func() any {
-			return Windows2019{}
+		func(runner exec.SimpleRunner) any {
+			return Windows2019{Windows: os.Windows{SimpleRunner: runner}}
 		},
 	)
 }

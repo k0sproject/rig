@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig/os"
 )
 
@@ -14,8 +14,15 @@ type EnterpriseLinux struct {
 }
 
 // InstallPackage installs packages via yum
-func (c EnterpriseLinux) InstallPackage(h os.Host, s ...string) error {
-	if err := h.Execf("yum install -y %s", strings.Join(s, " "), exec.Sudo(h)); err != nil {
+func (c EnterpriseLinux) InstallPackage(s ...string) error {
+	cmd := strings.Builder{}
+	cmd.WriteString("yum install -y")
+	for _, pkg := range s {
+		cmd.WriteRune(' ')
+		cmd.WriteString(shellescape.Quote(pkg))
+	}
+
+	if err := c.Exec(cmd.String()); err != nil {
 		return fmt.Errorf("failed to install packages: %w", err)
 	}
 

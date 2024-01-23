@@ -2,6 +2,8 @@ package enterpriselinux
 
 import (
 	"github.com/k0sproject/rig"
+	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/os/linux"
 	"github.com/k0sproject/rig/os/registry"
 )
@@ -16,8 +18,8 @@ func init() {
 		func(os rig.OSVersion) bool {
 			return os.ID == "rhel"
 		},
-		func() any {
-			return RHEL{}
+		func(runner exec.SimpleRunner) any {
+			return &RHEL{EnterpriseLinux: linux.EnterpriseLinux{Linux: os.Linux{SimpleRunner: runner}}}
 		},
 	)
 }

@@ -7,7 +7,7 @@ import (
 	"io/fs"
 	"os"
 
-	ps "github.com/k0sproject/rig/pkg/powershell"
+	"github.com/k0sproject/rig/exec"
 )
 
 var (
@@ -65,7 +65,7 @@ ConvertTo-Json -Compress -Depth 5 @($items)
 // Subsequent calls on the same file will yield further DirEntry values.
 func (f *winDir) ReadDir(n int) ([]fs.DirEntry, error) {
 	if f.buffer == nil {
-		out, err := f.fsys.conn.ExecOutput(ps.Cmd(fmt.Sprintf(statDirTemplate, f.path)), f.fsys.opts...)
+		out, err := f.fsys.ExecOutput(statDirTemplate, f.path, exec.PS())
 		if err != nil {
 			return nil, fmt.Errorf("readdir: %w", err)
 		}

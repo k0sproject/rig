@@ -1,8 +1,7 @@
 package rig
 
 import (
-	"bytes"
-	"fmt"
+	"context"
 	"io"
 	"testing"
 
@@ -23,24 +22,17 @@ func (m *mockClient) Connect() error                             { return nil }
 func (m *mockClient) Disconnect()                                {}
 func (m *mockClient) Upload(_, _ string, _ ...exec.Option) error { return nil }
 func (m *mockClient) IsWindows() bool                            { return false }
-func (m *mockClient) ExecInteractive(_ string) error             { return nil }
-func (m *mockClient) String() string                             { return "mockclient" }
-func (m *mockClient) Protocol() string                           { return "null" }
-func (m *mockClient) IPAddress() string                          { return "127.0.0.1" }
-func (m *mockClient) IsConnected() bool                          { return true }
-func (m *mockClient) Exec(cmd string, opts ...exec.Option) error {
-	o := exec.Build(opts...)
-	cmd, err := o.Command(cmd)
-	if err != nil {
-		return err
-	}
-
-	m.commands = append(m.commands, cmd)
-
+func (m *mockClient) ExecInteractive(_ string, _ io.Reader, _, _ io.Writer) error {
 	return nil
 }
-func (m *mockClient) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (exec.Waiter, error) {
-	return nil, fmt.Errorf("not implemented")
+func (m *mockClient) String() string    { return "mockclient" }
+func (m *mockClient) Protocol() string  { return "null" }
+func (m *mockClient) IPAddress() string { return "127.0.0.1" }
+func (m *mockClient) IsConnected() bool { return true }
+func (m *mockClient) StartProcess(ctx context.Context, cmd string, _ io.Reader, _, _ io.Writer) (exec.Waiter, error) {
+	m.commands = append(m.commands, cmd)
+
+	return nil, nil
 }
 
 var stubSudofunc = func(in string) string {
@@ -77,48 +69,15 @@ func TestHostFunctions(t *testing.T) {
 	require.Equal(t, "127.0.0.1", h.Address())
 }
 
-func TestOutputWriter(t *testing.T) {
-	h := Host{
-		Connection: Connection{
-			Localhost: &Localhost{
-				Enabled: true,
-			},
-		},
-	}
-	require.NoError(t, defaults.Set(&h))
-	require.NoError(t, h.Connect())
-	var writer bytes.Buffer
-	require.NoError(t, h.Exec("echo hello world", exec.Writer(&writer)))
-	lt := "\n"
-	if h.IsWindows() {
-		lt = "\r\n"
-	}
-	require.Equal(t, "hello world"+lt, writer.String())
-}
-
-func TestGrouping(t *testing.T) {
-	mc := mockClient{}
-	h := Host{
-		Connection: Connection{
-			client:   &mc,
-			sudofunc: stubSudofunc,
-		},
-	}
-
-	opts, args := GroupParams(h, "ls", 1, exec.HideOutput(), exec.Sudo(h))
-	require.Len(t, opts, 2)
-	require.Len(t, args, 3)
-}
-
 func TestSudo(t *testing.T) {
 	mc := mockClient{}
 	h := Host{
 		Connection: Connection{
-			client:   &mc,
-			sudofunc: stubSudofunc,
+			client: &mc,
 		},
 	}
+	h.Connect()
 
-	require.NoError(t, h.Execf("ls %s", "/tmp", exec.Sudo(h)))
+	require.NoError(t, h.Sudo().Exec("ls %s", "/tmp"))
 	require.Contains(t, mc.commands, "sudo-goes-here ls /tmp")
 }

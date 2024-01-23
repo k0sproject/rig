@@ -2,173 +2,30 @@ package os
 
 import (
 	"bufio"
-	"bytes"
-	"errors"
 	"fmt"
 	"io/fs"
+	"path"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig/exec"
-	"github.com/k0sproject/rig/os/initsystem"
 )
 
 // Linux is a base module for various linux OS support packages
-type Linux struct{}
-
-// initSystem interface defines an init system - the OS's system to manage services (systemd, openrc for example)
-type initSystem interface {
-	StartService(host initsystem.Host, service string) error
-	StopService(host initsystem.Host, service string) error
-	RestartService(host initsystem.Host, service string) error
-	DisableService(host initsystem.Host, service string) error
-	EnableService(host initsystem.Host, service string) error
-	ServiceIsRunning(host initsystem.Host, service string) bool
-	ServiceScriptPath(host initsystem.Host, service string) (string, error)
-	DaemonReload(host initsystem.Host) error
-	ServiceEnvironmentPath(host initsystem.Host, srvice string) (string, error)
-	ServiceEnvironmentContent(envs map[string]string) string
+type Linux struct {
+	exec.SimpleRunner
 }
-
-// ErrInitSystemNotSupported is returned when the init system is not supported
-var ErrInitSystemNotSupported = errors.New("init system not supported")
 
 // Kind returns "linux"
 func (c Linux) Kind() string {
 	return "linux"
 }
 
-func (c Linux) hasSystemd(h Host) bool {
-	return h.Exec("stat /run/systemd/system", exec.Sudo(h)) == nil
-}
-
-func (c Linux) hasUpstart(h Host) bool {
-	return h.Exec(`stat /sbin/upstart-udev-bridge > /dev/null 2>&1 || \
-    (stat /sbin/initctl > /dev/null 2>&1 && \
-     /sbin/initctl --version 2> /dev/null | grep -q "\(upstart" )`, exec.Sudo(h)) == nil
-}
-
-func (c Linux) hasOpenRC(h Host) bool {
-	return h.Exec(`command -v openrc-init > /dev/null 2>&1 || \
-    (stat /etc/inittab > /dev/null 2>&1 && \
-		  (grep ::sysinit: /etc/inittab | grep -q openrc) )`, exec.Sudo(h)) == nil
-}
-
-func (c Linux) hasSysV(h Host) bool {
-	return h.Exec(`command -v service 2>&1 && stat /etc/init.d > /dev/null 2>&1`, exec.Sudo(h)) == nil
-}
-
-func (c Linux) is(h Host) (initSystem, error) {
-	if c.hasSystemd(h) {
-		return &initsystem.Systemd{}, nil
-	}
-
-	if c.hasOpenRC(h) || c.hasUpstart(h) || c.hasSysV(h) {
-		return &initsystem.OpenRC{}, nil
-	}
-
-	return nil, fmt.Errorf("%w: failed to detect init system", ErrInitSystemNotSupported)
-}
-
-// StartService starts a service on the host
-func (c Linux) StartService(h Host, s string) error {
-	is, err := c.is(h)
-	if err != nil {
-		return err
-	}
-	if err := is.StartService(h, s); err != nil {
-		return fmt.Errorf("failed to start service %s: %w", s, err)
-	}
-	return nil
-}
-
-// StopService stops a service on the host
-func (c Linux) StopService(h Host, s string) error {
-	is, err := c.is(h)
-	if err != nil {
-		return err
-	}
-	if err := is.StopService(h, s); err != nil {
-		return fmt.Errorf("failed to stop service %s: %w", s, err)
-	}
-	return nil
-}
-
-// RestartService restarts a service on the host
-func (c Linux) RestartService(h Host, s string) error {
-	is, err := c.is(h)
-	if err != nil {
-		return err
-	}
-	if err := is.RestartService(h, s); err != nil {
-		return fmt.Errorf("failed to restart service %s: %w", s, err)
-	}
-	return nil
-}
-
-// DisableService disables a service on the host
-func (c Linux) DisableService(h Host, s string) error {
-	is, err := c.is(h)
-	if err != nil {
-		return err
-	}
-	if err := is.DisableService(h, s); err != nil {
-		return fmt.Errorf("failed to disable service %s: %w", s, err)
-	}
-	return nil
-}
-
-// EnableService enables a service on the host
-func (c Linux) EnableService(h Host, s string) error {
-	is, err := c.is(h)
-	if err != nil {
-		return err
-	}
-	if err := is.EnableService(h, s); err != nil {
-		return fmt.Errorf("failed to enable service %s: %w", s, err)
-	}
-	return nil
-}
-
-// ServiceIsRunning returns true if the service is running on the host
-func (c Linux) ServiceIsRunning(h Host, s string) bool {
-	is, err := c.is(h)
-	if err != nil {
-		return false
-	}
-	return is.ServiceIsRunning(h, s)
-}
-
-// ServiceScriptPath returns the service definition file path on the host
-func (c Linux) ServiceScriptPath(h Host, s string) (string, error) {
-	is, err := c.is(h)
-	if err != nil {
-		return "", err
-	}
-	path, err := is.ServiceScriptPath(h, s)
-	if err != nil {
-		return "", fmt.Errorf("failed to get service script path for %s: %w", s, err)
-	}
-	return path, nil
-}
-
-// DaemonReload performs an init system config reload
-func (c Linux) DaemonReload(h Host) error {
-	is, err := c.is(h)
-	if err != nil {
-		return err
-	}
-	if err := is.DaemonReload(h); err != nil {
-		return fmt.Errorf("failed to daemon-reload: %w", err)
-	}
-	return nil
-}
-
 // Pwd returns the current working directory of the session
-func (c Linux) Pwd(h Host) string {
-	pwd, err := h.ExecOutput("pwd 2> /dev/null")
+func (c Linux) Pwd() string {
+	pwd, err := c.ExecOutput("pwd 2> /dev/null")
 	if err != nil {
 		return ""
 	}
@@ -176,8 +33,8 @@ func (c Linux) Pwd(h Host) string {
 }
 
 // CheckPrivilege checks if the current user has root privileges
-func (c Linux) CheckPrivilege(h Host) error {
-	if err := h.Exec("true", exec.Sudo(h)); err != nil {
+func (c Linux) CheckPrivilege() error {
+	if err := c.Exec("true"); err != nil {
 		return fmt.Errorf("%w: %w", exec.ErrSudo, err)
 	}
 	return nil
@@ -185,43 +42,46 @@ func (c Linux) CheckPrivilege(h Host) error {
 
 // JoinPath joins a path
 func (c Linux) JoinPath(parts ...string) string {
-	return strings.Join(parts, "/")
+	return path.Join(parts...)
 }
 
 // Hostname resolves the short hostname
-func (c Linux) Hostname(h Host) string {
-	n, _ := h.ExecOutput("hostname 2> /dev/null")
+func (c Linux) Hostname() string {
+	n, err := c.ExecOutput("hostname 2> /dev/null")
+	if err != nil {
+		return ""
+	}
 
 	return n
 }
 
 // LongHostname resolves the FQDN (long) hostname
-func (c Linux) LongHostname(h Host) string {
-	n, _ := h.ExecOutput("hostname -f 2> /dev/null")
+func (c Linux) LongHostname() string {
+	n, _ := c.ExecOutput("hostname -f 2> /dev/null")
 
 	return n
 }
 
 // IsContainer returns true if the host is actually a container
-func (c Linux) IsContainer(h Host) bool {
-	return h.Exec("grep 'container=docker' /proc/1/environ 2> /dev/null") == nil
+func (c Linux) IsContainer() bool {
+	return c.Exec("grep 'container=docker' /proc/1/environ 2> /dev/null") == nil
 }
 
 // FixContainer makes a container work like a real host
-func (c Linux) FixContainer(h Host) error {
-	if err := h.Exec("mount --make-rshared / 2> /dev/null", exec.Sudo(h)); err != nil {
+func (c Linux) FixContainer() error {
+	if err := c.Exec("mount --make-rshared / 2> /dev/null"); err != nil {
 		return fmt.Errorf("failed to mount / as rshared: %w", err)
 	}
 	return nil
 }
 
 // SELinuxEnabled is true when SELinux is enabled
-func (c Linux) SELinuxEnabled(h Host) bool {
-	return h.Exec("getenforce | grep -iq enforcing 2> /dev/null", exec.Sudo(h)) == nil
+func (c Linux) SELinuxEnabled() bool {
+	return c.Exec("getenforce | grep -iq enforcing 2> /dev/null") == nil
 }
 
 // WriteFile writes file to host with given contents. Do not use for large files.
-func (c Linux) WriteFile(h Host, path string, data string, permissions string) error {
+func (c Linux) WriteFile(path string, data string, permissions string) error {
 	if data == "" {
 		return fmt.Errorf("%w: empty content for write file %s", ErrCommandFailed, path)
 	}
@@ -230,17 +90,17 @@ func (c Linux) WriteFile(h Host, path string, data string, permissions string) e
 		return fmt.Errorf("%w: empty path for write file", ErrCommandFailed)
 	}
 
-	tempFile, err := h.ExecOutput("mktemp 2> /dev/null")
+	tempFile, err := c.ExecOutput("mktemp 2> /dev/null")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
 
-	if err := h.Execf(`cat > %s`, tempFile, exec.Stdin(data), exec.RedactString(data)); err != nil {
+	if err := c.Exec(`cat > %s`, shellescape.Quote(tempFile), exec.StdinString(data), exec.RedactString(data)); err != nil {
 		return fmt.Errorf("failed to write temp file: %w", err)
 	}
 
-	if err := c.InstallFile(h, tempFile, path, permissions); err != nil {
-		_ = c.DeleteFile(h, tempFile)
+	if err := c.InstallFile(tempFile, path, permissions); err != nil {
+		_ = c.DeleteFile(tempFile)
 		return fmt.Errorf("failed to move file into place: %w", err)
 	}
 
@@ -248,44 +108,40 @@ func (c Linux) WriteFile(h Host, path string, data string, permissions string) e
 }
 
 // InstallFile installs a file to the host
-func (c Linux) InstallFile(h Host, src, dst, permissions string) error {
-	if err := h.Execf("install -D -m %s -- %s %s", permissions, src, dst, exec.Sudo(h)); err != nil {
+func (c Linux) InstallFile(src, dst, permissions string) error {
+	if err := c.Exec("install -D -m %s -- %s %s", permissions, src, dst); err != nil {
 		return fmt.Errorf("failed to install file %s to %s: %w", src, dst, err)
 	}
 	return nil
 }
 
 // ReadFile reads a files contents from the host.
-func (c Linux) ReadFile(h Host, path string) (string, error) {
-	out := bytes.NewBuffer(nil)
-	cmd, err := h.ExecStreams(fmt.Sprintf("cat -- %s 2> /dev/null", shellescape.Quote(path)), nil, out, nil, exec.Sudo(h))
+func (c Linux) ReadFile(path string) (string, error) {
+	out, err := c.ExecOutput("cat -- %s 2> /dev/null", shellescape.Quote(path), exec.TrimOutput(false))
 	if err != nil {
 		return "", fmt.Errorf("failed to read file %s: %w", path, err)
 	}
-	if err := cmd.Wait(); err != nil {
-		return "", fmt.Errorf("failed to read file %s: %w", path, err)
-	}
-	return out.String(), nil
+	return out, nil
 }
 
 // DeleteFile deletes a file from the host.
-func (c Linux) DeleteFile(h Host, path string) error {
-	if err := h.Execf(`rm -f -- %s 2> /dev/null`, shellescape.Quote(path), exec.Sudo(h)); err != nil {
+func (c Linux) DeleteFile(path string) error {
+	if err := c.Exec(`rm -f -- %s 2> /dev/null`, shellescape.Quote(path)); err != nil {
 		return fmt.Errorf("failed to delete file %s: %w", path, err)
 	}
 	return nil
 }
 
 // FileExist checks if a file exists on the host
-func (c Linux) FileExist(h Host, path string) bool {
-	return h.Execf(`test -e %s 2> /dev/null`, shellescape.Quote(path), exec.Sudo(h)) == nil
+func (c Linux) FileExist(path string) bool {
+	return c.Exec(`test -e %s 2> /dev/null`, shellescape.Quote(path)) == nil
 }
 
 // LineIntoFile tries to find a line starting with the matcher and replace it with a new entry. If match isn't found, the string is appended to the file.
 // TODO add exec.Opts (requires modifying readfile and writefile signatures)
-func (c Linux) LineIntoFile(h Host, path, matcher, newLine string) error {
+func (c Linux) LineIntoFile(path, matcher, newLine string) error {
 	newLine = strings.TrimSuffix(newLine, "\n")
-	content, err := c.ReadFile(h, path)
+	content, err := c.ReadFile(path)
 	if err != nil {
 		content = ""
 	}
@@ -309,99 +165,68 @@ func (c Linux) LineIntoFile(h Host, path, matcher, newLine string) error {
 		fmt.Fprintln(writer, newLine)
 	}
 
-	return c.WriteFile(h, path, writer.String(), "0644")
+	return c.WriteFile(path, writer.String(), "0644")
 }
 
 // UpdateEnvironment updates the hosts's environment variables
-func (c Linux) UpdateEnvironment(h Host, env map[string]string) error {
+func (c Linux) UpdateEnvironment(env map[string]string) error {
 	for k, v := range env {
-		err := c.LineIntoFile(h, "/etc/environment", fmt.Sprintf("%s=", k), fmt.Sprintf("%s=%s", k, v))
+		err := c.LineIntoFile("/etc/environment", fmt.Sprintf("%s=", k), fmt.Sprintf("%s=%s", k, v))
 		if err != nil {
 			return err
 		}
 	}
 
 	// Update current session environment from the /etc/environment
-	if err := h.Exec(`while read -r pair; do if [[ $pair == ?* && $pair != \#* ]]; then export "$pair" || exit 2; fi; done < /etc/environment`); err != nil {
+	if err := c.Exec(`while read -r pair; do if [[ $pair == ?* && $pair != \#* ]]; then export "$pair" || exit 2; fi; done < /etc/environment`); err != nil {
 		return fmt.Errorf("failed to update environment: %w", err)
 	}
 	return nil
 }
 
-// UpdateServiceEnvironment updates environment variables for a service
-func (c Linux) UpdateServiceEnvironment(h Host, s string, env map[string]string) error {
-	is, err := c.is(h)
-	if err != nil {
-		return err
-	}
-	fp, err := is.ServiceEnvironmentPath(h, s)
-	if err != nil {
-		return fmt.Errorf("failed to get service environment path: %w", err)
-	}
-	err = c.WriteFile(h, fp, is.ServiceEnvironmentContent(env), "0660")
-	if err != nil {
-		return fmt.Errorf("update service environment: %w", err)
-	}
-
-	return c.DaemonReload(h)
-}
-
 // CleanupEnvironment removes environment variable configuration
-func (c Linux) CleanupEnvironment(h Host, env map[string]string) error {
+func (c Linux) CleanupEnvironment(env map[string]string) error {
 	for k := range env {
-		err := c.LineIntoFile(h, "/etc/environment", fmt.Sprintf("^%s=", k), "")
+		err := c.LineIntoFile("/etc/environment", fmt.Sprintf("^%s=", k), "")
 		if err != nil {
 			return err
 		}
 	}
 	// remove empty lines
-	if err := h.Exec(`sed -i '/^$/d' /etc/environment`, exec.Sudo(h)); err != nil {
+	if err := c.Exec(`sed -i '/^$/d' /etc/environment`); err != nil {
 		return fmt.Errorf("failed to cleanup environment: %w", err)
 	}
 	return nil
 }
 
-// CleanupServiceEnvironment updates environment variables for a service
-func (c Linux) CleanupServiceEnvironment(h Host, s string) error {
-	is, err := c.is(h)
-	if err != nil {
-		return err
-	}
-	fp, err := is.ServiceEnvironmentPath(h, s)
-	if err != nil {
-		return fmt.Errorf("failed to get service environment path: %w", err)
-	}
-	return c.DeleteFile(h, fp)
-}
-
 // CommandExist returns true if the command exists
-func (c Linux) CommandExist(h Host, cmd string) bool {
-	return h.Execf(`command -v -- "%s" 2> /dev/null`, cmd, exec.Sudo(h)) == nil
+func (c Linux) CommandExist(cmd string) bool {
+	return c.Exec(`command -v -- "%s" 2> /dev/null`, cmd) == nil
 }
 
 // Reboot executes the reboot command
-func (c Linux) Reboot(h Host) error {
-	cmd, err := h.Sudo("shutdown --reboot 0 2> /dev/null")
-	if err != nil {
-		return fmt.Errorf("failed to get sudo command: %w", err)
+func (c Linux) Reboot() error {
+	cmd := "shutdown --reboot 0 2> /dev/null"
+	if decorator, ok := c.SimpleRunner.(exec.CommandFormatter); ok {
+		cmd = decorator.Command(cmd)
 	}
-	if err := h.Execf("%s && exit", cmd); err != nil {
+	if err := c.Exec("%s && exit", cmd); err != nil {
 		return fmt.Errorf("failed to reboot: %w", err)
 	}
 	return nil
 }
 
 // MkDir creates a directory (including intermediate directories)
-func (c Linux) MkDir(h Host, s string, opts ...exec.Option) error {
-	if err := h.Exec(fmt.Sprintf("mkdir -p -- %s", shellescape.Quote(s)), opts...); err != nil {
+func (c Linux) MkDir(s string) error {
+	if err := c.Exec("mkdir -p -- %s", shellescape.Quote(s)); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", s, err)
 	}
 	return nil
 }
 
 // Chmod updates permissions of a path
-func (c Linux) Chmod(h Host, s, perm string, opts ...exec.Option) error {
-	if err := h.Exec(fmt.Sprintf("chmod %s -- %s", perm, shellescape.Quote(s)), opts...); err != nil {
+func (c Linux) Chmod(s, perm string) error {
+	if err := c.Exec("chmod %s -- %s", perm, shellescape.Quote(s)); err != nil {
 		return fmt.Errorf("failed to chmod %s: %w", s, err)
 	}
 	return nil
@@ -418,10 +243,10 @@ const gnuCoreutilsDateTimeLayout = "2006-01-02 15:04:05.999999999 -0700"
 const busyboxDateTimeLayout = "2006-01-02 15:04:05"
 
 // Stat gets file / directory information
-func (c Linux) Stat(h Host, path string, opts ...exec.Option) (*FileInfo, error) {
-	cmd := `env -i LC_ALL=C stat -c '%s|%y|%a|%F' -- ` + shellescape.Quote(path)
+func (c Linux) Stat(path string) (*FileInfo, error) {
+	cmd := `env -i LC_ALL=C stat -c '%%s|%%y|%%a|%%F' -- ` + shellescape.Quote(path)
 
-	out, err := h.ExecOutput(cmd, opts...)
+	out, err := c.ExecOutput(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat %s: %w", path, err)
 	}
@@ -458,7 +283,7 @@ func (c Linux) Stat(h Host, path string, opts ...exec.Option) (*FileInfo, error)
 
 // Touch updates a file's last modified time. It creates a new empty file if it
 // didn't exist prior to the call to Touch.
-func (c Linux) Touch(h Host, path string, ts time.Time, opts ...exec.Option) error {
+func (c Linux) Touch(path string, ts time.Time) error {
 	utc := ts.UTC()
 
 	// The BusyBox format will be accepted by both BusyBox and GNU stat.
@@ -469,7 +294,7 @@ func (c Linux) Touch(h Host, path string, ts time.Time, opts ...exec.Option) err
 	// to detect BusyBox touch and if it's not BusyBox go on with the
 	// full-precision GNU format instead.
 	if !utc.Equal(utc.Truncate(time.Second)) {
-		out, err := h.ExecOutput("env -i LC_ALL=C TZ=UTC touch --help 2>&1", exec.HideOutput(), exec.HideCommand())
+		out, err := c.ExecOutput("env -i LC_ALL=C TZ=UTC touch --help 2>&1", exec.HideOutput(), exec.HideCommand())
 		if err != nil || !strings.Contains(out, "BusyBox") {
 			format = gnuCoreutilsDateTimeLayout
 		}
@@ -480,15 +305,15 @@ func (c Linux) Touch(h Host, path string, ts time.Time, opts ...exec.Option) err
 		shellescape.Quote(path),
 	)
 
-	if err := h.Exec(cmd, opts...); err != nil {
+	if err := c.Exec(cmd); err != nil {
 		return fmt.Errorf("failed to touch %s: %w", path, err)
 	}
 	return nil
 }
 
 // Sha256sum calculates the sha256 checksum of a file
-func (c Linux) Sha256sum(h Host, path string, opts ...exec.Option) (string, error) {
-	out, err := h.ExecOutput(fmt.Sprintf("sha256sum -b -- %s 2> /dev/null", shellescape.Quote(path)), opts...)
+func (c Linux) Sha256sum(path string) (string, error) {
+	out, err := c.ExecOutput("sha256sum -b -- %s 2> /dev/null", shellescape.Quote(path))
 	if err != nil {
 		return "", fmt.Errorf("failed to shasum %s: %w", path, err)
 	}

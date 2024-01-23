@@ -2,6 +2,7 @@ package rigfs
 
 import (
 	"bufio"
+	"context"
 	_ "embed"
 	"encoding/json"
 	"errors"
@@ -48,6 +49,7 @@ type winFile struct {
 	stdin  io.WriteCloser
 	stdout *bufio.Reader
 	done   chan struct{}
+	cancel context.CancelFunc
 }
 
 // Seek sets the offset for the next Read or Write on the remote file.
@@ -189,7 +191,9 @@ func (f *winFile) open(flags int) error {
 	f.stdout = bufio.NewReader(stdoutR)
 	f.done = make(chan struct{})
 
-	cmd, err := f.fsys.conn.ExecStreams(rigRcp, stdinR, stdoutW, stderrW, f.fsys.opts...)
+	ctx, cancel := context.WithCancel(context.Background())
+	f.cancel = cancel
+	cmd, err := f.fsys.Start(ctx, rigRcp, stdinR, stdoutW, stderrW)
 	if err != nil {
 		return f.pathErr(OpOpen, fmt.Errorf("start file daemon: %w", err))
 	}
@@ -215,9 +219,11 @@ func (f *winFile) open(flags int) error {
 
 	resp, err := f.command(fmt.Sprintf("o %s %s %s", fMode(flags), fAccess(flags), f.path))
 	if err != nil {
+		cancel()
 		return f.pathErr(OpOpen, err)
 	}
 	if resp.Err != "" {
+		cancel()
 		return f.pathErr(OpOpen, fmt.Errorf("remote error: %s", resp.Err)) //nolint:goerr113
 	}
 
@@ -273,6 +279,7 @@ func (f *winFile) command(cmd string) (*rcpResponse, error) { //nolint:cyclop
 }
 
 func (f *winFile) Close() error {
+	defer f.cancel()
 	resp, err := f.command("c")
 	if err != nil {
 		return f.pathErr(OpClose, err)

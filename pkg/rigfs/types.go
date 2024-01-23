@@ -4,19 +4,10 @@ import (
 	"errors"
 	"io"
 	"io/fs"
-
-	"github.com/k0sproject/rig/exec"
 )
 
 // ErrCommandFailed is returned when a remote command fails
 var ErrCommandFailed = errors.New("command failed")
-
-type connection interface {
-	IsWindows() bool
-	Exec(cmd string, opts ...exec.Option) error
-	ExecOutput(cmd string, opts ...exec.Option) (string, error)
-	ExecStreams(cmd string, stdin io.ReadCloser, stdout io.Writer, stderr io.Writer, opts ...exec.Option) (exec.Waiter, error)
-}
 
 // Copier is a file-like struct that can copy data to and from io.Reader and io.Writer
 type Copier interface {

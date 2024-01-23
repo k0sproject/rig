@@ -29,73 +29,25 @@ func (c Darwin) Kind() string {
 	return "darwin"
 }
 
-// StartService starts a service
-func (c Darwin) StartService(h os.Host, s string) error {
-	if err := h.Execf(`launchctl start %s`, s); err != nil {
-		return fmt.Errorf("failed to start service %s: %w", s, err)
-	}
-	return nil
-}
-
-// StopService stops a service
-func (c Darwin) StopService(h os.Host, s string) error {
-	if err := h.Execf(`launchctl stop %s`, s); err != nil {
-		return fmt.Errorf("failed to stop service %s: %w", s, err)
-	}
-	return nil
-}
-
-// ServiceScriptPath returns the path to a service configuration file
-func (c Darwin) ServiceScriptPath(_ string) (string, error) {
-	return "", fmt.Errorf("%w: service scripts are not supported on darwin", ErrNotImplemented)
-}
-
-// RestartService restarts a service
-func (c Darwin) RestartService(h os.Host, s string) error {
-	if err := h.Execf(`launchctl kickstart -k %s`, s); err != nil {
-		return fmt.Errorf("failed to restart service %s: %w", s, err)
-	}
-	return nil
-}
-
-// DaemonReload reloads init system configuration -- does nothing on darwin
-func (c Darwin) DaemonReload(_ os.Host) error {
-	return nil
-}
-
-// EnableService enables a service
-func (c Darwin) EnableService(h os.Host, s string) error {
-	if err := h.Execf(`launchctl enable %s`, s); err != nil {
-		return fmt.Errorf("failed to enable service %s: %w", s, err)
-	}
-	return nil
-}
-
-// DisableService disables a service
-func (c Darwin) DisableService(h os.Host, s string) error {
-	if err := h.Execf(`launchctl disable %s`, s); err != nil {
-		return fmt.Errorf("failed to disable service %s: %w", s, err)
-	}
-	return nil
-}
-
-// ServiceIsRunning returns true if a service is running
-func (c Darwin) ServiceIsRunning(h os.Host, s string) bool {
-	return h.Execf(`launchctl list %s | grep -q '"PID"'`, s) == nil
-}
-
 // InstallPackage installs a package using brew
-func (c Darwin) InstallPackage(h os.Host, s ...string) error {
-	if err := h.Execf("brew install %s", strings.Join(s, " ")); err != nil {
+func (c Darwin) InstallPackage(s ...string) error {
+	cmd := strings.Builder{}
+	cmd.WriteString("brew install")
+	for _, pkg := range s {
+		cmd.WriteRune(' ')
+		cmd.WriteString(shellescape.Quote(pkg))
+	}
+
+	if err := c.Exec(cmd.String()); err != nil {
 		return fmt.Errorf("failed to install packages %s: %w", s, err)
 	}
 	return nil
 }
 
 // Stat returns a FileInfo describing the named file
-func (c Darwin) Stat(h os.Host, path string, opts ...exec.Option) (*os.FileInfo, error) {
+func (c Darwin) Stat(path string) (*os.FileInfo, error) {
 	info := &os.FileInfo{FName: path}
-	out, err := h.ExecOutput(`stat -f "%z/%m/%p/%HT" `+shellescape.Quote(path), opts...)
+	out, err := c.ExecOutput(`stat -f "%z/%m/%p/%HT" ` + shellescape.Quote(path))
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat %s: %w", path, err)
 	}
@@ -121,8 +73,8 @@ func (c Darwin) Stat(h os.Host, path string, opts ...exec.Option) (*os.FileInfo,
 }
 
 // Touch creates a file if it doesn't exist, or updates the modification time if it does
-func (c Darwin) Touch(h os.Host, path string, ts time.Time, opts ...exec.Option) error {
-	if err := c.Linux.Touch(h, path, ts, opts...); err != nil {
+func (c Darwin) Touch(path string, ts time.Time) error {
+	if err := c.Linux.Touch(path, ts); err != nil {
 		return fmt.Errorf("failed to touch %s: %w", path, err)
 	}
 	return nil
@@ -133,8 +85,8 @@ func init() {
 		func(os rig.OSVersion) bool {
 			return os.ID == "darwin"
 		},
-		func() any {
-			return Darwin{}
+		func(runner exec.SimpleRunner) any {
+			return &Darwin{Linux: os.Linux{SimpleRunner: runner}}
 		},
 	)
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/os"
@@ -21,18 +22,24 @@ func init() {
 		func(os rig.OSVersion) bool {
 			return os.ID == "debian"
 		},
-		func() any {
-			return Debian{}
+		func(runner exec.SimpleRunner) any {
+			return &Debian{Linux: os.Linux{SimpleRunner: runner}}
 		},
 	)
 }
 
 // InstallPackage installs packages via apt-get
-func (c Debian) InstallPackage(h os.Host, s ...string) error {
-	if err := h.Execf("apt-get update", exec.Sudo(h)); err != nil {
+func (c Debian) InstallPackage(s ...string) error {
+	if err := c.Exec("apt-get update"); err != nil {
 		return fmt.Errorf("failed to update apt cache: %w", err)
 	}
-	if err := h.Execf("DEBIAN_FRONTEND=noninteractive apt-get install -y -q %s", strings.Join(s, " "), exec.Sudo(h)); err != nil {
+	cmd := strings.Builder{}
+	cmd.WriteString("DEBIAN_FRONTEND=noninteractive apt-get install -y -q")
+	for _, pkg := range s {
+		cmd.WriteRune(' ')
+		cmd.WriteString(shellescape.Quote(pkg))
+	}
+	if err := c.Exec(cmd.String()); err != nil {
 		return fmt.Errorf("failed to install packages: %w", err)
 	}
 	return nil

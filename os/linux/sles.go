@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/os"
@@ -16,11 +17,17 @@ type SLES struct {
 }
 
 // InstallPackage installs packages via zypper
-func (c SLES) InstallPackage(h os.Host, s ...string) error {
-	if err := h.Exec("zypper refresh", exec.Sudo(h)); err != nil {
+func (c SLES) InstallPackage(s ...string) error {
+	if err := c.Exec("zypper refresh"); err != nil {
 		return fmt.Errorf("failed to refresh zypper: %w", err)
 	}
-	if err := h.Execf("zypper -n install -y %s", strings.Join(s, " "), exec.Sudo(h)); err != nil {
+	cmd := strings.Builder{}
+	cmd.WriteString("zypper -n install -y")
+	for _, pkg := range s {
+		cmd.WriteRune(' ')
+		cmd.WriteString(shellescape.Quote(pkg))
+	}
+	if err := c.Exec(cmd.String()); err != nil {
 		return fmt.Errorf("failed to install packages: %w", err)
 	}
 	return nil
@@ -31,8 +38,8 @@ func init() {
 		func(os rig.OSVersion) bool {
 			return os.ID == "sles"
 		},
-		func() any {
-			return SLES{}
+		func(runner exec.SimpleRunner) any {
+			return &SLES{Linux: os.Linux{SimpleRunner: runner}}
 		},
 	)
 }

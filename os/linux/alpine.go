@@ -21,15 +21,15 @@ func init() {
 		func(os rig.OSVersion) bool {
 			return os.ID == "alpine"
 		},
-		func() any {
-			return &Alpine{}
+		func(runner exec.SimpleRunner) any {
+			return &Alpine{Linux: os.Linux{SimpleRunner: runner}}
 		},
 	)
 }
 
 // InstallPackage installs packages via apk.
-func (l Alpine) InstallPackage(host os.Host, pkgs ...string) error {
-	if err := host.Execf("apk update", exec.Sudo(host)); err != nil {
+func (l Alpine) InstallPackage(pkgs ...string) error {
+	if err := l.Exec("apk update"); err != nil {
 		return fmt.Errorf("failed to update apk cache: %w", err)
 	}
 
@@ -44,7 +44,7 @@ func (l Alpine) InstallPackage(host os.Host, pkgs ...string) error {
 		cmd.WriteString(shellescape.Quote(pkg))
 	}
 
-	if err := host.Exec(cmd.String(), exec.Sudo(host)); err != nil {
+	if err := l.Exec(cmd.String()); err != nil {
 		return fmt.Errorf("failed to install apk packages: %w", err)
 	}
 

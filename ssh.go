@@ -1,8 +1,8 @@
 package rig
 
 import (
-	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -12,8 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
-	"github.com/acarl005/stripansi"
 	"github.com/creasty/defaults"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
@@ -45,8 +45,7 @@ type SSH struct {
 	alias string
 	name  string
 
-	isWindows bool
-	knowOs    bool
+	isWindows *bool
 	once      sync.Once
 
 	client *ssh.Client
@@ -285,19 +284,32 @@ func (c *SSH) Disconnect() {
 
 // IsWindows is true when the host is running windows
 func (c *SSH) IsWindows() bool {
-	if !c.knowOs && c.client != nil {
-		log.Debugf("%s: checking if host is windows", c)
-		if strings.Contains(string(c.client.ServerVersion()), "Windows") {
-			c.isWindows = true
-			c.knowOs = true
-			return true
-		}
-		c.isWindows = c.Exec("cmd.exe /c exit 0") == nil
-		log.Debugf("%s: host is windows: %t", c, c.isWindows)
-		c.knowOs = true
+	if c.isWindows != nil {
+		return *c.isWindows
 	}
 
-	return c.isWindows
+	if c.client == nil {
+		return false
+	}
+
+	log.Debugf("%s: checking if host is windows", c)
+	var isWin bool
+	if strings.Contains(string(c.client.ServerVersion()), "Windows") {
+		isWin = true
+		c.isWindows = &isWin
+		return true
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	isWinProc, err := c.StartProcess(ctx, "cmd.exe /c exit 0", nil, nil, nil)
+	isWin = err == nil && isWinProc.Wait() == nil
+
+	c.isWindows = &isWin
+	log.Debugf("%s: host is windows: %t", c, *c.isWindows)
+
+	return *c.isWindows
 }
 
 func knownhostsCallback(path string, permissive, hash bool) (ssh.HostKeyCallback, error) {
@@ -550,25 +562,12 @@ func (c *SSH) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMethod, err
 	return nil, fmt.Errorf("%w: can't parse keyfile: %s: %w", ErrCantConnect, path, err)
 }
 
-const (
-	ptyWidth  = 80
-	ptyHeight = 40
-)
-
-// ExecStreams executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
+// StartProcess executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
-func (c *SSH) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (exec.Waiter, error) {
+func (c *SSH) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) (exec.Waiter, error) {
 	if c.client == nil {
 		return nil, ErrNotConnected
 	}
-
-	execOpts := exec.Build(opts...)
-	cmd, err := execOpts.Command(cmd)
-	if err != nil {
-		return nil, fmt.Errorf("%w: build command: %w", ErrCommandFailed, err)
-	}
-
-	execOpts.LogCmd(c.String(), cmd)
 
 	session, err := c.client.NewSession()
 	if err != nil {
@@ -579,144 +578,57 @@ func (c *SSH) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Wri
 	session.Stdout = stdout
 	session.Stderr = stderr
 
+	go func() {
+		<-ctx.Done()
+		if ctx.Err() != nil {
+			session.Signal(ssh.SIGINT)
+			session.Close()
+		}
+	}()
+
 	if err := session.Start(cmd); err != nil {
-		return nil, fmt.Errorf("%w: start session: %w", ErrCommandFailed, err)
+		return nil, fmt.Errorf("start session: %w", err)
 	}
 
 	return session, nil
 }
 
-// Exec executes a command on the host
-func (c *SSH) Exec(cmd string, opts ...exec.Option) error { //nolint:gocognit,cyclop
-	execOpts := exec.Build(opts...)
-	session, err := c.client.NewSession()
-	if err != nil {
-		return fmt.Errorf("%w: ssh new session: %w", ErrCommandFailed, err)
-	}
-	defer session.Close()
-
-	cmd, err = execOpts.Command(cmd)
-	if err != nil {
-		return fmt.Errorf("%w: build command: %w", ErrCommandFailed, err)
-	}
-
-	if len(execOpts.Stdin) == 0 && c.knowOs && !c.isWindows {
-		// Only request a PTY when there's no STDIN data, because
-		// then you would need to send a CTRL-D after input to signal
-		// the end of text
-		modes := ssh.TerminalModes{ssh.ECHO: 0}
-		err = session.RequestPty("xterm", ptyWidth, ptyHeight, modes)
-		if err != nil {
-			return fmt.Errorf("request pty: %w", err)
-		}
-	}
-
-	execOpts.LogCmd(c.String(), cmd)
-
-	stdin, _ := session.StdinPipe()
-	stdout, _ := session.StdoutPipe()
-	stderr, _ := session.StderrPipe()
-
-	if err := session.Start(cmd); err != nil {
-		return fmt.Errorf("%w: ssh session start: %w", ErrCommandFailed, err)
-	}
-
-	if len(execOpts.Stdin) > 0 {
-		execOpts.LogStdin(c.String())
-		if _, err := io.WriteString(stdin, execOpts.Stdin); err != nil {
-			return fmt.Errorf("%w: write stdin: %w", ErrCommandFailed, err)
-		}
-	}
-	stdin.Close()
-
-	var wg sync.WaitGroup
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if execOpts.Writer == nil {
-			outputScanner := bufio.NewScanner(stdout)
-
-			for outputScanner.Scan() {
-				text := outputScanner.Text()
-				stripped := stripansi.Strip(text)
-				execOpts.AddOutput(c.String(), stripped+"\n", "")
-			}
-
-			if err := outputScanner.Err(); err != nil {
-				execOpts.LogErrorf("%s: %s", c, err.Error())
-			}
-		} else {
-			if _, err := io.Copy(execOpts.Writer, stdout); err != nil {
-				execOpts.LogErrorf("%s: failed to stream stdout: %v", c, err)
-			}
-		}
-	}()
-
-	var errors []string
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		outputScanner := bufio.NewScanner(stderr)
-
-		for outputScanner.Scan() {
-			msg := outputScanner.Text()
-			if msg != "" {
-				errors = append(errors, msg)
-				execOpts.LogErrorf("%s: %s", c, msg)
-			}
-		}
-
-		if err := outputScanner.Err(); err != nil {
-			execOpts.LogErrorf("%s: %s", c, err.Error())
-		}
-	}()
-
-	err = session.Wait()
-	wg.Wait()
-
-	if err != nil {
-		return fmt.Errorf("ssh session wait: %w", err)
-	}
-
-	if c.knowOs && c.isWindows && (!execOpts.AllowWinStderr && len(errors) > 0) {
-		return fmt.Errorf("%w: received data in stderr: %s", ErrCommandFailed, strings.Join(errors, "\n"))
-	}
-
-	return nil
-}
-
 // ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host
-func (c *SSH) ExecInteractive(cmd string) error {
+func (c *SSH) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
 	session, err := c.client.NewSession()
 	if err != nil {
 		return fmt.Errorf("%w: ssh new session: %w", ErrCommandFailed, err)
 	}
 	defer session.Close()
 
-	session.Stdout = os.Stdout
-	session.Stderr = os.Stderr
+	session.Stdout = stdout
+	session.Stderr = stderr
+	var input io.Reader
 
-	fd := int(os.Stdin.Fd())
-	old, err := term.MakeRaw(fd)
-	if err != nil {
-		return fmt.Errorf("%w: make local terminal raw: %w", ErrOS, err)
-	}
+	if inF, ok := stdin.(*os.File); ok {
+		fd := int(os.Stdin.Fd())
+		old, err := term.MakeRaw(fd)
+		if err != nil {
+			return fmt.Errorf("%w: make local terminal raw: %w", ErrOS, err)
+		}
 
-	defer func(fd int, old *term.State) {
-		_ = term.Restore(fd, old)
-	}(fd, old)
+		defer func(fd int, old *term.State) {
+			_ = term.Restore(fd, old)
+		}(fd, old)
 
-	rows, cols, err := term.GetSize(fd)
-	if err != nil {
-		return fmt.Errorf("%w: get terminal size: %w", ErrOS, err)
-	}
+		rows, cols, err := term.GetSize(fd)
+		if err != nil {
+			return fmt.Errorf("%w: get terminal size: %w", ErrOS, err)
+		}
 
-	modes := ssh.TerminalModes{ssh.ECHO: 1}
-	err = session.RequestPty("xterm", cols, rows, modes)
-	if err != nil {
-		return fmt.Errorf("%w: request pty: %w", ErrCommandFailed, err)
+		modes := ssh.TerminalModes{ssh.ECHO: 1}
+		err = session.RequestPty("xterm", cols, rows, modes)
+		if err != nil {
+			return fmt.Errorf("%w: request pty: %w", ErrCommandFailed, err)
+		}
+		input = inF
+	} else {
+		input = stdin
 	}
 
 	stdinpipe, err := session.StdinPipe()
@@ -724,7 +636,7 @@ func (c *SSH) ExecInteractive(cmd string) error {
 		return fmt.Errorf("%w: get stdin pipe: %w", ErrCommandFailed, err)
 	}
 	go func() {
-		_, _ = io.Copy(stdinpipe, os.Stdin)
+		_, _ = io.Copy(stdinpipe, input)
 	}()
 
 	cancel := captureSignals(stdinpipe, session)

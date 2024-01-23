@@ -4,9 +4,9 @@ package rigfs
 import "github.com/k0sproject/rig/exec"
 
 // NewFsys returns a fs.FS implementation for a remote filesystem
-func NewFsys(c connection, opts ...exec.Option) Fsys {
+func NewFsys(c exec.Runner) Fsys {
 	if c.IsWindows() {
-		return NewWindowsFsys(c, opts...)
+		return NewWindowsFsys(c)
 	}
-	return NewPosixFsys(c, opts...)
+	return NewPosixFsys(c)
 }

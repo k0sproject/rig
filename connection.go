@@ -3,38 +3,30 @@
 package rig
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"context"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/alessio/shellescape"
 	"github.com/creasty/defaults"
 	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/initsystem"
 	"github.com/k0sproject/rig/log"
-	rigos "github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/pkg/rigfs"
-	"github.com/mattn/go-shellwords"
 )
-
-var _ rigos.Host = (*Connection)(nil)
 
 type client interface {
 	Connect() error
 	Disconnect()
 	IsWindows() bool
-	Exec(cmd string, opts ...exec.Option) error
-	ExecStreams(cmd string, stdin io.ReadCloser, stdout io.Writer, stderr io.Writer, opts ...exec.Option) (exec.Waiter, error)
-	ExecInteractive(cmd string) error
+	StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (exec.Waiter, error)
+	ExecInteractive(cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error
 	String() string
 	Protocol() string
 	IPAddress() string
 	IsConnected() bool
 }
-
-type sudofn func(string) string
 
 // Connection is a Struct you can embed into your application's "Host" types
 // to give them multi-protocol connectivity.
@@ -69,17 +61,19 @@ type sudofn func(string) string
 //	  output, err := h.ExecOutput("echo hello")
 //	}
 type Connection struct {
-	WinRM     *WinRM     `yaml:"winRM,omitempty"`
-	SSH       *SSH       `yaml:"ssh,omitempty"`
-	Localhost *Localhost `yaml:"localhost,omitempty"`
-	OpenSSH   *OpenSSH   `yaml:"openSSH,omitempty"`
+	exec.Runner `yaml:"-"`
+	WinRM       *WinRM     `yaml:"winRM,omitempty"`
+	SSH         *SSH       `yaml:"ssh,omitempty"`
+	Localhost   *Localhost `yaml:"localhost,omitempty"`
+	OpenSSH     *OpenSSH   `yaml:"openSSH,omitempty"`
 
 	OSVersion *OSVersion `yaml:"-"`
 
-	client   client `yaml:"-"`
-	sudofunc sudofn
-	fsys     rigfs.Fsys
-	sudofsys rigfs.Fsys
+	client     client
+	sudoRunner exec.Runner
+	fsys       rigfs.Fsys
+	sudofsys   rigfs.Fsys
+	initSys    initsystem.InitSystem
 }
 
 // SetDefaults sets a connection
@@ -117,6 +111,25 @@ func (c *Connection) Address() string {
 	}
 
 	return ""
+}
+
+func (c *Connection) InitSystem() (initsystem.InitSystem, error) {
+	if c.initSys == nil {
+		is, err := initsystem.GetRepository().Get(c)
+		if err != nil {
+			return nil, err
+		}
+		c.initSys = is
+	}
+	return c.initSys, nil
+}
+
+func (c *Connection) Service(name string) (*Service, error) {
+	is, err := c.InitSystem()
+	if err != nil {
+		return nil, err
+	}
+	return &Service{runner: c.Sudo(), initsys: is, name: name}, nil
 }
 
 // IsConnected returns true if the client is assumed to be connected.
@@ -162,7 +175,7 @@ func (c *Connection) Fsys() rigfs.Fsys {
 // SudoFsys returns a fs.FS compatible filesystem interface for accessing files on remote hosts with sudo permissions
 func (c *Connection) SudoFsys() rigfs.Fsys {
 	if c.sudofsys == nil {
-		c.sudofsys = rigfs.NewFsys(c, exec.Sudo(c))
+		c.sudofsys = rigfs.NewFsys(c.Sudo())
 	}
 
 	return c.sudofsys
@@ -181,44 +194,6 @@ func (c *Connection) IsWindows() bool {
 	return c.client.IsWindows()
 }
 
-// ExecStreams executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
-// blocks until the command finishes and returns an error if the exit code is not zero.
-func (c Connection) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (exec.Waiter, error) {
-	if err := c.checkConnected(); err != nil {
-		return nil, fmt.Errorf("%w: exec with streams: %w", ErrCommandFailed, err)
-	}
-	waiter, err := c.client.ExecStreams(cmd, stdin, stdout, stderr, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("%w: exec with streams: %w", ErrCommandFailed, err)
-	}
-	return waiter, nil
-}
-
-// Exec runs a command on the host
-func (c Connection) Exec(cmd string, opts ...exec.Option) error {
-	if err := c.checkConnected(); err != nil {
-		return err
-	}
-
-	if err := c.client.Exec(cmd, opts...); err != nil {
-		return fmt.Errorf("%w: client exec: %w", ErrCommandFailed, err)
-	}
-
-	return nil
-}
-
-// ExecOutput runs a command on the host and returns the output as a String
-func (c Connection) ExecOutput(cmd string, opts ...exec.Option) (string, error) {
-	if err := c.checkConnected(); err != nil {
-		return "", err
-	}
-
-	var output string
-	opts = append(opts, exec.Output(&output))
-	err := c.Exec(cmd, opts...)
-	return strings.TrimSpace(output), err
-}
-
 // Connect to the host and identify the operating system and sudo capability
 func (c *Connection) Connect() error {
 	if c.client == nil {
@@ -233,6 +208,8 @@ func (c *Connection) Connect() error {
 		return fmt.Errorf("%w: client connect: %w", ErrNotConnected, err)
 	}
 
+	c.Runner = exec.NewHostRunner(c.client)
+
 	if c.OSVersion == nil {
 		o, err := GetOSVersion(c)
 		if err != nil {
@@ -241,9 +218,19 @@ func (c *Connection) Connect() error {
 		c.OSVersion = &o
 	}
 
-	c.configureSudo()
-
 	return nil
+}
+
+func (c *Connection) Sudo() exec.Runner {
+	if c.sudoRunner == nil {
+		fn, err := c.detectSudo()
+		if err != nil {
+			c.sudoRunner = &exec.ErrorRunner{Err: err}
+		} else {
+			c.sudoRunner = exec.NewHostRunner(c.client, fn)
+		}
+	}
+	return c.sudoRunner
 }
 
 func sudoNoop(cmd string) string {
@@ -251,121 +238,65 @@ func sudoNoop(cmd string) string {
 }
 
 func sudoSudo(cmd string) string {
-	parts, err := shellwords.Parse(cmd)
-	if err != nil {
-		return "sudo -s -- " + cmd
-	}
-
-	var idx int
-	for i, p := range parts {
-		if strings.Contains(p, "=") {
-			idx = i + 1
-			continue
-		}
-		break
-	}
-
-	if idx == 0 {
-		return "sudo -s -- " + cmd
-	}
-
-	for i, p := range parts {
-		parts[i] = shellescape.Quote(p)
-	}
-
-	return fmt.Sprintf("sudo -s %s -- %s", strings.Join(parts[0:idx], " "), strings.Join(parts[idx:], " "))
+	return `sudo -n -- "${SHELL-sh}" -c ` + shellescape.Quote(cmd)
 }
 
 func sudoDoas(cmd string) string {
 	return `doas -n -- "${SHELL-sh}" -c ` + shellescape.Quote(cmd)
 }
 
-// sudoWindows is a no-op on windows - the user must already be an admin or UAC must be disabled
-// and the user must belong to Administrators. if that is the case, the user should be able to
-// do anything.
-func sudoWindows(cmd string) string {
-	return cmd
-}
-
-func (c *Connection) configureSudo() {
+func (c *Connection) detectSudo() (exec.DecorateFunc, error) {
 	if !c.IsWindows() {
 		if c.Exec(`[ "$(id -u)" = 0 ]`) == nil {
 			// user is already root
-			c.sudofunc = sudoNoop
-			return
+			return sudoNoop, nil
 		}
 		if c.Exec(`sudo -n true`) == nil {
 			// user has passwordless sudo
-			c.sudofunc = sudoSudo
-			return
+			return sudoSudo, nil
 		}
 		if c.Exec(`doas -n -- "${SHELL-sh}" -c true`) == nil {
 			// user has passwordless doas
-			c.sudofunc = sudoDoas
+			return sudoDoas, nil
 		}
-		return
+		return nil, fmt.Errorf("%w: user is not root and passwordless access elevation (sudo, doas) has not been configured", ErrSudoRequired)
 	}
 
 	out, err := c.ExecOutput(`whoami`)
 	if err != nil {
-		return
+		return nil, fmt.Errorf("%w: detect sudo: %w", ErrSudoRequired, err)
 	}
 	parts := strings.Split(out, `\`)
 	if strings.ToLower(parts[len(parts)-1]) == "administrator" {
 		// user is already the administrator
-		c.sudofunc = sudoWindows
-		return
+		return sudoNoop, nil
 	}
 
 	if c.Exec(`net user "%USERNAME%" | findstr /B /C:"Local Group Memberships" | findstr /C:"*Administrators"`) != nil {
 		// user is not in the Administrators group
-		return
+		return nil, fmt.Errorf("%w: user is not in 'Administrators'", ErrSudoRequired)
 	}
 
 	out, err = c.ExecOutput(`reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "EnableLUA"`)
 	if err != nil {
-		return
+		return nil, fmt.Errorf("%w: failed to query if UAC is enabled: %w", ErrSudoRequired, err)
 	}
 	if strings.Contains(out, "0x0") {
 		// UAC is disabled and the user is in the Administrators group - expect sudo to work
-		c.sudofunc = sudoWindows
-		return
-	}
-}
-
-// Sudo formats a command string to be run with elevated privileges
-func (c Connection) Sudo(cmd string) (string, error) {
-	if c.sudofunc == nil {
-		if c.IsWindows() {
-			return "", fmt.Errorf("%w: UAC is enabled and user is not 'Administrator'", ErrSudoRequired)
-		}
-		return "", fmt.Errorf("%w: user is not root and passwordless access elevation (sudo, doas) has not been configured", ErrSudoRequired)
+		return sudoNoop, nil
 	}
 
-	return c.sudofunc(cmd), nil
-}
-
-// Execf is just like `Exec` but you can use Sprintf templating for the command
-func (c Connection) Execf(s string, params ...any) error {
-	opts, args := GroupParams(params...)
-	return c.Exec(fmt.Sprintf(s, args...), opts...)
-}
-
-// ExecOutputf is like ExecOutput but you can use Sprintf
-// templating for the command
-func (c Connection) ExecOutputf(s string, params ...any) (string, error) {
-	opts, args := GroupParams(params...)
-	return c.ExecOutput(fmt.Sprintf(s, args...), opts...)
+	return nil, fmt.Errorf("%w: UAC is enabled and user is not 'Administrator'", ErrSudoRequired)
 }
 
 // ExecInteractive executes a command on the host and passes control of
 // local input to the remote command
-func (c Connection) ExecInteractive(cmd string) error {
+func (c Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if err := c.checkConnected(); err != nil {
 		return err
 	}
 
-	if err := c.client.ExecInteractive(cmd); err != nil {
+	if err := c.client.ExecInteractive(cmd, stdin, stdout, stderr); err != nil {
 		return fmt.Errorf("%w: client exec interactive: %w", ErrCommandFailed, err)
 	}
 
@@ -378,61 +309,6 @@ func (c *Connection) Disconnect() {
 		c.client.Disconnect()
 	}
 	c.client = nil
-}
-
-// Upload copies a file from a local path src to the remote host path dst. For
-// smaller files you should probably use os.WriteFile
-func (c *Connection) Upload(src, dst string, opts ...exec.Option) error {
-	execOpts := exec.Build(opts...)
-
-	if err := c.checkConnected(); err != nil {
-		return err
-	}
-	local, err := os.Open(src)
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidPath, err)
-	}
-	defer local.Close()
-
-	stat, err := local.Stat()
-	if err != nil {
-		return fmt.Errorf("%w: stat local file %s: %w", ErrInvalidPath, src, err)
-	}
-
-	shasum := sha256.New()
-
-	var fsys rigfs.Fsys
-	if execOpts.Sudo {
-		fsys = c.SudoFsys()
-	} else {
-		fsys = c.Fsys()
-	}
-	remote, err := fsys.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, stat.Mode())
-	if err != nil {
-		return fmt.Errorf("%w: open remote file %s for writing: %w", ErrInvalidPath, dst, err)
-	}
-	defer remote.Close()
-
-	localReader := io.TeeReader(local, shasum)
-	if _, err := remote.CopyFrom(localReader); err != nil {
-		_ = remote.Close()
-		return fmt.Errorf("%w: copy file %s to remote host: %w", ErrUploadFailed, dst, err)
-	}
-	if err := remote.Close(); err != nil {
-		return fmt.Errorf("%w: close remote file %s: %w", ErrUploadFailed, dst, err)
-	}
-
-	log.Debugf("%s: post-upload validate checksum of %s", c, dst)
-	remoteSum, err := fsys.Sha256(dst)
-	if err != nil {
-		return fmt.Errorf("%w: validate %s checksum: %w", ErrUploadFailed, dst, err)
-	}
-
-	if remoteSum != hex.EncodeToString(shasum.Sum(nil)) {
-		return fmt.Errorf("%w: checksum mismatch", ErrUploadFailed)
-	}
-
-	return nil
 }
 
 func (c *Connection) configuredClient() client {
@@ -457,23 +333,4 @@ func (c *Connection) configuredClient() client {
 
 func defaultClient() client {
 	return &Localhost{Enabled: true}
-}
-
-// GroupParams separates exec.Options from other sprintf templating args
-func GroupParams(params ...any) ([]exec.Option, []any) {
-	var opts []exec.Option
-	var args []any
-	for _, v := range params {
-		switch vv := v.(type) {
-		case []any:
-			o, a := GroupParams(vv...)
-			opts = append(opts, o...)
-			args = append(args, a...)
-		case exec.Option:
-			opts = append(opts, vv)
-		default:
-			args = append(args, vv)
-		}
-	}
-	return opts, args
 }

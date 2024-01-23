@@ -1,15 +1,14 @@
 package rig
 
 import (
-	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	goexec "os/exec"
 	"strconv"
-	"strings"
 	"sync"
+	"time"
 
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
@@ -37,10 +36,6 @@ type OpenSSH struct {
 	name string
 }
 
-func boolPtr(b bool) *bool {
-	return &b
-}
-
 // Protocol returns the protocol name
 func (c *OpenSSH) Protocol() string {
 	return "OpenSSH"
@@ -58,7 +53,15 @@ func (c *OpenSSH) IsWindows() bool {
 		return *c.isWindows
 	}
 
-	c.isWindows = boolPtr(c.Exec("cmd.exe /c exit 0") == nil)
+	var isWin bool
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	isWinProc, err := c.StartProcess(ctx, "cmd.exe /c exit 0", nil, nil, nil)
+	isWin = err == nil && isWinProc.Wait() == nil
+
+	c.isWindows = &isWin
 	log.Debugf("%s: host is windows: %t", c, *c.isWindows)
 
 	return *c.isWindows
@@ -177,7 +180,10 @@ func (c *OpenSSH) Connect() error {
 	}
 
 	if c.DisableMultiplexing {
-		if err := c.Exec("exit 0", exec.StreamOutput()); err != nil {
+		// just run a noop command to check connectivity
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if _, err := c.StartProcess(ctx, "exit 0", nil, nil, nil); err != nil {
 			return fmt.Errorf("failed to connect: %w", err)
 		}
 		c.isConnected = true
@@ -197,9 +203,9 @@ func (c *OpenSSH) Connect() error {
 	args = append(args, c.args()...)
 
 	cmd := goexec.Command("ssh", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	cmd.Stdin = nil
 
 	log.Debugf("%s: starting ssh control master", c)
 	err := cmd.Run()
@@ -241,109 +247,21 @@ func (c *OpenSSH) closeControl() error {
 	return nil
 }
 
-// Exec executes a command on the remote host
-func (c *OpenSSH) Exec(cmdStr string, opts ...exec.Option) error { //nolint:cyclop
-	if !c.DisableMultiplexing && !c.isConnected {
-		return ErrNotConnected
-	}
-
-	execOpts := exec.Build(opts...)
-	command, err := execOpts.Command(cmdStr)
-	if err != nil {
-		return fmt.Errorf("failed to build command: %w", err)
-	}
-
-	args := c.Options.ToArgs()
-	// use BatchMode (no password prompts) for non-interactive commands
-	args = append(args, "-o", "BatchMode=yes")
-	args = append(args, c.args()...)
-	args = append(args, "--", command)
-	cmd := goexec.Command("ssh", args...)
-
-	if execOpts.Stdin != "" {
-		execOpts.LogStdin(c.String())
-		cmd.Stdin = strings.NewReader(execOpts.Stdin)
-	}
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("failed to get stdout pipe: %w", err)
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("failed to get stderr pipe: %w", err)
-	}
-
-	execOpts.LogCmd(c.String(), cmd.String())
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start command: %w", err)
-	}
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		if execOpts.Writer == nil {
-			outputScanner := bufio.NewScanner(stdout)
-
-			for outputScanner.Scan() {
-				execOpts.AddOutput(c.String(), outputScanner.Text()+"\n", "")
-			}
-			if err := outputScanner.Err(); err != nil {
-				execOpts.LogErrorf("%s: failed to scan stdout: %v", c, err)
-			}
-		} else {
-			if _, err := io.Copy(execOpts.Writer, stdout); err != nil {
-				execOpts.LogErrorf("%s: failed to stream stdout: %v", c, err)
-			}
-		}
-	}()
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		outputScanner := bufio.NewScanner(stderr)
-
-		for outputScanner.Scan() {
-			execOpts.AddOutput(c.String(), "", outputScanner.Text()+"\n")
-		}
-		if err := outputScanner.Err(); err != nil {
-			execOpts.LogErrorf("%s: failed to scan stderr: %v", c, err)
-		}
-	}()
-
-	wg.Wait()
-	err = cmd.Wait()
-	if err != nil {
-		return fmt.Errorf("%w: command wait: %w", ErrCommandFailed, err)
-	}
-	return nil
-}
-
-// ExecStreams executes a command on the remote host, streaming stdin, stdout and stderr
-func (c *OpenSSH) ExecStreams(cmdStr string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (exec.Waiter, error) {
+// StartProcess executes a command on the remote host, streaming stdin, stdout and stderr
+func (c *OpenSSH) StartProcess(ctx context.Context, cmdStr string, stdin io.Reader, stdout, stderr io.Writer) (exec.Waiter, error) {
 	if !c.DisableMultiplexing && !c.isConnected {
 		return nil, ErrNotConnected
 	}
-	execOpts := exec.Build(opts...)
-	command, err := execOpts.Command(cmdStr)
-	if err != nil {
-		return nil, fmt.Errorf("%w: failed to build command: %w", ErrCommandFailed, err)
-	}
 
 	args := c.Options.ToArgs()
 	args = append(args, "-o", "BatchMode=yes")
 	args = append(args, c.args()...)
-	args = append(args, "--", command)
-	cmd := goexec.Command("ssh", args...)
+	args = append(args, "--", cmdStr)
+	cmd := goexec.CommandContext(ctx, "ssh", args...)
 
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-
-	execOpts.LogCmd(c.String(), cmd.String())
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("%w: failed to start: %w", ErrCommandFailed, err)
@@ -353,13 +271,13 @@ func (c *OpenSSH) ExecStreams(cmdStr string, stdin io.ReadCloser, stdout, stderr
 }
 
 // ExecInteractive executes an interactive command on the remote host, streaming stdin, stdout and stderr
-func (c *OpenSSH) ExecInteractive(cmdStr string) error {
-	cmd, err := c.ExecStreams(cmdStr, os.Stdin, os.Stdout, os.Stderr)
+func (c *OpenSSH) ExecInteractive(cmdStr string, stdin io.Reader, stdout, stderr io.Writer) error {
+	cmd, err := c.StartProcess(context.Background(), cmdStr, stdin, stdout, stderr)
 	if err != nil {
 		return err
 	}
 	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("%w: command wait: %w", ErrCommandFailed, err)
+		return fmt.Errorf("command wait: %w", err)
 	}
 	return nil
 }

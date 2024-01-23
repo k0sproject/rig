@@ -3,6 +3,8 @@ package enterpriselinux
 
 import (
 	"github.com/k0sproject/rig"
+	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/os/linux"
 	"github.com/k0sproject/rig/os/registry"
 )
@@ -17,8 +19,8 @@ func init() {
 		func(os rig.OSVersion) bool {
 			return os.ID == "centos"
 		},
-		func() any {
-			return CentOS{}
+		func(runner exec.SimpleRunner) any {
+			return &CentOS{EnterpriseLinux: linux.EnterpriseLinux{Linux: os.Linux{SimpleRunner: runner}}}
 		},
 	)
 }

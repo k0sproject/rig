@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/k0sproject/rig"
-	"github.com/k0sproject/rig/exec"
 	rigos "github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/os/registry"
 	_ "github.com/k0sproject/rig/os/support"
@@ -138,15 +137,15 @@ func TestFsysSuite(t *testing.T) {
 }
 
 type configurer interface {
-	WriteFile(rigos.Host, string, string, string) error
-	LineIntoFile(rigos.Host, string, string, string) error
-	ReadFile(rigos.Host, string) (string, error)
-	FileExist(rigos.Host, string) bool
-	DeleteFile(rigos.Host, string) error
-	Stat(rigos.Host, string, ...exec.Option) (*rigos.FileInfo, error)
-	Touch(rigos.Host, string, time.Time, ...exec.Option) error
-	MkDir(rigos.Host, string, ...exec.Option) error
-	Sha256sum(rigos.Host, string, ...exec.Option) (string, error)
+	WriteFile(string, string, string) error
+	LineIntoFile(string, string, string) error
+	ReadFile(string) (string, error)
+	FileExist(string) bool
+	DeleteFile(string) error
+	Stat(string) (*rigos.FileInfo, error)
+	Touch(string, time.Time) error
+	MkDir(string) error
+	Sha256sum(string) (string, error)
 }
 
 // Host is a host that utilizes rig for connections
@@ -164,7 +163,12 @@ func (h *Host) LoadOS() error {
 		return err
 	}
 
-	h.Configurer = bf().(configurer)
+	cfg, ok := bf(h.Sudo()).(configurer)
+	if !ok {
+		return fmt.Errorf("OS module does not implement configurer interface")
+	}
+
+	h.Configurer = cfg
 
 	return nil
 }
@@ -242,19 +246,24 @@ type SuiteLogger struct {
 }
 
 func (s *SuiteLogger) Tracef(msg string, args ...interface{}) {
-	s.t.Log(fmt.Sprintf("%s TRACE %s", time.Now(), fmt.Sprintf(msg, args...)))
+	s.t.Helper()
+	s.t.Logf("%s TRACE %s", time.Now(), fmt.Sprintf(msg, args...))
 }
 func (s *SuiteLogger) Debugf(msg string, args ...interface{}) {
-	s.t.Log(fmt.Sprintf("%s DEBUG %s", time.Now(), fmt.Sprintf(msg, args...)))
+	s.t.Helper()
+	s.t.Logf("%s DEBUG %s", time.Now(), fmt.Sprintf(msg, args...))
 }
 func (s *SuiteLogger) Infof(msg string, args ...interface{}) {
-	s.t.Log(fmt.Sprintf("%s INFO %s", time.Now(), fmt.Sprintf(msg, args...)))
+	s.t.Helper()
+	s.t.Logf("%s INFO %s", time.Now(), fmt.Sprintf(msg, args...))
 }
 func (s *SuiteLogger) Warnf(msg string, args ...interface{}) {
-	s.t.Log(fmt.Sprintf("%s WARN %s", time.Now(), fmt.Sprintf(msg, args...)))
+	s.t.Helper()
+	s.t.Logf("%s WARN %s", time.Now(), fmt.Sprintf(msg, args...))
 }
 func (s *SuiteLogger) Errorf(msg string, args ...interface{}) {
-	s.t.Log(fmt.Sprintf("%s ERROR %s", time.Now(), fmt.Sprintf(msg, args...)))
+	s.t.Helper()
+	s.t.Logf("%s ERROR %s", time.Now(), fmt.Sprintf(msg, args...))
 }
 
 type ConnectedSuite struct {
@@ -296,7 +305,7 @@ type ConfigurerSuite struct {
 
 func (s *ConfigurerSuite) TestStat() {
 	s.Run("File does not exist", func() {
-		stat, err := s.Host.Configurer.Stat(s.Host, s.TempPath("doesnotexist"))
+		stat, err := s.Host.Configurer.Stat(s.TempPath("doesnotexist"))
 		s.Nil(stat)
 		s.Error(err)
 	})
@@ -304,10 +313,10 @@ func (s *ConfigurerSuite) TestStat() {
 	s.Run("File exists", func() {
 		f := s.TempPath()
 		s.Run("Create file", func() {
-			s.Require().NoError(s.Host.Configurer.Touch(s.Host, f, time.Now()))
+			s.Require().NoError(s.Host.Configurer.Touch(f, time.Now()))
 		})
 
-		stat, err := s.Host.Configurer.Stat(s.Host, f)
+		stat, err := s.Host.Configurer.Stat(f)
 		s.Require().NoError(err)
 		s.True(strings.HasSuffix(f, stat.Name())) // Name() returns Basename
 	})
@@ -318,11 +327,11 @@ func (s *ConfigurerSuite) TestTouch() {
 	now := time.Now()
 	for _, tt := range []time.Time{now, now.Add(1 * time.Hour)} {
 		s.Run("Update timestamp "+tt.String(), func() {
-			s.Require().NoError(s.Host.Configurer.Touch(s.Host, f, now))
+			s.Require().NoError(s.Host.Configurer.Touch(f, now))
 		})
 
 		s.Run("File exists and has correct timestamp "+tt.String(), func() {
-			stat, err := s.Host.Configurer.Stat(s.Host, f)
+			stat, err := s.Host.Configurer.Stat(f)
 			s.Require().NoError(err)
 			s.NotNil(stat)
 			s.Equal(now.Unix(), stat.ModTime().Unix())
@@ -333,40 +342,40 @@ func (s *ConfigurerSuite) TestTouch() {
 func (s *ConfigurerSuite) TestFileAccess() {
 	f := s.TempPath()
 	s.Run("File does not exist", func() {
-		s.False(s.Host.Configurer.FileExist(s.Host, f))
+		s.False(s.Host.Configurer.FileExist(f))
 	})
 
 	s.Run("Write file", func() {
-		s.Require().NoError(s.Host.Configurer.WriteFile(s.Host, f, "test\ntest2\ntest3", "0644"))
+		s.Require().NoError(s.Host.Configurer.WriteFile(f, "test\ntest2\ntest3", "0644"))
 	})
 
 	s.Run("File exists", func() {
-		s.True(s.Host.Configurer.FileExist(s.Host, f))
+		s.True(s.Host.Configurer.FileExist(f))
 	})
 
 	s.Run("Read file and verify contents", func() {
-		content, err := s.Host.Configurer.ReadFile(s.Host, f)
+		content, err := s.Host.Configurer.ReadFile(f)
 		s.Require().NoError(err)
 		s.Equal("test\ntest2\ntest3", content)
 	})
 
 	s.Run("Replace line in file", func() {
-		s.Require().NoError(s.Host.Configurer.LineIntoFile(s.Host, f, "test2", "test4"))
+		s.Require().NoError(s.Host.Configurer.LineIntoFile(f, "test2", "test4"))
 	})
 
 	s.Run("Re-read file and verify contents", func() {
-		content, err := s.Host.Configurer.ReadFile(s.Host, f)
+		content, err := s.Host.Configurer.ReadFile(f)
 		s.Require().NoError(err)
 		// TODO: LineIntoFile adds a trailing newline
 		s.Equal("test\ntest4\ntest3", strings.TrimSpace(content))
 	})
 
 	s.Run("Delete file", func() {
-		s.Require().NoError(s.Host.Configurer.DeleteFile(s.Host, f))
+		s.Require().NoError(s.Host.Configurer.DeleteFile(f))
 	})
 
 	s.Run("File does not exist", func() {
-		s.False(s.Host.Configurer.FileExist(s.Host, f))
+		s.False(s.Host.Configurer.FileExist(f))
 	})
 }
 
@@ -393,21 +402,21 @@ func (s *ConfigurerSuite) TestUpload() {
 			fn, err := testFile(size)
 			s.Require().NoError(err)
 			defer os.Remove(fn)
-			defer s.Host.Configurer.DeleteFile(s.Host, s.TempPath(pathBase(fn)))
+			defer s.Host.Configurer.DeleteFile(s.TempPath(pathBase(fn)))
 
 			s.Run("Upload file", func() {
-				s.Require().NoError(s.Host.Upload(fn, s.TempPath(pathBase(fn))))
+				s.Require().NoError(rig.Upload(s.Host.Fsys(), fn, s.TempPath(pathBase(fn))))
 			})
 
 			s.Run("Verify file size", func() {
-				stat, err := s.Host.Configurer.Stat(s.Host, s.TempPath(pathBase(fn)))
+				stat, err := s.Host.Configurer.Stat(s.TempPath(pathBase(fn)))
 				s.Require().NoError(err)
 				s.Require().NotNil(stat)
 				s.Equal(size, stat.Size())
 			})
 
 			s.Run("Verify file contents", func() {
-				sum, err := s.Host.Configurer.Sha256sum(s.Host, s.TempPath(pathBase(fn)))
+				sum, err := s.Host.Configurer.Sha256sum(s.TempPath(pathBase(fn)))
 				s.Require().NoError(err)
 				sha := sha256.New()
 				f, err := os.Open(fn)

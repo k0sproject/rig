@@ -16,16 +16,12 @@ var _ fs.FS = (*WinFsys)(nil)
 
 // WinFsys is a fs.FS implemen{
 type WinFsys struct {
-	conn connection
-	opts []exec.Option
+	exec.Runner
 }
 
 // NewWindowsFsys returns a new fs.FS implementing filesystem for Windows targets
-func NewWindowsFsys(conn connection, opts ...exec.Option) *WinFsys {
-	return &WinFsys{
-		conn: conn,
-		opts: opts,
-	}
+func NewWindowsFsys(conn exec.Runner) *WinFsys {
+	return &WinFsys{conn}
 }
 
 var statCmdTemplate = `if (Test-Path -LiteralPath %[1]s) {
@@ -40,7 +36,7 @@ var statCmdTemplate = `if (Test-Path -LiteralPath %[1]s) {
 
 // Stat returns fs.FileInfo for the remote file.
 func (fsys *WinFsys) Stat(name string) (fs.FileInfo, error) {
-	out, err := fsys.conn.ExecOutput(ps.Cmd(fmt.Sprintf(statCmdTemplate, ps.DoubleQuotePath(name))), fsys.opts...)
+	out, err := fsys.ExecOutput(statCmdTemplate, ps.DoubleQuotePath(name), exec.PS())
 	if err != nil {
 		return nil, &fs.PathError{Op: OpStat, Path: name, Err: fmt.Errorf("%w: %w", err, fs.ErrNotExist)}
 	}
@@ -60,7 +56,7 @@ func (fsys *WinFsys) Stat(name string) (fs.FileInfo, error) {
 
 // Sha256 returns the SHA256 hash of the remote file.
 func (fsys *WinFsys) Sha256(name string) (string, error) {
-	sum, err := fsys.conn.ExecOutput(ps.Cmd(fmt.Sprintf("(Get-FileHash %s -Algorithm SHA256).Hash.ToLower()", ps.DoubleQuotePath(name))))
+	sum, err := fsys.ExecOutput("(Get-FileHash %s -Algorithm SHA256).Hash.ToLower()", ps.DoubleQuotePath(name), exec.PS())
 	if err != nil {
 		return "", &fs.PathError{Op: "sum", Path: name, Err: fmt.Errorf("sha256sum: %w", err)}
 	}
@@ -88,7 +84,7 @@ func (fsys *WinFsys) Remove(name string) error {
 		return fsys.removeDir(name)
 	}
 
-	if err := fsys.conn.Exec(fmt.Sprintf("del %s", ps.DoubleQuotePath(name))); err != nil {
+	if err := fsys.Exec("del %s", ps.DoubleQuotePath(name)); err != nil {
 		return fmt.Errorf("remove %s: %w", name, err)
 	}
 
@@ -101,22 +97,18 @@ func (fsys *WinFsys) RemoveAll(name string) error {
 		return fsys.removeDirAll(name)
 	}
 
-	if err := fsys.conn.Exec(fmt.Sprintf("del %s", ps.DoubleQuotePath(name))); err != nil {
-		return fmt.Errorf("remove %s: %w", name, err)
-	}
-
-	return nil
+	return fsys.Remove(name)
 }
 
 func (fsys *WinFsys) removeDir(name string) error {
-	if err := fsys.conn.Exec(fmt.Sprintf("rmdir /q %s", ps.DoubleQuotePath(name))); err != nil {
+	if err := fsys.Exec("rmdir /q %s", ps.DoubleQuotePath(name)); err != nil {
 		return fmt.Errorf("rmdir %s: %w", name, err)
 	}
 	return nil
 }
 
 func (fsys *WinFsys) removeDirAll(name string) error {
-	if err := fsys.conn.Exec(fmt.Sprintf("rmdir /s /q %s", ps.DoubleQuotePath(name))); err != nil {
+	if err := fsys.Exec("rmdir /s /q %s", ps.DoubleQuotePath(name)); err != nil {
 		return fmt.Errorf("rmdir %s: %w", name, err)
 	}
 
@@ -125,7 +117,7 @@ func (fsys *WinFsys) removeDirAll(name string) error {
 
 // MkDirAll creates a directory named path, along with any necessary parents. The permission bits are ignored on Windows.
 func (fsys *WinFsys) MkDirAll(name string, _ fs.FileMode) error {
-	if err := fsys.conn.Exec(ps.Cmd(fmt.Sprintf("New-Item -ItemType Directory -Force -Path %s", ps.DoubleQuotePath(name)))); err != nil {
+	if err := fsys.Exec("New-Item -ItemType Directory -Force -Path %s", ps.DoubleQuotePath(name), exec.PS()); err != nil {
 		return fmt.Errorf("mkdir %s: %w", name, err)
 	}
 
