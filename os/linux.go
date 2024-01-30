@@ -35,7 +35,7 @@ func (c Linux) Pwd() string {
 // CheckPrivilege checks if the current user has root privileges
 func (c Linux) CheckPrivilege() error {
 	if err := c.Exec("true"); err != nil {
-		return fmt.Errorf("%w: %w", exec.ErrSudo, err)
+		return fmt.Errorf("access elevation (sudo, doas, ..) not available: %w", err)
 	}
 	return nil
 }

@@ -27,7 +27,7 @@ const privCheck = `"$currentPrincipal = New-Object Security.Principal.WindowsPri
 // CheckPrivilege returns an error if the user does not have admin access to the host
 func (c Windows) CheckPrivilege() error {
 	if err := c.Exec(privCheck, exec.PS()); err != nil {
-		return fmt.Errorf("%w: %w", exec.ErrSudo, err)
+		return fmt.Errorf("user is not an administrator: %w", err)
 	}
 
 	return nil
