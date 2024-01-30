@@ -82,7 +82,7 @@ func (i OpenRC) ServiceEnvironmentContent(env map[string]string) string {
 }
 
 func RegisterOpenRC(repo *Repository) {
-	repo.Register("openrc", func(c exec.ContextRunner) ServiceManager {
+	repo.Register(func(c exec.ContextRunner) ServiceManager {
 		if c.IsWindows() {
 			return nil
 		}

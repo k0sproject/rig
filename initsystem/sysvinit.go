@@ -70,7 +70,7 @@ func (i SysVinit) DisableService(ctx context.Context, h exec.ContextRunner, s st
 }
 
 func RegisterSysVinit(repo *Repository) {
-	repo.Register("sysvinit", func(c exec.ContextRunner) ServiceManager {
+	repo.Register(func(c exec.ContextRunner) ServiceManager {
 		if c.IsWindows() {
 			return nil
 		}

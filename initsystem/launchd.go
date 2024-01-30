@@ -58,7 +58,7 @@ func (i Launchd) DisableService(ctx context.Context, h exec.ContextRunner, s str
 }
 
 func RegisterLaunchd(repo *Repository) {
-	repo.Register("launchd", func(c exec.ContextRunner) ServiceManager {
+	repo.Register(func(c exec.ContextRunner) ServiceManager {
 		if c.IsWindows() {
 			return nil
 		}

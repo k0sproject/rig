@@ -59,11 +59,11 @@ func SetRepository(r *Repository) {
 }
 
 type Repository struct {
-	systems map[string]ServiceManagerFactory
+	systems []ServiceManagerFactory
 }
 
-func (r *Repository) Register(name string, factory ServiceManagerFactory) {
-	r.systems[name] = factory
+func (r *Repository) Register(factory ServiceManagerFactory) {
+	r.systems = append(r.systems, factory)
 }
 
 func (r *Repository) Get(c exec.ContextRunner) (ServiceManager, error) {
@@ -77,7 +77,5 @@ func (r *Repository) Get(c exec.ContextRunner) (ServiceManager, error) {
 }
 
 func NewRepository() *Repository {
-	return &Repository{
-		systems: make(map[string]ServiceManagerFactory),
-	}
+	return &Repository{}
 }
