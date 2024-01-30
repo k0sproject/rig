@@ -17,18 +17,6 @@ type Windows struct {
 	exec.SimpleRunner
 }
 
-// InstallPackage enables an optional windows feature
-func (c Windows) InstallPackage(s ...string) error {
-	for _, n := range s {
-		err := c.Exec("Enable-WindowsOptionalFeature -Online -FeatureName %s -All", n, exec.PS())
-		if err != nil {
-			return fmt.Errorf("failed to enable windows feature %s: %w", n, err)
-		}
-	}
-
-	return nil
-}
-
 // Pwd returns the current working directory
 func (c Windows) Pwd() string {
 	if pwd, err := c.ExecOutput("echo %%cd%%"); err == nil {

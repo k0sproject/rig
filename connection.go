@@ -13,6 +13,7 @@ import (
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/initsystem"
 	"github.com/k0sproject/rig/log"
+	"github.com/k0sproject/rig/packagemanager"
 	"github.com/k0sproject/rig/rigfs"
 )
 
@@ -74,6 +75,7 @@ type Connection struct {
 	fsys       rigfs.Fsys
 	sudofsys   rigfs.Fsys
 	initSys    initsystem.ServiceManager
+	packageMan packagemanager.PackageManager
 }
 
 // SetDefaults sets a connection
@@ -122,6 +124,17 @@ func (c *Connection) InitSystem() (initsystem.ServiceManager, error) {
 		c.initSys = is
 	}
 	return c.initSys, nil
+}
+
+func (c *Connection) PackageManager() (packagemanager.PackageManager, error) {
+	if c.packageMan == nil {
+		pm, err := packagemanager.GetRepository().Get(c)
+		if err != nil {
+			return nil, err
+		}
+		c.packageMan = pm
+	}
+	return c.packageMan, nil
 }
 
 func (c *Connection) Service(name string) (*Service, error) {
