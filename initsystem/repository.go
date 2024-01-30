@@ -8,8 +8,8 @@ import (
 	"github.com/k0sproject/rig/exec"
 )
 
-// InitSystem defines the methods for interacting with an init system like OpenRC.
-type InitSystem interface {
+// ServiceManager defines the methods for interacting with an init system like OpenRC.
+type ServiceManager interface {
 	StartService(ctx context.Context, h exec.ContextRunner, s string) error
 	StopService(ctx context.Context, h exec.ContextRunner, s string) error
 	ServiceScriptPath(ctx context.Context, h exec.ContextRunner, s string) (string, error)
@@ -18,23 +18,23 @@ type InitSystem interface {
 	ServiceIsRunning(ctx context.Context, h exec.ContextRunner, s string) bool
 }
 
-type InitSystemRestarter interface {
+type ServiceManagerRestarter interface {
 	RestartService(ctx context.Context, h exec.ContextRunner, s string) error
 }
 
-type InitSystemReloader interface {
+type ServiceManagerReloader interface {
 	DaemonReload(ctx context.Context, h exec.ContextRunner) error
 }
 
-type InitSystemServiceEnvironment interface {
+type ServiceEnvironmentManager interface {
 	ServiceEnvironmentPath(ctx context.Context, h exec.ContextRunner, s string) (string, error)
 	ServiceEnvironmentContent(env map[string]string) string
 }
 
-type InitSystemFactory func(c exec.ContextRunner) InitSystem
+type ServiceManagerFactory func(c exec.ContextRunner) ServiceManager
 
 var (
-	DefaultInitSystemRepository = NewInitSystemRepository()
+	DefaultInitSystemRepository = NewRepository()
 	repository                  atomic.Value
 )
 
@@ -50,23 +50,23 @@ func init() {
 	SetRepository(DefaultInitSystemRepository)
 }
 
-func GetRepository() *InitSystemRepository {
-	return repository.Load().(*InitSystemRepository)
+func GetRepository() *Repository {
+	return repository.Load().(*Repository)
 }
 
-func SetRepository(r *InitSystemRepository) {
+func SetRepository(r *Repository) {
 	repository.Store(r)
 }
 
-type InitSystemRepository struct {
-	systems map[string]InitSystemFactory
+type Repository struct {
+	systems map[string]ServiceManagerFactory
 }
 
-func (r *InitSystemRepository) Register(name string, factory InitSystemFactory) {
+func (r *Repository) Register(name string, factory ServiceManagerFactory) {
 	r.systems[name] = factory
 }
 
-func (r *InitSystemRepository) Get(c exec.ContextRunner) (InitSystem, error) {
+func (r *Repository) Get(c exec.ContextRunner) (ServiceManager, error) {
 	for _, factory := range r.systems {
 		system := factory(c)
 		if system != nil {
@@ -76,8 +76,8 @@ func (r *InitSystemRepository) Get(c exec.ContextRunner) (InitSystem, error) {
 	return nil, fmt.Errorf("no init system found")
 }
 
-func NewInitSystemRepository() *InitSystemRepository {
-	return &InitSystemRepository{
-		systems: make(map[string]InitSystemFactory),
+func NewRepository() *Repository {
+	return &Repository{
+		systems: make(map[string]ServiceManagerFactory),
 	}
 }

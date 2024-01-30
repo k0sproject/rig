@@ -35,19 +35,6 @@ func (i SysVinit) ServiceIsRunning(ctx context.Context, h exec.ContextRunner, s 
 	return h.ExecContext(ctx, "/etc/init.d/%s status", s) == nil
 }
 
-func RegisterSysVinit(repo *InitSystemRepository) {
-	repo.Register("sysvinit", func(c exec.ContextRunner) InitSystem {
-		if c.IsWindows() {
-			return nil
-		}
-		if c.ExecContext(context.Background(), "test -d /etc/init.d") != nil {
-			return nil
-		}
-
-		return SysVinit{}
-	})
-}
-
 // ServiceScriptPath returns the path to a SysVinit service script
 func (i SysVinit) ServiceScriptPath(ctx context.Context, h exec.ContextRunner, s string) (string, error) {
 	return "/etc/init.d/" + s, nil
@@ -80,4 +67,17 @@ func (i SysVinit) DisableService(ctx context.Context, h exec.ContextRunner, s st
 		}
 	}
 	return nil
+}
+
+func RegisterSysVinit(repo *Repository) {
+	repo.Register("sysvinit", func(c exec.ContextRunner) ServiceManager {
+		if c.IsWindows() {
+			return nil
+		}
+		if c.ExecContext(context.Background(), "test -d /etc/init.d") != nil {
+			return nil
+		}
+
+		return SysVinit{}
+	})
 }

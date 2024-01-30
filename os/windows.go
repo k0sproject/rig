@@ -17,22 +17,6 @@ type Windows struct {
 	exec.SimpleRunner
 }
 
-// Kind returns "windows"
-func (c Windows) Kind() string {
-	return "windows"
-}
-
-const privCheck = `"$currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent()); if (!$currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { $host.SetShouldExit(1) }"`
-
-// CheckPrivilege returns an error if the user does not have admin access to the host
-func (c Windows) CheckPrivilege() error {
-	if err := c.Exec(privCheck, exec.PS()); err != nil {
-		return fmt.Errorf("user is not an administrator: %w", err)
-	}
-
-	return nil
-}
-
 // InstallPackage enables an optional windows feature
 func (c Windows) InstallPackage(s ...string) error {
 	for _, n := range s {
@@ -42,14 +26,6 @@ func (c Windows) InstallPackage(s ...string) error {
 		}
 	}
 
-	return nil
-}
-
-// InstallFile on windows is a regular file move operation
-func (c Windows) InstallFile(src, dst, _ string) error {
-	if err := c.Exec("move /y %s %s", ps.DoubleQuotePath(src), ps.DoubleQuotePath(dst)); err != nil {
-		return fmt.Errorf("failed to move %s to %s: %w", src, dst, err)
-	}
 	return nil
 }
 
@@ -83,21 +59,6 @@ func (c Windows) LongHostname() string {
 		return "localhost.localdomain"
 	}
 	return output
-}
-
-// IsContainer returns true if the host is actually a container (always false on windows for now)
-func (c Windows) IsContainer() bool {
-	return false
-}
-
-// FixContainer makes a container work like a real host (does nothing on windows for now)
-func (c Windows) FixContainer() error {
-	return nil
-}
-
-// SELinuxEnabled is true when SELinux is enabled (always false on windows for now)
-func (c Windows) SELinuxEnabled() bool {
-	return false
 }
 
 // WriteFile writes file to host with given contents. Do not use for large files.
@@ -141,31 +102,6 @@ func (c Windows) UpdateEnvironment(env map[string]string) error {
 			return fmt.Errorf("failed to set environment variable %s: %w", k, err)
 		}
 	}
-	return nil
-}
-
-// UpdateServiceEnvironment does nothing on windows
-func (c Windows) UpdateServiceEnvironment(_ string, _ map[string]string) error {
-	return nil
-}
-
-// CleanupEnvironment removes environment variable configuration
-func (c Windows) CleanupEnvironment(env map[string]string) error {
-	for k := range env {
-		err := c.Exec(`powershell.exe "[Environment]::SetEnvironmentVariable(%s, $null, 'User')"`, ps.SingleQuote(k))
-		if err != nil {
-			return fmt.Errorf("failed to remove user environment variable %s: %w", k, err)
-		}
-		err = c.Exec(`powershell "[Environment]::SetEnvironmentVariable(%s, $null, 'Machine')"`, ps.SingleQuote(k))
-		if err != nil {
-			return fmt.Errorf("failed to remove machine environment variable %s: %w", k, err)
-		}
-	}
-	return nil
-}
-
-// CleanupServiceEnvironment does nothing on windows
-func (c Windows) CleanupServiceEnvironment(_ string) error {
 	return nil
 }
 

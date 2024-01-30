@@ -18,11 +18,6 @@ type Linux struct {
 	exec.SimpleRunner
 }
 
-// Kind returns "linux"
-func (c Linux) Kind() string {
-	return "linux"
-}
-
 // Pwd returns the current working directory of the session
 func (c Linux) Pwd() string {
 	pwd, err := c.ExecOutput("pwd 2> /dev/null")
@@ -30,14 +25,6 @@ func (c Linux) Pwd() string {
 		return ""
 	}
 	return pwd
-}
-
-// CheckPrivilege checks if the current user has root privileges
-func (c Linux) CheckPrivilege() error {
-	if err := c.Exec("true"); err != nil {
-		return fmt.Errorf("access elevation (sudo, doas, ..) not available: %w", err)
-	}
-	return nil
 }
 
 // JoinPath joins a path
@@ -62,24 +49,6 @@ func (c Linux) LongHostname() string {
 	return n
 }
 
-// IsContainer returns true if the host is actually a container
-func (c Linux) IsContainer() bool {
-	return c.Exec("grep 'container=docker' /proc/1/environ 2> /dev/null") == nil
-}
-
-// FixContainer makes a container work like a real host
-func (c Linux) FixContainer() error {
-	if err := c.Exec("mount --make-rshared / 2> /dev/null"); err != nil {
-		return fmt.Errorf("failed to mount / as rshared: %w", err)
-	}
-	return nil
-}
-
-// SELinuxEnabled is true when SELinux is enabled
-func (c Linux) SELinuxEnabled() bool {
-	return c.Exec("getenforce | grep -iq enforcing 2> /dev/null") == nil
-}
-
 // WriteFile writes file to host with given contents. Do not use for large files.
 func (c Linux) WriteFile(path string, data string, permissions string) error {
 	if data == "" {
@@ -99,19 +68,11 @@ func (c Linux) WriteFile(path string, data string, permissions string) error {
 		return fmt.Errorf("failed to write temp file: %w", err)
 	}
 
-	if err := c.InstallFile(tempFile, path, permissions); err != nil {
+	if err := c.Exec("install -D -m %s -- %s %s", permissions, tempFile, path); err != nil {
 		_ = c.DeleteFile(tempFile)
 		return fmt.Errorf("failed to move file into place: %w", err)
 	}
 
-	return nil
-}
-
-// InstallFile installs a file to the host
-func (c Linux) InstallFile(src, dst, permissions string) error {
-	if err := c.Exec("install -D -m %s -- %s %s", permissions, src, dst); err != nil {
-		return fmt.Errorf("failed to install file %s to %s: %w", src, dst, err)
-	}
 	return nil
 }
 
@@ -177,25 +138,6 @@ func (c Linux) UpdateEnvironment(env map[string]string) error {
 		}
 	}
 
-	// Update current session environment from the /etc/environment
-	if err := c.Exec(`while read -r pair; do if [[ $pair == ?* && $pair != \#* ]]; then export "$pair" || exit 2; fi; done < /etc/environment`); err != nil {
-		return fmt.Errorf("failed to update environment: %w", err)
-	}
-	return nil
-}
-
-// CleanupEnvironment removes environment variable configuration
-func (c Linux) CleanupEnvironment(env map[string]string) error {
-	for k := range env {
-		err := c.LineIntoFile("/etc/environment", fmt.Sprintf("^%s=", k), "")
-		if err != nil {
-			return err
-		}
-	}
-	// remove empty lines
-	if err := c.Exec(`sed -i '/^$/d' /etc/environment`); err != nil {
-		return fmt.Errorf("failed to cleanup environment: %w", err)
-	}
 	return nil
 }
 

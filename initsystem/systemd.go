@@ -97,8 +97,8 @@ func (i Systemd) ServiceEnvironmentContent(env map[string]string) string {
 	return b.String()
 }
 
-func RegisterSystemd(repo *InitSystemRepository) {
-	repo.Register("systemd", func(c exec.ContextRunner) InitSystem {
+func RegisterSystemd(repo *Repository) {
+	repo.Register("systemd", func(c exec.ContextRunner) ServiceManager {
 		if c.IsWindows() {
 			return nil
 		}

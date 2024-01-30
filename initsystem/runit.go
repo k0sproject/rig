@@ -67,8 +67,8 @@ func (i Runit) DisableService(ctx context.Context, h exec.ContextRunner, s strin
 	return nil
 }
 
-func RegisterRunit(repo *InitSystemRepository) {
-	repo.Register("runit", func(c exec.ContextRunner) InitSystem {
+func RegisterRunit(repo *Repository) {
+	repo.Register("runit", func(c exec.ContextRunner) ServiceManager {
 		if c.IsWindows() {
 			return nil
 		}

@@ -19,7 +19,7 @@ const (
 type Service struct {
 	runner  exec.ContextRunner
 	name    string
-	initsys initsystem.InitSystem
+	initsys initsystem.ServiceManager
 }
 
 func (m *Service) Name() string {
@@ -45,7 +45,7 @@ func (m *Service) Stop(ctx context.Context) error {
 }
 
 func (m *Service) Restart(ctx context.Context) error {
-	if restarter, ok := m.initsys.(initsystem.InitSystemRestarter); ok {
+	if restarter, ok := m.initsys.(initsystem.ServiceManagerRestarter); ok {
 		if err := restarter.RestartService(ctx, m.runner, m.name); err != nil {
 			return fmt.Errorf("failed to restart service '%s': %w", m.name, err)
 		}
@@ -76,7 +76,7 @@ func (m *Service) Enable(ctx context.Context) error {
 	if err := m.initsys.EnableService(ctx, m.runner, m.name); err != nil {
 		return fmt.Errorf("failed to enable service: %w", err)
 	}
-	if reloader, ok := m.initsys.(initsystem.InitSystemReloader); ok {
+	if reloader, ok := m.initsys.(initsystem.ServiceManagerReloader); ok {
 		if err := reloader.DaemonReload(ctx, m.runner); err != nil {
 			return fmt.Errorf("failed to reload init system after enabling service '%s': %w", m.name, err)
 		}
@@ -88,7 +88,7 @@ func (m *Service) Disable(ctx context.Context) error {
 	if err := m.initsys.DisableService(ctx, m.runner, m.name); err != nil {
 		return fmt.Errorf("failed to disable service '%s': %w", m.name, err)
 	}
-	if reloader, ok := m.initsys.(initsystem.InitSystemReloader); ok {
+	if reloader, ok := m.initsys.(initsystem.ServiceManagerReloader); ok {
 		if err := reloader.DaemonReload(ctx, m.runner); err != nil {
 			return fmt.Errorf("failed to reload init system after disabling service '%s': %w", m.name, err)
 		}

@@ -65,8 +65,8 @@ func (c WinSCM) ServiceIsRunning(ctx context.Context, h exec.ContextRunner, s st
 	return h.ExecContext(ctx, `sc.exe query %s | findstr "RUNNING"`, ps.DoubleQuote(s)) == nil
 }
 
-func RegisterWinSCM(repo *InitSystemRepository) {
-	repo.Register("scm", func(c exec.ContextRunner) InitSystem {
+func RegisterWinSCM(repo *Repository) {
+	repo.Register("scm", func(c exec.ContextRunner) ServiceManager {
 		if c.IsWindows() {
 			return &WinSCM{}
 		}

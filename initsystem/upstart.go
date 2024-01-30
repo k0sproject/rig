@@ -55,8 +55,8 @@ func (i Upstart) DisableService(ctx context.Context, h exec.ContextRunner, s str
 	return h.ExecContext(ctx, "echo 'manual' > %s", shellescape.Quote(overridePath)) // Create override file with 'manual' to disable
 }
 
-func RegisterUpstart(repo *InitSystemRepository) {
-	repo.Register("upstart", func(c exec.ContextRunner) InitSystem {
+func RegisterUpstart(repo *Repository) {
+	repo.Register("upstart", func(c exec.ContextRunner) ServiceManager {
 		if c.IsWindows() {
 			return nil
 		}

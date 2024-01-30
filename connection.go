@@ -73,7 +73,7 @@ type Connection struct {
 	sudoRunner exec.Runner
 	fsys       rigfs.Fsys
 	sudofsys   rigfs.Fsys
-	initSys    initsystem.InitSystem
+	initSys    initsystem.ServiceManager
 }
 
 // SetDefaults sets a connection
@@ -113,7 +113,7 @@ func (c *Connection) Address() string {
 	return ""
 }
 
-func (c *Connection) InitSystem() (initsystem.InitSystem, error) {
+func (c *Connection) InitSystem() (initsystem.ServiceManager, error) {
 	if c.initSys == nil {
 		is, err := initsystem.GetRepository().Get(c)
 		if err != nil {
