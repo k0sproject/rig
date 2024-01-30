@@ -7,8 +7,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-
-	"github.com/k0sproject/rig/log"
 )
 
 var (
@@ -17,21 +15,6 @@ var (
 
 	// Confirm will make all command execs ask for confirmation - this is a simplistic way for auditing what will be executed
 	Confirm = false
-
-	// DebugFunc can be replaced to direct the output of exec logging into your own function (standard sprintf interface)
-	DebugFunc = func(s string, args ...any) {
-		log.Debugf(s, args...)
-	}
-
-	// InfoFunc can be replaced to direct the output of exec logging into your own function (standard sprintf interface)
-	InfoFunc = func(s string, args ...any) {
-		log.Infof(s, args...)
-	}
-
-	// ErrorFunc can be replaced to direct the output of exec logging into your own function (standard sprintf interface)
-	ErrorFunc = func(s string, args ...any) {
-		log.Errorf(s, args...)
-	}
 
 	// ConfirmFunc is called to ask for confirmation
 	ConfirmFunc = func(s string) bool {

@@ -19,7 +19,7 @@ import (
 	rigos "github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/os/registry"
 	_ "github.com/k0sproject/rig/os/support"
-	"github.com/k0sproject/rig/pkg/rigfs"
+	"github.com/k0sproject/rig/rigfs"
 	"github.com/kevinburke/ssh_config"
 
 	"github.com/stretchr/testify/require"

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/k0sproject/rig/exec"
-	ps "github.com/k0sproject/rig/pkg/powershell"
+	ps "github.com/k0sproject/rig/powershell"
 )
 
 // Windows is the base package for windows OS support

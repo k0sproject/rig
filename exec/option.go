@@ -10,7 +10,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/k0sproject/rig/pkg/powershell"
+	"github.com/k0sproject/rig/log"
+	"github.com/k0sproject/rig/powershell"
 )
 
 const RedactMask = "[REDACTED]"
@@ -90,9 +91,9 @@ func (o *Options) LogCmd(prefix, cmd string) {
 	}
 
 	if o.logCommand {
-		DebugFunc("%s: executing `%s`", prefix, o.Redact(decodeEncoded(cmd)))
+		log.Debugf("%s: executing `%s`", prefix, o.Redact(decodeEncoded(cmd)))
 	} else {
-		DebugFunc("%s: executing command", prefix)
+		log.Debugf("%s: executing command", prefix)
 	}
 }
 
@@ -128,13 +129,13 @@ func (o *Options) Stdin() io.Reader {
 
 	size, err := getReaderSize(o.in)
 	if err == nil && size > 0 {
-		DebugFunc("using %d bytes of data from reader as command input", size)
+		log.Debugf("using %d bytes of data from reader as command input", size)
 	} else {
-		DebugFunc("using data from reader as command input")
+		log.Debugf("using data from reader as command input")
 	}
 
 	if o.logInput {
-		return io.TeeReader(o.in, redactingWriter{w: logWriter{fn: DebugFunc}, fn: o.Redact})
+		return io.TeeReader(o.in, redactingWriter{w: logWriter{fn: log.Debugf}, fn: o.Redact})
 	}
 
 	return o.in
@@ -144,9 +145,9 @@ func (o *Options) Stdout() io.Writer {
 	var writers []io.Writer
 	switch {
 	case o.streamOutput:
-		writers = append(writers, redactingWriter{w: logWriter{fn: InfoFunc}, fn: o.Redact})
+		writers = append(writers, redactingWriter{w: logWriter{fn: log.Infof}, fn: o.Redact})
 	case o.logOutput:
-		writers = append(writers, redactingWriter{w: logWriter{fn: DebugFunc}, fn: o.Redact})
+		writers = append(writers, redactingWriter{w: logWriter{fn: log.Debugf}, fn: o.Redact})
 	}
 	if o.out != nil {
 		writers = append(writers, o.out)
@@ -158,9 +159,9 @@ func (o *Options) Stderr() io.Writer {
 	var writers []io.Writer
 	switch {
 	case o.streamOutput:
-		writers = append(writers, redactingWriter{w: logWriter{fn: ErrorFunc}, fn: o.Redact})
+		writers = append(writers, redactingWriter{w: logWriter{fn: log.Errorf}, fn: o.Redact})
 	case o.logError:
-		writers = append(writers, redactingWriter{w: logWriter{fn: DebugFunc}, fn: o.Redact})
+		writers = append(writers, redactingWriter{w: logWriter{fn: log.Debugf}, fn: o.Redact})
 	}
 	writers = append(writers, &flaggingWriter{b: &o.wroteErr})
 	if o.errOut != nil {

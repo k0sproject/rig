@@ -13,7 +13,7 @@ import (
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/initsystem"
 	"github.com/k0sproject/rig/log"
-	"github.com/k0sproject/rig/pkg/rigfs"
+	"github.com/k0sproject/rig/rigfs"
 )
 
 type client interface {

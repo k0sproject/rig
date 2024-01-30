@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/k0sproject/rig/log"
-	ps "github.com/k0sproject/rig/pkg/powershell"
+	ps "github.com/k0sproject/rig/powershell"
 )
 
 //go:embed rigrcp.ps1

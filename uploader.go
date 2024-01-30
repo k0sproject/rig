@@ -8,7 +8,7 @@ import (
 	"os"
 
 	"github.com/k0sproject/rig/log"
-	"github.com/k0sproject/rig/pkg/rigfs"
+	"github.com/k0sproject/rig/rigfs"
 )
 
 func Upload(fsys rigfs.Fsys, src, dst string) error {

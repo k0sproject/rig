@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/k0sproject/rig/exec"
-	ps "github.com/k0sproject/rig/pkg/powershell"
+	ps "github.com/k0sproject/rig/powershell"
 )
 
 var errNotSupported = errors.New("not supported on windows")

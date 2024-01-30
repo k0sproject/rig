@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/k0sproject/rig/exec"
-	ps "github.com/k0sproject/rig/pkg/powershell"
+	ps "github.com/k0sproject/rig/powershell"
 )
 
 var _ fs.FS = (*WinFsys)(nil)
