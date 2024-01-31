@@ -2,36 +2,16 @@ package packagemanager
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/k0sproject/rig/exec"
 )
 
-type Dnf struct {
-	exec.ContextRunner
+// NewDnf creates a new dnf package manager.
+func NewDnf(c exec.ContextRunner) PackageManager {
+	return newUniversalPackageManager(c, "dnf", "dnf", "install -y", "remove -y", "makecache")
 }
 
-func (d *Dnf) Install(ctx context.Context, packageNames ...string) error {
-	if err := d.ExecContext(ctx, buildCommand("dnf install -y", packageNames...)); err != nil {
-		return fmt.Errorf("failed to install dnf packages: %w", err)
-	}
-	return nil
-}
-
-func (d *Dnf) Remove(ctx context.Context, packageNames ...string) error {
-	if err := d.ExecContext(ctx, buildCommand("dnf remove -y", packageNames...)); err != nil {
-		return fmt.Errorf("failed to remove dnf packages: %w", err)
-	}
-	return nil
-}
-
-func (d *Dnf) Update(ctx context.Context) error {
-	if err := d.ExecContext(ctx, "dnf makecache"); err != nil {
-		return fmt.Errorf("failed to update dnf: %w", err)
-	}
-	return nil
-}
-
+// RegisterDnf registers the dnf package manager to a repository.
 func RegisterDnf(repository *Repository) {
 	repository.Register(func(c exec.ContextRunner) PackageManager {
 		if c.IsWindows() {
@@ -40,6 +20,6 @@ func RegisterDnf(repository *Repository) {
 		if c.ExecContext(context.Background(), "command -v dnf") != nil {
 			return nil
 		}
-		return &Dnf{c}
+		return NewDnf(c)
 	})
 }

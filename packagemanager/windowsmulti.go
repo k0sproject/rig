@@ -14,7 +14,15 @@ type WindowsMultiManager struct {
 	managers []PackageManager
 }
 
+// ErrNoWindowsPackageManager is returned when no windows package manager is found.
+var ErrNoWindowsPackageManager = fmt.Errorf("no windows package manager found")
+
+// Install the given packages.
 func (w *WindowsMultiManager) Install(ctx context.Context, packageNames ...string) error {
+	if len(w.managers) == 0 {
+		return ErrNoWindowsPackageManager
+	}
+
 	var lastErr error
 	for _, pkg := range packageNames {
 		for _, manager := range w.managers {
@@ -31,7 +39,12 @@ func (w *WindowsMultiManager) Install(ctx context.Context, packageNames ...strin
 	return nil
 }
 
+// Remove the given packages.
 func (w *WindowsMultiManager) Remove(ctx context.Context, packageNames ...string) error {
+	if len(w.managers) == 0 {
+		return ErrNoWindowsPackageManager
+	}
+
 	var lastErr error
 	for _, pkg := range packageNames {
 		for _, manager := range w.managers {
@@ -48,7 +61,12 @@ func (w *WindowsMultiManager) Remove(ctx context.Context, packageNames ...string
 	return nil
 }
 
+// Update the package lists in all the package managers
 func (w *WindowsMultiManager) Update(ctx context.Context) error {
+	if len(w.managers) == 0 {
+		return ErrNoWindowsPackageManager
+	}
+
 	var lastErr error
 	for _, manager := range w.managers {
 		err := manager.Update(ctx)
@@ -62,19 +80,22 @@ func (w *WindowsMultiManager) Update(ctx context.Context) error {
 	return nil
 }
 
-func RegisterWindowsMultiManager(repository *Repository) {
+// NewWindowsMultiManager creates a new windows multi package manager.
+func NewWindowsMultiManager(c exec.ContextRunner) PackageManager {
 	winRepo := NewRepository()
 	RegisterWinget(winRepo)
 	RegisterChocolatey(winRepo)
 	RegisterScoop(winRepo)
+	managers := winRepo.getAll(c)
+	return &WindowsMultiManager{ContextRunner: c, managers: managers}
+}
+
+// RegisterWindowsMultiManager registers the windows multi package manager to a repository.
+func RegisterWindowsMultiManager(repository *Repository) {
 	repository.Register(func(c exec.ContextRunner) PackageManager {
-		managers := winRepo.getAll(c)
-		if len(managers) == 0 {
+		if !c.IsWindows() {
 			return nil
 		}
-		return &WindowsMultiManager{
-			ContextRunner: c,
-			managers:      managers,
-		}
+		return NewWindowsMultiManager(c)
 	})
 }

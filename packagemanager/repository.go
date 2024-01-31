@@ -30,7 +30,7 @@ func init() {
 	RegisterZypper(DefaultPackageManagerRepository)
 	RegisterWindowsMultiManager(DefaultPackageManagerRepository)
 	RegisterHomebrew(DefaultPackageManagerRepository)
-	RegisterMacPorts(DefaultPackageManagerRepository)
+	RegisterMacports(DefaultPackageManagerRepository)
 
 	SetRepository(DefaultPackageManagerRepository)
 }
@@ -76,11 +76,13 @@ func (r *Repository) getAll(c exec.ContextRunner) []PackageManager {
 	return managers
 }
 
-func buildCommand(basecmd string, packages ...string) string {
+func buildCommand(basecmd, keyword string, packages ...string) string {
 	cmd := &strings.Builder{}
 	cmd.WriteString(basecmd)
+	cmd.WriteRune(' ')
+	cmd.WriteString(keyword)
 	for _, pkg := range packages {
-		cmd.WriteString(" ")
+		cmd.WriteRune(' ')
 		cmd.WriteString(shellescape.Quote(pkg))
 	}
 	return cmd.String()

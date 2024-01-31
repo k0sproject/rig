@@ -7,6 +7,10 @@ import (
 	"github.com/k0sproject/rig/exec"
 )
 
+// almost all of the package managers in the wild work the exact same way:
+// <command> <action> <packages...> and <command> <update-keyword>
+// with this "universal package manager" we can tackle most of them
+// without implementing a new package manager for each one
 type universalPackageManager struct {
 	exec.ContextRunner
 	name    string

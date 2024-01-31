@@ -1,3 +1,4 @@
+// Package initsystem provides a common interface for interacting with init systems like systemd, openrc, sysvinit, etc.
 package initsystem
 
 import (
