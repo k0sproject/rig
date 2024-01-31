@@ -21,6 +21,7 @@ var (
 	_          File           = (*PosixFile)(nil)
 	_          fs.ReadDirFile = (*PosixDir)(nil)
 	_          fs.FS          = (*PosixFsys)(nil)
+	_          Fsys           = (*PosixFsys)(nil)
 	errInvalid                = errors.New("invalid")
 )
 
@@ -442,7 +443,7 @@ func (fsys *PosixFsys) Sha256(name string) (string, error) {
 
 // Touch creates a new empty file at path or updates the timestamp of an existing file to the current time
 func (fsys *PosixFsys) Touch(name string) error {
-	err := fsys.Exec("touch %s", shellescape.Quote(name))
+	err := fsys.Exec("touch -- %s", shellescape.Quote(name))
 	if err != nil {
 		return fmt.Errorf("touch %s: %w", name, err)
 	}
@@ -450,43 +451,64 @@ func (fsys *PosixFsys) Touch(name string) error {
 }
 
 // second precision touch for busybox or when nanoseconds are zero
-func (fsys *PosixFsys) secTouchT(name string, t time.Time) error {
+func (fsys *PosixFsys) secChtime(name string, accessOrMod rune, t time.Time) error {
+
 	utc := t.UTC()
 	// most touches support giving the timestamp as @unixtime
-	cmd := fmt.Sprintf("env -i LC_ALL=C TZ=UTC touch -m -d @%d -- %s",
+	cmd := fmt.Sprintf("env -i LC_ALL=C TZ=UTC touch -%c -d @%d -- %s",
+		accessOrMod,
 		utc.Unix(),
 		shellescape.Quote(name),
 	)
 	if err := fsys.Exec(cmd); err != nil {
-		return fmt.Errorf("touch %s: %w", name, err)
+		return fmt.Errorf("touch %s (%ctime): %w", name, accessOrMod, err)
 	}
 	return nil
 }
 
 // nanosecond precision touch for stats that support it
-func (fsys *PosixFsys) nsecTouchT(name string, t time.Time) error {
+func (fsys *PosixFsys) nsecChtime(name string, accessOrMod rune, t time.Time) error {
 	utc := t.UTC()
-	cmd := fmt.Sprintf("env -i LC_ALL=C TZ=UTC touch -m -d %s -- %s",
+	cmd := fmt.Sprintf("env -i LC_ALL=C TZ=UTC touch -%c -d %s -- %s",
+		accessOrMod,
 		shellescape.Quote(
 			fmt.Sprintf("%s.%09d", utc.Format("2006-01-02T15:04:05"), t.Nanosecond()),
 		),
 		shellescape.Quote(name),
 	)
 	if err := fsys.Exec(cmd); err != nil {
-		return fmt.Errorf("touch (ns) %s: %w", name, err)
+		return fmt.Errorf("touch (ns) %s (%ctime): %w", name, accessOrMod, err)
 	}
 	return nil
 }
 
-// TouchT creates a new empty file at path or updates the timestamp of an existing file to the specified time
-func (fsys *PosixFsys) TouchT(name string, t time.Time) error {
-	if t.Nanosecond() == 0 {
-		return fsys.secTouchT(name, t)
-	}
+func int64ToTime(timestamp int64) time.Time {
+	seconds := timestamp / 1e9
+	nanoseconds := timestamp % 1e9
+	return time.Unix(seconds, nanoseconds)
+}
 
-	if err := fsys.nsecTouchT(name, t); err != nil {
-		// fallback to second precision
-		return fsys.secTouchT(name, t)
+// Chtimes changes the access and modification times of the named file
+func (fsys *PosixFsys) Chtimes(name string, atime, mtime int64) error {
+	var lastErr error
+	nsecWorks := true
+	for _, m := range []rune{'a', 'm'} {
+		for _, t := range []time.Time{int64ToTime(atime), int64ToTime(mtime)} {
+			if t.Nanosecond() == 0 || !nsecWorks {
+				if err := fsys.secChtime(name, m, t); err != nil {
+					lastErr = err
+				}
+			} else if err := fsys.nsecChtime(name, m, t); err != nil {
+				lastErr = err
+				nsecWorks = false
+				if err := fsys.secChtime(name, m, t); err != nil {
+					lastErr = err
+				}
+			}
+		}
+	}
+	if lastErr != nil {
+		return fmt.Errorf("chtimes: %w", lastErr)
 	}
 	return nil
 }
@@ -506,6 +528,17 @@ func (fsys *PosixFsys) Chmod(name string, mode fs.FileMode) error {
 			return &fs.PathError{Op: "chmod", Path: name, Err: fs.ErrNotExist}
 		}
 		return fmt.Errorf("chmod %s: %w", name, err)
+	}
+	return nil
+}
+
+// Chown changes the numeric uid and gid of the named file
+func (fsys *PosixFsys) Chown(name string, uid, gid int) error {
+	if err := fsys.Exec("chown %d:%d %s", uid, gid, shellescape.Quote(name)); err != nil {
+		if isNotExist(err) {
+			return &fs.PathError{Op: "chown", Path: name, Err: fs.ErrNotExist}
+		}
+		return fmt.Errorf("chown %s: %w", name, err)
 	}
 	return nil
 }
@@ -651,9 +684,26 @@ func (fsys *PosixFsys) RemoveAll(name string) error {
 	return nil
 }
 
-// MkDirAll creates a new directory structure with the specified name and permission bits.
+// Rename renames (moves) oldpath to newpath.
+func (fsys *PosixFsys) Rename(oldpath, newpath string) error {
+	if err := fsys.Exec("mv -f %s %s", shellescape.Quote(oldpath), shellescape.Quote(newpath)); err != nil {
+		return fmt.Errorf("rename %s -> %s: %w", oldpath, newpath, err)
+	}
+	return nil
+}
+
+// TempDir returns the default directory to use for temporary files.
+func (fsys *PosixFsys) TempDir() string {
+	out, err := fsys.ExecOutput("echo ${TMPDIR:-/tmp}")
+	if err != nil {
+		return "/tmp"
+	}
+	return out
+}
+
+// MkdirAll creates a new directory structure with the specified name and permission bits.
 // If the directory already exists, MkDirAll does nothing and returns nil.
-func (fsys *PosixFsys) MkDirAll(name string, perm fs.FileMode) error {
+func (fsys *PosixFsys) MkdirAll(name string, perm fs.FileMode) error {
 	dir := shellescape.Quote(name)
 	if existing, err := fsys.Stat(name); err == nil {
 		if existing.IsDir() {
@@ -667,4 +717,106 @@ func (fsys *PosixFsys) MkDirAll(name string, perm fs.FileMode) error {
 	}
 
 	return nil
+}
+
+// Mkdir creates a new directory with the specified name and permission bits.
+func (fsys *PosixFsys) Mkdir(name string, perm fs.FileMode) error {
+	if err := fsys.Exec("mkdir -m %#o %s", perm, shellescape.Quote(name)); err != nil {
+		return &fs.PathError{Op: "mkdir", Path: name, Err: err}
+	}
+
+	return nil
+}
+
+// WriteFile writes data to a file named by filename.
+func (fsys *PosixFsys) WriteFile(filename string, data []byte, perm fs.FileMode) error {
+	if err := fsys.Exec("install -D -m %#o /dev/stdin %s", perm, shellescape.Quote(filename), exec.Stdin(bytes.NewReader(data))); err != nil {
+		return fmt.Errorf("write file %s: %w", filename, err)
+	}
+	return nil
+}
+
+// ReadFile reads the file named by filename and returns the contents.
+func (fsys *PosixFsys) ReadFile(filename string) ([]byte, error) {
+	out, err := fsys.ExecOutput("cat -- %s", shellescape.Quote(filename))
+	if err != nil {
+		return nil, fmt.Errorf("read file %s: %w", filename, err)
+	}
+	return []byte(out), nil
+}
+
+// MkdirTemp creates a new temporary directory in the directory dir with a name beginning with prefix and returns the path of the new directory.
+func (fsys *PosixFsys) MkdirTemp(dir, prefix string) (string, error) {
+	if dir == "" {
+		dir = fsys.TempDir()
+	}
+	out, err := fsys.ExecOutput("mktemp -d %s", shellescape.Quote(fsys.Join(dir, prefix+"XXXXXX")))
+	if err != nil {
+		return "", fmt.Errorf("mkdir temp %s: %w", dir, err)
+	}
+	return out, nil
+}
+
+// FileExist checks if a file exists on the host
+func (fsys *PosixFsys) FileExist(name string) bool {
+	return fsys.Exec("test -f %s", shellescape.Quote(name), exec.HideOutput()) == nil
+}
+
+// CommandExist checks if a command exists on the host
+func (fsys *PosixFsys) CommandExist(name string) bool {
+	return fsys.Exec("command -v %s", name, exec.HideOutput()) == nil
+}
+
+// Join joins any number of path elements into a single path, adding a separating slash if necessary.
+func (fsys *PosixFsys) Join(elem ...string) string {
+	return path.Join(elem...)
+}
+
+// Getenv returns the value of the environment variable named by the key
+func (fsys *PosixFsys) Getenv(key string) string {
+	out, err := fsys.ExecOutput("echo ${%s}", key, exec.HideOutput())
+	if err != nil {
+		return ""
+	}
+	return out
+}
+
+// Hostname returns the name of the host
+func (fsys *PosixFsys) Hostname() (string, error) {
+	out, err := fsys.ExecOutput("hostname")
+	if err != nil {
+		return "", fmt.Errorf("hostname: %w", err)
+	}
+	return out, nil
+}
+
+// LongHostname returns the FQDN of the host
+func (fsys *PosixFsys) LongHostname() (string, error) {
+	out, err := fsys.ExecOutput("hostname -f 2> /dev/null")
+	if err != nil {
+		return "", fmt.Errorf("hostname -f: %w", err)
+	}
+
+	return out, nil
+}
+
+// UserCacheDir returns the default root directory to use for user-specific cached data.
+func (fsys *PosixFsys) UserCacheDir() string {
+	if cache := fsys.Getenv("XDG_CACHE_HOME"); cache != "" {
+		return cache
+	}
+	return fsys.Join(fsys.UserHomeDir(), ".cache")
+}
+
+// UserConfigDir returns the default root directory to use for user-specific configuration data.
+func (fsys *PosixFsys) UserConfigDir() string {
+	if config := fsys.Getenv("XDG_CONFIG_HOME"); config != "" {
+		return config
+	}
+	return fsys.Join(fsys.UserHomeDir(), ".config")
+}
+
+// UserHomeDir returns the current user's home directory.
+func (fsys *PosixFsys) UserHomeDir() string {
+	return fsys.Getenv("HOME")
 }

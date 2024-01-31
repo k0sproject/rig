@@ -16,9 +16,6 @@ import (
 	"time"
 
 	"github.com/k0sproject/rig"
-	rigos "github.com/k0sproject/rig/os"
-	"github.com/k0sproject/rig/os/registry"
-	_ "github.com/k0sproject/rig/os/support"
 	"github.com/k0sproject/rig/rigfs"
 	"github.com/kevinburke/ssh_config"
 
@@ -117,7 +114,7 @@ func TestConfigurerSuite(t *testing.T) {
 		t.Skip("only connect")
 		return
 	}
-	suite.Run(t, &ConfigurerSuite{ConnectedSuite: ConnectedSuite{Host: GetHost()}})
+	suite.Run(t, &OSSuite{ConnectedSuite: ConnectedSuite{Host: GetHost()}})
 }
 
 func TestFsysSuite(t *testing.T) {
@@ -136,41 +133,9 @@ func TestFsysSuite(t *testing.T) {
 	})
 }
 
-type configurer interface {
-	WriteFile(string, string, string) error
-	LineIntoFile(string, string, string) error
-	ReadFile(string) (string, error)
-	FileExist(string) bool
-	DeleteFile(string) error
-	Stat(string) (*rigos.FileInfo, error)
-	Touch(string, time.Time) error
-	MkDir(string) error
-	Sha256sum(string) (string, error)
-}
-
 // Host is a host that utilizes rig for connections
 type Host struct {
 	rig.Connection
-
-	Configurer configurer
-}
-
-// LoadOS is a function that assigns a OS support package to the host and
-// typecasts it to a suitable interface
-func (h *Host) LoadOS() error {
-	bf, err := registry.GetOSModuleBuilder(*h.OSVersion)
-	if err != nil {
-		return err
-	}
-
-	cfg, ok := bf(h.Sudo()).(configurer)
-	if !ok {
-		return fmt.Errorf("OS module does not implement configurer interface")
-	}
-
-	h.Configurer = cfg
-
-	return nil
 }
 
 func retry(fn func() error) error {
@@ -271,15 +236,22 @@ type ConnectedSuite struct {
 	tempDir string
 	count   int
 	Host    *Host
+	fs      rigfs.Fsys
+	sudo    bool
 }
 
 func (s *ConnectedSuite) SetupSuite() {
 	rig.SetLogger(&SuiteLogger{s.T()})
 	err := retry(func() error { return s.Host.Connect() })
 	s.Require().NoError(err)
-	s.Require().NoError(s.Host.LoadOS())
-	s.tempDir = "tmp.rig-test." + time.Now().Format("20060102150405")
-	s.Require().NoError(s.Host.Fsys().MkDirAll(s.tempDir, 0755))
+	if s.sudo {
+		s.fs = s.Host.SudoFsys()
+	} else {
+		s.fs = s.Host.Fsys()
+	}
+	tempDir, err := s.Host.Fsys().MkdirTemp("", "rigtest")
+	s.Require().NoError(err)
+	s.tempDir = tempDir
 }
 
 func (s *ConnectedSuite) TearDownSuite() {
@@ -299,13 +271,13 @@ func (s *ConnectedSuite) TempPath(args ...string) string {
 	return strings.Join(args, "/")
 }
 
-type ConfigurerSuite struct {
+type OSSuite struct {
 	ConnectedSuite
 }
 
-func (s *ConfigurerSuite) TestStat() {
+func (s *OSSuite) TestStat() {
 	s.Run("File does not exist", func() {
-		stat, err := s.Host.Configurer.Stat(s.TempPath("doesnotexist"))
+		stat, err := s.fs.Stat(s.TempPath("doesnotexist"))
 		s.Nil(stat)
 		s.Error(err)
 	})
@@ -313,25 +285,25 @@ func (s *ConfigurerSuite) TestStat() {
 	s.Run("File exists", func() {
 		f := s.TempPath()
 		s.Run("Create file", func() {
-			s.Require().NoError(s.Host.Configurer.Touch(f, time.Now()))
+			s.Require().NoError(s.fs.Touch(f))
 		})
 
-		stat, err := s.Host.Configurer.Stat(f)
+		stat, err := s.fs.Stat(f)
 		s.Require().NoError(err)
 		s.True(strings.HasSuffix(f, stat.Name())) // Name() returns Basename
 	})
 }
 
-func (s *ConfigurerSuite) TestTouch() {
+func (s *OSSuite) TestTouch() {
 	f := s.TempPath()
 	now := time.Now()
 	for _, tt := range []time.Time{now, now.Add(1 * time.Hour)} {
 		s.Run("Update timestamp "+tt.String(), func() {
-			s.Require().NoError(s.Host.Configurer.Touch(f, now))
+			s.Require().NoError(s.fs.Chtimes(f, now.UnixNano(), now.UnixNano()))
 		})
 
 		s.Run("File exists and has correct timestamp "+tt.String(), func() {
-			stat, err := s.Host.Configurer.Stat(f)
+			stat, err := s.fs.Stat(f)
 			s.Require().NoError(err)
 			s.NotNil(stat)
 			s.Equal(now.Unix(), stat.ModTime().Unix())
@@ -339,43 +311,32 @@ func (s *ConfigurerSuite) TestTouch() {
 	}
 }
 
-func (s *ConfigurerSuite) TestFileAccess() {
+func (s *OSSuite) TestFileAccess() {
 	f := s.TempPath()
 	s.Run("File does not exist", func() {
-		s.False(s.Host.Configurer.FileExist(f))
+		s.False(s.fs.FileExist(f))
 	})
 
 	s.Run("Write file", func() {
-		s.Require().NoError(s.Host.Configurer.WriteFile(f, "test\ntest2\ntest3", "0644"))
+		s.Require().NoError(s.fs.WriteFile(f, []byte("test\ntest2\ntest3"), 0o644))
 	})
 
 	s.Run("File exists", func() {
-		s.True(s.Host.Configurer.FileExist(f))
+		s.True(s.fs.FileExist(f))
 	})
 
 	s.Run("Read file and verify contents", func() {
-		content, err := s.Host.Configurer.ReadFile(f)
+		content, err := s.fs.ReadFile(f)
 		s.Require().NoError(err)
-		s.Equal("test\ntest2\ntest3", content)
-	})
-
-	s.Run("Replace line in file", func() {
-		s.Require().NoError(s.Host.Configurer.LineIntoFile(f, "test2", "test4"))
-	})
-
-	s.Run("Re-read file and verify contents", func() {
-		content, err := s.Host.Configurer.ReadFile(f)
-		s.Require().NoError(err)
-		// TODO: LineIntoFile adds a trailing newline
-		s.Equal("test\ntest4\ntest3", strings.TrimSpace(content))
+		s.Equal("test\ntest2\ntest3", string(content))
 	})
 
 	s.Run("Delete file", func() {
-		s.Require().NoError(s.Host.Configurer.DeleteFile(f))
+		s.Require().NoError(s.fs.Remove(f))
 	})
 
 	s.Run("File does not exist", func() {
-		s.False(s.Host.Configurer.FileExist(f))
+		s.False(s.fs.FileExist(f))
 	})
 }
 
@@ -396,27 +357,27 @@ func testFile(size int64) (string, error) {
 	return file.Name(), nil
 }
 
-func (s *ConfigurerSuite) TestUpload() {
+func (s *OSSuite) TestUpload() {
 	for _, size := range []int64{500, 100 * 1024, 1024 * 1024} {
 		s.Run(fmt.Sprintf("File size %d", size), func() {
 			fn, err := testFile(size)
 			s.Require().NoError(err)
 			defer os.Remove(fn)
-			defer s.Host.Configurer.DeleteFile(s.TempPath(pathBase(fn)))
+			defer s.fs.Remove(s.TempPath(pathBase(fn)))
 
 			s.Run("Upload file", func() {
-				s.Require().NoError(rig.Upload(s.Host.Fsys(), fn, s.TempPath(pathBase(fn))))
+				s.Require().NoError(rigfs.Upload(s.Host.Fsys(), fn, s.TempPath(pathBase(fn))))
 			})
 
 			s.Run("Verify file size", func() {
-				stat, err := s.Host.Configurer.Stat(s.TempPath(pathBase(fn)))
+				stat, err := s.fs.Stat(s.TempPath(pathBase(fn)))
 				s.Require().NoError(err)
 				s.Require().NotNil(stat)
 				s.Equal(size, stat.Size())
 			})
 
 			s.Run("Verify file contents", func() {
-				sum, err := s.Host.Configurer.Sha256sum(s.TempPath(pathBase(fn)))
+				sum, err := s.fs.Sha256(s.TempPath(pathBase(fn)))
 				s.Require().NoError(err)
 				sha := sha256.New()
 				f, err := os.Open(fn)
@@ -433,42 +394,28 @@ func (s *ConfigurerSuite) TestUpload() {
 type FsysSuite struct {
 	ConnectedSuite
 	sudo bool
-	fsys rigfs.Fsys
-}
-
-func (s *FsysSuite) SetupSuite() {
-	s.ConnectedSuite.SetupSuite()
-	if s.sudo {
-		if s.Host.IsWindows() {
-			s.T().Skip("sudo not supported on windows")
-			return
-		}
-		s.fsys = s.Host.SudoFsys()
-	} else {
-		s.fsys = s.Host.Fsys()
-	}
 }
 
 func (s *FsysSuite) TestMkdir() {
 	s.T().Log("testmkdir")
 	testPath := s.TempPath("test", "subdir")
 	defer func() {
-		_ = s.fsys.RemoveAll(testPath)
+		_ = s.fs.RemoveAll(testPath)
 	}()
 	s.Run("Create directory", func() {
 		s.T().Log("mkdirall")
-		s.Require().NoError(s.fsys.MkDirAll(testPath, 0755))
+		s.Require().NoError(s.fs.MkdirAll(testPath, 0755))
 	})
 	s.Run("Verify directory exists", func() {
 		s.T().Log("stat")
-		stat, err := s.fsys.Stat(testPath)
+		stat, err := s.fs.Stat(testPath)
 		s.Require().NoError(err)
 		s.Run("Check permissions", func() {
 			if s.Host.IsWindows() {
 				s.T().Skip("Windows does not support chmod permissions")
 			}
 			s.Equal(os.FileMode(0755), stat.Mode().Perm())
-			parent, err := s.fsys.Stat(s.TempPath("test"))
+			parent, err := s.fs.Stat(s.TempPath("test"))
 			s.Require().NoError(err)
 			s.Equal(os.FileMode(0755), parent.Mode().Perm())
 		})
@@ -478,22 +425,22 @@ func (s *FsysSuite) TestMkdir() {
 func (s *FsysSuite) TestRemove() {
 	testPath := s.TempPath("test", "subdir")
 	s.Run("Create directory", func() {
-		s.Require().NoError(s.fsys.MkDirAll(testPath, 0755))
+		s.Require().NoError(s.fs.MkdirAll(testPath, 0755))
 	})
 	s.Run("Remove directory", func() {
-		s.Require().NoError(s.fsys.RemoveAll(testPath))
+		s.Require().NoError(s.fs.RemoveAll(testPath))
 	})
 	s.Run("Verify directory does not exist", func() {
-		stat, err := s.fsys.Stat(testPath)
+		stat, err := s.fs.Stat(testPath)
 		s.Nil(stat)
 		s.Error(err)
 		s.True(os.IsNotExist(err))
 	})
 	s.Run("Remove parent directory", func() {
-		s.Require().NoError(s.fsys.RemoveAll(s.TempPath("test")))
+		s.Require().NoError(s.fs.RemoveAll(s.TempPath("test")))
 	})
 	s.Run("Verify parent directory does not exist", func() {
-		stat, err := s.fsys.Stat(s.TempPath("test"))
+		stat, err := s.fs.Stat(s.TempPath("test"))
 		s.Nil(stat)
 		s.Error(err)
 		s.True(os.IsNotExist(err))
@@ -515,10 +462,10 @@ func (s *FsysSuite) TestReadWriteFile() {
 			reader := io.TeeReader(origin, shasum)
 
 			defer func() {
-				_ = s.fsys.Remove(fn)
+				_ = s.fs.Remove(fn)
 			}()
 			s.Run("Write file", func() {
-				f, err := s.fsys.OpenFile(fn, os.O_CREATE|os.O_WRONLY, 0644)
+				f, err := s.fs.OpenFile(fn, os.O_CREATE|os.O_WRONLY, 0644)
 				s.Require().NoError(err)
 				n, err := io.Copy(f, reader)
 				s.Require().NoError(err)
@@ -527,20 +474,20 @@ func (s *FsysSuite) TestReadWriteFile() {
 			})
 
 			s.Run("Verify file size", func() {
-				stat, err := s.fsys.Stat(fn)
+				stat, err := s.fs.Stat(fn)
 				s.Require().NoError(err)
 				s.Equal(testFileSize, stat.Size())
 			})
 
 			s.Run("Verify file sha256", func() {
-				sum, err := s.fsys.Sha256(fn)
+				sum, err := s.fs.Sha256(fn)
 				s.Require().NoError(err)
 				s.Equal(hex.EncodeToString(shasum.Sum(nil)), sum)
 			})
 
 			readSha := sha256.New()
 			s.Run("Read file", func() {
-				f, err := s.fsys.Open(fn)
+				f, err := s.fs.Open(fn)
 				s.Require().NoError(err)
 				n, err := io.Copy(readSha, f)
 				s.Require().NoError(err)
@@ -570,10 +517,10 @@ func (s *FsysSuite) TestReadWriteFileCopy() {
 			reader := io.TeeReader(origin, shasum)
 
 			defer func() {
-				_ = s.fsys.Remove(fn)
+				_ = s.fs.Remove(fn)
 			}()
 			s.Run("Write file", func() {
-				f, err := s.fsys.OpenFile(fn, os.O_CREATE|os.O_WRONLY, 0644)
+				f, err := s.fs.OpenFile(fn, os.O_CREATE|os.O_WRONLY, 0644)
 				s.Require().NoError(err)
 				n, err := f.CopyFrom(reader)
 				s.Require().NoError(err)
@@ -582,20 +529,20 @@ func (s *FsysSuite) TestReadWriteFileCopy() {
 			})
 
 			s.Run("Verify file size", func() {
-				stat, err := s.fsys.Stat(fn)
+				stat, err := s.fs.Stat(fn)
 				s.Require().NoError(err)
 				s.Equal(testFileSize, stat.Size())
 			})
 
 			s.Run("Verify file sha256", func() {
-				sum, err := s.fsys.Sha256(fn)
+				sum, err := s.fs.Sha256(fn)
 				s.Require().NoError(err)
 				s.Equal(hex.EncodeToString(shasum.Sum(nil)), sum)
 			})
 
 			readSha := sha256.New()
 			s.Run("Read file", func() {
-				fsf, err := s.fsys.Open(fn)
+				fsf, err := s.fs.Open(fn)
 				s.Require().NoError(err)
 				f, ok := fsf.(rigfs.File)
 				s.Require().True(ok)
@@ -627,9 +574,9 @@ func (s *FsysSuite) TestSeek() {
 	fn := s.TempPath()
 	reference := bytes.Repeat([]byte{'a'}, 1024)
 	defer func() {
-		_ = s.fsys.Remove(fn)
+		_ = s.fs.Remove(fn)
 	}()
-	f, err := s.fsys.OpenFile(fn, os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := s.fs.OpenFile(fn, os.O_CREATE|os.O_WRONLY, 0644)
 	s.Require().NoError(err)
 	n, err := io.Copy(f, bytes.NewReader(bytes.Repeat([]byte{'a'}, 1024)))
 	s.Require().NoError(err)
@@ -637,7 +584,7 @@ func (s *FsysSuite) TestSeek() {
 	s.Require().NoError(f.Close())
 
 	s.Run("Verify contents", func() {
-		f, err := s.fsys.Open(fn)
+		f, err := s.fs.Open(fn)
 		s.Require().NoError(err)
 		b, err := io.ReadAll(f)
 		s.Require().NoError(err)
@@ -646,7 +593,7 @@ func (s *FsysSuite) TestSeek() {
 		s.Equal(reference, b)
 	})
 	s.Run("Alter file beginning", func() {
-		f, err := s.fsys.OpenFile(fn, os.O_WRONLY, 0644)
+		f, err := s.fs.OpenFile(fn, os.O_WRONLY, 0644)
 		s.Require().NoError(err)
 		np, err := f.Seek(0, io.SeekStart)
 		s.Require().NoError(err)
@@ -658,7 +605,7 @@ func (s *FsysSuite) TestSeek() {
 	})
 	copy(reference[0:256], bytes.Repeat([]byte{'b'}, 256))
 	s.Run("Verify contents after file beginning altered", func() {
-		f, err := s.fsys.Open(fn)
+		f, err := s.fs.Open(fn)
 		s.Require().NoError(err)
 		b, err := io.ReadAll(f)
 		s.Require().NoError(err)
@@ -667,7 +614,7 @@ func (s *FsysSuite) TestSeek() {
 		s.Equal(reference, b)
 	})
 	s.Run("Alter file ending", func() {
-		f, err := s.fsys.OpenFile(fn, os.O_WRONLY, 0644)
+		f, err := s.fs.OpenFile(fn, os.O_WRONLY, 0644)
 		s.Require().NoError(err)
 		np, err := f.Seek(-256, io.SeekEnd)
 		s.Require().NoError(err)
@@ -679,7 +626,7 @@ func (s *FsysSuite) TestSeek() {
 	})
 	copy(reference[768:1024], bytes.Repeat([]byte{'c'}, 256))
 	s.Run("Verify contents after file ending altered", func() {
-		f, err := s.fsys.Open(fn)
+		f, err := s.fs.Open(fn)
 		s.Require().NoError(err)
 		b, err := io.ReadAll(f)
 		s.Require().NoError(err)
@@ -688,7 +635,7 @@ func (s *FsysSuite) TestSeek() {
 		s.Equal(reference, b)
 	})
 	s.Run("Alter file middle", func() {
-		f, err := s.fsys.OpenFile(fn, os.O_WRONLY, 0644)
+		f, err := s.fs.OpenFile(fn, os.O_WRONLY, 0644)
 		s.Require().NoError(err)
 		np, err := f.Seek(256, io.SeekStart)
 		s.Require().NoError(err)
@@ -700,7 +647,7 @@ func (s *FsysSuite) TestSeek() {
 	})
 	copy(reference[256:768], bytes.Repeat([]byte{'d'}, 512))
 	s.Run("Verify contents after file middle altered", func() {
-		f, err := s.fsys.Open(fn)
+		f, err := s.fs.Open(fn)
 		s.Require().NoError(err)
 		b, err := io.ReadAll(f)
 		s.Require().NoError(err)
@@ -712,15 +659,15 @@ func (s *FsysSuite) TestSeek() {
 
 func (s *FsysSuite) TestReadDir() {
 	defer func() {
-		_ = s.fsys.RemoveAll(s.TempPath("test"))
+		_ = s.fs.RemoveAll(s.TempPath("test"))
 	}()
 	s.Run("Create directory", func() {
-		s.Require().NoError(s.fsys.MkDirAll(s.TempPath("test"), 0755))
+		s.Require().NoError(s.fs.MkdirAll(s.TempPath("test"), 0755))
 	})
 	s.Run("Create files", func() {
 		for _, fn := range []string{s.TempPath("test", "subdir", "nestedfile"), s.TempPath("test", "file")} {
-			s.Require().NoError(s.fsys.MkDirAll(pathDir(fn), 0755))
-			f, err := s.fsys.OpenFile(fn, os.O_CREATE|os.O_WRONLY, 0644)
+			s.Require().NoError(s.fs.MkdirAll(pathDir(fn), 0755))
+			f, err := s.fs.OpenFile(fn, os.O_CREATE|os.O_WRONLY, 0644)
 			s.Require().NoError(err)
 			n, err := f.Write([]byte("test"))
 			s.Require().NoError(err)
@@ -730,7 +677,7 @@ func (s *FsysSuite) TestReadDir() {
 	})
 
 	s.Run("Read directory", func() {
-		dir, err := s.fsys.OpenFile(s.TempPath("test"), os.O_RDONLY, 0644)
+		dir, err := s.fs.OpenFile(s.TempPath("test"), os.O_RDONLY, 0644)
 		s.Require().NoError(err)
 		s.Require().NotNil(dir)
 		readDirFile, ok := dir.(fs.ReadDirFile)
@@ -747,7 +694,7 @@ func (s *FsysSuite) TestReadDir() {
 
 	s.Run("Walkdir", func() {
 		var entries []string
-		s.Require().NoError(fs.WalkDir(s.fsys, s.TempPath("test"), func(path string, d fs.DirEntry, err error) error {
+		s.Require().NoError(fs.WalkDir(s.fs, s.TempPath("test"), func(path string, d fs.DirEntry, err error) error {
 			s.Require().NoError(err)
 			info, err := d.Info()
 			s.Require().NoError(err)

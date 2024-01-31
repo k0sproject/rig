@@ -68,7 +68,7 @@ type Connection struct {
 	Localhost   *Localhost `yaml:"localhost,omitempty"`
 	OpenSSH     *OpenSSH   `yaml:"openSSH,omitempty"`
 
-	OSVersion *OSVersion `yaml:"-"`
+	OS *OSRelease `yaml:"-"`
 
 	client     client
 	sudoRunner exec.Runner
@@ -196,8 +196,8 @@ func (c *Connection) SudoFsys() rigfs.Fsys {
 
 // IsWindows returns true on windows hosts
 func (c *Connection) IsWindows() bool {
-	if c.OSVersion != nil {
-		return c.OSVersion.ID == "windows"
+	if c.OS != nil {
+		return c.OS.ID == "windows"
 	}
 	if !c.IsConnected() {
 		if client := c.configuredClient(); client != nil {
@@ -223,12 +223,12 @@ func (c *Connection) Connect() error {
 
 	c.Runner = exec.NewHostRunner(c.client)
 
-	if c.OSVersion == nil {
-		o, err := GetOSVersion(c)
+	if c.OS == nil {
+		o, err := GetOSRelease(c)
 		if err != nil {
 			return err
 		}
-		c.OSVersion = &o
+		c.OS = &o
 	}
 
 	return nil
