@@ -4,7 +4,6 @@ go 1.21
 
 require (
 	github.com/Microsoft/go-winio v0.6.1
-	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d
 	github.com/alessio/shellescape v1.4.2
 	github.com/creasty/defaults v1.7.0
 	github.com/davidmz/go-pageant v1.0.2
