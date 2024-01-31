@@ -35,7 +35,7 @@ func (i Launchd) ServiceIsRunning(ctx context.Context, h exec.ContextRunner, s s
 }
 
 // ServiceScriptPath returns the path to a launchd service plist file
-func (i Launchd) ServiceScriptPath(ctx context.Context, h exec.ContextRunner, s string) (string, error) {
+func (i Launchd) ServiceScriptPath(_ context.Context, _ exec.ContextRunner, s string) (string, error) {
 	// Assumes plist files are located in /Library/LaunchDaemons
 	plistPath := path.Join("/Library/LaunchDaemons", s+".plist")
 	return plistPath, nil
@@ -57,6 +57,7 @@ func (i Launchd) DisableService(ctx context.Context, h exec.ContextRunner, s str
 	return nil
 }
 
+// RegisterLaunchd registers the launchd init system to a init system repository
 func RegisterLaunchd(repo *Repository) {
 	repo.Register(func(c exec.ContextRunner) ServiceManager {
 		if c.IsWindows() {

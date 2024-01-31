@@ -55,10 +55,7 @@ func (c *Localhost) Disconnect() {}
 // StartProcess executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
 func (c *Localhost) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) (exec.Waiter, error) {
-	command, err := c.command(ctx, cmd)
-	if err != nil {
-		return nil, fmt.Errorf("%w: failed to build command: %w", ErrCommandFailed, err)
-	}
+	command := c.command(ctx, cmd)
 
 	command.Stdin = stdin
 	command.Stdout = stdout
@@ -71,16 +68,16 @@ func (c *Localhost) StartProcess(ctx context.Context, cmd string, stdin io.Reade
 	return command, nil
 }
 
-func (c *Localhost) command(ctx context.Context, cmd string) (*osexec.Cmd, error) {
+func (c *Localhost) command(ctx context.Context, cmd string) *osexec.Cmd {
 	if c.IsWindows() {
-		return osexec.CommandContext(ctx, "cmd.exe", "/c", cmd), nil
+		return osexec.CommandContext(ctx, "cmd.exe", "/c", cmd)
 	}
 
-	return osexec.CommandContext(ctx, "sh", "-c", "--", cmd), nil
+	return osexec.CommandContext(ctx, "sh", "-c", "--", cmd)
 }
 
 // ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host
-func (c *Localhost) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
+func (c *Localhost) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error { //nolint:cyclop
 	if cmd == "" {
 		cmd = os.Getenv("SHELL") + " -l"
 	}
@@ -105,7 +102,7 @@ func (c *Localhost) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr 
 		}
 		go func() {
 			defer w.Close()
-			io.Copy(w, stdin)
+			_, _ = io.Copy(w, stdin)
 		}()
 		stdinR = r
 	}
@@ -118,7 +115,7 @@ func (c *Localhost) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr 
 		}
 		go func() {
 			defer r.Close()
-			io.Copy(stdout, r)
+			_, _ = io.Copy(stdout, r)
 		}()
 		stdoutW = w
 	}
@@ -131,7 +128,7 @@ func (c *Localhost) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr 
 		}
 		go func() {
 			defer r.Close()
-			io.Copy(stderr, r)
+			_, _ = io.Copy(stderr, r)
 		}()
 		stderrW = w
 	}

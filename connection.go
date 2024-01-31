@@ -234,11 +234,12 @@ func (c *Connection) Connect() error {
 	return nil
 }
 
+// Sudo returns an exec.Runner that runs commands using sudo. If a sudo method can not be detected, a runner that always returns errors is returned.
 func (c *Connection) Sudo() exec.Runner {
 	if c.sudoRunner == nil {
 		fn, err := c.detectSudo()
 		if err != nil {
-			c.sudoRunner = &exec.ErrorRunner{Err: err}
+			c.sudoRunner = exec.NewErrorRunner(err)
 		} else {
 			c.sudoRunner = exec.NewHostRunner(c.client, fn)
 		}

@@ -14,13 +14,16 @@ import (
 	"github.com/k0sproject/rig/powershell"
 )
 
+// RedactMask is the string that will be used to replace redacted text in the logs
 const RedactMask = "[REDACTED]"
 
 // Option is a functional option for the exec package
 type Option func(*Options)
 
+// RedactFunc is a function that takes a string and returns a redacted string
 type RedactFunc func(string) string
 
+// DecorateFunc is a function that takes a string and returns a decorated string
 type DecorateFunc func(string) string
 
 // Options is a collection of exec options
@@ -64,6 +67,7 @@ func decodeEncoded(cmd string) string {
 	return strings.Join(parts, " ")
 }
 
+// Command returns the command string with all decorators applied
 func (o *Options) Command(cmd string) string {
 	for _, decorator := range o.decorateFuncs {
 		cmd = decorator(cmd)
@@ -71,10 +75,12 @@ func (o *Options) Command(cmd string) string {
 	return cmd
 }
 
+// Commandf returns the sprintf formatted command string with all decorators applied
 func (o *Options) Commandf(format string, args ...any) string {
 	return o.Command(fmt.Sprintf(format, args...))
 }
 
+// AllowWinStderr returns the allowWinStderr option
 func (o *Options) AllowWinStderr() bool {
 	return o.allowWinStderr
 }
@@ -122,6 +128,7 @@ func getReaderSize(reader io.Reader) (int64, error) {
 	}
 }
 
+// Stdin returns the Stdin reader. If input logging is enabled, it will be a TeeReader that writes to the log
 func (o *Options) Stdin() io.Reader {
 	if o.in == nil {
 		return nil
@@ -141,6 +148,7 @@ func (o *Options) Stdin() io.Reader {
 	return o.in
 }
 
+// Stdout returns the Stdout writer. If output logging is enabled, it will be a MultiWriter that writes to the log
 func (o *Options) Stdout() io.Writer {
 	var writers []io.Writer
 	switch {
@@ -155,6 +163,7 @@ func (o *Options) Stdout() io.Writer {
 	return io.MultiWriter(writers...)
 }
 
+// Stderr returns the Stderr writer. If error logging is enabled, it will be a MultiWriter that writes to the log
 func (o *Options) Stderr() io.Writer {
 	var writers []io.Writer
 	switch {
@@ -171,6 +180,7 @@ func (o *Options) Stderr() io.Writer {
 	return io.MultiWriter(writers...)
 }
 
+// WroteErr returns true if the command wrote to stderr
 func (o *Options) WroteErr() bool {
 	return o.wroteErr
 }
@@ -193,6 +203,7 @@ func (o *Options) Redact(s string) string {
 	return s
 }
 
+// FormatOutput is for trimming whitespace from the command output if TrimOutput is enabled
 func (o *Options) FormatOutput(s string) string {
 	if o.trimOutput {
 		return strings.TrimSpace(s)
@@ -207,20 +218,21 @@ func Stdin(r io.Reader) Option {
 	}
 }
 
+// StdinString exec option for sending string data to the command through stdin
 func StdinString(s string) Option {
 	return func(o *Options) {
 		o.in = strings.NewReader(s)
 	}
 }
 
-// Writer exec option for sending command stdout to an io.Writer
+// Stdout exec option for sending command stdout to an io.Writer
 func Stdout(w io.Writer) Option {
 	return func(o *Options) {
 		o.out = w
 	}
 }
 
-// ErrWriter exec option for sending command stderr to an io.Writer
+// Stderr exec option for sending command stderr to an io.Writer
 func Stderr(w io.Writer) Option {
 	return func(o *Options) {
 		o.errOut = w
@@ -296,31 +308,31 @@ func RedactString(s ...string) Option {
 	}
 }
 
+// LogInput exec option for enabling or disabling live input logging during exec
 func LogInput(v bool) Option {
 	return func(o *Options) {
 		o.logInput = v
 	}
 }
 
+// TrimOutput exec option for controlling if the output of the command will be trimmed of whitespace
 func TrimOutput(v bool) Option {
 	return func(o *Options) {
 		o.trimOutput = v
 	}
 }
 
+// PS exec option for using powershell to execute the command on windows
 func PS() Option {
 	return func(o *Options) {
-		o.decorateFuncs = append(o.decorateFuncs, func(s string) string {
-			return powershell.Cmd(s)
-		})
+		o.decorateFuncs = append(o.decorateFuncs, powershell.Cmd)
 	}
 }
 
+// PSCompressed is like PS but for long command scriptlets
 func PSCompressed() Option {
 	return func(o *Options) {
-		o.decorateFuncs = append(o.decorateFuncs, func(s string) string {
-			return powershell.CompressedCmd(s)
-		})
+		o.decorateFuncs = append(o.decorateFuncs, powershell.CompressedCmd)
 	}
 }
 
