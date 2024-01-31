@@ -14,9 +14,10 @@ import (
 )
 
 var (
-	_        fs.FS = (*WinFsys)(nil)
-	_        Fsys  = (*WinFsys)(nil)
-	EWINDOWS       = errors.New("not supported on windows")
+	_ fs.FS = (*WinFsys)(nil)
+	_ Fsys  = (*WinFsys)(nil)
+	// EWINDOWS is returned when a function is not supported on Windows
+	EWINDOWS = errors.New("not supported on windows") //nolint:revive,stylecheck // modeled after syscall
 )
 
 // WinFsys is a fs.FS implemen{
@@ -191,6 +192,7 @@ func (fsys *WinFsys) OpenFile(name string, flags int, _ fs.FileMode) (File, erro
 	return f, nil
 }
 
+// ReadFile reads the named file and returns its contents.
 func (fsys *WinFsys) ReadFile(name string) ([]byte, error) {
 	out, err := fsys.ExecOutput("type %s", ps.DoubleQuotePath(name))
 	if err != nil {
@@ -247,7 +249,7 @@ func (fsys *WinFsys) Chtimes(name string, atime, mtime int64) error {
 // Chmod changes the mode of the named file to mode. On Windows, only the 0200 bit (owner writable) of mode is used; it controls whether the file's read-only attribute is set or cleared.
 func (fsys *WinFsys) Chmod(name string, mode fs.FileMode) error {
 	var attribSign string
-	if mode&0200 != 0 {
+	if mode&0o200 != 0 {
 		attribSign = "+"
 	} else {
 		attribSign = "-"
@@ -259,7 +261,7 @@ func (fsys *WinFsys) Chmod(name string, mode fs.FileMode) error {
 }
 
 // Chown changes the numeric uid and gid of the named file. On windows it returns an error.
-func (fsys *WinFsys) Chown(name string, uid, gid int) error {
+func (fsys *WinFsys) Chown(name string, _, _ int) error {
 	return fmt.Errorf("chown %s: %w", name, EWINDOWS)
 }
 

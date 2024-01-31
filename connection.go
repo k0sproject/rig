@@ -115,28 +115,31 @@ func (c *Connection) Address() string {
 	return ""
 }
 
+// InitSystem returns a ServiceManager for the host's init system
 func (c *Connection) InitSystem() (initsystem.ServiceManager, error) {
 	if c.initSys == nil {
 		is, err := initsystem.GetRepository().Get(c)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("get init system: %w", err)
 		}
 		c.initSys = is
 	}
 	return c.initSys, nil
 }
 
+// PackageManager returns a PackageManager for the host's package manager
 func (c *Connection) PackageManager() (packagemanager.PackageManager, error) {
 	if c.packageMan == nil {
 		pm, err := packagemanager.GetRepository().Get(c)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("get package manager: %w", err)
 		}
 		c.packageMan = pm
 	}
 	return c.packageMan, nil
 }
 
+// Service returns a Service object for the named service using the host's init system
 func (c *Connection) Service(name string) (*Service, error) {
 	is, err := c.InitSystem()
 	if err != nil {

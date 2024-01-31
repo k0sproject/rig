@@ -581,8 +581,8 @@ func (c *SSH) StartProcess(ctx context.Context, cmd string, stdin io.Reader, std
 	go func() {
 		<-ctx.Done()
 		if ctx.Err() != nil {
-			session.Signal(ssh.SIGINT)
-			session.Close()
+			_ = session.Signal(ssh.SIGINT)
+			_ = session.Close()
 		}
 	}()
 

@@ -11,8 +11,10 @@ import (
 	"github.com/k0sproject/rig/log"
 )
 
+// ErrChecksumMismatch is returned when the checksum of the uploaded file does not match the local checksum.
 var ErrChecksumMismatch = errors.New("checksum mismatch")
 
+// Upload a file to the remote host.
 func Upload(fsys Fsys, src, dst string) error {
 	local, err := os.Open(src)
 	if err != nil {

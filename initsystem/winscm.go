@@ -31,7 +31,7 @@ func (c WinSCM) StopService(ctx context.Context, h exec.ContextRunner, s string)
 }
 
 // ServiceScriptPath returns the path to a service configuration file
-func (c WinSCM) ServiceScriptPath(ctx context.Context, h exec.ContextRunner, _ string) (string, error) {
+func (c WinSCM) ServiceScriptPath(_ context.Context, _ exec.ContextRunner, _ string) (string, error) {
 	return "", errNotSupported
 }
 
@@ -65,6 +65,7 @@ func (c WinSCM) ServiceIsRunning(ctx context.Context, h exec.ContextRunner, s st
 	return h.ExecContext(ctx, `sc.exe query %s | findstr "RUNNING"`, ps.DoubleQuote(s)) == nil
 }
 
+// RegisterWinSCM registers the WinSCM in a repository
 func RegisterWinSCM(repo *Repository) {
 	repo.Register(func(c exec.ContextRunner) ServiceManager {
 		if c.IsWindows() {

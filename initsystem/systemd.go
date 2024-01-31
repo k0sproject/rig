@@ -97,6 +97,7 @@ func (i Systemd) ServiceEnvironmentContent(env map[string]string) string {
 	return b.String()
 }
 
+// RegisterSystemd registers systemd into a repository
 func RegisterSystemd(repo *Repository) {
 	repo.Register(func(c exec.ContextRunner) ServiceManager {
 		if c.IsWindows() {

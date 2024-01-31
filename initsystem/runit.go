@@ -10,6 +10,7 @@ import (
 	"github.com/k0sproject/rig/exec"
 )
 
+// Runit is an init system implementation for runit
 type Runit struct{}
 
 // StartService starts a runit service
@@ -42,7 +43,7 @@ func (i Runit) ServiceIsRunning(ctx context.Context, h exec.ContextRunner, s str
 }
 
 // ServiceScriptPath returns the path to a runit service script
-func (i Runit) ServiceScriptPath(ctx context.Context, h exec.ContextRunner, s string) (string, error) {
+func (i Runit) ServiceScriptPath(_ context.Context, _ exec.ContextRunner, s string) (string, error) {
 	serviceDir := "/etc/service"
 	return path.Join(serviceDir, s), nil
 }
@@ -67,6 +68,7 @@ func (i Runit) DisableService(ctx context.Context, h exec.ContextRunner, s strin
 	return nil
 }
 
+// RegisterRunit register runit in a repository
 func RegisterRunit(repo *Repository) {
 	repo.Register(func(c exec.ContextRunner) ServiceManager {
 		if c.IsWindows() {

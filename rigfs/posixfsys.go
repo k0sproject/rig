@@ -452,7 +452,6 @@ func (fsys *PosixFsys) Touch(name string) error {
 
 // second precision touch for busybox or when nanoseconds are zero
 func (fsys *PosixFsys) secChtime(name string, accessOrMod rune, t time.Time) error {
-
 	utc := t.UTC()
 	// most touches support giving the timestamp as @unixtime
 	cmd := fmt.Sprintf("env -i LC_ALL=C TZ=UTC touch -%c -d @%d -- %s",
