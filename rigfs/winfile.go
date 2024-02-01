@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
 	ps "github.com/k0sproject/rig/powershell"
 )
@@ -193,7 +194,7 @@ func (f *winFile) open(flags int) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	f.cancel = cancel
-	cmd, err := f.fsys.Start(ctx, rigRcp, stdinR, stdoutW, stderrW)
+	cmd, err := f.fsys.Start(ctx, rigRcp, exec.Stdin(stdinR), exec.Stdout(stdoutW), exec.Stderr(stderrW))
 	if err != nil {
 		return f.pathErr(OpOpen, fmt.Errorf("start file daemon: %w", err))
 	}
