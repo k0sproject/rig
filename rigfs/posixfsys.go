@@ -498,11 +498,8 @@ func (fsys *PosixFsys) Chtimes(name string, atime, mtime int64) error {
 					lastErr = err
 				}
 			} else if err := fsys.nsecChtime(name, m, t); err != nil {
-				lastErr = err
 				nsecWorks = false
-				if err := fsys.secChtime(name, m, t); err != nil {
-					lastErr = err
-				}
+				lastErr = fsys.secChtime(name, m, t)
 			}
 		}
 	}

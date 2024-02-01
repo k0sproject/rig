@@ -2,12 +2,16 @@ package rigfs
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/k0sproject/rig/exec"
 	ps "github.com/k0sproject/rig/powershell"
@@ -138,18 +142,33 @@ func (fsys *WinFsys) Mkdir(name string, _ fs.FileMode) error {
 	return nil
 }
 
+func randHexString(n int) (string, error) {
+	bytes := make([]byte, (n+1)/2) // generate enough bytes
+	_, err := rand.Read(bytes)
+	if err != nil {
+		return "", fmt.Errorf("create random string: %w", err)
+	}
+	return hex.EncodeToString(bytes)[:n], nil
+}
+
 // MkdirTemp creates a new temporary directory in the directory dir with a name beginning with prefix and returns the path of the new directory.
 func (fsys *WinFsys) MkdirTemp(dir, prefix string) (string, error) {
 	if dir == "" {
 		dir = fsys.TempDir()
 	}
 
-	out, err := fsys.ExecOutput("New-TemporaryFile -Name %s -Path %s", prefix, ps.DoubleQuotePath(dir), exec.PS())
+	rnd, err := randHexString(8)
 	if err != nil {
-		return "", fmt.Errorf("mkdirtemp %s: %w", dir, err)
+		rnd = strconv.FormatInt(time.Now().UnixNano(), 16)
 	}
-	return out, nil
+
+	path := fsys.Join(dir, prefix+rnd+".tmp")
+	if err := fsys.Mkdir(path, 0o700); err != nil {
+		return "", fmt.Errorf("mkdirtemp %s: %w", path, err)
+	}
+	return path, nil
 }
+
 
 type opener interface {
 	open(flags int) error
