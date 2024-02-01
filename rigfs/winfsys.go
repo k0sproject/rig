@@ -212,7 +212,7 @@ func (fsys *WinFsys) OpenFile(name string, flags int, _ fs.FileMode) (File, erro
 
 // ReadFile reads the named file and returns its contents.
 func (fsys *WinFsys) ReadFile(name string) ([]byte, error) {
-	out, err := fsys.ExecOutput("type %s", ps.DoubleQuotePath(name))
+	out, err := fsys.ExecOutput("Get-Content -Path %s -Encoding Byte -Raw", ps.DoubleQuotePath(name), exec.PS())
 	if err != nil {
 		return nil, fmt.Errorf("readfile %s: %w", name, err)
 	}
