@@ -8,11 +8,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
 	ps "github.com/k0sproject/rig/powershell"
 )
 
-type resolveFunc func(*Connection) (OSRelease, error)
+type resolveFunc func(exec.SimpleRunner) (OSRelease, error)
 
 var (
 	// Resolvers exposes an array of resolve functions where you can add your own if you need to detect some OS rig doesn't already know about
@@ -45,7 +46,7 @@ func (o OSRelease) String() string {
 }
 
 // GetOSRelease runs through the Resolvers and tries to figure out the OS version information
-func GetOSRelease(conn *Connection) (OSRelease, error) {
+func GetOSRelease(conn exec.SimpleRunner) (OSRelease, error) {
 	for _, r := range Resolvers {
 		os, err := r(conn)
 		if err == nil {
@@ -59,7 +60,7 @@ func GetOSRelease(conn *Connection) (OSRelease, error) {
 	return OSRelease{}, fmt.Errorf("%w: unable to determine host os", ErrNotSupported)
 }
 
-func resolveLinux(conn *Connection) (OSRelease, error) {
+func resolveLinux(conn exec.SimpleRunner) (OSRelease, error) {
 	if err := conn.Exec("uname | grep -q Linux"); err != nil {
 		return OSRelease{}, fmt.Errorf("not a linux host (%w)", err)
 	}
@@ -78,7 +79,7 @@ func resolveLinux(conn *Connection) (OSRelease, error) {
 	return version, nil
 }
 
-func resolveWindows(conn *Connection) (OSRelease, error) {
+func resolveWindows(conn exec.SimpleRunner) (OSRelease, error) {
 	if !conn.IsWindows() {
 		return OSRelease{}, fmt.Errorf("%w: not a windows host", ErrCommandFailed)
 	}
@@ -100,7 +101,7 @@ func resolveWindows(conn *Connection) (OSRelease, error) {
 	}, nil
 }
 
-func resolveDarwin(conn *Connection) (OSRelease, error) {
+func resolveDarwin(conn exec.SimpleRunner) (OSRelease, error) {
 	if err := conn.Exec("uname | grep -q Darwin"); err != nil {
 		return OSRelease{}, fmt.Errorf("%w: not a darwin host: %w", ErrCommandFailed, err)
 	}

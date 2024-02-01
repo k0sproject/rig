@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"sync/atomic"
 
 	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig/exec"
@@ -19,52 +18,39 @@ type PackageManager interface {
 }
 
 var (
-	// DefaultPackageManagerRepository is the default repository of package managers.
-	DefaultPackageManagerRepository = NewRepository()
-	repository                      atomic.Value
+	// DefaultRepository is the default repository of package managers.
+	DefaultRepository = NewRepository()
 	// ErrNoPackageManager is returned when no supported package manager is found.
 	ErrNoPackageManager = errors.New("no supported package manager found")
 )
 
 func init() {
-	RegisterApk(DefaultPackageManagerRepository)
-	RegisterApt(DefaultPackageManagerRepository)
-	RegisterYum(DefaultPackageManagerRepository)
-	RegisterDnf(DefaultPackageManagerRepository)
-	RegisterPacman(DefaultPackageManagerRepository)
-	RegisterZypper(DefaultPackageManagerRepository)
-	RegisterWindowsMultiManager(DefaultPackageManagerRepository)
-	RegisterHomebrew(DefaultPackageManagerRepository)
-	RegisterMacports(DefaultPackageManagerRepository)
-
-	SetRepository(DefaultPackageManagerRepository)
+	RegisterApk(DefaultRepository)
+	RegisterApt(DefaultRepository)
+	RegisterYum(DefaultRepository)
+	RegisterDnf(DefaultRepository)
+	RegisterPacman(DefaultRepository)
+	RegisterZypper(DefaultRepository)
+	RegisterWindowsMultiManager(DefaultRepository)
+	RegisterHomebrew(DefaultRepository)
+	RegisterMacports(DefaultRepository)
 }
 
-// SetRepository sets the repository to use for package managers.
-func SetRepository(r *Repository) {
-	repository.Store(r)
-}
-
-// GetRepository returns the repository to use for package managers.
-func GetRepository() *Repository {
-	return repository.Load().(*Repository) //nolint:forcetypeassert // we know it's a *Repository
-}
-
-// FactoryFunc is a function that creates a package manager.
-type FactoryFunc func(c exec.ContextRunner) PackageManager
+// Factory is a function that creates a package manager.
+type Factory func(c exec.ContextRunner) PackageManager
 
 // Repository is a repository of package managers.
 type Repository struct {
-	managers []FactoryFunc
+	managers []Factory
 }
 
 // NewRepository creates a new repository of package managers.
-func NewRepository() *Repository {
-	return &Repository{}
+func NewRepository(factories ...Factory) *Repository {
+	return &Repository{managers: factories}
 }
 
 // Register registers a package manager to the repository.
-func (r *Repository) Register(factory FactoryFunc) {
+func (r *Repository) Register(factory Factory) {
 	r.managers = append(r.managers, factory)
 }
 

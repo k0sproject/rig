@@ -6,15 +6,14 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strings"
 
-	"github.com/alessio/shellescape"
 	"github.com/creasty/defaults"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/initsystem"
 	"github.com/k0sproject/rig/log"
 	"github.com/k0sproject/rig/packagemanager"
 	"github.com/k0sproject/rig/rigfs"
+	"github.com/k0sproject/rig/sudo"
 )
 
 type client interface {
@@ -76,6 +75,10 @@ type Connection struct {
 	sudofsys   rigfs.Fsys
 	initSys    initsystem.ServiceManager
 	packageMan packagemanager.PackageManager
+
+	initsysRepo    *initsystem.Repository
+	packagemanRepo *packagemanager.Repository
+	sudoRepo       *sudo.Repository
 }
 
 // SetDefaults sets a connection
@@ -86,6 +89,16 @@ func (c *Connection) SetDefaults() {
 			c.client = defaultClient()
 		}
 		_ = defaults.Set(c.client)
+	}
+
+	if defaults.CanUpdate(c.initsysRepo) {
+		c.initsysRepo = initsystem.DefaultRepository
+	}
+	if defaults.CanUpdate(c.packagemanRepo) {
+		c.packagemanRepo = packagemanager.DefaultRepository
+	}
+	if defaults.CanUpdate(c.sudoRepo) {
+		c.sudoRepo = sudo.DefaultRepository
 	}
 }
 
@@ -118,7 +131,7 @@ func (c *Connection) Address() string {
 // InitSystem returns a ServiceManager for the host's init system
 func (c *Connection) InitSystem() (initsystem.ServiceManager, error) {
 	if c.initSys == nil {
-		is, err := initsystem.GetRepository().Get(c)
+		is, err := c.initsysRepo.Get(c)
 		if err != nil {
 			return nil, fmt.Errorf("get init system: %w", err)
 		}
@@ -130,7 +143,7 @@ func (c *Connection) InitSystem() (initsystem.ServiceManager, error) {
 // PackageManager returns a PackageManager for the host's package manager
 func (c *Connection) PackageManager() (packagemanager.PackageManager, error) {
 	if c.packageMan == nil {
-		pm, err := packagemanager.GetRepository().Get(c)
+		pm, err := c.packagemanRepo.Get(c)
 		if err != nil {
 			return nil, fmt.Errorf("get package manager: %w", err)
 		}
@@ -226,15 +239,20 @@ func (c *Connection) Connect() error {
 
 	c.Runner = exec.NewHostRunner(c.client)
 
+	return nil
+}
+
+// OSRelease returns the host's OSRelease information
+func (c *Connection) OSRelease() (*OSRelease, error) {
 	if c.OS == nil {
-		o, err := GetOSRelease(c)
+		o, err := GetOSRelease(c.Runner)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		c.OS = &o
 	}
 
-	return nil
+	return c.OS, nil
 }
 
 // Sudo returns an exec.Runner that runs commands using sudo. If a sudo method can not be detected, a runner that always returns errors is returned.
@@ -250,60 +268,12 @@ func (c *Connection) Sudo() exec.Runner {
 	return c.sudoRunner
 }
 
-func sudoNoop(cmd string) string {
-	return cmd
-}
-
-func sudoSudo(cmd string) string {
-	return `sudo -n -- "${SHELL-sh}" -c ` + shellescape.Quote(cmd)
-}
-
-func sudoDoas(cmd string) string {
-	return `doas -n -- "${SHELL-sh}" -c ` + shellescape.Quote(cmd)
-}
-
 func (c *Connection) detectSudo() (exec.DecorateFunc, error) {
-	if !c.IsWindows() {
-		if c.Exec(`[ "$(id -u)" = 0 ]`) == nil {
-			// user is already root
-			return sudoNoop, nil
-		}
-		if c.Exec(`sudo -n true`) == nil {
-			// user has passwordless sudo
-			return sudoSudo, nil
-		}
-		if c.Exec(`doas -n -- "${SHELL-sh}" -c true`) == nil {
-			// user has passwordless doas
-			return sudoDoas, nil
-		}
-		return nil, fmt.Errorf("%w: user is not root and passwordless access elevation (sudo, doas) has not been configured", ErrSudoRequired)
-	}
-
-	out, err := c.ExecOutput(`whoami`)
+	decorator, err := c.sudoRepo.Get(c)
 	if err != nil {
-		return nil, fmt.Errorf("%w: detect sudo: %w", ErrSudoRequired, err)
+		return nil, fmt.Errorf("%w: get sudo: %w", ErrSudoRequired, err)
 	}
-	parts := strings.Split(out, `\`)
-	if strings.ToLower(parts[len(parts)-1]) == "administrator" {
-		// user is already the administrator
-		return sudoNoop, nil
-	}
-
-	if c.Exec(`net user "%USERNAME%" | findstr /B /C:"Local Group Memberships" | findstr /C:"*Administrators"`) != nil {
-		// user is not in the Administrators group
-		return nil, fmt.Errorf("%w: user is not in 'Administrators'", ErrSudoRequired)
-	}
-
-	out, err = c.ExecOutput(`reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "EnableLUA"`)
-	if err != nil {
-		return nil, fmt.Errorf("%w: failed to query if UAC is enabled: %w", ErrSudoRequired, err)
-	}
-	if strings.Contains(out, "0x0") {
-		// UAC is disabled and the user is in the Administrators group - expect sudo to work
-		return sudoNoop, nil
-	}
-
-	return nil, fmt.Errorf("%w: UAC is enabled and user is not 'Administrator'", ErrSudoRequired)
+	return decorator, nil
 }
 
 // ExecInteractive executes a command on the host and passes control of

@@ -7,12 +7,17 @@ import (
 
 	"github.com/creasty/defaults"
 	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/sudo"
 	"github.com/stretchr/testify/require"
 )
 
 type Host struct {
 	Connection
 }
+
+type stubWaiter struct{}
+
+func (s *stubWaiter) Wait() error { return nil }
 
 type mockClient struct {
 	commands []string
@@ -32,7 +37,7 @@ func (m *mockClient) IsConnected() bool { return true }
 func (m *mockClient) StartProcess(ctx context.Context, cmd string, _ io.Reader, _, _ io.Writer) (exec.Waiter, error) {
 	m.commands = append(m.commands, cmd)
 
-	return nil, nil
+	return &stubWaiter{}, nil
 }
 
 var stubSudofunc = func(in string) string {
@@ -74,10 +79,17 @@ func TestSudo(t *testing.T) {
 	h := Host{
 		Connection: Connection{
 			client: &mc,
+			sudoRepo: sudo.NewRepository(func(c exec.SimpleRunner) exec.DecorateFunc {
+				_ = c.Exec("sudocheck")
+				return func(cmd string) string {
+					return "sudo-goes-here " + cmd
+				}
+			}),
 		},
 	}
 	h.Connect()
 
 	require.NoError(t, h.Sudo().Exec("ls %s", "/tmp"))
 	require.Contains(t, mc.commands, "sudo-goes-here ls /tmp")
+	require.Contains(t, mc.commands, "sudocheck")
 }

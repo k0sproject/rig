@@ -4,7 +4,6 @@ package initsystem
 import (
 	"context"
 	"errors"
-	"sync/atomic"
 
 	"github.com/k0sproject/rig/exec"
 )
@@ -39,33 +38,20 @@ type ServiceEnvironmentManager interface {
 type ServiceManagerFactory func(c exec.ContextRunner) ServiceManager
 
 var (
-	// DefaultInitSystemRepository is the default repository for init systems
-	DefaultInitSystemRepository = NewRepository()
-	repository                  atomic.Value
+	// DefaultRepository is the default repository for init systems
+	DefaultRepository = NewRepository()
 	// ErrNoInitSystem is returned when no supported init system is found.
 	ErrNoInitSystem = errors.New("no supported init system found")
 )
 
 func init() {
-	RegisterSystemd(DefaultInitSystemRepository)
-	RegisterOpenRC(DefaultInitSystemRepository)
-	RegisterUpstart(DefaultInitSystemRepository)
-	RegisterSysVinit(DefaultInitSystemRepository)
-	RegisterWinSCM(DefaultInitSystemRepository)
-	RegisterRunit(DefaultInitSystemRepository)
-	RegisterLaunchd(DefaultInitSystemRepository)
-
-	SetRepository(DefaultInitSystemRepository)
-}
-
-// GetRepository returns the current global repository
-func GetRepository() *Repository {
-	return repository.Load().(*Repository) //nolint:forcetypeassert // it's always a repository
-}
-
-// SetRepository sets the current global repository
-func SetRepository(r *Repository) {
-	repository.Store(r)
+	RegisterSystemd(DefaultRepository)
+	RegisterOpenRC(DefaultRepository)
+	RegisterUpstart(DefaultRepository)
+	RegisterSysVinit(DefaultRepository)
+	RegisterWinSCM(DefaultRepository)
+	RegisterRunit(DefaultRepository)
+	RegisterLaunchd(DefaultRepository)
 }
 
 // Repository is a collection of ServiceManagerFactories
@@ -90,6 +76,6 @@ func (r *Repository) Get(c exec.ContextRunner) (ServiceManager, error) {
 }
 
 // NewRepository returns a new Repository
-func NewRepository() *Repository {
-	return &Repository{}
+func NewRepository(factories ...ServiceManagerFactory) *Repository {
+	return &Repository{systems: factories}
 }
