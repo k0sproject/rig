@@ -169,7 +169,6 @@ func (fsys *WinFsys) MkdirTemp(dir, prefix string) (string, error) {
 	return path, nil
 }
 
-
 type opener interface {
 	open(flags int) error
 }
