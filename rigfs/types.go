@@ -18,6 +18,7 @@ type Fsys interface {
 
 // File is a file in the remote filesystem
 type File interface {
+	Name() string
 	fs.File
 	io.Seeker
 	io.ReadCloser

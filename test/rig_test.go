@@ -296,6 +296,7 @@ func (s *OSSuite) TestStat() {
 
 func (s *OSSuite) TestTouch() {
 	f := s.TempPath()
+	s.Require().NoError(s.fs.Touch(f))
 	now := time.Now()
 	for _, tt := range []time.Time{now, now.Add(1 * time.Hour)} {
 		s.Run("Update timestamp "+tt.String(), func() {

@@ -29,12 +29,14 @@ var (
 type PosixFsys struct {
 	exec.SimpleRunner
 
-	statCmd *string
+	// TODO: these should probably be in some kind of "coreutils" package
+	statCmd   *string
+	chtimesFn func(name string, atime, mtime int64) error
 }
 
 // NewPosixFsys returns a fs.FS implementation for a remote filesystem that uses POSIX commands for access
 func NewPosixFsys(conn exec.SimpleRunner) *PosixFsys {
-	return &PosixFsys{conn, nil}
+	return &PosixFsys{conn, nil, nil}
 }
 
 const (
@@ -267,17 +269,85 @@ var (
 )
 
 func (fsys *PosixFsys) initStat() error {
-	if fsys.statCmd == nil {
-		out, err := fsys.ExecOutput("stat --help 2>&1", exec.HideOutput())
-		if err != nil {
-			return fmt.Errorf("can't access stat command: %w", err)
-		}
-		if strings.Contains(out, "BusyBox") || strings.Contains(out, "--format=") {
-			fsys.statCmd = &statCmdGNU
-		} else {
-			fsys.statCmd = &statCmdBSD
+	if fsys.statCmd != nil {
+		return nil
+	}
+	out, err := fsys.ExecOutput("stat --help 2>&1", exec.HideOutput())
+	if err != nil {
+		return fmt.Errorf("can't access stat command: %w", err)
+	}
+	if strings.Contains(out, "BusyBox") || strings.Contains(out, "--format=") {
+		fsys.statCmd = &statCmdGNU
+	} else {
+		fsys.statCmd = &statCmdBSD
+	}
+	return nil
+}
+
+// second precision touch for busybox
+func (fsys *PosixFsys) secChtimes(name string, atime, mtime int64) error {
+	accessOrMod := [2]rune{'a', 'm'}
+	// only supports setting one of them at a time
+	for i, t := range [2]int64{atime, mtime} {
+		ts := int64ToTime(t)
+		utc := ts.UTC()
+		cmd := fmt.Sprintf("[ -e %[3]s ] && env -i LC_ALL=C TZ=UTC touch -%[1]c -d @%[2]d -- %[3]s",
+			accessOrMod[i],
+			utc.Unix(),
+			shellescape.Quote(name),
+		)
+		if err := fsys.Exec(cmd); err != nil {
+			return fmt.Errorf("touch %s (%ctime): %w", name, accessOrMod[i], err)
 		}
 	}
+	return nil
+}
+
+// nanosecond precision touch for stats that support it
+func (fsys *PosixFsys) nsecChtimes(name string, atime, mtime int64) error {
+	atimeTS := int64ToTime(atime)
+	mtimeTS := int64ToTime(mtime)
+	utcA := atimeTS.UTC()
+	utcM := mtimeTS.UTC()
+	cmd := fmt.Sprintf("[ -e %[3]s ] && env -i LC_ALL=C TZ=UTC touch -a -d %[1]s -m -d %[2]s -- %[3]s",
+		fmt.Sprintf("%s.%09d", utcA.Format("2006-01-02T15:04:05"), utcA.Nanosecond()),
+		fmt.Sprintf("%s.%09d", utcM.Format("2006-01-02T15:04:05"), utcM.Nanosecond()),
+		shellescape.Quote(name),
+	)
+	if err := fsys.Exec(cmd); err != nil {
+		return fmt.Errorf("touch (ns) %s: %w", name, err)
+	}
+	return nil
+}
+
+func (fsys *PosixFsys) initTouch() error {
+	if fsys.chtimesFn != nil {
+		return nil
+	}
+	out, err := fsys.ExecOutput("touch --help 2>&1", exec.HideOutput())
+	if err != nil {
+		return fmt.Errorf("can't access touch command: %w", err)
+	}
+	if strings.Contains(out, "BusyBox") {
+		fsys.chtimesFn = fsys.secChtimes
+		return nil
+	}
+	tmpF, err := CreateTemp(fsys, "", "rigfs-touch-test")
+	if err != nil {
+		return fmt.Errorf("can't create temp file for touch test: %w", err)
+	}
+	if err := tmpF.Close(); err != nil {
+		return fmt.Errorf("can't close temp file for touch test: %w", err)
+	}
+	defer func() {
+		_ = fsys.Remove(tmpF.Name())
+	}()
+	if err := fsys.nsecChtimes(tmpF.Name(), 0, 0); err != nil {
+		fsys.chtimesFn = fsys.secChtimes
+	} else {
+		fsys.chtimesFn = fsys.nsecChtimes
+	}
+
 	return nil
 }
 
@@ -450,37 +520,6 @@ func (fsys *PosixFsys) Touch(name string) error {
 	return nil
 }
 
-// second precision touch for busybox or when nanoseconds are zero
-func (fsys *PosixFsys) secChtime(name string, accessOrMod rune, t time.Time) error {
-	utc := t.UTC()
-	// most touches support giving the timestamp as @unixtime
-	cmd := fmt.Sprintf("env -i LC_ALL=C TZ=UTC touch -%c -d @%d -- %s",
-		accessOrMod,
-		utc.Unix(),
-		shellescape.Quote(name),
-	)
-	if err := fsys.Exec(cmd); err != nil {
-		return fmt.Errorf("touch %s (%ctime): %w", name, accessOrMod, err)
-	}
-	return nil
-}
-
-// nanosecond precision touch for stats that support it
-func (fsys *PosixFsys) nsecChtime(name string, accessOrMod rune, t time.Time) error {
-	utc := t.UTC()
-	cmd := fmt.Sprintf("env -i LC_ALL=C TZ=UTC touch -%c -d %s -- %s",
-		accessOrMod,
-		shellescape.Quote(
-			fmt.Sprintf("%s.%09d", utc.Format("2006-01-02T15:04:05"), t.Nanosecond()),
-		),
-		shellescape.Quote(name),
-	)
-	if err := fsys.Exec(cmd); err != nil {
-		return fmt.Errorf("touch (ns) %s (%ctime): %w", name, accessOrMod, err)
-	}
-	return nil
-}
-
 func int64ToTime(timestamp int64) time.Time {
 	seconds := timestamp / 1e9
 	nanoseconds := timestamp % 1e9
@@ -489,24 +528,10 @@ func int64ToTime(timestamp int64) time.Time {
 
 // Chtimes changes the access and modification times of the named file
 func (fsys *PosixFsys) Chtimes(name string, atime, mtime int64) error {
-	var lastErr error
-	nsecWorks := true
-	for _, m := range []rune{'a', 'm'} {
-		for _, t := range []time.Time{int64ToTime(atime), int64ToTime(mtime)} {
-			if t.Nanosecond() == 0 || !nsecWorks {
-				if err := fsys.secChtime(name, m, t); err != nil {
-					lastErr = err
-				}
-			} else if err := fsys.nsecChtime(name, m, t); err != nil {
-				nsecWorks = false
-				lastErr = fsys.secChtime(name, m, t)
-			}
-		}
+	if err := fsys.initTouch(); err != nil {
+		return err
 	}
-	if lastErr != nil {
-		return fmt.Errorf("chtimes: %w", lastErr)
-	}
-	return nil
+	return fsys.chtimesFn(name, atime, mtime)
 }
 
 // Truncate changes the size of the named file or creates a new file if it doesn't exist
@@ -627,10 +652,6 @@ func (fsys *PosixFsys) OpenFile(name string, flags int, perm fs.FileMode) (File,
 
 // ReadDir reads the directory named by dirname and returns a list of directory entries
 func (fsys *PosixFsys) ReadDir(name string) ([]fs.DirEntry, error) {
-	if err := fsys.initStat(); err != nil {
-		return nil, err
-	}
-
 	if name == "" {
 		name = "."
 	}
