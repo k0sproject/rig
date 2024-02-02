@@ -194,7 +194,7 @@ func (f *winFile) open(flags int) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	f.cancel = cancel
-	cmd, err := f.fsys.Start(ctx, rigRcp, exec.Stdin(stdinR), exec.Stdout(stdoutW), exec.Stderr(stderrW))
+	cmd, err := f.fsys.Start(ctx, rigRcp, exec.Stdin(stdinR), exec.Stdout(stdoutW), exec.Stderr(stderrW), exec.LogInput(false), exec.HideOutput())
 	if err != nil {
 		return f.pathErr(OpOpen, fmt.Errorf("start file daemon: %w", err))
 	}
