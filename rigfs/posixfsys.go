@@ -32,11 +32,12 @@ type PosixFsys struct {
 	// TODO: these should probably be in some kind of "coreutils" package
 	statCmd   *string
 	chtimesFn func(name string, atime, mtime int64) error
+	timeTrunc time.Duration
 }
 
 // NewPosixFsys returns a fs.FS implementation for a remote filesystem that uses POSIX commands for access
 func NewPosixFsys(conn exec.SimpleRunner) *PosixFsys {
-	return &PosixFsys{conn, nil, nil}
+	return &PosixFsys{conn, nil, nil, 0}
 }
 
 const (
@@ -278,8 +279,10 @@ func (fsys *PosixFsys) initStat() error {
 	}
 	if strings.Contains(out, "BusyBox") || strings.Contains(out, "--format=") {
 		fsys.statCmd = &statCmdGNU
+		fsys.timeTrunc = time.Second
 	} else {
 		fsys.statCmd = &statCmdBSD
+		fsys.timeTrunc = time.Nanosecond
 	}
 	return nil
 }

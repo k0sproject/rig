@@ -17,6 +17,7 @@ import (
 
 	"github.com/k0sproject/rig"
 	"github.com/k0sproject/rig/rigfs"
+	"github.com/k0sproject/rig/softtime"
 	"github.com/kevinburke/ssh_config"
 
 	"github.com/stretchr/testify/require"
@@ -310,11 +311,12 @@ func (s *OSSuite) TestTouch() {
 			s.Equal(now.Unix(), stat.ModTime().Unix())
 			if s.Host.IsWindows() {
 				s.T().Log("Testing millisecond precision on windows")
-				s.Equal(now.UnixMilli(), stat.ModTime().UnixMilli())
+				s.Equal(now.UnixMilli(), stat.ModTime().UnixMilli(), "expected %d (%s), got %d (%s)", now.UnixMilli(), now, stat.ModTime().UnixMilli(), stat.ModTime())
 			} else if stat.ModTime().Nanosecond() != 0 {
 				s.T().Log("Testing nanosecond precision")
 				s.Equal(now.UnixNano(), stat.ModTime().UnixNano())
 			}
+			s.True(softtime.Equal(now, stat.ModTime()))
 		})
 	}
 }

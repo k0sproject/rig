@@ -21,7 +21,7 @@ func (t *windowsFileInfoTime) UnmarshalJSON(b []byte) error {
 
 	seconds := milliseconds / 1000
 	nanoseconds := (milliseconds % 1000) * 1000000
-	*t = windowsFileInfoTime(time.Unix(seconds, nanoseconds))
+	*t = windowsFileInfoTime(time.Unix(seconds, nanoseconds).Truncate(time.Millisecond))
 	return nil
 }
 
