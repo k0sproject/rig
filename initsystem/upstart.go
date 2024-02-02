@@ -3,6 +3,7 @@ package initsystem
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig/exec"
@@ -61,6 +62,16 @@ func (i Upstart) DisableService(ctx context.Context, h exec.ContextRunner, s str
 		return fmt.Errorf("failed to create override file %s: %w", overridePath, err)
 	}
 	return nil
+}
+
+// ServiceLogs returns the logs for a service from /var/log/upstart/<service>.log. It's not guaranteed
+// that the log file exists or that the service logs to this file.
+func (i Upstart) ServiceLogs(ctx context.Context, h exec.ContextRunner, s string, lines int) ([]string, error) {
+	out, err := h.ExecOutputContext(ctx, "tail -n %d %s", lines, shellescape.Quote("/var/log/upstart/"+s+".log"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get logs for service %s: %w", s, err)
+	}
+	return strings.Split(out, "\n"), nil
 }
 
 // RegisterUpstart registers Upstart in a repository

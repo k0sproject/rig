@@ -2,6 +2,7 @@ package rig
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/k0sproject/rig/exec"
@@ -16,6 +17,9 @@ const (
 	// ServiceStateStarted is the started state.
 	ServiceStateStarted serviceState = 1
 )
+
+// ErrEmptyResult is returned when a command returns an empty result
+var ErrEmptyResult = errors.New("empty result")
 
 // Service is an interface for managing a service on an initsystem.
 type Service struct {
@@ -117,4 +121,21 @@ func (m *Service) ServiceScriptPath(ctx context.Context) (string, error) {
 // ServiceIsRunning returns true if the service is running.
 func (m *Service) ServiceIsRunning(ctx context.Context) bool {
 	return m.initsys.ServiceIsRunning(ctx, m.runner, m.name)
+}
+
+// ServiceLogs returns latest log lines for the service.
+func (m *Service) ServiceLogs(ctx context.Context, lines int) ([]string, error) {
+	logreader, ok := m.initsys.(initsystem.ServiceManagerLogReader)
+	if !ok {
+		return nil, fmt.Errorf("%w: system's init system does not implement log reader", ErrNotSupported)
+	}
+
+	rows, err := logreader.ServiceLogs(ctx, m.runner, m.name, lines)
+	if err != nil {
+		return nil, fmt.Errorf("get logs: %w", err)
+	}
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("get logs: %w", ErrEmptyResult)
+	}
+	return rows, nil
 }

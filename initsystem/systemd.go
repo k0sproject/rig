@@ -97,6 +97,16 @@ func (i Systemd) ServiceEnvironmentContent(env map[string]string) string {
 	return b.String()
 }
 
+// ServiceLogs returns the last n lines of a service log
+func (i Systemd) ServiceLogs(ctx context.Context, h exec.ContextRunner, s string, lines int) ([]string, error) {
+	out, err := h.ExecOutputContext(ctx, "journalctl -n %d -u %s 2> /dev/null", lines, s)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get logs for service %s: %w", s, err)
+	}
+
+	return strings.Split(out, "\n"), nil
+}
+
 // RegisterSystemd registers systemd into a repository
 func RegisterSystemd(repo *Repository) {
 	repo.Register(func(c exec.ContextRunner) ServiceManager {

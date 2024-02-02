@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig/exec"
@@ -66,6 +67,16 @@ func (i Runit) DisableService(ctx context.Context, h exec.ContextRunner, s strin
 		return fmt.Errorf("failed to disable service %s: %w", s, err)
 	}
 	return nil
+}
+
+// ServiceLogs returns the logs for a runit service from /var/log/<service>/current. It's not guaranteed
+// that the log file exists or that the service logs to this file.
+func (i Runit) ServiceLogs(ctx context.Context, h exec.ContextRunner, s string, lines int) ([]string, error) {
+	out, err := h.ExecOutputContext(ctx, "tail -n %[1]d %s", lines, shellescape.Quote("/var/log/"+s+"/current"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get logs for service %s: %w", s, err)
+	}
+	return strings.Split(out, "\n"), nil
 }
 
 // RegisterRunit register runit in a repository

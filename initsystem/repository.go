@@ -18,6 +18,11 @@ type ServiceManager interface {
 	ServiceIsRunning(ctx context.Context, h exec.ContextRunner, s string) bool
 }
 
+// ServiceManagerLogReader is a servicemanager that supports reading service logs
+type ServiceManagerLogReader interface {
+	ServiceLogs(ctx context.Context, h exec.ContextRunner, s string, lines int) ([]string, error)
+}
+
 // ServiceManagerRestarter is a servicemanager that supports direct restarts (instead of stop+start)
 type ServiceManagerRestarter interface {
 	RestartService(ctx context.Context, h exec.ContextRunner, s string) error

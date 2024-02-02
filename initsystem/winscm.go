@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/k0sproject/rig/exec"
 	ps "github.com/k0sproject/rig/powershell"
@@ -50,6 +51,15 @@ func (c WinSCM) EnableService(ctx context.Context, h exec.ContextRunner, s strin
 	}
 
 	return nil
+}
+
+// ServiceLogs returns the logs for a service
+func (c WinSCM) ServiceLogs(ctx context.Context, h exec.ContextRunner, s string, lines int) ([]string, error) {
+	out, err := h.ExecOutputContext(ctx, `Get-EventLog -LogName System -Source "Service Control Manager" -Newest %[1]d | Where-Object {$_.Message -like "*%s*"} | Select-Object -Property TimeGenerated, Message -First %[1]d`, lines, s, exec.PS())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get logs for service %s: %w", s, err)
+	}
+	return strings.Split(out, "\n"), nil
 }
 
 // DisableService disables a service

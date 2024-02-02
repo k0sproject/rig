@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"strconv"
+	"strings"
 
 	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig/exec"
@@ -55,6 +57,19 @@ func (i Launchd) DisableService(ctx context.Context, h exec.ContextRunner, s str
 		return fmt.Errorf("failed to disable service: %w", err)
 	}
 	return nil
+}
+
+// ServiceLogs returns the logs for a launchd service
+func (i Launchd) ServiceLogs(ctx context.Context, h exec.ContextRunner, s string, lines int) ([]string, error) {
+	out, err := h.ExecOutputContext(ctx, "log show --predicate 'subsystem contains %s' --debug --info --last 10m --style syslog", strconv.QuoteToASCII(s))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get logs for service %s: %w", s, err)
+	}
+	rows := strings.Split(out, "\n")
+	if len(rows) > lines {
+		return rows[len(rows)-lines:], nil
+	}
+	return rows, nil
 }
 
 // RegisterLaunchd registers the launchd init system to a init system repository
