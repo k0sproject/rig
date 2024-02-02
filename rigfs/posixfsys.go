@@ -734,7 +734,7 @@ func (fsys *PosixFsys) WriteFile(filename string, data []byte, perm fs.FileMode)
 
 // ReadFile reads the file named by filename and returns the contents.
 func (fsys *PosixFsys) ReadFile(filename string) ([]byte, error) {
-	out, err := fsys.ExecOutput("cat -- %s", shellescape.Quote(filename))
+	out, err := fsys.ExecOutput("cat -- %s", shellescape.Quote(filename), exec.HideOutput(), exec.TrimOutput(false))
 	if err != nil {
 		return nil, fmt.Errorf("read file %s: %w", filename, err)
 	}
