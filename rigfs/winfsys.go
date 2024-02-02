@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"strconv"
@@ -212,20 +213,30 @@ func (fsys *WinFsys) OpenFile(name string, flags int, _ fs.FileMode) (File, erro
 
 // ReadFile reads the named file and returns its contents.
 func (fsys *WinFsys) ReadFile(name string) ([]byte, error) {
-	out, err := fsys.ExecOutput("type %s", ps.DoubleQuotePath(name), exec.HideOutput(), exec.TrimOutput(false))
+	f, err := fsys.Open(name)
 	if err != nil {
 		return nil, fmt.Errorf("readfile %s: %w", name, err)
 	}
-	return []byte(out), nil
+	defer f.Close()
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil, fmt.Errorf("readfile %s: %w", name, err)
+	}
+	return data, nil
 }
 
 // WriteFile writes data to the named file, creating it if necessary.
-func (fsys *WinFsys) WriteFile(name string, data []byte, _ fs.FileMode) error {
-	err := fsys.Exec(`$Input | Out-File -FilePath %s`, ps.DoubleQuotePath(name), exec.Stdin(bytes.NewReader(data)), exec.PS())
+func (fsys *WinFsys) WriteFile(name string, data []byte, mode fs.FileMode) error {
+	f, err := fsys.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 	if err != nil {
 		return fmt.Errorf("writefile %s: %w", name, err)
 	}
-
+	defer f.Close()
+	reader := bytes.NewReader(data)
+	_, err = io.Copy(f, reader)
+	if err != nil {
+		return fmt.Errorf("writefile copy data %s: %w", name, err)
+	}
 	return nil
 }
 
