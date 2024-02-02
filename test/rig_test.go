@@ -308,6 +308,13 @@ func (s *OSSuite) TestTouch() {
 			s.Require().NoError(err)
 			s.NotNil(stat)
 			s.Equal(now.Unix(), stat.ModTime().Unix())
+			if s.Host.IsWindows() {
+				s.T().Log("Testing millisecond precision on windows")
+				s.Equal(now.UnixMilli(), stat.ModTime().UnixMilli())
+			} else if stat.ModTime().Nanosecond() != 0 {
+				s.T().Log("Testing nanosecond precision")
+				s.Equal(now.UnixNano(), stat.ModTime().UnixNano())
+			}
 		})
 	}
 }

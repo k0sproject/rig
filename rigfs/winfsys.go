@@ -266,10 +266,9 @@ func (fsys *WinFsys) Touch(name string) error {
 
 // Chtimes changes the access and modification times of the named file, similar to the Unix utime() or utimes() functions.
 func (fsys *WinFsys) Chtimes(name string, atime, mtime int64) error {
-	if err := fsys.Exec("Set-ItemProperty -Path %s -Name LastWriteTime -Value (Get-Date -Date %d)", ps.DoubleQuotePath(name), mtime, exec.PS()); err != nil {
-		return fmt.Errorf("chtimes %s: %w", name, err)
-	}
-	if err := fsys.Exec("Set-ItemProperty -Path %s -Name LastAccessTime -Value (Get-Date -Date %d)", ps.DoubleQuotePath(name), atime, exec.PS()); err != nil {
+	atimeMs := time.Unix(0, atime).UTC().Format("2006-01-02T15:04:05.999")
+	mtimeMs := time.Unix(0, mtime).UTC().Format("2006-01-02T15:04:05.999")
+	if err := fsys.Exec("$file = Get-Item %s; $file.LastWriteTime = %s; $file.LastAccessTime = %s", ps.DoubleQuotePath(name), ps.SingleQuote(mtimeMs), ps.SingleQuote(atimeMs), exec.PS()); err != nil {
 		return fmt.Errorf("chtimes %s: %w", name, err)
 	}
 	return nil
