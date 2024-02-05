@@ -79,18 +79,24 @@ public static extern IntPtr GetStdHandle(int nStdHandle);
           $script:mode=$arg[1]
           $script:access=$arg[2]
           $path=$arg[3..($arg.Length-1)] -join " "
-          try {
-            $p=Resolve-Path $path
-          } catch {
-            if(![IO.Path]::IsPathRooted($path)){
-              $p=Join-Path $pwd $path
-            }
+          if ([string]::IsNullOrEmpty($path)) { throw "Path argument is missing or empty" }
+          # Check if the path is rooted, if not, make it absolute
+          if (-not [IO.Path]::IsPathRooted($path)) {
+            $path = Join-Path $pwd $path
           }
-
-          if(Test-Path $p -PathType Container){
+          try {
+            $script:p=Resolve-Path $path -ErrorAction Stop
+          } catch {
+            $script:p=$path
+          }
+          if(Test-Path $script:p -PathType Container){
             throw "cannot open directory"
           }
-          $script:fi=NO IO.FileInfo($p)
+          try {
+            $script:fi=NO IO.FileInfo($script:p)
+          } catch {
+            throw "can't create FileInfo('" + $script:p + "'): " + $_.Exception.Message
+          }
           $script:f=$null
           Invoke-WithRetry -Retries 10 -Match "*used by another process*" -Script { 
               $script:f=$script:fi.Open($script:mode, $script:access)
@@ -192,7 +198,7 @@ public static extern IntPtr GetStdHandle(int nStdHandle);
       }
     } catch {
       $msg=@{
-         error=$_.Exception.Message
+         error=$_.Exception.Message + " trace: " + $_.Exception.StackTrace
       }
       Emit $out $msg
     }
