@@ -1,5 +1,7 @@
 // Package softtime provides time comparison functions that work with times up to the finest common precision.
-// such as a files modification time in a file system and a time.Time value from time.Now().
+// such as a files modification time in a file system and a time.Time value from time.Now(). Slight warning:
+// there's a chance of false positives when comparing times from different sources especially when the
+// one of the times happen to be at the exact boundary of the precision.
 package softtime
 
 import (
