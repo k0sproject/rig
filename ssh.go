@@ -142,6 +142,11 @@ func compact[S ~[]E, E comparable](slice S) S {
 	return slice[:i]
 }
 
+// Client implements the ClientConfigurer interface
+func (c *SSH) Client() (Client, error) {
+	return c, nil
+}
+
 func (c *SSH) keypathsFromConfig() []string {
 	log.Tracef("%s: trying to get a keyfile path from ssh config", c)
 	idf := c.getConfigAll("IdentityFile")

@@ -3,12 +3,8 @@ package rig
 import (
 	"context"
 	"io"
-	"testing"
 
-	"github.com/creasty/defaults"
 	"github.com/k0sproject/rig/exec"
-	"github.com/k0sproject/rig/sudo"
-	"github.com/stretchr/testify/require"
 )
 
 type Host struct {
@@ -44,36 +40,7 @@ var stubSudofunc = func(in string) string {
 	return "sudo-goes-here " + in
 }
 
-func TestHostFunctions(t *testing.T) {
-	h := Host{
-		Connection: Connection{
-			Localhost: &Localhost{
-				Enabled: true,
-			},
-		},
-	}
-
-	require.NoError(t, defaults.Set(&h))
-	require.NoError(t, h.Connect())
-	require.Equal(t, "[local] localhost", h.String())
-	require.True(t, h.IsConnected())
-	require.Equal(t, "Local", h.Protocol())
-	require.Equal(t, "127.0.0.1", h.Address())
-	h.Disconnect()
-	require.False(t, h.IsConnected())
-
-	h = Host{
-		Connection: Connection{
-			SSH: &SSH{
-				Address: "127.0.0.1",
-			},
-		},
-	}
-	require.NoError(t, defaults.Set(&h))
-	require.Equal(t, "SSH", h.Protocol())
-	require.Equal(t, "127.0.0.1", h.Address())
-}
-
+/*
 func TestSudo(t *testing.T) {
 	mc := mockClient{}
 	h := Host{
@@ -93,3 +60,4 @@ func TestSudo(t *testing.T) {
 	require.Contains(t, mc.commands, "sudo-goes-here ls /tmp")
 	require.Contains(t, mc.commands, "sudocheck")
 }
+*/

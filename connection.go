@@ -9,14 +9,12 @@ import (
 
 	"github.com/creasty/defaults"
 	"github.com/k0sproject/rig/exec"
-	"github.com/k0sproject/rig/initsystem"
 	"github.com/k0sproject/rig/log"
-	"github.com/k0sproject/rig/packagemanager"
 	"github.com/k0sproject/rig/rigfs"
-	"github.com/k0sproject/rig/sudo"
 )
 
-type client interface {
+// Client is the interface for protocol implementations
+type Client interface {
 	Connect() error
 	Disconnect()
 	IsWindows() bool
@@ -61,95 +59,29 @@ type client interface {
 //	  output, err := h.ExecOutput("echo hello")
 //	}
 type Connection struct {
-	exec.Runner `yaml:"-"`
-	WinRM       *WinRM     `yaml:"winRM,omitempty"`
-	SSH         *SSH       `yaml:"ssh,omitempty"`
-	Localhost   *Localhost `yaml:"localhost,omitempty"`
-	OpenSSH     *OpenSSH   `yaml:"openSSH,omitempty"`
+	*ConnectionInjectables `yaml:",inline"`
 
-	OS *OSRelease `yaml:"-"`
-
-	client     client
-	sudoRunner exec.Runner
-	fsys       rigfs.Fsys
-	sudofsys   rigfs.Fsys
-	initSys    initsystem.ServiceManager
-	packageMan packagemanager.PackageManager
-
-	initsysRepo    *initsystem.Repository
-	packagemanRepo *packagemanager.Repository
-	sudoRepo       *sudo.Repository
+	sudo *Connection
 }
 
-// SetDefaults sets a connection
-func (c *Connection) SetDefaults() {
-	if c.client == nil {
-		c.client = c.configuredClient()
-		if c.client == nil {
-			c.client = defaultClient()
-		}
-		_ = defaults.Set(c.client)
-	}
-
-	if defaults.CanUpdate(c.initsysRepo) {
-		c.initsysRepo = initsystem.DefaultRepository
-	}
-	if defaults.CanUpdate(c.packagemanRepo) {
-		c.packagemanRepo = packagemanager.DefaultRepository
-	}
-	if defaults.CanUpdate(c.sudoRepo) {
-		c.sudoRepo = sudo.DefaultRepository
-	}
+// DefaultConnectionInjectables can be overridden to provide a different set of protocols than the default
+var DefaultClientConfigurer = func() ClientConfigurer {
+	return &ClientConfig{}
 }
 
-// Protocol returns the connection protocol name
-func (c *Connection) Protocol() string {
-	if c.client != nil {
-		return c.client.Protocol()
+func (c *Connection) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	c.ConnectionInjectables = DefaultConnectionInjectables()
+
+	if c.ClientConfigurer == nil {
+		c.ClientConfigurer = DefaultClientConfigurer()
 	}
 
-	if client := c.configuredClient(); client != nil {
-		return client.Protocol()
+	type connection Connection
+	if err := unmarshal((*connection)(c)); err != nil {
+		return err
 	}
 
-	return ""
-}
-
-// Address returns the connection address
-func (c *Connection) Address() string {
-	if c.client != nil {
-		return c.client.IPAddress()
-	}
-
-	if client := c.configuredClient(); client != nil {
-		return client.IPAddress()
-	}
-
-	return ""
-}
-
-// InitSystem returns a ServiceManager for the host's init system
-func (c *Connection) InitSystem() (initsystem.ServiceManager, error) {
-	if c.initSys == nil {
-		is, err := c.initsysRepo.Get(c)
-		if err != nil {
-			return nil, fmt.Errorf("get init system: %w", err)
-		}
-		c.initSys = is
-	}
-	return c.initSys, nil
-}
-
-// PackageManager returns a PackageManager for the host's package manager
-func (c *Connection) PackageManager() (packagemanager.PackageManager, error) {
-	if c.packageMan == nil {
-		pm, err := c.packagemanRepo.Get(c)
-		if err != nil {
-			return nil, fmt.Errorf("get package manager: %w", err)
-		}
-		c.packageMan = pm
-	}
-	return c.packageMan, nil
+	return nil
 }
 
 // Service returns a Service object for the named service using the host's init system
@@ -174,22 +106,30 @@ func (c *Connection) IsConnected() bool {
 	return c.client.IsConnected()
 }
 
-func (c *Connection) checkConnected() error {
-	if !c.IsConnected() {
-		return ErrNotConnected
-	}
-
-	return nil
-}
-
 // String returns a printable representation of the connection, which will look
 // like: `[ssh] address:port`
 func (c Connection) String() string {
 	if c.client == nil {
-		return fmt.Sprintf("[%s] %s", c.Protocol(), c.Address())
+		if c.ClientConfigurer == nil {
+			return "[uninitialized connection]"
+		}
+		return c.ClientConfigurer.String()
 	}
 
 	return c.client.String()
+}
+
+func (c *Connection) Clone(opts ...Option) *Connection {
+	return &Connection{
+		ConnectionInjectables: c.ConnectionInjectables.Clone(opts...),
+	}
+}
+
+func (c *Connection) Sudo() *Connection {
+	if c.sudo == nil {
+		c.sudo = c.Clone(WithRunner(c.sudoRunner()))
+	}
+	return c.sudo
 }
 
 // Fsys returns a fs.FS compatible filesystem interface for accessing files on remote hosts
@@ -199,28 +139,6 @@ func (c *Connection) Fsys() rigfs.Fsys {
 	}
 
 	return c.fsys
-}
-
-// SudoFsys returns a fs.FS compatible filesystem interface for accessing files on remote hosts with sudo permissions
-func (c *Connection) SudoFsys() rigfs.Fsys {
-	if c.sudofsys == nil {
-		c.sudofsys = rigfs.NewFsys(c.Sudo())
-	}
-
-	return c.sudofsys
-}
-
-// IsWindows returns true on windows hosts
-func (c *Connection) IsWindows() bool {
-	if c.OS != nil {
-		return c.OS.ID == "windows"
-	}
-	if !c.IsConnected() {
-		if client := c.configuredClient(); client != nil {
-			return client.IsWindows()
-		}
-	}
-	return c.client.IsWindows()
 }
 
 // Connect to the host and identify the operating system and sudo capability
@@ -242,82 +160,10 @@ func (c *Connection) Connect() error {
 	return nil
 }
 
-// OSRelease returns the host's OSRelease information
-func (c *Connection) OSRelease() (*OSRelease, error) {
-	if c.OS == nil {
-		o, err := GetOSRelease(c.Runner)
-		if err != nil {
-			return nil, err
-		}
-		c.OS = &o
-	}
-
-	return c.OS, nil
-}
-
-// Sudo returns an exec.Runner that runs commands using sudo. If a sudo method can not be detected, a runner that always returns errors is returned.
-func (c *Connection) Sudo() exec.Runner {
-	if c.sudoRunner == nil {
-		fn, err := c.detectSudo()
-		if err != nil {
-			c.sudoRunner = exec.NewErrorRunner(err)
-		} else {
-			c.sudoRunner = exec.NewHostRunner(c.client, fn)
-		}
-	}
-	return c.sudoRunner
-}
-
-func (c *Connection) detectSudo() (exec.DecorateFunc, error) {
-	decorator, err := c.sudoRepo.Get(c)
-	if err != nil {
-		return nil, fmt.Errorf("%w: get sudo: %w", ErrSudoRequired, err)
-	}
-	return decorator, nil
-}
-
-// ExecInteractive executes a command on the host and passes control of
-// local input to the remote command
-func (c Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
-	if err := c.checkConnected(); err != nil {
-		return err
-	}
-
-	if err := c.client.ExecInteractive(cmd, stdin, stdout, stderr); err != nil {
-		return fmt.Errorf("%w: client exec interactive: %w", ErrCommandFailed, err)
-	}
-
-	return nil
-}
-
 // Disconnect from the host
 func (c *Connection) Disconnect() {
 	if c.client != nil {
 		c.client.Disconnect()
 	}
 	c.client = nil
-}
-
-func (c *Connection) configuredClient() client {
-	if c.WinRM != nil {
-		return c.WinRM
-	}
-
-	if c.Localhost != nil {
-		return c.Localhost
-	}
-
-	if c.SSH != nil {
-		return c.SSH
-	}
-
-	if c.OpenSSH != nil {
-		return c.OpenSSH
-	}
-
-	return nil
-}
-
-func defaultClient() client {
-	return &Localhost{Enabled: true}
 }

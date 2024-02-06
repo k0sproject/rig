@@ -155,7 +155,7 @@ func GetHost() *Host {
 	h := &Host{}
 	switch protocol {
 	case "ssh":
-		h.SSH = &rig.SSH{
+		ssh := &rig.SSH{
 			Address: targetHost,
 			Port:    targetPort,
 			User:    username,
@@ -166,14 +166,15 @@ func GetHost() *Host {
 			if err != nil {
 				panic(err)
 			}
-			h.SSH.AuthMethods = authM
+			ssh.AuthMethods = authM
 		}
 
 		if keyPath != "" {
-			h.SSH.KeyPath = &keyPath
+			ssh.KeyPath = &keyPath
 		}
+		h.ClientConfigurer = ssh
 	case "winrm":
-		h.WinRM = &rig.WinRM{
+		winrm := &rig.WinRM{
 			Address:  targetHost,
 			Port:     targetPort,
 			User:     username,
@@ -181,26 +182,28 @@ func GetHost() *Host {
 			Insecure: true,
 			Password: password,
 		}
+		h.ClientConfigurer = winrm
 	case "localhost":
-		h.Localhost = &rig.Localhost{Enabled: true}
+		h.ClientConfigurer = &rig.Localhost{Enabled: true}
 	case "openssh":
-		h.OpenSSH = &rig.OpenSSH{
+		openssh := &rig.OpenSSH{
 			Address:             targetHost,
 			DisableMultiplexing: !enableMultiplex,
 		}
 		if targetPort != 22 {
-			h.OpenSSH.Port = &targetPort
+			openssh.Port = &targetPort
 		}
 
 		if keyPath != "" {
-			h.OpenSSH.KeyPath = &keyPath
+			openssh.KeyPath = &keyPath
 		}
 		if username != "" {
-			h.OpenSSH.User = &username
+			openssh.User = &username
 		}
 		if configPath != "" {
-			h.OpenSSH.ConfigPath = &configPath
+			openssh.ConfigPath = &configPath
 		}
+		h.ClientConfigurer = openssh
 	default:
 		panic("unknown protocol")
 	}
@@ -246,7 +249,7 @@ func (s *ConnectedSuite) SetupSuite() {
 	err := retry(func() error { return s.Host.Connect() })
 	s.Require().NoError(err)
 	if s.sudo {
-		s.fs = s.Host.SudoFsys()
+		s.fs = s.Host.Sudo().Fsys()
 	} else {
 		s.fs = s.Host.Fsys()
 	}

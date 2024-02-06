@@ -19,6 +19,11 @@ type Localhost struct {
 	Enabled bool `yaml:"enabled" validate:"required,eq=true" default:"true"`
 }
 
+// Client implements the ClientConfigurer interface
+func (c *Localhost) Client() (Client, error) {
+	return c, nil
+}
+
 // Protocol returns the protocol name, "Local"
 func (c *Localhost) Protocol() string {
 	return "Local"

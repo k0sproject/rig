@@ -38,6 +38,11 @@ type WinRM struct {
 	client *winrm.Client
 }
 
+// Client implements the ClientConfigurer interface
+func (c *WinRM) Client() (Client, error) {
+	return c, nil
+}
+
 // SetDefaults sets various default values
 func (c *WinRM) SetDefaults() {
 	if p, err := homedir.Expand(c.CACertPath); err == nil {

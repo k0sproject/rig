@@ -36,6 +36,11 @@ type OpenSSH struct {
 	name string
 }
 
+// Client implements the ClientConfigurer interface
+func (c *OpenSSH) Client() (Client, error) {
+	return c, nil
+}
+
 // Protocol returns the protocol name
 func (c *OpenSSH) Protocol() string {
 	return "OpenSSH"
