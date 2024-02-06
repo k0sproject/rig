@@ -64,6 +64,11 @@ type Connection struct {
 	sudo *Connection
 }
 
+func NewConnection(opts ...Option) *Connection {
+	options := NewOptions(opts...)
+	return &Connection{ConnectionInjectables: options.ConnectionInjectables}
+}
+
 // DefaultConnectionInjectables can be overridden to provide a different set of protocols than the default
 var DefaultClientConfigurer = func() ClientConfigurer {
 	return &ClientConfig{}

@@ -11,9 +11,9 @@ type Options struct {
 	*ConnectionInjectables
 }
 
-func (o Options) Apply(opts ...Option) {
+func (o *Options) Apply(opts ...Option) {
 	for _, opt := range opts {
-		opt(&o)
+		opt(o)
 	}
 }
 
@@ -29,4 +29,14 @@ func WithRunner(runner exec.Runner) Option {
 	return func(o *Options) {
 		o.ConnectionInjectables.Runner = runner
 	}
+}
+
+func NewOptions(opts ...Option) *Options {
+	options := &Options{
+		ConnectionInjectables: DefaultConnectionInjectables(),
+	}
+
+	options.Apply(opts...)
+
+	return options
 }

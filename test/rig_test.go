@@ -136,7 +136,7 @@ func TestFsysSuite(t *testing.T) {
 
 // Host is a host that utilizes rig for connections
 type Host struct {
-	rig.Connection
+	*rig.Connection
 }
 
 func retry(fn func() error) error {
@@ -152,7 +152,7 @@ func retry(fn func() error) error {
 }
 
 func GetHost() *Host {
-	h := &Host{}
+	var client rig.Client
 	switch protocol {
 	case "ssh":
 		ssh := &rig.SSH{
@@ -172,7 +172,7 @@ func GetHost() *Host {
 		if keyPath != "" {
 			ssh.KeyPath = &keyPath
 		}
-		h.ClientConfigurer = ssh
+		client = ssh
 	case "winrm":
 		winrm := &rig.WinRM{
 			Address:  targetHost,
@@ -182,9 +182,9 @@ func GetHost() *Host {
 			Insecure: true,
 			Password: password,
 		}
-		h.ClientConfigurer = winrm
+		client = winrm
 	case "localhost":
-		h.ClientConfigurer = &rig.Localhost{Enabled: true}
+		client = &rig.Localhost{Enabled: true}
 	case "openssh":
 		openssh := &rig.OpenSSH{
 			Address:             targetHost,
@@ -203,11 +203,11 @@ func GetHost() *Host {
 		if configPath != "" {
 			openssh.ConfigPath = &configPath
 		}
-		h.ClientConfigurer = openssh
+		client = openssh
 	default:
 		panic("unknown protocol")
 	}
-	return h
+	return &Host{Connection: rig.NewConnection(rig.WithClient(client))}
 }
 
 type SuiteLogger struct {
