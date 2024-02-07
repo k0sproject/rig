@@ -1,6 +1,7 @@
 package rig
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -11,16 +12,16 @@ import (
 	"github.com/k0sproject/rig/sudo"
 )
 
+// ConnectionInjectables is a collection of injectable dependencies for a connection
 type ConnectionInjectables struct {
-	ClientConfigurer ClientConfigurer `yaml:",inline"`
+	clientConfigurer ClientConfigurer `yaml:",inline"`
 	exec.Runner      `yaml:"-"`
 	mu               sync.Mutex
 
 	client     Client
 	clientOnce sync.Once
 
-	fsys     rigfs.Fsys
-	fsysOnce sync.Once
+	fsys rigfs.Fsys
 
 	initSys     initsystem.ServiceManager
 	initSysOnce sync.Once
@@ -31,12 +32,14 @@ type ConnectionInjectables struct {
 	repositories ConnectionRepositories
 }
 
+// ConnectionRepositories is a collection of repositories for connection injectables
 type ConnectionRepositories struct {
 	initsysRepo    *initsystem.Repository
 	packagemanRepo *packagemanager.Repository
 	sudoRepo       *sudo.Repository
 }
 
+// DefaultConnectionRepositories returns a set of default repositories for connection injectables
 func DefaultConnectionRepositories() ConnectionRepositories {
 	return ConnectionRepositories{
 		initsysRepo:    initsystem.DefaultRepository,
@@ -45,15 +48,17 @@ func DefaultConnectionRepositories() ConnectionRepositories {
 	}
 }
 
+// DefaultConnectionInjectables returns a set of default injectables for a connection
 func DefaultConnectionInjectables() *ConnectionInjectables {
 	return &ConnectionInjectables{
 		repositories: DefaultConnectionRepositories(),
 	}
 }
 
+// Clone returns a copy of the ConnectionInjectables with the given options applied
 func (c *ConnectionInjectables) Clone(opts ...Option) *ConnectionInjectables {
 	options := Options{ConnectionInjectables: &ConnectionInjectables{
-		ClientConfigurer: c.ClientConfigurer,
+		clientConfigurer: c.clientConfigurer,
 		client:           c.client,
 		repositories:     c.repositories,
 	}}
@@ -61,24 +66,25 @@ func (c *ConnectionInjectables) Clone(opts ...Option) *ConnectionInjectables {
 	return options.ConnectionInjectables
 }
 
-var ErrConfiguratorNotSet = fmt.Errorf("client configurator not set")
+// ErrConfiguratorNotSet is returned when a client configurator is not set when trying to connect
+var ErrConfiguratorNotSet = errors.New("client configurator not set")
 
 func (c *ConnectionInjectables) initClient() error {
 	var err error
 	c.clientOnce.Do(func() {
-		if c.ClientConfigurer == nil {
+		if c.clientConfigurer == nil {
 			err = ErrConfiguratorNotSet
 			return
 		}
-		c.client, err = c.ClientConfigurer.Client()
+		c.client, err = c.clientConfigurer.Client()
 		if err != nil {
-			err = fmt.Errorf("configure client (%v): %w", c.ClientConfigurer, err)
+			err = fmt.Errorf("configure client (%v): %w", c.clientConfigurer, err)
 		}
 	})
 	return err
 }
 
-
+// Connect to the host.
 func (c *ConnectionInjectables) Connect() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()

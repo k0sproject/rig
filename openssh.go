@@ -111,9 +111,9 @@ func (o OpenSSHOptions) ToArgs() []string {
 	for k, v := range o {
 		if b, ok := v.(bool); ok {
 			if b {
-				args = append(args, "-o", fmt.Sprintf("%s=yes", k))
+				args = append(args, "-o", k+"=yes")
 			} else {
-				args = append(args, "-o", fmt.Sprintf("%s=no", k))
+				args = append(args, "-o", k+"=no")
 			}
 			continue
 		}
@@ -302,7 +302,7 @@ func (c *OpenSSH) String() string {
 		return c.name
 	}
 
-	c.name = fmt.Sprintf("[OpenSSH] %s", c.userhost())
+	c.name = "[OpenSSH] " + c.userhost()
 	if c.Port != nil {
 		c.name = fmt.Sprintf("%s:%d", c.name, *c.Port)
 	}

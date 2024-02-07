@@ -67,7 +67,7 @@ func Cmd(psCmd string) string {
 	encodedCmd := EncodeCmd(psCmd)
 
 	// Create the powershell.exe command line to execute the script
-	return fmt.Sprintf("powershell.exe -NonInteractive -ExecutionPolicy Unrestricted -NoP -E %s", encodedCmd)
+	return "powershell.exe -NonInteractive -ExecutionPolicy Unrestricted -NoP -E " + encodedCmd
 }
 
 // SingleQuote quotes and escapes a string in a format that is accepted by powershell scriptlets

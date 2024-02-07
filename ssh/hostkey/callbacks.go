@@ -104,7 +104,7 @@ func wrapCallback(hkc ssh.HostKeyCallback, path string, permissive, hash bool) s
 		}
 
 		row := knownhosts.Line([]string{knownHostsEntry}, key)
-		row = fmt.Sprintf("%s\n", strings.TrimSpace(row))
+		row = strings.TrimSpace(row) + "\n"
 
 		if _, err := dbFile.WriteString(row); err != nil {
 			return fmt.Errorf("failed to write to known hosts file %s: %w", path, err)

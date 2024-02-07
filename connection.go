@@ -61,21 +61,24 @@ type Connection struct {
 	sudo *Connection
 }
 
+// NewConnection returns a new Connection object with the given options
 func NewConnection(opts ...Option) *Connection {
 	options := NewOptions(opts...)
 	return &Connection{ConnectionInjectables: options.ConnectionInjectables}
 }
 
-// DefaultConnectionInjectables can be overridden to provide a different set of protocols than the default
+// DefaultClientConfigurer is a function that returns a new ClientConfigurer. You can override this to provide your own
+// as a global default.
 var DefaultClientConfigurer = func() ClientConfigurer {
 	return &ClientConfig{}
 }
 
+// UnmarshalYAML is a custom unmarshaler for the Connection struct
 func (c *Connection) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	c.ConnectionInjectables = DefaultConnectionInjectables()
 
-	if c.ClientConfigurer == nil {
-		c.ClientConfigurer = DefaultClientConfigurer()
+	if c.clientConfigurer == nil {
+		c.clientConfigurer = DefaultClientConfigurer()
 	}
 
 	type connection Connection
@@ -112,21 +115,23 @@ func (c *Connection) IsConnected() bool {
 // like: `[ssh] address:port`
 func (c Connection) String() string {
 	if c.client == nil {
-		if c.ClientConfigurer == nil {
+		if c.clientConfigurer == nil {
 			return "[uninitialized connection]"
 		}
-		return c.ClientConfigurer.String()
+		return c.clientConfigurer.String()
 	}
 
 	return c.client.String()
 }
 
+// Clone returns a copy of the connection with the given options.
 func (c *Connection) Clone(opts ...Option) *Connection {
 	return &Connection{
 		ConnectionInjectables: c.ConnectionInjectables.Clone(opts...),
 	}
 }
 
+// Sudo returns a copy of the connection with a Runner that uses sudo.
 func (c *Connection) Sudo() *Connection {
 	if c.sudo == nil {
 		c.sudo = c.Clone(WithRunner(c.sudoRunner()))

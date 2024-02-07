@@ -38,7 +38,7 @@ func (c WinSCM) ServiceScriptPath(_ context.Context, _ exec.ContextRunner, _ str
 
 // RestartService restarts a service
 func (c WinSCM) RestartService(ctx context.Context, h exec.ContextRunner, s string) error {
-	if err := h.ExecContext(ctx, ps.Cmd(fmt.Sprintf(`Restart-Service %s`, ps.DoubleQuote(s)))); err != nil {
+	if err := h.ExecContext(ctx, "Restart-Service "+ps.DoubleQuote(s), exec.PS()); err != nil {
 		return fmt.Errorf("failed to restart service %s: %w", s, err)
 	}
 	return nil

@@ -55,7 +55,7 @@ func (i SysVinit) EnableService(ctx context.Context, h exec.ContextRunner, servi
 	}
 	for runlevel := 2; runlevel <= 5; runlevel++ {
 		symlinkPath := fmt.Sprintf("/etc/rc%d.d/S99%s", runlevel, service)
-		targetPath := fmt.Sprintf("/etc/init.d/%s", service)
+		targetPath := "/etc/init.d/" + service
 		if err := h.ExecContext(ctx, "ln -s %s %s", shellescape.Quote(targetPath), shellescape.Quote(symlinkPath)); err != nil {
 			return fmt.Errorf("failed to create symlink for service %s in runlevel %d: %w", service, runlevel, err)
 		}

@@ -82,7 +82,7 @@ func (i Systemd) ServiceEnvironmentPath(ctx context.Context, h exec.ContextRunne
 		return "", err
 	}
 	dn := path.Dir(sp)
-	return path.Join(dn, fmt.Sprintf("%s.service.d", s), "env.conf"), nil
+	return path.Join(dn, s+"service.d", "env.conf"), nil
 }
 
 // ServiceEnvironmentContent returns a formatted string for a service environment override file

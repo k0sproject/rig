@@ -370,7 +370,7 @@ func (fsys *WinFsys) UserHomeDir() string {
 		return dir
 	}
 	if user := fsys.Getenv("USERNAME"); user != "" {
-		return fmt.Sprintf("C://Users/%s", user)
+		return "C:/Users/" + user
 	}
 	return ""
 }

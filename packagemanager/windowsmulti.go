@@ -2,6 +2,7 @@ package packagemanager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/k0sproject/rig/exec"
@@ -15,7 +16,7 @@ type WindowsMultiManager struct {
 }
 
 // ErrNoWindowsPackageManager is returned when no windows package manager is found.
-var ErrNoWindowsPackageManager = fmt.Errorf("no windows package manager found")
+var ErrNoWindowsPackageManager = errors.New("no windows package manager found")
 
 // Install the given packages.
 func (w *WindowsMultiManager) Install(ctx context.Context, packageNames ...string) error {
