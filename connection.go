@@ -4,12 +4,9 @@ package rig
 
 import (
 	"context"
-	"fmt"
 	"io"
 
-	"github.com/creasty/defaults"
 	"github.com/k0sproject/rig/exec"
-	"github.com/k0sproject/rig/log"
 	"github.com/k0sproject/rig/rigfs"
 )
 
@@ -144,31 +141,4 @@ func (c *Connection) Fsys() rigfs.Fsys {
 	}
 
 	return c.fsys
-}
-
-// Connect to the host and identify the operating system and sudo capability
-func (c *Connection) Connect() error {
-	if c.client == nil {
-		if err := defaults.Set(c); err != nil {
-			return fmt.Errorf("%w: set defaults: %w", ErrValidationFailed, err)
-		}
-	}
-
-	if err := c.client.Connect(); err != nil {
-		c.client = nil
-		log.Debugf("%s: failed to connect: %v", c, err)
-		return fmt.Errorf("%w: client connect: %w", ErrNotConnected, err)
-	}
-
-	c.Runner = exec.NewHostRunner(c.client)
-
-	return nil
-}
-
-// Disconnect from the host
-func (c *Connection) Disconnect() {
-	if c.client != nil {
-		c.client.Disconnect()
-	}
-	c.client = nil
 }
