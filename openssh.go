@@ -1,12 +1,14 @@
 package rig
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	goexec "os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -207,16 +209,24 @@ func (c *OpenSSH) Connect() error {
 	args = append(args, opts.ToArgs()...)
 	args = append(args, c.args()...)
 
-	cmd := goexec.Command("ssh", args...)
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	cmd.Stdin = nil
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	log.Debugf("%s: starting ssh control master", c)
-	err := cmd.Run()
+	cmd := goexec.CommandContext(ctx, "ssh", args...)
+	stderr, err := cmd.StderrPipe()
 	if err != nil {
+		return fmt.Errorf("create stderr pipe: %w", err)
+	}
+	defer stderr.Close()
+	errBuf := bytes.NewBuffer(nil)
+	go func() {
+		_, _ = io.Copy(errBuf, stderr)
+	}()
+
+	log.Debugf("%s: starting ssh control master using 'ssh %s'", c, strings.Join(args, " "))
+	if err := cmd.Run(); err != nil {
 		c.isConnected = false
-		return fmt.Errorf("failed to start ssh multiplexing control master: %w", err)
+		return fmt.Errorf("failed to start ssh multiplexing control master: %w (%s)", err, errBuf.String())
 	}
 
 	c.isConnected = true
