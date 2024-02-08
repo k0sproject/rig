@@ -4,9 +4,12 @@ package rig
 
 import (
 	"context"
+	"fmt"
 	"io"
 
 	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/initsystem"
+	"github.com/k0sproject/rig/packagemanager"
 	"github.com/k0sproject/rig/rigfs"
 )
 
@@ -146,4 +149,33 @@ func (c *Connection) Fsys() rigfs.Fsys {
 	}
 
 	return c.fsys
+}
+
+// Connect to the host.
+func (c *Connection) Connect() error {
+	if err := c.initClient(); err != nil {
+		return fmt.Errorf("init client: %w", err)
+	}
+	if err := c.client.Connect(); err != nil {
+		return fmt.Errorf("client connect: %w", err)
+	}
+
+	return nil
+}
+
+// Disconnect from the host.
+func (c *ConnectionInjectables) Disconnect() {
+	if c.client != nil {
+		c.client.Disconnect()
+	}
+}
+
+// InitSystem returns a ServiceManager for the host's init system
+func (c *ConnectionInjectables) InitSystem() (initsystem.ServiceManager, error) {
+	return c.getInitSystem()
+}
+
+// PackageManager returns a PackageManager for the host's package manager
+func (c *ConnectionInjectables) PackageManager() (packagemanager.PackageManager, error) {
+	return c.getPackageManager()
 }

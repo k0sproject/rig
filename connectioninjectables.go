@@ -16,7 +16,6 @@ import (
 type ConnectionInjectables struct {
 	clientConfigurer ClientConfigurer `yaml:",inline"`
 	exec.Runner      `yaml:"-"`
-	mu               sync.Mutex
 
 	client     Client
 	clientOnce sync.Once
@@ -84,33 +83,6 @@ func (c *ConnectionInjectables) initClient() error {
 	return err
 }
 
-// Connect to the host.
-func (c *ConnectionInjectables) Connect() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if err := c.initClient(); err != nil {
-		return fmt.Errorf("init client: %w", err)
-	}
-	if err := c.client.Connect(); err != nil {
-		return fmt.Errorf("client connect: %w", err)
-	}
-
-	c.Runner = exec.NewHostRunner(c.client)
-
-	return nil
-}
-
-// Disconnect from the host
-func (c *ConnectionInjectables) Disconnect() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.client != nil {
-		c.client.Disconnect()
-	}
-	c.Runner = exec.NewErrorRunner(ErrNotConnected)
-}
-
 func (c *ConnectionInjectables) sudoRunner() exec.Runner {
 	decorator, err := c.repositories.sudoRepo.Get(c)
 	if err != nil {
@@ -120,7 +92,7 @@ func (c *ConnectionInjectables) sudoRunner() exec.Runner {
 }
 
 // InitSystem returns a ServiceManager for the host's init system
-func (c *ConnectionInjectables) InitSystem() (initsystem.ServiceManager, error) {
+func (c *ConnectionInjectables) getInitSystem() (initsystem.ServiceManager, error) {
 	var err error
 	c.initSysOnce.Do(func() {
 		c.initSys, err = c.repositories.initsysRepo.Get(c)
@@ -132,7 +104,7 @@ func (c *ConnectionInjectables) InitSystem() (initsystem.ServiceManager, error) 
 }
 
 // PackageManager returns a PackageManager for the host's package manager
-func (c *ConnectionInjectables) PackageManager() (packagemanager.PackageManager, error) {
+func (c *ConnectionInjectables) getPackageManager() (packagemanager.PackageManager, error) {
 	var err error
 	c.packageManOnce.Do(func() {
 		c.packageMan, err = c.repositories.packagemanRepo.Get(c)
