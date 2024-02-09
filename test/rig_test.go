@@ -259,7 +259,7 @@ func (s *ConnectedSuite) SetupSuite() {
 	} else {
 		s.fs = s.Host.Fsys()
 	}
-	tempDir, err := s.Host.Fsys().MkdirTemp("", "rigtest")
+	tempDir, err := s.fs.MkdirTemp("", "rigtest")
 	s.Require().NoError(err)
 	s.tempDir = tempDir
 }

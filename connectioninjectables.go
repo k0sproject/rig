@@ -121,12 +121,12 @@ func (c *ConnectionInjectables) initClient() error {
 			err = fmt.Errorf("configure client (%v): %w", c.clientConfigurer, err)
 			return
 		}
-		if c.Log() == nil {
+		if !c.HasLogger() {
 			c.SetLogger(c.repositories.loggerFactory(c.client))
 		}
 		c.injectLogger(c.client)
 		if c.Runner == nil {
-			c.Runner = exec.NewHostRunner(c.client, nil)
+			c.Runner = exec.NewHostRunner(c.client)
 		}
 	})
 	return err
