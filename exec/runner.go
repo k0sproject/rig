@@ -118,7 +118,7 @@ func (r *HostRunner) Start(ctx context.Context, format string, argsOrOpts ...any
 	opts, args := groupParams(argsOrOpts...)
 	execOpts := Build(opts...)
 	cmd := r.Command(execOpts.Commandf(format, args...))
-	execOpts.LogCmd(r.String(), cmd)
+	execOpts.LogCmd(cmd)
 	waiter, err := r.client.StartProcess(ctx, cmd, execOpts.Stdin(), execOpts.Stdout(), execOpts.Stderr())
 	if err != nil {
 		return nil, fmt.Errorf("runner start command: %w", err)

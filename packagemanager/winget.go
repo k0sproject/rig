@@ -17,7 +17,7 @@ func RegisterWinget(repository *Repository) {
 		if !c.IsWindows() {
 			return nil
 		}
-		if c.ExecContext(context.Background(), "where winget") != nil {
+		if c.ExecContext(context.Background(), "where.exe winget") != nil {
 			return nil
 		}
 		return NewWinget(c)

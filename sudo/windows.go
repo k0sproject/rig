@@ -12,7 +12,7 @@ func RegisterWindowsNoop(repository *Repository) {
 		if !runner.IsWindows() {
 			return nil
 		}
-		out, err := runner.ExecOutput(`whoami`)
+		out, err := runner.ExecOutput(`whoami.exe`)
 		if err != nil {
 			return nil
 		}
@@ -22,12 +22,12 @@ func RegisterWindowsNoop(repository *Repository) {
 			return Noop
 		}
 
-		if runner.Exec(`net user "%USERNAME%" | findstr /B /C:"Local Group Memberships" | findstr /C:"*Administrators"`) != nil {
+		if runner.Exec(`cmd.exe /c 'net user "%USERNAME%" | findstr /B /C:"Local Group Memberships" | findstr /C:"*Administrators"'`) != nil {
 			// user is not in the Administrators group
 			return nil
 		}
 
-		out, err = runner.ExecOutput(`reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "EnableLUA"`)
+		out, err = runner.ExecOutput(`reg.exe query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "EnableLUA"`)
 		if err != nil {
 			// failed to query if UAC is enabled
 			return nil

@@ -28,6 +28,8 @@ type DecorateFunc func(string) string
 
 // Options is a collection of exec options
 type Options struct {
+	log.LoggerInjectable
+
 	in     io.Reader
 	out    io.Writer
 	errOut io.Writer
@@ -86,10 +88,10 @@ func (o *Options) AllowWinStderr() bool {
 }
 
 // LogCmd is for logging the command to be executed
-func (o *Options) LogCmd(prefix, cmd string) {
+func (o *Options) LogCmd(cmd string) {
 	if Confirm {
 		mutex.Lock()
-		if !ConfirmFunc(fmt.Sprintf("\nHost: %s\nCommand: %s", prefix, o.Redact(decodeEncoded(cmd)))) {
+		if !ConfirmFunc("\nCommand: " + o.Redact(decodeEncoded(cmd))) {
 			os.Stderr.WriteString("aborted\n")
 			os.Exit(1)
 		}
@@ -97,9 +99,9 @@ func (o *Options) LogCmd(prefix, cmd string) {
 	}
 
 	if o.logCommand {
-		log.Debugf("%s: executing `%s`", prefix, o.Redact(decodeEncoded(cmd)))
+		o.Log().Debugf("executing `%s`", o.Redact(decodeEncoded(cmd)))
 	} else {
-		log.Debugf("%s: executing command", prefix)
+		o.Log().Debugf("executing command")
 	}
 }
 
@@ -136,13 +138,13 @@ func (o *Options) Stdin() io.Reader {
 
 	size, err := getReaderSize(o.in)
 	if err == nil && size > 0 {
-		log.Debugf("using %d bytes of data from reader as command input", size)
+		o.Log().Debugf("using %d bytes of data from reader as command input", size)
 	} else {
-		log.Debugf("using data from reader as command input")
+		o.Log().Debugf("using data from reader as command input")
 	}
 
 	if o.logInput {
-		return io.TeeReader(o.in, redactingWriter{w: logWriter{fn: log.Debugf}, fn: o.Redact})
+		return io.TeeReader(o.in, redactingWriter{w: logWriter{fn: o.Log().Debugf}, fn: o.Redact})
 	}
 
 	return o.in
@@ -153,9 +155,9 @@ func (o *Options) Stdout() io.Writer {
 	var writers []io.Writer
 	switch {
 	case o.streamOutput:
-		writers = append(writers, redactingWriter{w: logWriter{fn: log.Infof}, fn: o.Redact})
+		writers = append(writers, redactingWriter{w: logWriter{fn: o.Log().Infof}, fn: o.Redact})
 	case o.logOutput:
-		writers = append(writers, redactingWriter{w: logWriter{fn: log.Debugf}, fn: o.Redact})
+		writers = append(writers, redactingWriter{w: logWriter{fn: o.Log().Debugf}, fn: o.Redact})
 	}
 	if o.out != nil {
 		writers = append(writers, o.out)
@@ -168,9 +170,9 @@ func (o *Options) Stderr() io.Writer {
 	var writers []io.Writer
 	switch {
 	case o.streamOutput:
-		writers = append(writers, redactingWriter{w: logWriter{fn: log.Errorf}, fn: o.Redact})
+		writers = append(writers, redactingWriter{w: logWriter{fn: o.Log().Errorf}, fn: o.Redact})
 	case o.logError:
-		writers = append(writers, redactingWriter{w: logWriter{fn: log.Debugf}, fn: o.Redact})
+		writers = append(writers, redactingWriter{w: logWriter{fn: o.Log().Debugf}, fn: o.Redact})
 	}
 	writers = append(writers, &flaggingWriter{b: &o.wroteErr})
 	if o.errOut != nil {

@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/k0sproject/rig/exec"
-	"github.com/k0sproject/rig/log"
 	ps "github.com/k0sproject/rig/powershell"
 )
 
@@ -53,8 +52,7 @@ type winFile struct {
 	cancel context.CancelFunc
 }
 
-// Seek sets the offset for the next Read or Write on the remote file.
-// The whence argument controls the interpretation of offset.
+// Seek sets the offset for the next Read or Write on the remote file. The whence argument controls the interpretation of offset.
 // io.SeekStart = offset from the beginning of file
 // io.SeekCurrent = offset from the current position
 // io.SeekEnd = offset from the end of file
@@ -93,7 +91,7 @@ func (f *winFile) Write(p []byte) (int, error) {
 	if err != nil {
 		return n, err //nolint:wrapcheck
 	}
-	log.Tracef("wrote %d bytes", n)
+	f.fsys.Log().Tracef("wrote %d bytes", n)
 	return n, nil
 }
 
@@ -117,7 +115,7 @@ func (f *winFile) Read(p []byte) (int, error) {
 		}
 		total += n
 	}
-	log.Tracef("read %d bytes", total)
+	f.fsys.Log().Tracef("read %d bytes", total)
 	return total, nil
 }
 
@@ -202,12 +200,12 @@ func (f *winFile) open(flags int) error {
 		_, _ = io.Copy(io.Discard, stderrR)
 	}()
 	go func() {
-		log.Debugf("rigrcp started, waiting for exit")
+		f.fsys.Log().Debugf("rigrcp started, waiting for exit")
 		err := cmd.Wait()
 		close(f.done)
-		log.Debugf("rigrcp ended")
+		f.fsys.Log().Debugf("rigrcp ended")
 		if err != nil {
-			log.Errorf("rigrcp exited with error: %v", err)
+			f.fsys.Log().Errorf("rigrcp exited with error: %v", err)
 		}
 		f.closed = true
 		_ = stdinR.Close()
@@ -240,14 +238,14 @@ func (f *winFile) command(cmd string) (*rcpResponse, error) { //nolint:cyclop
 		go func() {
 			b, err := f.stdout.ReadBytes(0)
 			if err != nil {
-				log.Errorf("failed to read response: %v", err)
+				f.fsys.Log().Errorf("failed to read response: %v", err)
 				close(resp)
 				return
 			}
 			resp <- b[:len(b)-1] // drop the zero byte
 		}()
 	}
-	log.Debugf("rigrcp command: %s", cmd)
+	f.fsys.Log().Debugf("rigrcp command: %s", cmd)
 	_, err := fmt.Fprintf(f.stdin, "%s\n", cmd)
 	if err != nil {
 		return nil, f.pathErr(OpOpen, fmt.Errorf("write command: %w", err))
@@ -292,7 +290,7 @@ func (f *winFile) Close() error {
 		return f.pathErr(OpClose, fmt.Errorf("%w: failed to close file", errRemote))
 	}
 	_, err = f.command("q")
-	log.Tracef("rigrcp quit: %v", err)
+	f.fsys.Log().Tracef("rigrcp quit: %v", err)
 	f.stdin.Close()
 	f.closed = true
 

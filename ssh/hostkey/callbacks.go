@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/k0sproject/rig/log"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
@@ -87,7 +86,7 @@ func wrapCallback(hkc ssh.HostKeyCallback, path string, permissive, hash bool) s
 			// keyErr.Want is empty if the host key is not in the known_hosts file
 			// non-empty is a mismatch
 			if permissive {
-				log.Warnf("%s: Ignored a SSH host key mismatch because StrictHostkeyChecking is set to 'no' in ssh config", remote)
+				fmt.Fprintln(os.Stderr, "Ignored an SSH host key mismatch for", remote, "because StrictHostkeyChecking is set to 'no' in ssh config")
 				return nil
 			}
 			return fmt.Errorf("%w: %w", ErrHostKeyMismatch, err)

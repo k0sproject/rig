@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-
-	"github.com/k0sproject/rig/log"
 )
 
 // ErrChecksumMismatch is returned when the checksum of the uploaded file does not match the local checksum.
@@ -44,7 +42,6 @@ func Upload(fsys Fsys, src, dst string) error {
 		return fmt.Errorf("close remote file after upload: %w", err)
 	}
 
-	log.Debugf("%s: post-upload validate checksum of %s", fsys, dst)
 	remoteSum, err := fsys.Sha256(dst)
 	if err != nil {
 		return fmt.Errorf("get checksum of uploaded file: %w", err)

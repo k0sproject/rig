@@ -7,15 +7,34 @@ import (
 
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/initsystem"
+	"github.com/k0sproject/rig/log"
 	"github.com/k0sproject/rig/packagemanager"
 	"github.com/k0sproject/rig/rigfs"
 	"github.com/k0sproject/rig/sudo"
 )
 
+// ClientConfigurer is an interface that can be used to configure a client. The Connect() function calls the Client() function
+// to get a client to use for connecting.
+type ClientConfigurer interface {
+	String() string
+	Client() (Client, error)
+}
+
+// LoggerFactory is a function that creates a logger
+type LoggerFactory func(client Client) log.Logger
+
+var nullLogger = &log.NullLog{}
+
+// DefaultLoggerFactory returns a logger factory that returns a null logger
+func DefaultLoggerFactory(_ Client) log.Logger {
+	return nullLogger
+}
+
 // ConnectionInjectables is a collection of injectable dependencies for a connection
 type ConnectionInjectables struct {
-	clientConfigurer ClientConfigurer `yaml:",inline"`
-	exec.Runner      `yaml:"-"`
+	clientConfigurer     ClientConfigurer `yaml:",inline"`
+	exec.Runner          `yaml:"-"`
+	log.LoggerInjectable `yaml:"-"`
 
 	client     Client
 	clientOnce sync.Once
@@ -54,6 +73,7 @@ type ConnectionRepositories struct {
 	packagemanRepo packagemanagerRepository
 	sudoRepo       sudoRepository
 	fsysRepo       rigfsRepository
+	loggerFactory  LoggerFactory
 }
 
 // DefaultConnectionRepositories returns a set of default repositories for connection injectables
@@ -63,6 +83,7 @@ func DefaultConnectionRepositories() ConnectionRepositories {
 		packagemanRepo: packagemanager.DefaultRepository,
 		sudoRepo:       sudo.DefaultRepository,
 		fsysRepo:       rigfs.DefaultRepository,
+		loggerFactory:  DefaultLoggerFactory,
 	}
 }
 
@@ -94,12 +115,22 @@ func (c *ConnectionInjectables) initClient() error {
 			err = ErrConfiguratorNotSet
 			return
 		}
+		c.injectLogger(c.clientConfigurer)
 		c.client, err = c.clientConfigurer.Client()
 		if err != nil {
 			err = fmt.Errorf("configure client (%v): %w", c.clientConfigurer, err)
+			return
 		}
+		if c.Log() == nil {
+			c.SetLogger(c.repositories.loggerFactory(c.client))
+		}
+		c.injectLogger(c.client)
 	})
 	return err
+}
+
+func (c *ConnectionInjectables) injectLogger(obj any) {
+	log.InjectLogger(c.Log(), obj)
 }
 
 func (c *ConnectionInjectables) sudoRunner() exec.Runner {
@@ -107,7 +138,9 @@ func (c *ConnectionInjectables) sudoRunner() exec.Runner {
 	if err != nil {
 		return exec.NewErrorRunner(err)
 	}
-	return exec.NewHostRunner(c.client, decorator)
+	runner := exec.NewHostRunner(c.client, decorator)
+	c.injectLogger(runner)
+	return runner
 }
 
 // InitSystem returns a ServiceManager for the host's init system
@@ -118,6 +151,7 @@ func (c *ConnectionInjectables) getInitSystem() (initsystem.ServiceManager, erro
 		if err != nil {
 			err = fmt.Errorf("get init system: %w", err)
 		}
+		c.injectLogger(c.initSys)
 	})
 	return c.initSys, err
 }
@@ -130,6 +164,7 @@ func (c *ConnectionInjectables) getPackageManager() (packagemanager.PackageManag
 		if err != nil {
 			err = fmt.Errorf("get package manager: %w", err)
 		}
+		c.injectLogger(c.packageMan)
 	})
 	return c.packageMan, err
 }
@@ -137,6 +172,7 @@ func (c *ConnectionInjectables) getPackageManager() (packagemanager.PackageManag
 func (c *ConnectionInjectables) getFsys() rigfs.Fsys {
 	c.fsysOnce.Do(func() {
 		c.fsys = c.repositories.fsysRepo.Get(c)
+		c.injectLogger(c.fsys)
 	})
 	return c.fsys
 }

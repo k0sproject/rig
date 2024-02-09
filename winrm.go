@@ -16,6 +16,8 @@ import (
 
 // WinRM describes a WinRM connection with its configuration options
 type WinRM struct {
+	log.LoggerInjectable `yaml:"-"`
+
 	Address       string `yaml:"address" validate:"required,hostname_rfc1123|ip"`
 	User          string `yaml:"user" validate:"omitempty,gt=2" default:"Administrator"`
 	Port          int    `yaml:"port" default:"5985" validate:"gt=0,lte=65535"`
@@ -172,12 +174,11 @@ func (c *WinRM) Connect() error {
 		return fmt.Errorf("create winrm client: %w", err)
 	}
 
-	log.Debugf("%s: testing connection", c)
+	c.Log().Debugf("testing connection")
 	_, err = client.RunWithContext(context.Background(), "echo ok", io.Discard, io.Discard)
 	if err != nil {
 		return fmt.Errorf("test connection: %w", err)
 	}
-	log.Debugf("%s: test passed", c)
 
 	c.client = client
 
@@ -193,6 +194,7 @@ type command struct {
 	sh  *winrm.Shell
 	cmd *winrm.Command
 	wg  sync.WaitGroup
+	log log.Logger
 }
 
 // Wait blocks until the command finishes
@@ -201,13 +203,15 @@ func (c *command) Wait() error {
 	defer c.cmd.Close()
 
 	c.wg.Wait()
+	c.log.Tracef("waitgroup finished")
 	c.cmd.Wait()
-	log.Debugf("command finished")
-	var err error
+	c.log.Tracef("command finished with exit code: %d", c.cmd.ExitCode())
+
 	if c.cmd.ExitCode() != 0 {
-		err = fmt.Errorf("%w: exit code %d", ErrCommandFailed, c.cmd.ExitCode())
+		return fmt.Errorf("%w: exit code %d", ErrCommandFailed, c.cmd.ExitCode())
 	}
-	return err
+
+	return nil
 }
 
 // Close terminates the command
@@ -237,19 +241,20 @@ func (c *WinRM) StartProcess(ctx context.Context, cmd string, stdin io.Reader, s
 		return nil, fmt.Errorf("execute command: %w", err)
 	}
 	started := time.Now()
-	res := &command{sh: shell, cmd: proc}
+	res := &command{sh: shell, cmd: proc, log: c.Log()}
 	if stdin == nil {
 		proc.Stdin.Close()
 	} else {
 		res.wg.Add(1)
 		go func() {
 			defer res.wg.Done()
-			log.Debugf("copying data to command stdin")
+			c.Log().Tracef("copying data to command stdin")
 			n, err := io.Copy(proc.Stdin, stdin)
 			if err != nil {
-				log.Errorf("copying data to command stdin failed: %v", err)
+				c.Log().Debugf("copying data to command stdin failed: %v", err)
+				return
 			}
-			log.Debugf("finished copying %d bytes to stdin", n)
+			c.Log().Tracef("finished copying %d bytes to stdin", n)
 		}()
 	}
 	if stdout == nil {
@@ -261,21 +266,23 @@ func (c *WinRM) StartProcess(ctx context.Context, cmd string, stdin io.Reader, s
 	res.wg.Add(2)
 	go func() {
 		defer res.wg.Done()
-		log.Debugf("copying data from command stdout")
+		c.Log().Tracef("copying data from command stdout")
 		n, err := io.Copy(stdout, proc.Stdout)
 		if err != nil {
-			log.Errorf("copying data from command stdout failed after %s: %v", time.Since(started), err)
+			c.Log().Debugf("copying data from command stdout failed after %s: %v", time.Since(started), err)
+			return
 		}
-		log.Debugf("finished copying %d bytes from stdout", n)
+		c.Log().Tracef("finished copying %d bytes from stdout", n)
 	}()
 	go func() {
 		defer res.wg.Done()
-		log.Debugf("copying data from command stderr")
+		c.Log().Tracef("copying data from command stderr")
 		n, err := io.Copy(stderr, proc.Stderr)
 		if err != nil {
-			log.Errorf("copying data from command stderr failed after %s: %v", time.Since(started), err)
+			c.Log().Debugf("copying data from command stderr failed after %s: %v", time.Since(started), err)
+			return
 		}
-		log.Debugf("finished copying %d bytes from stderr", n)
+		c.Log().Tracef("finished copying %d bytes from stderr", n)
 	}()
 	return res, nil
 }

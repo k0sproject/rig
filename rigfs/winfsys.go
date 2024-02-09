@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/log"
 	ps "github.com/k0sproject/rig/powershell"
 )
 
@@ -28,11 +29,12 @@ var (
 // WinFsys is a fs.FS implemen{
 type WinFsys struct {
 	exec.Runner
+	log.LoggerInjectable
 }
 
 // NewWindowsFsys returns a new fs.FS implementing filesystem for Windows targets
 func NewWindowsFsys(conn exec.Runner) *WinFsys {
-	return &WinFsys{conn}
+	return &WinFsys{Runner: conn}
 }
 
 var statCmdTemplate = `if (Test-Path -LiteralPath %[1]s) {
@@ -95,7 +97,7 @@ func (fsys *WinFsys) Remove(name string) error {
 		return fsys.removeDir(name)
 	}
 
-	if err := fsys.Exec("del %s", ps.DoubleQuotePath(name)); err != nil {
+	if err := fsys.Exec("cmd.exe /c del %s", ps.DoubleQuotePath(name)); err != nil {
 		return fmt.Errorf("remove %s: %w", name, err)
 	}
 
@@ -112,14 +114,14 @@ func (fsys *WinFsys) RemoveAll(name string) error {
 }
 
 func (fsys *WinFsys) removeDir(name string) error {
-	if err := fsys.Exec("rmdir /q %s", ps.DoubleQuotePath(name)); err != nil {
+	if err := fsys.Exec("cmd.exe /c rmdir /q %s", ps.DoubleQuotePath(name)); err != nil {
 		return fmt.Errorf("rmdir %s: %w", name, err)
 	}
 	return nil
 }
 
 func (fsys *WinFsys) removeDirAll(name string) error {
-	if err := fsys.Exec("rmdir /s /q %s", ps.DoubleQuotePath(name)); err != nil {
+	if err := fsys.Exec("cmd.exe /c rmdir /s /q %s", ps.DoubleQuotePath(name)); err != nil {
 		return fmt.Errorf("rmdir %s: %w", name, err)
 	}
 
@@ -137,7 +139,7 @@ func (fsys *WinFsys) MkdirAll(name string, _ fs.FileMode) error {
 
 // Mkdir creates a new directory with the specified name and permission bits. The permission bits are ignored on Windows.
 func (fsys *WinFsys) Mkdir(name string, _ fs.FileMode) error {
-	if err := fsys.Exec("mkdir %s", ps.DoubleQuotePath(name)); err != nil {
+	if err := fsys.Exec("cmd.exe /c mkdir %s", ps.DoubleQuotePath(name)); err != nil {
 		return &fs.PathError{Op: "mkdir", Path: name, Err: err}
 	}
 	return nil

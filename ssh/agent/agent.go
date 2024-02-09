@@ -9,7 +9,6 @@ import (
 	"net"
 	"os"
 
-	"github.com/k0sproject/rig/log"
 	"golang.org/x/crypto/ssh/agent"
 )
 
@@ -22,7 +21,6 @@ func NewClient() (agent.Agent, error) {
 	if sshAgentSock == "" {
 		return nil, fmt.Errorf("%w: SSH_AUTH_SOCK is not set", ErrSSHAgent)
 	}
-	log.Debugf("using SSH_AUTH_SOCK=%s", sshAgentSock)
 	sshAgent, err := net.Dial("unix", sshAgentSock)
 	if err != nil {
 		return nil, fmt.Errorf("%w: can't connect to ssh agent: %w", ErrSSHAgent, err)

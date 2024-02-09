@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/k0sproject/rig"
+	"github.com/k0sproject/rig/log"
 	"github.com/k0sproject/rig/rigfs"
 	"github.com/k0sproject/rig/stattime"
 	"github.com/kevinburke/ssh_config"
@@ -104,7 +105,7 @@ func TestConnect(t *testing.T) {
 		return
 	}
 
-	h := GetHost()
+	h := GetHost(t)
 	err := retry(func() error { return h.Connect() })
 	require.NoError(t, err)
 	h.Disconnect()
@@ -115,7 +116,7 @@ func TestConfigurerSuite(t *testing.T) {
 		t.Skip("only connect")
 		return
 	}
-	suite.Run(t, &OSSuite{ConnectedSuite: ConnectedSuite{Host: GetHost()}})
+	suite.Run(t, &OSSuite{ConnectedSuite: ConnectedSuite{Host: GetHost(t)}})
 }
 
 func TestFsysSuite(t *testing.T) {
@@ -124,7 +125,7 @@ func TestFsysSuite(t *testing.T) {
 		return
 	}
 
-	h := GetHost()
+	h := GetHost(t)
 	t.Run("No sudo", func(t *testing.T) {
 		suite.Run(t, &FsysSuite{ConnectedSuite: ConnectedSuite{Host: h}})
 	})
@@ -151,7 +152,7 @@ func retry(fn func() error) error {
 	return err
 }
 
-func GetHost() *Host {
+func GetHost(t *testing.T, options ...rig.Option) *Host {
 	var client rig.Client
 	switch protocol {
 	case "ssh":
@@ -207,7 +208,13 @@ func GetHost() *Host {
 	default:
 		panic("unknown protocol")
 	}
-	return &Host{Connection: rig.NewConnection(rig.WithClient(client))}
+	opts := []rig.Option{rig.WithClient(client), rig.WithLoggerFactory(
+		func(client rig.Client) log.Logger {
+			return log.NewPrefixLog(&SuiteLogger{t}, client.String()+": ")
+		}),
+	}
+	opts = append(opts, options...)
+	return &Host{Connection: rig.NewConnection(opts...)}
 }
 
 type SuiteLogger struct {
@@ -245,7 +252,6 @@ type ConnectedSuite struct {
 }
 
 func (s *ConnectedSuite) SetupSuite() {
-	rig.SetLogger(&SuiteLogger{s.T()})
 	err := retry(func() error { return s.Host.Connect() })
 	s.Require().NoError(err)
 	if s.sudo {

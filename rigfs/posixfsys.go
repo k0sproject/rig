@@ -14,6 +14,7 @@ import (
 
 	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/log"
 )
 
 var (
@@ -28,6 +29,7 @@ var (
 // PosixFsys implements fs.FS for a remote filesystem that uses POSIX commands for access
 type PosixFsys struct {
 	exec.SimpleRunner
+	log.LoggerInjectable
 
 	// TODO: these should probably be in some kind of "coreutils" package
 	statCmd   *string
@@ -37,7 +39,7 @@ type PosixFsys struct {
 
 // NewPosixFsys returns a fs.FS implementation for a remote filesystem that uses POSIX commands for access
 func NewPosixFsys(conn exec.SimpleRunner) *PosixFsys {
-	return &PosixFsys{conn, nil, nil, 0}
+	return &PosixFsys{SimpleRunner: conn, statCmd: nil, chtimesFn: nil}
 }
 
 const (

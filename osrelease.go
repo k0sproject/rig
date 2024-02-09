@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/k0sproject/rig/exec"
-	"github.com/k0sproject/rig/log"
 	ps "github.com/k0sproject/rig/powershell"
 )
 
@@ -55,7 +54,6 @@ func GetOSRelease(conn exec.SimpleRunner) (OSRelease, error) {
 		if errors.Is(err, errAbort) {
 			return OSRelease{}, errors.Join(ErrNotSupported, err)
 		}
-		log.Tracef("resolver failed: %v", err)
 	}
 	return OSRelease{}, fmt.Errorf("%w: unable to determine host os", ErrNotSupported)
 }

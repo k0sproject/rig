@@ -22,6 +22,8 @@ var ErrControlPathNotSet = errors.New("controlpath not set")
 // OpenSSH is a rig.Connection implementation that uses the system openssh client "ssh" to connect to remote hosts.
 // The connection is multiplexec over a control master, so that subsequent connections don't need to re-authenticate.
 type OpenSSH struct {
+	log.LoggerInjectable `yaml:"-"`
+
 	Address             string         `yaml:"address" validate:"required"`
 	User                *string        `yaml:"user"`
 	Port                *int           `yaml:"port"`
@@ -69,7 +71,7 @@ func (c *OpenSSH) IsWindows() bool {
 	isWin = err == nil && isWinProc.Wait() == nil
 
 	c.isWindows = &isWin
-	log.Debugf("%s: host is windows: %t", c, *c.isWindows)
+	c.Log().Debugf("%s: host is windows: %t", c, *c.isWindows)
 
 	return *c.isWindows
 }
@@ -223,14 +225,14 @@ func (c *OpenSSH) Connect() error {
 		_, _ = io.Copy(errBuf, stderr)
 	}()
 
-	log.Debugf("%s: starting ssh control master using 'ssh %s'", c, strings.Join(args, " "))
+	c.Log().Debugf("%s: starting ssh control master using 'ssh %s'", c, strings.Join(args, " "))
 	if err := cmd.Run(); err != nil {
 		c.isConnected = false
 		return fmt.Errorf("failed to start ssh multiplexing control master: %w (%s)", err, errBuf.String())
 	}
 
 	c.isConnected = true
-	log.Debugf("%s: started ssh multipliexing control master", c)
+	c.Log().Debugf("%s: started ssh multipliexing control master", c)
 
 	return nil
 }
@@ -252,7 +254,7 @@ func (c *OpenSSH) closeControl() error {
 	args = append(args, c.args()...)
 	args = append(args, c.userhost())
 
-	log.Debugf("%s: closing ssh multiplexing control master", c)
+	c.Log().Debugf("%s: closing ssh multiplexing control master", c)
 	cmd := goexec.Command("ssh", args...)
 	err := cmd.Run()
 	if err != nil {
@@ -324,6 +326,6 @@ func (c *OpenSSH) Disconnect() {
 	}
 
 	if err := c.closeControl(); err != nil {
-		log.Warnf("%s: failed to close control master: %v", c, err)
+		c.Log().Warnf("%s: failed to close control master: %v", c, err)
 	}
 }
