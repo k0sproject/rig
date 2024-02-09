@@ -20,7 +20,8 @@ type ConnectionInjectables struct {
 	client     Client
 	clientOnce sync.Once
 
-	fsys rigfs.Fsys
+	fsys     rigfs.Fsys
+	fsysOnce sync.Once
 
 	initSys     initsystem.ServiceManager
 	initSysOnce sync.Once
@@ -31,11 +32,28 @@ type ConnectionInjectables struct {
 	repositories ConnectionRepositories
 }
 
+type initsystemRepository interface {
+	Get(runner exec.ContextRunner) (manager initsystem.ServiceManager, err error)
+}
+
+type packagemanagerRepository interface {
+	Get(runner exec.ContextRunner) (manager packagemanager.PackageManager, err error)
+}
+
+type sudoRepository interface {
+	Get(runner exec.SimpleRunner) (decorator exec.DecorateFunc, err error)
+}
+
+type rigfsRepository interface {
+	Get(runner exec.Runner) (fsys rigfs.Fsys)
+}
+
 // ConnectionRepositories is a collection of repositories for connection injectables
 type ConnectionRepositories struct {
-	initsysRepo    *initsystem.Repository
-	packagemanRepo *packagemanager.Repository
-	sudoRepo       *sudo.Repository
+	initsysRepo    initsystemRepository
+	packagemanRepo packagemanagerRepository
+	sudoRepo       sudoRepository
+	fsysRepo       rigfsRepository
 }
 
 // DefaultConnectionRepositories returns a set of default repositories for connection injectables
@@ -44,6 +62,7 @@ func DefaultConnectionRepositories() ConnectionRepositories {
 		initsysRepo:    initsystem.DefaultRepository,
 		packagemanRepo: packagemanager.DefaultRepository,
 		sudoRepo:       sudo.DefaultRepository,
+		fsysRepo:       rigfs.DefaultRepository,
 	}
 }
 
@@ -113,4 +132,11 @@ func (c *ConnectionInjectables) getPackageManager() (packagemanager.PackageManag
 		}
 	})
 	return c.packageMan, err
+}
+
+func (c *ConnectionInjectables) getFsys() rigfs.Fsys {
+	c.fsysOnce.Do(func() {
+		c.fsys = c.repositories.fsysRepo.Get(c)
+	})
+	return c.fsys
 }

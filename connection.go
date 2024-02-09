@@ -144,11 +144,7 @@ func (c *Connection) Sudo() *Connection {
 
 // Fsys returns a fs.FS compatible filesystem interface for accessing files on remote hosts
 func (c *Connection) Fsys() rigfs.Fsys {
-	if c.fsys == nil {
-		c.fsys = rigfs.NewFsys(c)
-	}
-
-	return c.fsys
+	return c.getFsys()
 }
 
 // Connect to the host.
