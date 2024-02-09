@@ -125,6 +125,9 @@ func (c *ConnectionInjectables) initClient() error {
 			c.SetLogger(c.repositories.loggerFactory(c.client))
 		}
 		c.injectLogger(c.client)
+		if c.Runner == nil {
+			c.Runner = exec.NewHostRunner(c.client, nil)
+		}
 	})
 	return err
 }
