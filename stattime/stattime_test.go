@@ -1,4 +1,4 @@
-package softtime
+package stattime
 
 import (
 	"testing"

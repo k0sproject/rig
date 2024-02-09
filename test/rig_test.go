@@ -17,7 +17,7 @@ import (
 
 	"github.com/k0sproject/rig"
 	"github.com/k0sproject/rig/rigfs"
-	"github.com/k0sproject/rig/softtime"
+	"github.com/k0sproject/rig/stattime"
 	"github.com/kevinburke/ssh_config"
 
 	"github.com/stretchr/testify/require"
@@ -319,7 +319,7 @@ func (s *OSSuite) TestTouch() {
 				s.T().Log("Testing nanosecond precision")
 				s.Equal(now.UnixNano(), stat.ModTime().UnixNano())
 			}
-			s.True(softtime.Equal(now, stat.ModTime()))
+			s.True(stattime.Equal(now, stat.ModTime()))
 		})
 	}
 }
