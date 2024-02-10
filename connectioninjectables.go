@@ -90,7 +90,8 @@ func DefaultConnectionRepositories() ConnectionRepositories {
 // DefaultConnectionInjectables returns a set of default injectables for a connection
 func DefaultConnectionInjectables() *ConnectionInjectables {
 	return &ConnectionInjectables{
-		repositories: DefaultConnectionRepositories(),
+		clientConfigurer: &ClientConfig{},
+		repositories:     DefaultConnectionRepositories(),
 	}
 }
 
@@ -107,18 +108,28 @@ func (c *ConnectionInjectables) Clone(opts ...Option) *ConnectionInjectables {
 
 // ErrConfiguratorNotSet is returned when a client configurator is not set when trying to connect
 var ErrConfiguratorNotSet = errors.New("client configurator not set")
+var ErrClientNotSet = errors.New("client not set")
 
 func (c *ConnectionInjectables) initClient() error {
 	var err error
 	c.clientOnce.Do(func() {
-		if c.clientConfigurer == nil {
-			err = ErrConfiguratorNotSet
+		if c.client != nil {
+			c.clientConfigurer = nil
+		}
+		if c.client == nil && c.clientConfigurer == nil {
+			err = errors.Join(ErrClientNotSet, ErrConfiguratorNotSet)
 			return
 		}
-		c.injectLogger(c.clientConfigurer)
-		c.client, err = c.clientConfigurer.Client()
-		if err != nil {
-			err = fmt.Errorf("configure client (%v): %w", c.clientConfigurer, err)
+		if c.clientConfigurer != nil {
+			c.injectLogger(c.clientConfigurer)
+			c.client, err = c.clientConfigurer.Client()
+			if err != nil {
+				err = fmt.Errorf("configure client (%v): %w", c.clientConfigurer, err)
+				return
+			}
+		}
+		if c.client == nil {
+			err = ErrClientNotSet
 			return
 		}
 		if !c.HasLogger() {
