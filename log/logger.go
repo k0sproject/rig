@@ -148,11 +148,20 @@ func (l *PrefixLog) Errorf(t string, args ...any) {
 // NullLog is a logger that does nothing
 type NullLog struct{}
 
-func (l *NullLog) Tracef(t string, args ...any) {} // Tracef does nothing
-func (l *NullLog) Debugf(t string, args ...any) {} // Debugf does nothing
-func (l *NullLog) Infof(t string, args ...any)  {} // Infof does nothing
-func (l *NullLog) Warnf(t string, args ...any)  {} // Warnf does nothing
-func (l *NullLog) Errorf(t string, args ...any) {} // Errorf does nothing
+// Tracef does nothing
+func (l *NullLog) Tracef(_ string, _ ...any) {}
+
+// Debugf does nothing
+func (l *NullLog) Debugf(_ string, _ ...any) {}
+
+// Infof does nothing
+func (l *NullLog) Infof(_ string, _ ...any) {}
+
+// Warnf does nothing
+func (l *NullLog) Warnf(_ string, _ ...any) {}
+
+// Errorf does nothing
+func (l *NullLog) Errorf(_ string, _ ...any) {}
 
 // MockLogMessage is a mock log message
 type MockLogMessage struct {
@@ -223,7 +232,7 @@ func (l *MockLog) Messages() []MockLogMessage {
 	return msgs
 }
 
-// Received returns true if a log message with the given level and message was received
+// ReceivedRegex returns true if a log message with the given level and message was received
 func (l *MockLog) ReceivedRegex(level int, regex regexp.Regexp) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -235,8 +244,8 @@ func (l *MockLog) ReceivedRegex(level int, regex regexp.Regexp) bool {
 	return false
 }
 
-// Received returns true if a log message with the given level and message was received
-func (l *MockLog) ReceivedContains(level int, substring string) bool {
+// ReceivedContainsString returns true if a log message with the given level and message was received
+func (l *MockLog) ReceivedContainsString(level int, substring string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for _, msg := range l.messages {
@@ -247,8 +256,17 @@ func (l *MockLog) ReceivedContains(level int, substring string) bool {
 	return false
 }
 
-func (l *MockLog) Tracef(t string, args ...any) { l.log(LevelTrace, t, args...) } // Tracef log message
-func (l *MockLog) Debugf(t string, args ...any) { l.log(LevelDebug, t, args...) } // Debugf log message
-func (l *MockLog) Infof(t string, args ...any)  { l.log(LevelInfo, t, args...) }  // Infof log message
-func (l *MockLog) Warnf(t string, args ...any)  { l.log(LevelWarn, t, args...) }  // Warnf log message
-func (l *MockLog) Errorf(t string, args ...any) { l.log(LevelError, t, args...) } // Errorf log message
+// Tracef log message
+func (l *MockLog) Tracef(t string, args ...any) { l.log(LevelTrace, t, args...) }
+
+// Debugf log message
+func (l *MockLog) Debugf(t string, args ...any) { l.log(LevelDebug, t, args...) }
+
+// Infof log message
+func (l *MockLog) Infof(t string, args ...any) { l.log(LevelInfo, t, args...) }
+
+// Warnf log message
+func (l *MockLog) Warnf(t string, args ...any) { l.log(LevelWarn, t, args...) }
+
+// Errorf log message
+func (l *MockLog) Errorf(t string, args ...any) { l.log(LevelError, t, args...) }

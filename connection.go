@@ -65,11 +65,13 @@ type Connection struct {
 }
 
 // NewConnection returns a new Connection object with the given options
-func NewConnection(opts ...Option) *Connection {
+func NewConnection(opts ...Option) (*Connection, error) {
 	options := NewOptions(opts...)
 	conn := &Connection{ConnectionInjectables: options.ConnectionInjectables}
-	conn.initClient()
-	return conn
+	if err := conn.initClient(); err != nil {
+		return nil, fmt.Errorf("init client: %w", err)
+	}
+	return conn, nil
 }
 
 // DefaultClientConfigurer is a function that returns a new ClientConfigurer. You can override this to provide your own

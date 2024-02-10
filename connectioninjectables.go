@@ -106,9 +106,13 @@ func (c *ConnectionInjectables) Clone(opts ...Option) *ConnectionInjectables {
 	return options.ConnectionInjectables
 }
 
-// ErrConfiguratorNotSet is returned when a client configurator is not set when trying to connect
-var ErrConfiguratorNotSet = errors.New("client configurator not set")
-var ErrClientNotSet = errors.New("client not set")
+var (
+	// ErrConfiguratorNotSet is returned when a client configurator is not set when trying to connect
+	ErrConfiguratorNotSet = errors.New("client configurator not set")
+
+	// ErrClientNotSet is returned when a client is not set when trying to connect
+	ErrClientNotSet = errors.New("client not set")
+)
 
 func (c *ConnectionInjectables) initClient() error {
 	var err error

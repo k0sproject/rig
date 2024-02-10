@@ -214,7 +214,9 @@ func GetHost(t *testing.T, options ...rig.Option) *Host {
 		}),
 	}
 	opts = append(opts, options...)
-	return &Host{Connection: rig.NewConnection(opts...)}
+	conn, err := rig.NewConnection(opts...)
+	require.NoError(t, err)
+	return &Host{Connection: conn}
 }
 
 type SuiteLogger struct {
