@@ -59,7 +59,7 @@ type Client interface {
 //	  output, err := h.ExecOutput("echo hello")
 //	}
 type Connection struct {
-	*ConnectionInjectables `yaml:",inline"`
+	*Dependencies `yaml:",inline"`
 
 	sudo *Connection
 }
@@ -67,11 +67,11 @@ type Connection struct {
 // NewConnection returns a new Connection object with the given options
 func NewConnection(opts ...Option) (*Connection, error) {
 	options := NewOptions(opts...)
-	conn := &Connection{ConnectionInjectables: options.ConnectionInjectables}
-	if err := conn.initClient(); err != nil {
+	deps := options.ConnectionDependencies()
+	if err := deps.initClient(); err != nil {
 		return nil, fmt.Errorf("init client: %w", err)
 	}
-	return conn, nil
+	return &Connection{Dependencies: deps}, nil
 }
 
 // DefaultClientConfigurer is a function that returns a new ClientConfigurer. You can override this to provide your own
@@ -82,16 +82,16 @@ var DefaultClientConfigurer = func() ClientConfigurer {
 
 // UnmarshalYAML is a custom unmarshaler for the Connection struct
 func (c *Connection) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	c.ConnectionInjectables = DefaultConnectionInjectables()
-
-	if c.clientConfigurer == nil {
-		c.clientConfigurer = DefaultClientConfigurer()
+	deps := DefaultDependencies()
+	if deps.clientConfigurer == nil {
+		deps.clientConfigurer = DefaultClientConfigurer()
 	}
+	configurer := deps.clientConfigurer
 
-	type connection Connection
-	if err := unmarshal((*connection)(c)); err != nil {
+	if err := unmarshal(configurer); err != nil {
 		return err
 	}
+	c.Dependencies = deps
 
 	return nil
 }
@@ -134,7 +134,7 @@ func (c Connection) String() string {
 // Clone returns a copy of the connection with the given options.
 func (c *Connection) Clone(opts ...Option) *Connection {
 	return &Connection{
-		ConnectionInjectables: c.ConnectionInjectables.Clone(opts...),
+		Dependencies: c.Dependencies.Clone(opts...),
 	}
 }
 
@@ -164,18 +164,18 @@ func (c *Connection) Connect() error {
 }
 
 // Disconnect from the host.
-func (c *ConnectionInjectables) Disconnect() {
+func (c *Dependencies) Disconnect() {
 	if c.client != nil {
 		c.client.Disconnect()
 	}
 }
 
 // InitSystem returns a ServiceManager for the host's init system
-func (c *ConnectionInjectables) InitSystem() (initsystem.ServiceManager, error) {
+func (c *Dependencies) InitSystem() (initsystem.ServiceManager, error) {
 	return c.getInitSystem()
 }
 
 // PackageManager returns a PackageManager for the host's package manager
-func (c *ConnectionInjectables) PackageManager() (packagemanager.PackageManager, error) {
+func (c *Dependencies) PackageManager() (packagemanager.PackageManager, error) {
 	return c.getPackageManager()
 }

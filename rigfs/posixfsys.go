@@ -784,9 +784,13 @@ func (fsys *PosixFsys) FileExist(name string) bool {
 	return fsys.Exec("test -f %s", shellescape.Quote(name), exec.HideOutput()) == nil
 }
 
-// CommandExist checks if a command exists on the host
-func (fsys *PosixFsys) CommandExist(name string) bool {
-	return fsys.Exec("command -v %s", name, exec.HideOutput()) == nil
+// LookPath checks if a command exists on the host
+func (fsys *PosixFsys) LookPath(name string) (string, error) {
+	path, err := fsys.ExecOutput("command -v %s", name, exec.HideOutput())
+	if err != nil {
+		return "", fmt.Errorf("lookpath %s: %w", name, err)
+	}
+	return path, nil
 }
 
 // Join joins any number of path elements into a single path, adding a separating slash if necessary.

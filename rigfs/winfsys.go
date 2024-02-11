@@ -169,7 +169,7 @@ func (fsys *WinFsys) MkdirTemp(dir, prefix string) (string, error) {
 	if err := fsys.Mkdir(path, 0o700); err != nil {
 		return "", fmt.Errorf("mkdirtemp %s: %w", path, err)
 	}
-	return path, nil
+	return toSlashes(path), nil
 }
 
 type opener interface {
@@ -242,14 +242,21 @@ func (fsys *WinFsys) WriteFile(name string, data []byte, mode fs.FileMode) error
 	return nil
 }
 
-// FileExist checks if a file exists on the host
+// FileExist checks if a file exists on the host. It is a more efficient shortcut for something like:
+//
+//		if _, err := fsys.Stat(name); os.IsNotExist(err) { ... }
+//	 if !fs.FileExist(name) { ... }
 func (fsys *WinFsys) FileExist(name string) bool {
 	return fsys.Exec("if (Test-Path -LiteralPath %s) { exit 0 } else { exit 1 }", ps.DoubleQuotePath(name), exec.PS()) == nil
 }
 
-// CommandExist checks if a command exists on the host
-func (fsys *WinFsys) CommandExist(name string) bool {
-	return fsys.Exec("if (Get-Command %s -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }", name, exec.PS()) == nil
+// LookPath checks if a command exists on the host
+func (fsys *WinFsys) LookPath(name string) (string, error) {
+	path, err := fsys.ExecOutput("Get-Command %s -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source", ps.DoubleQuotePath(name), exec.PS())
+	if err != nil {
+		return "", fmt.Errorf("lookpath %s: %w", name, err)
+	}
+	return toSlashes(path), nil
 }
 
 // Join joins any number of path elements into a single path, adding a separating slash if necessary.
@@ -375,4 +382,8 @@ func (fsys *WinFsys) UserHomeDir() string {
 		return "C:/Users/" + user
 	}
 	return ""
+}
+
+func toSlashes(path string) string {
+	return strings.ReplaceAll(path, "\\", "/")
 }

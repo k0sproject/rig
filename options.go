@@ -10,7 +10,7 @@ import (
 
 // Options is a struct that holds the variadic options for the rig package.
 type Options struct {
-	*ConnectionInjectables
+	connectionDependencies *Dependencies
 }
 
 // Apply applies the supplied options to the Options struct.
@@ -20,104 +20,109 @@ func (o *Options) Apply(opts ...Option) {
 	}
 }
 
+// ConnectionDependencies returns configured dependencies for a connection.
+func (o *Options) ConnectionDependencies() *Dependencies {
+	return o.connectionDependencies
+}
+
 // Option is a functional option type for the Options struct.
 type Option func(*Options)
 
 // WithClient is a functional option that sets the client to use for connecting instead of getting it from the ClientConfigurer.
 func WithClient(client Client) Option {
 	return func(o *Options) {
-		o.client = client
+		o.connectionDependencies.client = client
 	}
 }
 
 // WithRunner is a functional option that sets the runner to use for executing commands.
 func WithRunner(runner exec.Runner) Option {
 	return func(o *Options) {
-		o.ConnectionInjectables.Runner = runner
+		o.connectionDependencies.Runner = runner
 	}
 }
 
 // WithLogger is a functional option that sets the logger to use for logging.
 func WithLogger(logger log.Logger) Option {
 	return func(o *Options) {
-		o.ConnectionInjectables.SetLogger(logger)
+		o.connectionDependencies.SetLogger(logger)
 	}
 }
 
 // WithClientConfigurer is a functional option that sets the client configurer to use for connecting.
 func WithClientConfigurer(configurer ClientConfigurer) Option {
 	return func(o *Options) {
-		o.ConnectionInjectables.clientConfigurer = configurer
+		o.connectionDependencies.clientConfigurer = configurer
 	}
 }
 
-// WithRepositories is a functional option that sets the repositories to use for the connection.
-func WithRepositories(repositories ConnectionRepositories) Option {
+// WithProviders is a functional option that sets the repositories to use for the connection.
+func WithProviders(providers SubsystemProviders) Option {
 	return func(o *Options) {
-		o.ConnectionInjectables.repositories = repositories
+		o.connectionDependencies.providers = providers
 	}
 }
 
 // WithFsys is a functional option that sets the filesystem to use for the connection.
 func WithFsys(fsys rigfs.Fsys) Option {
 	return func(o *Options) {
-		o.ConnectionInjectables.fsys = fsys
+		o.connectionDependencies.fsys = fsys
 	}
 }
 
 // WithPackageManager is a functional option that sets the package manager to use for the connection.
 func WithPackageManager(packagemanager packagemanager.PackageManager) Option {
 	return func(o *Options) {
-		o.ConnectionInjectables.packageMan = packagemanager
+		o.connectionDependencies.packageMan = packagemanager
 	}
 }
 
 // WithInitSystem is a functional option that sets the init system to use for the connection.
 func WithInitSystem(initsystem initsystem.ServiceManager) Option {
 	return func(o *Options) {
-		o.ConnectionInjectables.initSys = initsystem
+		o.connectionDependencies.initSys = initsystem
 	}
 }
 
-// WithInitSystemRepositeory is a functional option that sets the init system repository to use for the connection.
-func WithInitSystemRepositeory(initsysRepo initsystemRepository) Option {
+// WithInitSystemProvider is a functional option that sets the init system repository to use for the connection.
+func WithInitSystemProvider(initsysProvider initsystemProvider) Option {
 	return func(o *Options) {
-		o.ConnectionInjectables.repositories.initsysRepo = initsysRepo
+		o.connectionDependencies.providers.initsys = initsysProvider
 	}
 }
 
-// WithPackageManagerRepository is a functional option that sets the package manager repository to use for the connection.
-func WithPackageManagerRepository(packagemanRepo packagemanagerRepository) Option {
+// WithPackageManagerProvider is a functional option that sets the package manager repository to use for the connection.
+func WithPackageManagerProvider(packagemanProvider packagemanagerProvider) Option {
 	return func(o *Options) {
-		o.ConnectionInjectables.repositories.packagemanRepo = packagemanRepo
+		o.connectionDependencies.providers.packagemanager = packagemanProvider
 	}
 }
 
-// WithSudoRepository is a functional option that sets the sudo repository to use for the connection.
-func WithSudoRepository(sudoRepo sudoRepository) Option {
+// WithSudoProvider is a functional option that sets the sudo repository to use for the connection.
+func WithSudoProvider(sudoProvider sudoProvider) Option {
 	return func(o *Options) {
-		o.ConnectionInjectables.repositories.sudoRepo = sudoRepo
+		o.connectionDependencies.providers.sudo = sudoProvider
 	}
 }
 
 // WithFsysRepository is a functional option that sets the filesystem repository to use for the connection.
-func WithFsysRepository(fsysRepo rigfsRepository) Option {
+func WithFsysRepository(fsysProvider fsProvider) Option {
 	return func(o *Options) {
-		o.ConnectionInjectables.repositories.fsysRepo = fsysRepo
+		o.connectionDependencies.providers.fsys = fsysProvider
 	}
 }
 
 // WithLoggerFactory is a functional option that sets the logger factory to use for creating a logger for the connection.
 func WithLoggerFactory(loggerFactory LoggerFactory) Option {
 	return func(o *Options) {
-		o.ConnectionInjectables.repositories.loggerFactory = loggerFactory
+		o.connectionDependencies.providers.loggerFactory = loggerFactory
 	}
 }
 
 // NewOptions creates a new Options struct with the supplied options applied over the defaults.
 func NewOptions(opts ...Option) *Options {
 	options := &Options{
-		ConnectionInjectables: DefaultConnectionInjectables(),
+		connectionDependencies: DefaultDependencies(),
 	}
 
 	options.Apply(opts...)

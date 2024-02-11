@@ -35,7 +35,7 @@ type OS interface { //nolint:interfacebloat // intentionally large interface
 	MkdirTemp(dir, prefix string) (string, error)
 	WriteFile(path string, data []byte, perm fs.FileMode) error
 	FileExist(path string) bool
-	CommandExist(cmd string) bool
+	LookPath(cmd string) (string, error)
 	Join(elem ...string) string
 	Chmod(path string, mode fs.FileMode) error
 	Chown(path string, uid, gid int) error

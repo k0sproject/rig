@@ -30,8 +30,8 @@ func DefaultLoggerFactory(_ Client) log.Logger {
 	return nullLogger
 }
 
-// ConnectionInjectables is a collection of injectable dependencies for a connection
-type ConnectionInjectables struct {
+// Dependencies is a collection of injectable dependencies for a connection
+type Dependencies struct {
 	clientConfigurer     ClientConfigurer `yaml:",inline"`
 	exec.Runner          `yaml:"-"`
 	log.LoggerInjectable `yaml:"-"`
@@ -48,62 +48,62 @@ type ConnectionInjectables struct {
 	packageMan     packagemanager.PackageManager
 	packageManOnce sync.Once
 
-	repositories ConnectionRepositories
+	providers SubsystemProviders
 }
 
-type initsystemRepository interface {
+type initsystemProvider interface {
 	Get(runner exec.ContextRunner) (manager initsystem.ServiceManager, err error)
 }
 
-type packagemanagerRepository interface {
+type packagemanagerProvider interface {
 	Get(runner exec.ContextRunner) (manager packagemanager.PackageManager, err error)
 }
 
-type sudoRepository interface {
+type sudoProvider interface {
 	Get(runner exec.SimpleRunner) (decorator exec.DecorateFunc, err error)
 }
 
-type rigfsRepository interface {
+type fsProvider interface {
 	Get(runner exec.Runner) (fsys rigfs.Fsys)
 }
 
-// ConnectionRepositories is a collection of repositories for connection injectables
-type ConnectionRepositories struct {
-	initsysRepo    initsystemRepository
-	packagemanRepo packagemanagerRepository
-	sudoRepo       sudoRepository
-	fsysRepo       rigfsRepository
+// SubsystemProviders is a collection of repositories for connection injectables
+type SubsystemProviders struct {
+	initsys        initsystemProvider
+	packagemanager packagemanagerProvider
+	sudo           sudoProvider
+	fsys           fsProvider
 	loggerFactory  LoggerFactory
 }
 
-// DefaultConnectionRepositories returns a set of default repositories for connection injectables
-func DefaultConnectionRepositories() ConnectionRepositories {
-	return ConnectionRepositories{
-		initsysRepo:    initsystem.DefaultRepository,
-		packagemanRepo: packagemanager.DefaultRepository,
-		sudoRepo:       sudo.DefaultRepository,
-		fsysRepo:       rigfs.DefaultRepository,
+// DefaultProviders returns a set of default repositories for connection injectables
+func DefaultProviders() SubsystemProviders {
+	return SubsystemProviders{
+		initsys:        initsystem.DefaultRepository,
+		packagemanager: packagemanager.DefaultRepository,
+		sudo:           sudo.DefaultRepository,
+		fsys:           rigfs.DefaultRepository,
 		loggerFactory:  DefaultLoggerFactory,
 	}
 }
 
-// DefaultConnectionInjectables returns a set of default injectables for a connection
-func DefaultConnectionInjectables() *ConnectionInjectables {
-	return &ConnectionInjectables{
+// DefaultDependencies returns a set of default injectables for a connection
+func DefaultDependencies() *Dependencies {
+	return &Dependencies{
 		clientConfigurer: &ClientConfig{},
-		repositories:     DefaultConnectionRepositories(),
+		providers:        DefaultProviders(),
 	}
 }
 
 // Clone returns a copy of the ConnectionInjectables with the given options applied
-func (c *ConnectionInjectables) Clone(opts ...Option) *ConnectionInjectables {
-	options := Options{ConnectionInjectables: &ConnectionInjectables{
+func (c *Dependencies) Clone(opts ...Option) *Dependencies {
+	options := Options{connectionDependencies: &Dependencies{
 		clientConfigurer: c.clientConfigurer,
 		client:           c.client,
-		repositories:     c.repositories,
+		providers:        c.providers,
 	}}
 	options.Apply(opts...)
-	return options.ConnectionInjectables
+	return options.ConnectionDependencies()
 }
 
 var (
@@ -114,7 +114,7 @@ var (
 	ErrClientNotSet = errors.New("client not set")
 )
 
-func (c *ConnectionInjectables) initClient() error {
+func (c *Dependencies) initClient() error {
 	var err error
 	c.clientOnce.Do(func() {
 		if c.client != nil {
@@ -137,7 +137,7 @@ func (c *ConnectionInjectables) initClient() error {
 			return
 		}
 		if !c.HasLogger() {
-			c.SetLogger(c.repositories.loggerFactory(c.client))
+			c.SetLogger(c.providers.loggerFactory(c.client))
 		}
 		c.injectLogger(c.client)
 		if c.Runner == nil {
@@ -147,12 +147,12 @@ func (c *ConnectionInjectables) initClient() error {
 	return err
 }
 
-func (c *ConnectionInjectables) injectLogger(obj any) {
+func (c *Dependencies) injectLogger(obj any) {
 	log.InjectLogger(c.Log(), obj)
 }
 
-func (c *ConnectionInjectables) sudoRunner() exec.Runner {
-	decorator, err := c.repositories.sudoRepo.Get(c)
+func (c *Dependencies) sudoRunner() exec.Runner {
+	decorator, err := c.providers.sudo.Get(c)
 	if err != nil {
 		return exec.NewErrorRunner(err)
 	}
@@ -162,10 +162,10 @@ func (c *ConnectionInjectables) sudoRunner() exec.Runner {
 }
 
 // InitSystem returns a ServiceManager for the host's init system
-func (c *ConnectionInjectables) getInitSystem() (initsystem.ServiceManager, error) {
+func (c *Dependencies) getInitSystem() (initsystem.ServiceManager, error) {
 	var err error
 	c.initSysOnce.Do(func() {
-		c.initSys, err = c.repositories.initsysRepo.Get(c)
+		c.initSys, err = c.providers.initsys.Get(c)
 		if err != nil {
 			err = fmt.Errorf("get init system: %w", err)
 		}
@@ -175,10 +175,10 @@ func (c *ConnectionInjectables) getInitSystem() (initsystem.ServiceManager, erro
 }
 
 // PackageManager returns a PackageManager for the host's package manager
-func (c *ConnectionInjectables) getPackageManager() (packagemanager.PackageManager, error) {
+func (c *Dependencies) getPackageManager() (packagemanager.PackageManager, error) {
 	var err error
 	c.packageManOnce.Do(func() {
-		c.packageMan, err = c.repositories.packagemanRepo.Get(c)
+		c.packageMan, err = c.providers.packagemanager.Get(c)
 		if err != nil {
 			err = fmt.Errorf("get package manager: %w", err)
 		}
@@ -187,9 +187,9 @@ func (c *ConnectionInjectables) getPackageManager() (packagemanager.PackageManag
 	return c.packageMan, err
 }
 
-func (c *ConnectionInjectables) getFsys() rigfs.Fsys {
+func (c *Dependencies) getFsys() rigfs.Fsys {
 	c.fsysOnce.Do(func() {
-		c.fsys = c.repositories.fsysRepo.Get(c)
+		c.fsys = c.providers.fsys.Get(c)
 		c.injectLogger(c.fsys)
 	})
 	return c.fsys
