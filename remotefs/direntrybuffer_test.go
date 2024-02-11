@@ -1,4 +1,4 @@
-package rigfs
+package remotefs
 
 import (
 	"errors"

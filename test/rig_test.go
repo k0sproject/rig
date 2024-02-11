@@ -17,7 +17,7 @@ import (
 
 	"github.com/k0sproject/rig"
 	"github.com/k0sproject/rig/log"
-	"github.com/k0sproject/rig/rigfs"
+	"github.com/k0sproject/rig/remotefs"
 	"github.com/k0sproject/rig/stattime"
 	"github.com/kevinburke/ssh_config"
 
@@ -119,7 +119,7 @@ func TestConfigurerSuite(t *testing.T) {
 	suite.Run(t, &OSSuite{ConnectedSuite: ConnectedSuite{Host: GetHost(t)}})
 }
 
-func TestFsysSuite(t *testing.T) {
+func TestFSSuite(t *testing.T) {
 	if onlyConnect {
 		t.Skip("only connect")
 		return
@@ -127,11 +127,11 @@ func TestFsysSuite(t *testing.T) {
 
 	h := GetHost(t)
 	t.Run("No sudo", func(t *testing.T) {
-		suite.Run(t, &FsysSuite{ConnectedSuite: ConnectedSuite{Host: h}})
+		suite.Run(t, &FSSuite{ConnectedSuite: ConnectedSuite{Host: h}})
 	})
 
 	t.Run("Sudo", func(t *testing.T) {
-		suite.Run(t, &FsysSuite{ConnectedSuite: ConnectedSuite{Host: h}, sudo: true})
+		suite.Run(t, &FSSuite{ConnectedSuite: ConnectedSuite{Host: h}, sudo: true})
 	})
 }
 
@@ -249,7 +249,7 @@ type ConnectedSuite struct {
 	tempDir string
 	count   int
 	Host    *Host
-	fs      rigfs.Fsys
+	fs      remotefs.FS
 	sudo    bool
 }
 
@@ -257,9 +257,9 @@ func (s *ConnectedSuite) SetupSuite() {
 	err := retry(func() error { return s.Host.Connect() })
 	s.Require().NoError(err)
 	if s.sudo {
-		s.fs = s.Host.Sudo().Fsys()
+		s.fs = s.Host.Sudo().FS()
 	} else {
-		s.fs = s.Host.Fsys()
+		s.fs = s.Host.FS()
 	}
 	tempDir, err := s.fs.MkdirTemp("", "rigtest")
 	s.Require().NoError(err)
@@ -270,7 +270,7 @@ func (s *ConnectedSuite) TearDownSuite() {
 	if s.Host == nil {
 		return
 	}
-	_ = s.Host.Fsys().RemoveAll(s.tempDir)
+	_ = s.Host.FS().RemoveAll(s.tempDir)
 	s.Host.Disconnect()
 }
 
@@ -387,7 +387,7 @@ func (s *OSSuite) TestUpload() {
 			defer s.fs.Remove(s.TempPath(pathBase(fn)))
 
 			s.Run("Upload file", func() {
-				s.Require().NoError(rigfs.Upload(s.Host.Fsys(), fn, s.TempPath(pathBase(fn))))
+				s.Require().NoError(remotefs.Upload(s.Host.FS(), fn, s.TempPath(pathBase(fn))))
 			})
 
 			s.Run("Verify file size", func() {
@@ -412,12 +412,12 @@ func (s *OSSuite) TestUpload() {
 	}
 }
 
-type FsysSuite struct {
+type FSSuite struct {
 	ConnectedSuite
 	sudo bool
 }
 
-func (s *FsysSuite) TestMkdir() {
+func (s *FSSuite) TestMkdir() {
 	s.T().Log("testmkdir")
 	testPath := s.TempPath("test", "subdir")
 	defer func() {
@@ -443,7 +443,7 @@ func (s *FsysSuite) TestMkdir() {
 	})
 }
 
-func (s *FsysSuite) TestRemove() {
+func (s *FSSuite) TestRemove() {
 	testPath := s.TempPath("test", "subdir")
 	s.Run("Create directory", func() {
 		s.Require().NoError(s.fs.MkdirAll(testPath, 0755))
@@ -468,7 +468,7 @@ func (s *FsysSuite) TestRemove() {
 	})
 }
 
-func (s *FsysSuite) TestReadWriteFile() {
+func (s *FSSuite) TestReadWriteFile() {
 	for _, testFileSize := range []int64{
 		int64(500),           // less than one block on most filesystems
 		int64(1 << (10 * 2)), // exactly 1MB
@@ -523,7 +523,7 @@ func (s *FsysSuite) TestReadWriteFile() {
 	}
 }
 
-func (s *FsysSuite) TestReadWriteFileCopy() {
+func (s *FSSuite) TestReadWriteFileCopy() {
 	for _, testFileSize := range []int64{
 		int64(500),           // less than one block on most filesystems
 		int64(1 << (10 * 2)), // exactly 1MB
@@ -565,7 +565,7 @@ func (s *FsysSuite) TestReadWriteFileCopy() {
 			s.Run("Read file", func() {
 				fsf, err := s.fs.Open(fn)
 				s.Require().NoError(err)
-				f, ok := fsf.(rigfs.File)
+				f, ok := fsf.(remotefs.File)
 				s.Require().True(ok)
 				n, err := f.CopyTo(readSha)
 				s.Require().NoError(err)
@@ -591,7 +591,7 @@ func (r *RepeatReader) Read(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-func (s *FsysSuite) TestSeek() {
+func (s *FSSuite) TestSeek() {
 	fn := s.TempPath()
 	reference := bytes.Repeat([]byte{'a'}, 1024)
 	defer func() {
@@ -678,7 +678,7 @@ func (s *FsysSuite) TestSeek() {
 	})
 }
 
-func (s *FsysSuite) TestReadDir() {
+func (s *FSSuite) TestReadDir() {
 	defer func() {
 		_ = s.fs.RemoveAll(s.TempPath("test"))
 	}()

@@ -10,7 +10,7 @@ import (
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/initsystem"
 	"github.com/k0sproject/rig/packagemanager"
-	"github.com/k0sproject/rig/rigfs"
+	"github.com/k0sproject/rig/remotefs"
 )
 
 // Client is the interface for protocol implementations
@@ -146,9 +146,9 @@ func (c *Connection) Sudo() *Connection {
 	return c.sudo
 }
 
-// Fsys returns a fs.FS compatible filesystem interface for accessing files on remote hosts
-func (c *Connection) Fsys() rigfs.Fsys {
-	return c.getFsys()
+// FS returns a fs.FS compatible filesystem interface for accessing files on remote hosts
+func (c *Connection) FS() remotefs.FS {
+	return c.getFS()
 }
 
 // Connect to the host.

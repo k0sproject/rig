@@ -9,7 +9,7 @@ import (
 	"github.com/k0sproject/rig/initsystem"
 	"github.com/k0sproject/rig/log"
 	"github.com/k0sproject/rig/packagemanager"
-	"github.com/k0sproject/rig/rigfs"
+	"github.com/k0sproject/rig/remotefs"
 	"github.com/k0sproject/rig/sudo"
 )
 
@@ -39,8 +39,8 @@ type Dependencies struct {
 	client     Client
 	clientOnce sync.Once
 
-	fsys     rigfs.Fsys
-	fsysOnce sync.Once
+	fs     remotefs.FS
+	fsOnce sync.Once
 
 	initSys     initsystem.ServiceManager
 	initSysOnce sync.Once
@@ -64,7 +64,7 @@ type sudoProvider interface {
 }
 
 type fsProvider interface {
-	Get(runner exec.Runner) (fsys rigfs.Fsys)
+	Get(runner exec.Runner) (fs remotefs.FS)
 }
 
 // SubsystemProviders is a collection of repositories for connection injectables
@@ -72,7 +72,7 @@ type SubsystemProviders struct {
 	initsys        initsystemProvider
 	packagemanager packagemanagerProvider
 	sudo           sudoProvider
-	fsys           fsProvider
+	fs             fsProvider
 	loggerFactory  LoggerFactory
 }
 
@@ -82,7 +82,7 @@ func DefaultProviders() SubsystemProviders {
 		initsys:        initsystem.DefaultRepository,
 		packagemanager: packagemanager.DefaultRepository,
 		sudo:           sudo.DefaultRepository,
-		fsys:           rigfs.DefaultRepository,
+		fs:             remotefs.DefaultRepository,
 		loggerFactory:  DefaultLoggerFactory,
 	}
 }
@@ -187,10 +187,10 @@ func (c *Dependencies) getPackageManager() (packagemanager.PackageManager, error
 	return c.packageMan, err
 }
 
-func (c *Dependencies) getFsys() rigfs.Fsys {
-	c.fsysOnce.Do(func() {
-		c.fsys = c.providers.fsys.Get(c)
-		c.injectLogger(c.fsys)
+func (c *Dependencies) getFS() remotefs.FS {
+	c.fsOnce.Do(func() {
+		c.fs = c.providers.fs.Get(c)
+		c.injectLogger(c.fs)
 	})
-	return c.fsys
+	return c.fs
 }

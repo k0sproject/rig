@@ -5,7 +5,7 @@ import (
 	"github.com/k0sproject/rig/initsystem"
 	"github.com/k0sproject/rig/log"
 	"github.com/k0sproject/rig/packagemanager"
-	"github.com/k0sproject/rig/rigfs"
+	"github.com/k0sproject/rig/remotefs"
 )
 
 // Options is a struct that holds the variadic options for the rig package.
@@ -63,10 +63,10 @@ func WithProviders(providers SubsystemProviders) Option {
 	}
 }
 
-// WithFsys is a functional option that sets the filesystem to use for the connection.
-func WithFsys(fsys rigfs.Fsys) Option {
+// WithFS is a functional option that sets the filesystem to use for the connection.
+func WithFS(fs remotefs.FS) Option {
 	return func(o *Options) {
-		o.connectionDependencies.fsys = fsys
+		o.connectionDependencies.fs = fs
 	}
 }
 
@@ -105,10 +105,10 @@ func WithSudoProvider(sudoProvider sudoProvider) Option {
 	}
 }
 
-// WithFsysRepository is a functional option that sets the filesystem repository to use for the connection.
-func WithFsysRepository(fsysProvider fsProvider) Option {
+// WithremotefsRepository is a functional option that sets the filesystem repository to use for the connection.
+func WithremotefsRepository(fsProvider fsProvider) Option {
 	return func(o *Options) {
-		o.connectionDependencies.providers.fsys = fsysProvider
+		o.connectionDependencies.providers.fs = fsProvider
 	}
 }
 

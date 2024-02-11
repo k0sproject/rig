@@ -1,4 +1,4 @@
-package rigfs
+package remotefs
 
 import (
 	"fmt"
@@ -11,9 +11,9 @@ import (
 // CreateTemp creates a new temporary file in the directory dir with a name built using the
 // pattern, opens the file for reading and writing, and returns the resulting File.
 // If dir is the empty string, CreateTemp uses the default directory for temporary files.
-func CreateTemp(fsys Fsys, dir, pattern string) (File, error) {
+func CreateTemp(fs FS, dir, pattern string) (File, error) {
 	if dir == "" {
-		dir = fsys.TempDir()
+		dir = fs.TempDir()
 	}
 
 	rnd, err := randHexString(8)
@@ -25,13 +25,13 @@ func CreateTemp(fsys Fsys, dir, pattern string) (File, error) {
 
 	switch {
 	case pattern == "":
-		path = fsys.Join(dir, "tmp."+rnd)
+		path = fs.Join(dir, "tmp."+rnd)
 	case strings.Contains(pattern, "*"):
-		path = fsys.Join(dir, strings.ReplaceAll(pattern, "*", rnd))
+		path = fs.Join(dir, strings.ReplaceAll(pattern, "*", rnd))
 	default:
-		path = fsys.Join(dir, pattern+"."+rnd)
+		path = fs.Join(dir, pattern+"."+rnd)
 	}
-	f, err := fsys.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+	f, err := fs.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("createtemp %s: %w", path, err)
 	}

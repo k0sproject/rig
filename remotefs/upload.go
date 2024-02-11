@@ -1,4 +1,4 @@
-package rigfs
+package remotefs
 
 import (
 	"crypto/sha256"
@@ -13,7 +13,7 @@ import (
 var ErrChecksumMismatch = errors.New("checksum mismatch")
 
 // Upload a file to the remote host.
-func Upload(fsys Fsys, src, dst string) error {
+func Upload(fs FS, src, dst string) error {
 	local, err := os.Open(src)
 	if err != nil {
 		return fmt.Errorf("open file for upload: %w", err)
@@ -27,7 +27,7 @@ func Upload(fsys Fsys, src, dst string) error {
 
 	shasum := sha256.New()
 
-	remote, err := fsys.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, stat.Mode())
+	remote, err := fs.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, stat.Mode())
 	if err != nil {
 		return fmt.Errorf("open remote file for upload: %w", err)
 	}
@@ -42,7 +42,7 @@ func Upload(fsys Fsys, src, dst string) error {
 		return fmt.Errorf("close remote file after upload: %w", err)
 	}
 
-	remoteSum, err := fsys.Sha256(dst)
+	remoteSum, err := fs.Sha256(dst)
 	if err != nil {
 		return fmt.Errorf("get checksum of uploaded file: %w", err)
 	}

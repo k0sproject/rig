@@ -1,4 +1,4 @@
-package rigfs
+package remotefs
 
 import (
 	"fmt"
@@ -35,7 +35,7 @@ type winFileInfo struct {
 	Attributes    int                 `json:"Attributes"`
 	FMode         string              `json:"Mode"`
 	Err           string              `json:"Err"`
-	fsys          *WinFsys
+	fs            *WinFS
 }
 
 // Name returns the base name of the file.
@@ -69,7 +69,7 @@ func (fi *winFileInfo) IsDir() bool {
 
 // Sys returns the underlying data source (can return nil).
 func (fi *winFileInfo) Sys() any {
-	return fi.fsys
+	return fi.fs
 }
 
 // Info returns self, satisfying fs.DirEntry interface.

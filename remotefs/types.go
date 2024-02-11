@@ -1,12 +1,12 @@
-package rigfs
+package remotefs
 
 import (
 	"io"
 	"io/fs"
 )
 
-// Fsys is a filesystem on the remote host
-type Fsys interface {
+// FS is a filesystem on the remote host
+type FS interface {
 	fs.FS
 	fs.StatFS
 	fs.ReadFileFS

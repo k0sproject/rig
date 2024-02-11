@@ -1,4 +1,4 @@
-package rigfs
+package remotefs
 
 import (
 	"encoding/json"
@@ -24,7 +24,7 @@ type FileInfo struct {
 	FModTime time.Time   `json:"-"`
 	FIsDir   bool        `json:"isDir"`
 	ModtimeS int64       `json:"modTime"`
-	fsys     fs.FS
+	fs       fs.FS
 }
 
 // UnmarshalJSON implements json.Unmarshaler
@@ -74,7 +74,7 @@ func (f *FileInfo) IsDir() bool {
 
 // Sys returns the underlying data source
 func (f *FileInfo) Sys() any {
-	return f.fsys
+	return f.fs
 }
 
 // Type returns the file type. It's here to satisfy fs.DirEntry interface.

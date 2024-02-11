@@ -1,4 +1,4 @@
-package rigfs
+package remotefs
 
 // ByteCounter is a simple io.Writer that counts the number of bytes written to it, to be used in
 // conjunction with io.MultiWriter / io.TeeReader

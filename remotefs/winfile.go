@@ -1,4 +1,4 @@
-package rigfs
+package remotefs
 
 import (
 	"bufio"
@@ -34,13 +34,13 @@ type rcpResponse struct {
 
 type winFileDirBase struct {
 	withPath
-	fsys   *WinFsys
+	fs     *WinFS
 	closed bool
 }
 
 // Stat returns the FileInfo for the remote file.
 func (w *winFileDirBase) Stat() (fs.FileInfo, error) {
-	return w.fsys.Stat(w.path)
+	return w.fs.Stat(w.path)
 }
 
 // winFile is a file on a Windows target. It implements fs.File.
@@ -91,7 +91,7 @@ func (f *winFile) Write(p []byte) (int, error) {
 	if err != nil {
 		return n, err //nolint:wrapcheck
 	}
-	f.fsys.Log().Tracef("wrote %d bytes", n)
+	f.fs.Log().Tracef("wrote %d bytes", n)
 	return n, nil
 }
 
@@ -115,7 +115,7 @@ func (f *winFile) Read(p []byte) (int, error) {
 		}
 		total += n
 	}
-	f.fsys.Log().Tracef("read %d bytes", total)
+	f.fs.Log().Tracef("read %d bytes", total)
 	return total, nil
 }
 
@@ -192,7 +192,7 @@ func (f *winFile) open(flags int) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	f.cancel = cancel
-	cmd, err := f.fsys.Start(ctx, rigRcp, exec.Stdin(stdinR), exec.Stdout(stdoutW), exec.Stderr(stderrW), exec.LogInput(false), exec.HideOutput())
+	cmd, err := f.fs.Start(ctx, rigRcp, exec.Stdin(stdinR), exec.Stdout(stdoutW), exec.Stderr(stderrW), exec.LogInput(false), exec.HideOutput())
 	if err != nil {
 		return f.pathErr(OpOpen, fmt.Errorf("start file daemon: %w", err))
 	}
@@ -200,12 +200,12 @@ func (f *winFile) open(flags int) error {
 		_, _ = io.Copy(io.Discard, stderrR)
 	}()
 	go func() {
-		f.fsys.Log().Debugf("rigrcp started, waiting for exit")
+		f.fs.Log().Debugf("rigrcp started, waiting for exit")
 		err := cmd.Wait()
 		close(f.done)
-		f.fsys.Log().Debugf("rigrcp ended")
+		f.fs.Log().Debugf("rigrcp ended")
 		if err != nil {
-			f.fsys.Log().Errorf("rigrcp exited with error: %v", err)
+			f.fs.Log().Errorf("rigrcp exited with error: %v", err)
 		}
 		f.closed = true
 		_ = stdinR.Close()
@@ -238,14 +238,14 @@ func (f *winFile) command(cmd string) (*rcpResponse, error) { //nolint:cyclop
 		go func() {
 			b, err := f.stdout.ReadBytes(0)
 			if err != nil {
-				f.fsys.Log().Errorf("failed to read response: %v", err)
+				f.fs.Log().Errorf("failed to read response: %v", err)
 				close(resp)
 				return
 			}
 			resp <- b[:len(b)-1] // drop the zero byte
 		}()
 	}
-	f.fsys.Log().Debugf("rigrcp command: %s", cmd)
+	f.fs.Log().Debugf("rigrcp command: %s", cmd)
 	_, err := fmt.Fprintf(f.stdin, "%s\n", cmd)
 	if err != nil {
 		return nil, f.pathErr(OpOpen, fmt.Errorf("write command: %w", err))
@@ -290,7 +290,7 @@ func (f *winFile) Close() error {
 		return f.pathErr(OpClose, fmt.Errorf("%w: failed to close file", errRemote))
 	}
 	_, err = f.command("q")
-	f.fsys.Log().Tracef("rigrcp quit: %v", err)
+	f.fs.Log().Tracef("rigrcp quit: %v", err)
 	f.stdin.Close()
 	f.closed = true
 
