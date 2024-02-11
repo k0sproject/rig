@@ -12,7 +12,7 @@ func NewYum(c exec.ContextRunner) PackageManager {
 }
 
 // RegisterYum registers the dnf package manager to a repository.
-func RegisterYum(repository *Repository) {
+func RegisterYum(repository *Provider) {
 	repository.Register(func(runner exec.ContextRunner) PackageManager {
 		if runner.IsWindows() {
 			return nil

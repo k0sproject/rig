@@ -10,15 +10,15 @@ import (
 var (
 	// ErrNoSudo is returned when no supported sudo method is found.
 	ErrNoSudo = errors.New("no supported sudo method found")
-	// DefaultRepository is the default sudo repository.
-	DefaultRepository = NewRepository()
+	// DefaultProvider is the default sudo repository.
+	DefaultProvider = NewProvider()
 )
 
 func init() {
-	RegisterWindowsNoop(DefaultRepository)
-	RegisterUID0Noop(DefaultRepository)
-	RegisterSudo(DefaultRepository)
-	RegisterDoas(DefaultRepository)
+	RegisterWindowsNoop(DefaultProvider)
+	RegisterUID0Noop(DefaultProvider)
+	RegisterSudo(DefaultProvider)
+	RegisterDoas(DefaultProvider)
 }
 
 // Factory is a function that returns a DecorateFunc if the sudo method is supported.
@@ -29,8 +29,8 @@ type Repository struct {
 	builders []Factory
 }
 
-// NewRepository returns a new sudo repository.
-func NewRepository(factories ...Factory) *Repository {
+// NewProvider returns a new sudo repository.
+func NewProvider(factories ...Factory) *Repository {
 	return &Repository{builders: factories}
 }
 

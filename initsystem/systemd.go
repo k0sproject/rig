@@ -108,7 +108,7 @@ func (i Systemd) ServiceLogs(ctx context.Context, h exec.ContextRunner, s string
 }
 
 // RegisterSystemd registers systemd into a repository
-func RegisterSystemd(repo *Repository) {
+func RegisterSystemd(repo *Provider) {
 	repo.Register(func(c exec.ContextRunner) ServiceManager {
 		if c.IsWindows() {
 			return nil

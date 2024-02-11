@@ -12,7 +12,7 @@ func NewHomebrew(c exec.ContextRunner) PackageManager {
 }
 
 // RegisterHomebrew registers the homebrew package manager to a repository.
-func RegisterHomebrew(repository *Repository) {
+func RegisterHomebrew(repository *Provider) {
 	repository.Register(func(c exec.ContextRunner) PackageManager {
 		if c.IsWindows() {
 			return nil

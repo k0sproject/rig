@@ -80,7 +80,7 @@ func (i Runit) ServiceLogs(ctx context.Context, h exec.ContextRunner, s string, 
 }
 
 // RegisterRunit register runit in a repository
-func RegisterRunit(repo *Repository) {
+func RegisterRunit(repo *Provider) {
 	repo.Register(func(c exec.ContextRunner) ServiceManager {
 		if c.IsWindows() {
 			return nil

@@ -75,7 +75,7 @@ func (i Upstart) ServiceLogs(ctx context.Context, h exec.ContextRunner, s string
 }
 
 // RegisterUpstart registers Upstart in a repository
-func RegisterUpstart(repo *Repository) {
+func RegisterUpstart(repo *Provider) {
 	repo.Register(func(c exec.ContextRunner) ServiceManager {
 		if c.IsWindows() {
 			return nil

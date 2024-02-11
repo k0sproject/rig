@@ -79,10 +79,10 @@ type SubsystemProviders struct {
 // DefaultProviders returns a set of default repositories for connection injectables
 func DefaultProviders() SubsystemProviders {
 	return SubsystemProviders{
-		initsys:        initsystem.DefaultRepository,
-		packagemanager: packagemanager.DefaultRepository,
-		sudo:           sudo.DefaultRepository,
-		fs:             remotefs.DefaultRepository,
+		initsys:        initsystem.DefaultProvider,
+		packagemanager: packagemanager.DefaultProvider,
+		sudo:           sudo.DefaultProvider,
+		fs:             remotefs.DefaultProvider,
 		loggerFactory:  DefaultLoggerFactory,
 	}
 }

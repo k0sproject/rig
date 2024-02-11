@@ -3,7 +3,9 @@ package packagemanager
 import (
 	"context"
 	"fmt"
+	"strings"
 
+	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig/exec"
 )
 
@@ -51,4 +53,16 @@ func newUniversalPackageManager(runner exec.ContextRunner, name, command, add, d
 		del:           del,
 		update:        update,
 	}
+}
+
+func buildCommand(basecmd, keyword string, packages ...string) string {
+	cmd := &strings.Builder{}
+	cmd.WriteString(basecmd)
+	cmd.WriteRune(' ')
+	cmd.WriteString(keyword)
+	for _, pkg := range packages {
+		cmd.WriteRune(' ')
+		cmd.WriteString(shellescape.Quote(pkg))
+	}
+	return cmd.String()
 }

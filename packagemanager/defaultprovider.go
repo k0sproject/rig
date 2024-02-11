@@ -4,9 +4,7 @@ package packagemanager
 import (
 	"context"
 	"errors"
-	"strings"
 
-	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig/exec"
 )
 
@@ -18,44 +16,44 @@ type PackageManager interface {
 }
 
 var (
-	// DefaultRepository is the default repository of package managers.
-	DefaultRepository = NewRepository()
+	// DefaultProvider is the default repository of package managers.
+	DefaultProvider = NewProvider()
 	// ErrNoPackageManager is returned when no supported package manager is found.
 	ErrNoPackageManager = errors.New("no supported package manager found")
 )
 
 func init() {
-	RegisterApk(DefaultRepository)
-	RegisterApt(DefaultRepository)
-	RegisterYum(DefaultRepository)
-	RegisterDnf(DefaultRepository)
-	RegisterPacman(DefaultRepository)
-	RegisterZypper(DefaultRepository)
-	RegisterWindowsMultiManager(DefaultRepository)
-	RegisterHomebrew(DefaultRepository)
-	RegisterMacports(DefaultRepository)
+	RegisterApk(DefaultProvider)
+	RegisterApt(DefaultProvider)
+	RegisterYum(DefaultProvider)
+	RegisterDnf(DefaultProvider)
+	RegisterPacman(DefaultProvider)
+	RegisterZypper(DefaultProvider)
+	RegisterWindowsMultiManager(DefaultProvider)
+	RegisterHomebrew(DefaultProvider)
+	RegisterMacports(DefaultProvider)
 }
 
 // Factory is a function that creates a package manager.
 type Factory func(c exec.ContextRunner) PackageManager
 
-// Repository is a repository of package managers.
-type Repository struct {
+// Provider is a repository of package managers.
+type Provider struct {
 	managers []Factory
 }
 
-// NewRepository creates a new repository of package managers.
-func NewRepository(factories ...Factory) *Repository {
-	return &Repository{managers: factories}
+// NewProvider creates a new repository of package managers.
+func NewProvider(factories ...Factory) *Provider {
+	return &Provider{managers: factories}
 }
 
 // Register registers a package manager to the repository.
-func (r *Repository) Register(factory Factory) {
+func (r *Provider) Register(factory Factory) {
 	r.managers = append(r.managers, factory)
 }
 
 // Get returns a package manager from the repository.
-func (r *Repository) Get(c exec.ContextRunner) (PackageManager, error) {
+func (r *Provider) Get(c exec.ContextRunner) (PackageManager, error) {
 	for _, builder := range r.managers {
 		if mgr := builder(c); mgr != nil {
 			return mgr, nil
@@ -64,7 +62,7 @@ func (r *Repository) Get(c exec.ContextRunner) (PackageManager, error) {
 	return nil, ErrNoPackageManager
 }
 
-func (r *Repository) getAll(c exec.ContextRunner) []PackageManager {
+func (r *Provider) getAll(c exec.ContextRunner) []PackageManager {
 	var managers []PackageManager
 	for _, builder := range r.managers {
 		if mgr := builder(c); mgr != nil {
@@ -72,16 +70,4 @@ func (r *Repository) getAll(c exec.ContextRunner) []PackageManager {
 		}
 	}
 	return managers
-}
-
-func buildCommand(basecmd, keyword string, packages ...string) string {
-	cmd := &strings.Builder{}
-	cmd.WriteString(basecmd)
-	cmd.WriteRune(' ')
-	cmd.WriteString(keyword)
-	for _, pkg := range packages {
-		cmd.WriteRune(' ')
-		cmd.WriteString(shellescape.Quote(pkg))
-	}
-	return cmd.String()
 }

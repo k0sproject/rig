@@ -12,7 +12,7 @@ func NewScoop(c exec.ContextRunner) PackageManager {
 }
 
 // RegisterScoop registers the apk package manager to a repository.
-func RegisterScoop(repository *Repository) {
+func RegisterScoop(repository *Provider) {
 	repository.Register(func(c exec.ContextRunner) PackageManager {
 		if !c.IsWindows() {
 			return nil

@@ -43,34 +43,34 @@ type ServiceEnvironmentManager interface {
 type ServiceManagerFactory func(c exec.ContextRunner) ServiceManager
 
 var (
-	// DefaultRepository is the default repository for init systems
-	DefaultRepository = NewRepository()
+	// DefaultProvider is the default repository for init systems
+	DefaultProvider = NewProvider()
 	// ErrNoInitSystem is returned when no supported init system is found.
 	ErrNoInitSystem = errors.New("no supported init system found")
 )
 
 func init() {
-	RegisterSystemd(DefaultRepository)
-	RegisterOpenRC(DefaultRepository)
-	RegisterUpstart(DefaultRepository)
-	RegisterSysVinit(DefaultRepository)
-	RegisterWinSCM(DefaultRepository)
-	RegisterRunit(DefaultRepository)
-	RegisterLaunchd(DefaultRepository)
+	RegisterSystemd(DefaultProvider)
+	RegisterOpenRC(DefaultProvider)
+	RegisterUpstart(DefaultProvider)
+	RegisterSysVinit(DefaultProvider)
+	RegisterWinSCM(DefaultProvider)
+	RegisterRunit(DefaultProvider)
+	RegisterLaunchd(DefaultProvider)
 }
 
-// Repository is a collection of ServiceManagerFactories
-type Repository struct {
+// Provider is a collection of ServiceManagerFactories
+type Provider struct {
 	systems []ServiceManagerFactory
 }
 
 // Register adds a ServiceManagerFactory to the repository
-func (r *Repository) Register(factory ServiceManagerFactory) {
+func (r *Provider) Register(factory ServiceManagerFactory) {
 	r.systems = append(r.systems, factory)
 }
 
 // Get returns the first ServiceManager that matches the current system
-func (r *Repository) Get(c exec.ContextRunner) (ServiceManager, error) {
+func (r *Provider) Get(c exec.ContextRunner) (ServiceManager, error) {
 	for _, factory := range r.systems {
 		system := factory(c)
 		if system != nil {
@@ -80,7 +80,7 @@ func (r *Repository) Get(c exec.ContextRunner) (ServiceManager, error) {
 	return nil, ErrNoInitSystem
 }
 
-// NewRepository returns a new Repository
-func NewRepository(factories ...ServiceManagerFactory) *Repository {
-	return &Repository{systems: factories}
+// NewProvider returns a new Provider
+func NewProvider(factories ...ServiceManagerFactory) *Provider {
+	return &Provider{systems: factories}
 }
