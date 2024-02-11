@@ -148,7 +148,12 @@ func (c *Connection) Sudo() *Connection {
 
 // FS returns a fs.FS compatible filesystem interface for accessing files on remote hosts
 func (c *Connection) FS() remotefs.FS {
-	return c.getFS()
+	fs, err := c.getFS()
+	if err != nil {
+		// TODO: maybe this needs to be setup in the constructor because getting an error here is very inconvenient for the user
+		return nil // get a null panic. this does not actually happen since getFS never returns an error, need some rethink
+	}
+	return fs
 }
 
 // Connect to the host.

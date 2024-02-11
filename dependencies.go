@@ -64,7 +64,7 @@ type sudoProvider interface {
 }
 
 type fsProvider interface {
-	Get(runner exec.Runner) (fs remotefs.FS)
+	Get(runner exec.Runner) (fs remotefs.FS, err error)
 }
 
 // SubsystemProviders is a collection of repositories for connection injectables
@@ -187,10 +187,14 @@ func (c *Dependencies) getPackageManager() (packagemanager.PackageManager, error
 	return c.packageMan, err
 }
 
-func (c *Dependencies) getFS() remotefs.FS {
+func (c *Dependencies) getFS() (remotefs.FS, error) {
+	var err error
 	c.fsOnce.Do(func() {
-		c.fs = c.providers.fs.Get(c)
+		c.fs, err = c.providers.fs.Get(c)
+		if err != nil {
+			err = fmt.Errorf("get remote fs: %w", err)
+		}
 		c.injectLogger(c.fs)
 	})
-	return c.fs
+	return c.fs, nil
 }
