@@ -62,7 +62,7 @@ func (s *WinFS) Stat(name string) (fs.FileInfo, error) {
 		if strings.Contains(fi.Err, "does not exist") {
 			return nil, PathError(OpStat, name, fs.ErrNotExist)
 		}
-		return nil, PathErrorf(OpStat, name, "stat: %v", fi.Err) //nolint:goerr113
+		return nil, PathErrorf(OpStat, name, "stat: %v", fi.Err)
 	}
 	return fi, nil
 }
