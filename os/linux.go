@@ -1,4 +1,4 @@
-package osrelease
+package os
 
 import (
 	"bufio"

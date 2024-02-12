@@ -1,4 +1,4 @@
-package osrelease
+package os
 
 import (
 	"errors"
@@ -19,7 +19,7 @@ func init() {
 	DefaultProvider.Register(ResolveDarwin)
 }
 
-// Factory is a function that returns an OSRelease for a host.
+// Factory is a function that returns release information for a host.
 type Factory func(runner exec.SimpleRunner) *Release
 
 // Provider is a collection of factories that can determine the host OS.
@@ -32,7 +32,7 @@ func NewProvider(factories ...Factory) *Provider {
 	return &Provider{factories: factories}
 }
 
-// Get returns the OSRelease for the host using the registered factories.
+// Get returns the OS release information for the host using the registered factories.
 func (p *Provider) Get(runner exec.SimpleRunner) (*Release, error) {
 	for _, f := range p.factories {
 		if os := f(runner); os != nil {

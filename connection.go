@@ -7,7 +7,7 @@ import (
 	"io"
 
 	"github.com/k0sproject/rig/initsystem"
-	"github.com/k0sproject/rig/osrelease"
+	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/packagemanager"
 	"github.com/k0sproject/rig/remotefs"
 )
@@ -179,6 +179,6 @@ func (c *Connection) PackageManager() (packagemanager.PackageManager, error) {
 }
 
 // OS returns the host's operating system
-func (c *Connection) OS() (*osrelease.OSRelease, error) {
+func (c *Connection) OS() (*os.Release, error) {
 	return c.getOS()
 }

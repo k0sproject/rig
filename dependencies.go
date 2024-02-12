@@ -8,7 +8,7 @@ import (
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/initsystem"
 	"github.com/k0sproject/rig/log"
-	"github.com/k0sproject/rig/osrelease"
+	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/packagemanager"
 	"github.com/k0sproject/rig/remotefs"
 	"github.com/k0sproject/rig/sudo"
@@ -49,7 +49,7 @@ type Dependencies struct {
 	fs     remotefs.FS
 	fsOnce sync.Once
 
-	os     *osrelease.OSRelease
+	os     *os.Release
 	osOnce sync.Once
 
 	initSys     initsystem.ServiceManager
@@ -78,7 +78,7 @@ type fsProvider interface {
 }
 
 type osreleaseProvider interface {
-	Get(runner exec.SimpleRunner) (os *osrelease.OSRelease, err error)
+	Get(runner exec.SimpleRunner) (os *os.Release, err error)
 }
 
 // SubsystemProviders is a collection of repositories for connection injectables
@@ -215,7 +215,7 @@ func (c *Dependencies) getFS() (remotefs.FS, error) { //nolint:unparam
 	return c.fs, nil
 }
 
-func (c *Dependencies) getOS() (*osrelease.OSRelease, error) {
+func (c *Dependencies) getOS() (*os.Release, error) {
 	var err error
 	c.osOnce.Do(func() {
 		c.os, err = c.providers.os.Get(c)

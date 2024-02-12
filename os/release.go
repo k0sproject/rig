@@ -1,4 +1,4 @@
-package osrelease
+package os
 
 // Release describes host operating system version information
 type Release struct {
@@ -9,7 +9,7 @@ type Release struct {
 	ExtraFields map[string]string
 }
 
-// String returns a human readable representation of OSRelease
+// String returns a human readable representation of the release information
 func (o Release) String() string {
 	if o.Name != "" {
 		return o.Name
