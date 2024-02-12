@@ -1,7 +1,7 @@
 package osrelease
 
-// OSRelease describes host operating system version information
-type OSRelease struct {
+// Release describes host operating system version information
+type Release struct {
 	ID          string
 	IDLike      string
 	Name        string
@@ -10,7 +10,7 @@ type OSRelease struct {
 }
 
 // String returns a human readable representation of OSRelease
-func (o OSRelease) String() string {
+func (o Release) String() string {
 	if o.Name != "" {
 		return o.Name
 	}

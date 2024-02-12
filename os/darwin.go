@@ -7,7 +7,7 @@ import (
 )
 
 // ResolveDarwin resolves the OS release information for a darwin host
-func ResolveDarwin(conn exec.SimpleRunner) *OSRelease {
+func ResolveDarwin(conn exec.SimpleRunner) *Release {
 	if conn.IsWindows() {
 		return nil
 	}
@@ -26,7 +26,7 @@ func ResolveDarwin(conn exec.SimpleRunner) *OSRelease {
 		name = fmt.Sprintf("%s %s", n, version)
 	}
 
-	return &OSRelease{
+	return &Release{
 		ID:      "darwin",
 		IDLike:  "darwin",
 		Version: version,

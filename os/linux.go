@@ -10,7 +10,7 @@ import (
 )
 
 // ResolveLinux resolves the OS release information for a linux host
-func ResolveLinux(conn exec.SimpleRunner) *OSRelease {
+func ResolveLinux(conn exec.SimpleRunner) *Release {
 	if conn.IsWindows() {
 		return nil
 	}
@@ -24,14 +24,14 @@ func ResolveLinux(conn exec.SimpleRunner) *OSRelease {
 		return nil
 	}
 
-	version := &OSRelease{}
+	version := &Release{}
 	if err := parseOSReleaseFile(output, version); err != nil {
 		return nil
 	}
 	return version
 }
 
-func parseOSReleaseFile(s string, version *OSRelease) error {
+func parseOSReleaseFile(s string, version *Release) error {
 	scanner := bufio.NewScanner(strings.NewReader(s))
 	for scanner.Scan() {
 		fields := strings.SplitN(scanner.Text(), "=", 2)

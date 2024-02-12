@@ -20,7 +20,7 @@ func init() {
 }
 
 // Factory is a function that returns an OSRelease for a host.
-type Factory func(runner exec.SimpleRunner) *OSRelease
+type Factory func(runner exec.SimpleRunner) *Release
 
 // Provider is a collection of factories that can determine the host OS.
 type Provider struct {
@@ -33,7 +33,7 @@ func NewProvider(factories ...Factory) *Provider {
 }
 
 // Get returns the OSRelease for the host using the registered factories.
-func (p *Provider) Get(runner exec.SimpleRunner) (*OSRelease, error) {
+func (p *Provider) Get(runner exec.SimpleRunner) (*Release, error) {
 	for _, f := range p.factories {
 		if os := f(runner); os != nil {
 			return os, nil

@@ -13,7 +13,7 @@ type windowsVersion struct {
 }
 
 // ResolveWindows resolves the OS release information for a windows host
-func ResolveWindows(conn exec.SimpleRunner) *OSRelease {
+func ResolveWindows(conn exec.SimpleRunner) *Release {
 	if !conn.IsWindows() {
 		return nil
 	}
@@ -26,7 +26,7 @@ func ResolveWindows(conn exec.SimpleRunner) *OSRelease {
 	if err := json.Unmarshal([]byte(output), &winver); err != nil {
 		return nil
 	}
-	return &OSRelease{
+	return &Release{
 		ID:      "windows",
 		IDLike:  "windows",
 		Name:    winver.Caption,
