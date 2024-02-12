@@ -19,11 +19,8 @@ import (
 // ErrControlPathNotSet is returned when the controlpath is not set when disconnecting from a multiplexed connection
 var ErrControlPathNotSet = errors.New("controlpath not set")
 
-// OpenSSH is a rig.Connection implementation that uses the system openssh client "ssh" to connect to remote hosts.
-// The connection is multiplexec over a control master, so that subsequent connections don't need to re-authenticate.
-type OpenSSH struct {
-	log.LoggerInjectable `yaml:"-"`
-
+// OpenSSHConfig describes the configuration options for an OpenSSH connection
+type OpenSSHConfig struct {
 	Address             string         `yaml:"address" validate:"required"`
 	User                *string        `yaml:"user"`
 	Port                *int           `yaml:"port"`
@@ -31,6 +28,13 @@ type OpenSSH struct {
 	ConfigPath          *string        `yaml:"configPath,omitempty"`
 	Options             OpenSSHOptions `yaml:"options,omitempty"`
 	DisableMultiplexing bool           `yaml:"disableMultiplexing,omitempty"`
+}
+
+// OpenSSH is a rig.Connection implementation that uses the system openssh client "ssh" to connect to remote hosts.
+// The connection is multiplexec over a control master, so that subsequent connections don't need to re-authenticate.
+type OpenSSH struct {
+	log.LoggerInjectable `yaml:"-"`
+	OpenSSHConfig        `yaml:",inline"`
 
 	isConnected  bool
 	controlMutex sync.Mutex
@@ -38,6 +42,11 @@ type OpenSSH struct {
 	isWindows *bool
 
 	name string
+}
+
+// NewOpenSSH creates a new OpenSSH connection. Error is currently always nil.
+func NewOpenSSH(cfg OpenSSHConfig) (*OpenSSH, error) {
+	return &OpenSSH{OpenSSHConfig: cfg}, nil
 }
 
 // Client implements the ClientConfigurer interface

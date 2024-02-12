@@ -25,10 +25,8 @@ import (
 	"golang.org/x/term"
 )
 
-// SSH describes an SSH connection
-type SSH struct {
-	log.LoggerInjectable `yaml:"-"`
-
+// SSHConfig describes an SSH connection's configuration
+type SSHConfig struct {
 	Address          string           `yaml:"address" validate:"required,hostname_rfc1123|ip"`
 	User             string           `yaml:"user" validate:"required" default:"root"`
 	Port             int              `yaml:"port" default:"22" validate:"gt=0,lte=65535"`
@@ -43,6 +41,12 @@ type SSH struct {
 	// For convenience, you can use ParseSSHPrivateKey() to parse a private key:
 	//   authMethods, err := rig.ParseSSHPrivateKey(key, rig.DefaultPassphraseCallback)
 	AuthMethods []ssh.AuthMethod `yaml:"-"`
+}
+
+// SSH describes an SSH connection
+type SSH struct {
+	log.LoggerInjectable `yaml:"-"`
+	SSHConfig            `yaml:",inline"`
 
 	alias string
 	name  string
@@ -53,6 +57,11 @@ type SSH struct {
 	client *ssh.Client
 
 	keyPaths []string
+}
+
+// NewSSH creates a new SSH connection. Error is currently always nil.
+func NewSSH(cfg SSHConfig) (*SSH, error) { //nolint:unparam
+	return &SSH{SSHConfig: cfg}, nil
 }
 
 // PasswordCallback is a function that is called when a passphrase is needed to decrypt a private key

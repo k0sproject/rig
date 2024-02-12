@@ -14,10 +14,8 @@ import (
 	"github.com/mitchellh/go-homedir"
 )
 
-// WinRM describes a WinRM connection with its configuration options
-type WinRM struct {
-	log.LoggerInjectable `yaml:"-"`
-
+// WinRMConfig describes the configuration options for a WinRM connection
+type WinRMConfig struct {
 	Address       string `yaml:"address" validate:"required,hostname_rfc1123|ip"`
 	User          string `yaml:"user" validate:"omitempty,gt=2" default:"Administrator"`
 	Port          int    `yaml:"port" default:"5985" validate:"gt=0,lte=65535"`
@@ -30,6 +28,12 @@ type WinRM struct {
 	KeyPath       string `yaml:"keyPath,omitempty" validate:"omitempty,file"`
 	TLSServerName string `yaml:"tlsServerName,omitempty" validate:"omitempty,hostname_rfc1123|ip"`
 	Bastion       *SSH   `yaml:"bastion,omitempty"`
+}
+
+// WinRM describes a WinRM connection with its configuration options
+type WinRM struct {
+	log.LoggerInjectable `yaml:"-"`
+	WinRMConfig          `yaml:",inline"`
 
 	name string
 
@@ -38,6 +42,11 @@ type WinRM struct {
 	cert   []byte
 
 	client *winrm.Client
+}
+
+// NewWinRM creates a new WinRM connection. Error is currently always nil.
+func NewWinRM(cfg WinRMConfig) (*WinRM, error) {
+	return &WinRM{WinRMConfig: cfg}, nil
 }
 
 // Client implements the ClientConfigurer interface

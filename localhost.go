@@ -14,9 +14,18 @@ import (
 
 const name = "[local] localhost"
 
+type LocalhostConfig struct {
+	Enabled bool `yaml:"enabled" validate:"required,eq=true" default:"true"`
+}
+
 // Localhost is a direct localhost connection
 type Localhost struct {
-	Enabled bool `yaml:"enabled" validate:"required,eq=true" default:"true"`
+	LocalhostConfig `yaml:",inline"`
+}
+
+// NewLocalhost creates a new Localhost connection. Error is currently always nil.
+func NewLocalhost(cfg LocalhostConfig) (*Localhost, error) {
+	return &Localhost{cfg}, nil
 }
 
 // Client implements the ClientConfigurer interface
