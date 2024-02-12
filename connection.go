@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"github.com/k0sproject/rig/initsystem"
+	"github.com/k0sproject/rig/osrelease"
 	"github.com/k0sproject/rig/packagemanager"
 	"github.com/k0sproject/rig/remotefs"
 )
@@ -168,11 +169,16 @@ func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr
 }
 
 // InitSystem returns a ServiceManager for the host's init system
-func (c *Dependencies) InitSystem() (initsystem.ServiceManager, error) {
+func (c *Connection) InitSystem() (initsystem.ServiceManager, error) {
 	return c.getInitSystem()
 }
 
 // PackageManager returns a PackageManager for the host's package manager
-func (c *Dependencies) PackageManager() (packagemanager.PackageManager, error) {
+func (c *Connection) PackageManager() (packagemanager.PackageManager, error) {
 	return c.getPackageManager()
+}
+
+// OS returns the host's operating system
+func (c *Connection) OS() (*osrelease.OSRelease, error) {
+	return c.getOS()
 }

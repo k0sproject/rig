@@ -8,6 +8,7 @@ import (
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/initsystem"
 	"github.com/k0sproject/rig/log"
+	"github.com/k0sproject/rig/osrelease"
 	"github.com/k0sproject/rig/packagemanager"
 	"github.com/k0sproject/rig/remotefs"
 	"github.com/k0sproject/rig/sudo"
@@ -48,6 +49,9 @@ type Dependencies struct {
 	fs     remotefs.FS
 	fsOnce sync.Once
 
+	os     *osrelease.OSRelease
+	osOnce sync.Once
+
 	initSys     initsystem.ServiceManager
 	initSysOnce sync.Once
 
@@ -73,12 +77,17 @@ type fsProvider interface {
 	Get(runner exec.Runner) (fs remotefs.FS, err error)
 }
 
+type osreleaseProvider interface {
+	Get(runner exec.SimpleRunner) (os *osrelease.OSRelease, err error)
+}
+
 // SubsystemProviders is a collection of repositories for connection injectables
 type SubsystemProviders struct {
 	initsys        initsystemProvider
 	packagemanager packagemanagerProvider
 	sudo           sudoProvider
 	fs             fsProvider
+	os             osreleaseProvider
 	loggerFactory  LoggerFactory
 }
 
@@ -89,6 +98,7 @@ func DefaultProviders() SubsystemProviders {
 		packagemanager: packagemanager.DefaultProvider,
 		sudo:           sudo.DefaultProvider,
 		fs:             remotefs.DefaultProvider,
+		os:             osrelease.DefaultProvider,
 		loggerFactory:  DefaultLoggerFactory,
 	}
 }
@@ -193,7 +203,7 @@ func (c *Dependencies) getPackageManager() (packagemanager.PackageManager, error
 	return c.packageMan, err
 }
 
-func (c *Dependencies) getFS() (remotefs.FS, error) {
+func (c *Dependencies) getFS() (remotefs.FS, error) { //nolint:unparam
 	var err error
 	c.fsOnce.Do(func() {
 		c.fs, err = c.providers.fs.Get(c)
@@ -203,4 +213,16 @@ func (c *Dependencies) getFS() (remotefs.FS, error) {
 		c.injectLogger(c.fs)
 	})
 	return c.fs, nil
+}
+
+func (c *Dependencies) getOS() (*osrelease.OSRelease, error) {
+	var err error
+	c.osOnce.Do(func() {
+		c.os, err = c.providers.os.Get(c)
+		if err != nil {
+			err = fmt.Errorf("get os release: %w", err)
+		}
+		c.injectLogger(c.os)
+	})
+	return c.os, err
 }
