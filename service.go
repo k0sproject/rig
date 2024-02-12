@@ -139,3 +139,16 @@ func (m *Service) ServiceLogs(ctx context.Context, lines int) ([]string, error) 
 	}
 	return rows, nil
 }
+
+// GetService returns a manager for a single service using an auto-detected service manager implementation from the default providers.
+func GetService(runner exec.ContextRunner, name string) (*Service, error) {
+	initsys, err := GetServiceManager(runner)
+	if err != nil {
+		return nil, fmt.Errorf("get init system: %w", err)
+	}
+	return &Service{
+		runner:  runner,
+		name:    name,
+		initsys: initsys,
+	}, nil
+}
