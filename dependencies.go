@@ -20,6 +20,12 @@ type ClientConfigurer interface {
 	Client() (Client, error)
 }
 
+// DefaultClientConfigurer is a function that returns a new ClientConfigurer. You can override this to provide your own
+// as a global default.
+var DefaultClientConfigurer = func() ClientConfigurer {
+	return &ClientConfig{}
+}
+
 // LoggerFactory is a function that creates a logger
 type LoggerFactory func(client Client) log.Logger
 

@@ -83,11 +83,6 @@ func (c *WinRM) String() string {
 	return c.name
 }
 
-// IsConnected returns true if the client is connected
-func (c *WinRM) IsConnected() bool {
-	return c.client != nil
-}
-
 // IsWindows always returns true on winrm
 func (c *WinRM) IsWindows() bool {
 	return true

@@ -278,13 +278,11 @@ func (c *SSH) String() string {
 	return c.name
 }
 
-// IsConnected returns true if the client is connected
-func (c *SSH) IsConnected() bool {
-	return c.client != nil
-}
-
 // Disconnect closes the SSH connection
 func (c *SSH) Disconnect() {
+	if c.client == nil {
+		return
+	}
 	c.client.Close()
 }
 

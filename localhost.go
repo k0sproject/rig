@@ -39,25 +39,10 @@ func (c *Localhost) String() string {
 	return name
 }
 
-// IsConnected for local connections is always true
-func (c *Localhost) IsConnected() bool {
-	return true
-}
-
 // IsWindows is true when running on a windows host
 func (c *Localhost) IsWindows() bool {
 	return runtime.GOOS == "windows"
-}
-
-// Connect on local connection does nothing
-func (c *Localhost) Connect() error {
-	return nil
-}
-
-// Disconnect on local connection does nothing
-func (c *Localhost) Disconnect() {}
-
-// StartProcess executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
+} // StartProcess executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
 func (c *Localhost) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) (exec.Waiter, error) {
 	command := c.command(ctx, cmd)

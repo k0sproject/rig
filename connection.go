@@ -3,28 +3,13 @@
 package rig
 
 import (
-	"context"
 	"fmt"
 	"io"
 
-	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/initsystem"
 	"github.com/k0sproject/rig/packagemanager"
 	"github.com/k0sproject/rig/remotefs"
 )
-
-// Client is the interface for protocol implementations
-type Client interface {
-	Connect() error
-	Disconnect()
-	IsWindows() bool
-	StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (exec.Waiter, error)
-	ExecInteractive(cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error
-	String() string
-	Protocol() string
-	IPAddress() string
-	IsConnected() bool
-}
 
 // Connection is a Struct you can embed into your application's "Host" types
 // to give them multi-protocol connectivity.
@@ -66,18 +51,22 @@ type Connection struct {
 
 // NewConnection returns a new Connection object with the given options
 func NewConnection(opts ...Option) (*Connection, error) {
+	conn := &Connection{}
+	if err := conn.Setup(opts...); err != nil {
+		return nil, err
+	}
+	return conn, nil
+}
+
+// Setup the connection with the given options
+func (c *Connection) Setup(opts ...Option) error {
 	options := NewOptions(opts...)
 	deps := options.ConnectionDependencies()
 	if err := deps.initClient(); err != nil {
-		return nil, fmt.Errorf("init client: %w", err)
+		return fmt.Errorf("init client: %w", err)
 	}
-	return &Connection{Dependencies: deps}, nil
-}
-
-// DefaultClientConfigurer is a function that returns a new ClientConfigurer. You can override this to provide your own
-// as a global default.
-var DefaultClientConfigurer = func() ClientConfigurer {
-	return &ClientConfig{}
+	c.Dependencies = deps
+	return nil
 }
 
 // UnmarshalYAML is a custom unmarshaler for the Connection struct
@@ -103,19 +92,6 @@ func (c *Connection) Service(name string) (*Service, error) {
 		return nil, err
 	}
 	return &Service{runner: c.Sudo(), initsys: is, name: name}, nil
-}
-
-// IsConnected returns true if the client is assumed to be connected.
-// "Assumed" - as in `Connect()` has been called and no error was returned.
-// The underlying client may actually have disconnected and has become
-// inoperable, but rig won't know that until you try to execute commands on
-// the connection.
-func (c *Connection) IsConnected() bool {
-	if c.client == nil {
-		return false
-	}
-
-	return c.client.IsConnected()
 }
 
 // String returns a printable representation of the connection, which will look
@@ -161,8 +137,10 @@ func (c *Connection) Connect() error {
 	if err := c.initClient(); err != nil {
 		return fmt.Errorf("init client: %w", err)
 	}
-	if err := c.client.Connect(); err != nil {
-		return fmt.Errorf("client connect: %w", err)
+	if conn, ok := c.client.(Connector); ok {
+		if err := conn.Connect(); err != nil {
+			return fmt.Errorf("client connect: %w", err)
+		}
 	}
 
 	return nil
@@ -170,9 +148,23 @@ func (c *Connection) Connect() error {
 
 // Disconnect from the host.
 func (c *Dependencies) Disconnect() {
-	if c.client != nil {
-		c.client.Disconnect()
+	if c.client == nil {
+		return
 	}
+	if conn, ok := c.client.(Disconnector); ok {
+		conn.Disconnect()
+	}
+}
+
+// ExecInteractive runs a command interactively on the host if supported by the client implementation.
+func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
+	if conn, ok := c.client.(InteractiveExecer); ok {
+		if err := conn.ExecInteractive(cmd, stdin, stdout, stderr); err != nil {
+			return fmt.Errorf("exec interactive: %w", err)
+		}
+		return nil
+	}
+	return fmt.Errorf("can't start an interactive session: %w", ErrNotSupported)
 }
 
 // InitSystem returns a ServiceManager for the host's init system
