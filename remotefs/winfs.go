@@ -345,14 +345,10 @@ func (s *WinFS) Rename(oldpath, newpath string) error {
 	return nil
 }
 
-func cleanWindowsPath(path string) string {
-	return strings.ReplaceAll(path, "/", "\\")
-}
-
 // TempDir returns the default directory to use for temporary files.
 func (s *WinFS) TempDir() string {
 	if dir := s.Getenv("TEMP"); dir != "" {
-		return cleanWindowsPath(dir)
+		return toSlashes(dir)
 	}
 	return "C:/Windows/Temp"
 }
@@ -360,7 +356,7 @@ func (s *WinFS) TempDir() string {
 // UserCacheDir returns the default root directory to use for user-specific non-essential data files.
 func (s *WinFS) UserCacheDir() string {
 	if dir := s.Getenv("LOCALAPPDATA"); dir != "" {
-		return cleanWindowsPath(dir)
+		return toSlashes(dir)
 	}
 	return fmt.Sprintf("C:/Users/%s/AppData/Local", s.Getenv("USERNAME"))
 }
@@ -368,7 +364,7 @@ func (s *WinFS) UserCacheDir() string {
 // UserConfigDir returns the default root directory to use for user-specific configuration data.
 func (s *WinFS) UserConfigDir() string {
 	if dir := s.Getenv("APPDATA"); dir != "" {
-		return cleanWindowsPath(dir)
+		return toSlashes(dir)
 	}
 	return fmt.Sprintf("C:/Users/%s/AppData/Roaming", s.Getenv("USERNAME"))
 }
