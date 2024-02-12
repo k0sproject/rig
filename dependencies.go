@@ -98,7 +98,7 @@ func DefaultProviders() SubsystemProviders {
 		packagemanager: packagemanager.DefaultProvider,
 		sudo:           sudo.DefaultProvider,
 		fs:             remotefs.DefaultProvider,
-		os:             osrelease.DefaultProvider,
+		os:             os.DefaultProvider,
 		loggerFactory:  DefaultLoggerFactory,
 	}
 }

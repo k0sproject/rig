@@ -51,7 +51,9 @@ func (c *Localhost) String() string {
 // IsWindows is true when running on a windows host
 func (c *Localhost) IsWindows() bool {
 	return runtime.GOOS == "windows"
-} // StartProcess executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
+}
+
+// StartProcess executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
 func (c *Localhost) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) (exec.Waiter, error) {
 	command := c.command(ctx, cmd)

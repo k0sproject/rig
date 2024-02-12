@@ -156,7 +156,7 @@ func GetHost(t *testing.T, options ...rig.Option) *Host {
 	var client rig.Client
 	switch protocol {
 	case "ssh":
-		ssh := &rig.SSH{
+		ssh := rig.SSHConfig{
 			Address: targetHost,
 			Port:    targetPort,
 			User:    username,
@@ -173,9 +173,11 @@ func GetHost(t *testing.T, options ...rig.Option) *Host {
 		if keyPath != "" {
 			ssh.KeyPath = &keyPath
 		}
-		client = ssh
+		sshclient, err := rig.NewSSH(ssh)
+		require.NoError(t, err)
+		client = sshclient
 	case "winrm":
-		winrm := &rig.WinRM{
+		winrm := rig.WinRMConfig{
 			Address:  targetHost,
 			Port:     targetPort,
 			User:     username,
@@ -183,11 +185,13 @@ func GetHost(t *testing.T, options ...rig.Option) *Host {
 			Insecure: true,
 			Password: password,
 		}
-		client = winrm
+		winrmclient, err := rig.NewWinRM(winrm)
+		require.NoError(t, err)
+		client = winrmclient
 	case "localhost":
-		client = &rig.Localhost{Enabled: true}
+		client, _ = rig.NewLocalhost(rig.LocalhostConfig{Enabled: true})
 	case "openssh":
-		openssh := &rig.OpenSSH{
+		openssh := rig.OpenSSHConfig{
 			Address:             targetHost,
 			DisableMultiplexing: !enableMultiplex,
 		}
@@ -204,7 +208,9 @@ func GetHost(t *testing.T, options ...rig.Option) *Host {
 		if configPath != "" {
 			openssh.ConfigPath = &configPath
 		}
-		client = openssh
+		opensshclient, err := rig.NewOpenSSH(openssh)
+		require.NoError(t, err)
+		client = opensshclient
 	default:
 		panic("unknown protocol")
 	}
