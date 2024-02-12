@@ -1,3 +1,4 @@
+// Package os provides remote OS release information detection
 package os
 
 // Release describes host operating system version information

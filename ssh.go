@@ -60,7 +60,7 @@ type SSH struct {
 }
 
 // NewSSH creates a new SSH connection. Error is currently always nil.
-func NewSSH(cfg SSHConfig) (*SSH, error) { //nolint:unparam
+func NewSSH(cfg SSHConfig) (*SSH, error) {
 	return &SSH{SSHConfig: cfg}, nil
 }
 
