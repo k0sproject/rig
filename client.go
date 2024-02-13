@@ -13,13 +13,13 @@ type ProcessStarter interface {
 	StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (exec.Waiter, error)
 }
 
-// Connector is a connection that can be established
-type Connector interface {
+// connector is a connection that can be established
+type connector interface {
 	Connect() error
 }
 
-// Disconnector is a connection that can be closed
-type Disconnector interface {
+// disconnector is a connection that can be closed
+type disconnector interface {
 	Disconnect()
 }
 
@@ -28,8 +28,8 @@ type WindowsChecker interface {
 	IsWindows() bool
 }
 
-// InteractiveExecer is a connection that can start an interactive session
-type InteractiveExecer interface {
+// interactiveExecer is a connection that can start an interactive session
+type interactiveExecer interface {
 	ExecInteractive(cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error
 }
 

@@ -138,7 +138,7 @@ func (c *Connection) Connect() error {
 	if err := c.initClient(); err != nil {
 		return fmt.Errorf("init client: %w", err)
 	}
-	if conn, ok := c.client.(Connector); ok {
+	if conn, ok := c.client.(connector); ok {
 		if err := conn.Connect(); err != nil {
 			return fmt.Errorf("client connect: %w", err)
 		}
@@ -152,14 +152,14 @@ func (c *Dependencies) Disconnect() {
 	if c.client == nil {
 		return
 	}
-	if conn, ok := c.client.(Disconnector); ok {
+	if conn, ok := c.client.(disconnector); ok {
 		conn.Disconnect()
 	}
 }
 
 // ExecInteractive runs a command interactively on the host if supported by the client implementation.
 func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
-	if conn, ok := c.client.(InteractiveExecer); ok {
+	if conn, ok := c.client.(interactiveExecer); ok {
 		if err := conn.ExecInteractive(cmd, stdin, stdout, stderr); err != nil {
 			return fmt.Errorf("exec interactive: %w", err)
 		}

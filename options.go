@@ -105,8 +105,8 @@ func WithSudoProvider(sudoProvider sudoProvider) Option {
 	}
 }
 
-// WithremotefsRepository is a functional option that sets the filesystem repository to use for the connection.
-func WithremotefsRepository(fsProvider fsProvider) Option {
+// WithRemoteFSRepository is a functional option that sets the filesystem repository to use for the connection.
+func WithRemoteFSRepository(fsProvider fsProvider) Option {
 	return func(o *Options) {
 		o.connectionDependencies.providers.fs = fsProvider
 	}

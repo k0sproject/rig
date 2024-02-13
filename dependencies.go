@@ -32,8 +32,8 @@ type LoggerFactory func(client Client) log.Logger
 
 var nullLogger = &log.NullLog{}
 
-// DefaultLoggerFactory returns a logger factory that returns a null logger
-func DefaultLoggerFactory(_ Client) log.Logger {
+// defaultLoggerFactory returns a logger factory that returns a null logger
+func defaultLoggerFactory(_ Client) log.Logger {
 	return nullLogger
 }
 
@@ -99,7 +99,7 @@ func DefaultProviders() SubsystemProviders {
 		sudo:           sudo.DefaultProvider,
 		fs:             remotefs.DefaultProvider,
 		os:             os.DefaultProvider,
-		loggerFactory:  DefaultLoggerFactory,
+		loggerFactory:  defaultLoggerFactory,
 	}
 }
 

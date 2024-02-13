@@ -109,8 +109,8 @@ func (m *Service) Disable(ctx context.Context) error {
 	return nil
 }
 
-// ServiceScriptPath returns the path to the service script.
-func (m *Service) ServiceScriptPath(ctx context.Context) (string, error) {
+// ScriptPath returns the path to the service script.
+func (m *Service) ScriptPath(ctx context.Context) (string, error) {
 	path, err := m.initsys.ServiceScriptPath(ctx, m.runner, m.name)
 	if err != nil {
 		return "", fmt.Errorf("failed to get service script path: %w", err)
@@ -118,13 +118,13 @@ func (m *Service) ServiceScriptPath(ctx context.Context) (string, error) {
 	return path, nil
 }
 
-// ServiceIsRunning returns true if the service is running.
-func (m *Service) ServiceIsRunning(ctx context.Context) bool {
+// IsRunning returns true if the service is running.
+func (m *Service) IsRunning(ctx context.Context) bool {
 	return m.initsys.ServiceIsRunning(ctx, m.runner, m.name)
 }
 
-// ServiceLogs returns latest log lines for the service.
-func (m *Service) ServiceLogs(ctx context.Context, lines int) ([]string, error) {
+// Logs returns latest log lines for the service.
+func (m *Service) Logs(ctx context.Context, lines int) ([]string, error) {
 	logreader, ok := m.initsys.(initsystem.ServiceManagerLogReader)
 	if !ok {
 		return nil, fmt.Errorf("%w: system's init system does not implement log reader", ErrNotSupported)
