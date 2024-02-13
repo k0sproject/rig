@@ -37,7 +37,7 @@ type Config struct {
 	CertPath      string      `yaml:"certPath,omitempty" validate:"omitempty,file"`
 	KeyPath       string      `yaml:"keyPath,omitempty" validate:"omitempty,file"`
 	TLSServerName string      `yaml:"tlsServerName,omitempty" validate:"omitempty,hostname_rfc1123|ip"`
-	NewClient       *ssh.Client `yaml:"bastion,omitempty"`
+	Bastion       *ssh.Client `yaml:"bastion,omitempty"` // TODO: this needs to be done some other way. and it's just a dial function. need to figure out the unmarshaling.
 }
 
 // Client describes a Client connection with its configuration options
@@ -167,12 +167,12 @@ func (c *Client) Connect() error {
 
 	params := winrm.DefaultParameters
 
-	if c.NewClient != nil {
-		err := c.NewClient.Connect()
+	if c.Bastion != nil {
+		err := c.Bastion.Connect()
 		if err != nil {
 			return fmt.Errorf("bastion connect: %w", err)
 		}
-		params.Dial = c.NewClient.Dial
+		params.Dial = c.Bastion.Dial
 	}
 
 	if c.UseNTLM {

@@ -5,6 +5,7 @@ package rig
 import (
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/k0sproject/rig/initsystem"
 	"github.com/k0sproject/rig/os"
@@ -45,44 +46,31 @@ import (
 //	  output, err := h.ExecOutput("echo hello")
 //	}
 type Connection struct {
-	*Dependencies `yaml:",inline"`
+	*Dependencies
 
+	once sync.Once
 	sudo *Connection
 }
 
 // NewConnection returns a new Connection object with the given options
 func NewConnection(opts ...Option) (*Connection, error) {
 	conn := &Connection{}
-	if err := conn.Setup(opts...); err != nil {
+	if err := conn.setup(opts...); err != nil {
 		return nil, err
 	}
 	return conn, nil
 }
 
-// Setup the connection with the given options
-func (c *Connection) Setup(opts ...Option) error {
-	options := NewOptions(opts...)
-	deps := options.ConnectionDependencies()
-	if err := deps.initClient(); err != nil {
+func (c *Connection) setup(opts ...Option) error {
+	var err error
+	c.once.Do(func() {
+		options := NewOptions(opts...)
+		c.Dependencies = options.ConnectionDependencies()
+		err = c.initClient()
+	})
+	if err != nil {
 		return fmt.Errorf("init client: %w", err)
 	}
-	c.Dependencies = deps
-	return nil
-}
-
-// UnmarshalYAML is a custom unmarshaler for the Connection struct
-func (c *Connection) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	deps := DefaultDependencies()
-	if deps.clientConfigurer == nil {
-		deps.clientConfigurer = DefaultClientConfigurer()
-	}
-	configurer := deps.clientConfigurer
-
-	if err := unmarshal(configurer); err != nil {
-		return err
-	}
-	c.Dependencies = deps
-
 	return nil
 }
 
@@ -97,7 +85,7 @@ func (c *Connection) Service(name string) (*Service, error) {
 
 // String returns a printable representation of the connection, which will look
 // like: `[ssh] address:port`
-func (c Connection) String() string {
+func (c *Connection) String() string {
 	if c.client == nil {
 		if c.clientConfigurer == nil {
 			return "[uninitialized connection]"
@@ -134,9 +122,11 @@ func (c *Connection) FS() remotefs.FS {
 }
 
 // Connect to the host.
-func (c *Connection) Connect() error {
-	if err := c.initClient(); err != nil {
-		return fmt.Errorf("init client: %w", err)
+func (c *Connection) Connect(opts ...Option) error {
+	if c.client == nil {
+		if err := c.setup(opts...); err != nil {
+			return err
+		}
 	}
 	if conn, ok := c.client.(connector); ok {
 		if err := conn.Connect(); err != nil {
@@ -181,4 +171,20 @@ func (c *Connection) PackageManager() (packagemanager.PackageManager, error) {
 // OS returns the host's operating system
 func (c *Connection) OS() (*os.Release, error) {
 	return c.getOS()
+}
+
+// Protocol returns the protocol used to connect to the host
+func (c *Connection) Protocol() string {
+	if c.client == nil {
+		return "unknown"
+	}
+	return c.client.Protocol()
+}
+
+// Address returns the address of the host
+func (c *Connection) Address() string {
+	if c.client == nil {
+		return ""
+	}
+	return c.client.IPAddress()
 }

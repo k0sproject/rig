@@ -39,7 +39,7 @@ func defaultLoggerFactory(_ Client) log.Logger {
 
 // Dependencies is a collection of injectable dependencies for a connection
 type Dependencies struct {
-	clientConfigurer     ClientConfigurer `yaml:",inline"`
+	clientConfigurer     ClientConfigurer
 	exec.Runner          `yaml:"-"`
 	log.LoggerInjectable `yaml:"-"`
 
@@ -106,7 +106,7 @@ func DefaultProviders() SubsystemProviders {
 // DefaultDependencies returns a set of default injectables for a connection
 func DefaultDependencies() *Dependencies {
 	return &Dependencies{
-		clientConfigurer: &ClientConfig{},
+		clientConfigurer: DefaultClientConfigurer(),
 		providers:        DefaultProviders(),
 	}
 }
