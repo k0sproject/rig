@@ -1,4 +1,5 @@
-package rig
+// Package openssh provides a rig.Client implementation that uses the system openssh client "ssh" to connect to remote hosts.
+package openssh
 
 import (
 	"bytes"
@@ -16,25 +17,29 @@ import (
 	"github.com/k0sproject/rig/log"
 )
 
-// ErrControlPathNotSet is returned when the controlpath is not set when disconnecting from a multiplexed connection
-var ErrControlPathNotSet = errors.New("controlpath not set")
+var (
+	// ErrControlPathNotSet is returned when the controlpath is not set when disconnecting from a multiplexed connection
+	ErrControlPathNotSet = errors.New("controlpath not set")
 
-// OpenSSHConfig describes the configuration options for an OpenSSH connection
-type OpenSSHConfig struct {
-	Address             string         `yaml:"address" validate:"required"`
-	User                *string        `yaml:"user"`
-	Port                *int           `yaml:"port"`
-	KeyPath             *string        `yaml:"keyPath,omitempty"`
-	ConfigPath          *string        `yaml:"configPath,omitempty"`
-	Options             OpenSSHOptions `yaml:"options,omitempty"`
-	DisableMultiplexing bool           `yaml:"disableMultiplexing,omitempty"`
+	errNotConnected = errors.New("not connected")
+)
+
+// Config describes the configuration options for an OpenSSH connection
+type Config struct {
+	Address             string          `yaml:"address" validate:"required"`
+	User                *string         `yaml:"user"`
+	Port                *int            `yaml:"port"`
+	KeyPath             *string         `yaml:"keyPath,omitempty"`
+	ConfigPath          *string         `yaml:"configPath,omitempty"`
+	Options             OptionArguments `yaml:"options,omitempty"`
+	DisableMultiplexing bool            `yaml:"disableMultiplexing,omitempty"`
 }
 
-// OpenSSH is a rig.Connection implementation that uses the system openssh client "ssh" to connect to remote hosts.
-// The connection is multiplexec over a control master, so that subsequent connections don't need to re-authenticate.
-type OpenSSH struct {
+// Client is a rig.Client implementation that uses the system openssh client "ssh" to connect to remote hosts.
+// The connection is by default multiplexec over a control master, so that subsequent connections don't need to re-authenticate.
+type Client struct {
 	log.LoggerInjectable `yaml:"-"`
-	OpenSSHConfig        `yaml:",inline"`
+	Config               `yaml:",inline"`
 
 	isConnected  bool
 	controlMutex sync.Mutex
@@ -44,28 +49,28 @@ type OpenSSH struct {
 	name string
 }
 
-// NewOpenSSH creates a new OpenSSH connection. Error is currently always nil.
-func NewOpenSSH(cfg OpenSSHConfig) (*OpenSSH, error) {
-	return &OpenSSH{OpenSSHConfig: cfg}, nil
+// NewClient creates a new OpenSSH connection. Error is currently always nil.
+func NewClient(cfg Config) (*Client, error) {
+	return &Client{Config: cfg}, nil
 }
 
 // Client implements the ClientConfigurer interface
-func (c *OpenSSH) Client() (Client, error) {
+func (c *Client) Client() (*Client, error) {
 	return c, nil
 }
 
 // Protocol returns the protocol name
-func (c *OpenSSH) Protocol() string {
+func (c *Client) Protocol() string {
 	return "OpenSSH"
 }
 
 // IPAddress returns the IP address of the remote host
-func (c *OpenSSH) IPAddress() string {
+func (c *Client) IPAddress() string {
 	return c.Address
 }
 
 // IsWindows returns true if the remote host is windows
-func (c *OpenSSH) IsWindows() bool {
+func (c *Client) IsWindows() bool {
 	// Implement your logic here
 	if c.isWindows != nil {
 		return *c.isWindows
@@ -85,12 +90,12 @@ func (c *OpenSSH) IsWindows() bool {
 	return *c.isWindows
 }
 
-// OpenSSHOptions are options for the OpenSSH client. For example StrictHostkeyChecking: false becomes -o StrictHostKeyChecking=no
-type OpenSSHOptions map[string]any
+// OptionArguments are options for the OpenSSH client. For example StrictHostkeyChecking: false becomes -o StrictHostKeyChecking=no
+type OptionArguments map[string]any
 
 // Copy returns a copy of the options
-func (o OpenSSHOptions) Copy() OpenSSHOptions {
-	dup := make(OpenSSHOptions, len(o))
+func (o OptionArguments) Copy() OptionArguments {
+	dup := make(OptionArguments, len(o))
 	for k, v := range o {
 		dup[k] = v
 	}
@@ -98,12 +103,12 @@ func (o OpenSSHOptions) Copy() OpenSSHOptions {
 }
 
 // Set sets an option key to value
-func (o OpenSSHOptions) Set(key string, value any) {
+func (o OptionArguments) Set(key string, value any) {
 	o[key] = value
 }
 
 // SetIfUnset sets the option if it's not already set
-func (o OpenSSHOptions) SetIfUnset(key string, value any) {
+func (o OptionArguments) SetIfUnset(key string, value any) {
 	if o.IsSet(key) {
 		return
 	}
@@ -111,13 +116,13 @@ func (o OpenSSHOptions) SetIfUnset(key string, value any) {
 }
 
 // IsSet returns true if the option is set
-func (o OpenSSHOptions) IsSet(key string) bool {
+func (o OptionArguments) IsSet(key string) bool {
 	_, ok := o[key]
 	return ok
 }
 
 // ToArgs converts the options to command line arguments
-func (o OpenSSHOptions) ToArgs() []string {
+func (o OptionArguments) ToArgs() []string {
 	args := make([]string, 0, len(o)*2)
 	for k, v := range o {
 		if b, ok := v.(bool); ok {
@@ -134,7 +139,7 @@ func (o OpenSSHOptions) ToArgs() []string {
 }
 
 // DefaultOpenSSHOptions are the default options for the OpenSSH client
-var DefaultOpenSSHOptions = OpenSSHOptions{
+var DefaultOpenSSHOptions = OptionArguments{
 	// It's easy to end up with control paths that are too long for unix sockets (104 chars?)
 	// with the default ~/.ssh/master-%r@%h:%p, for example something like:
 	// /Users/user/.ssh/master-ec2-xx-xx-xx-xx.eu-central-1.compute.amazonaws.com-centos.AAZFTHkT5....
@@ -152,9 +157,9 @@ var DefaultOpenSSHOptions = OpenSSHOptions{
 }
 
 // SetDefaults sets default values
-func (c *OpenSSH) SetDefaults() {
+func (c *Client) SetDefaults() {
 	if c.Options == nil {
-		c.Options = make(OpenSSHOptions)
+		c.Options = make(OptionArguments)
 	}
 	for k, v := range DefaultOpenSSHOptions {
 		if v == nil {
@@ -169,14 +174,14 @@ func (c *OpenSSH) SetDefaults() {
 	}
 }
 
-func (c *OpenSSH) userhost() string {
+func (c *Client) userhost() string {
 	if c.User != nil {
 		return fmt.Sprintf("%s@%s", *c.User, c.Address)
 	}
 	return c.Address
 }
 
-func (c *OpenSSH) args() []string {
+func (c *Client) args() []string {
 	args := []string{}
 	if c.KeyPath != nil && *c.KeyPath != "" {
 		args = append(args, "-i", *c.KeyPath)
@@ -192,7 +197,7 @@ func (c *OpenSSH) args() []string {
 }
 
 // Connect connects to the remote host. If multiplexing is enabled, this will start a control master. If multiplexing is disabled, this will just run a noop command to check connectivity.
-func (c *OpenSSH) Connect() error {
+func (c *Client) Connect() error {
 	if c.isConnected {
 		return nil
 	}
@@ -246,7 +251,7 @@ func (c *OpenSSH) Connect() error {
 	return nil
 }
 
-func (c *OpenSSH) closeControl() error {
+func (c *Client) closeControl() error {
 	c.controlMutex.Lock()
 	defer c.controlMutex.Unlock()
 
@@ -274,9 +279,9 @@ func (c *OpenSSH) closeControl() error {
 }
 
 // StartProcess executes a command on the remote host, streaming stdin, stdout and stderr
-func (c *OpenSSH) StartProcess(ctx context.Context, cmdStr string, stdin io.Reader, stdout, stderr io.Writer) (exec.Waiter, error) {
+func (c *Client) StartProcess(ctx context.Context, cmdStr string, stdin io.Reader, stdout, stderr io.Writer) (exec.Waiter, error) {
 	if !c.DisableMultiplexing && !c.isConnected {
-		return nil, ErrNotConnected
+		return nil, errNotConnected
 	}
 
 	args := c.Options.ToArgs()
@@ -290,14 +295,14 @@ func (c *OpenSSH) StartProcess(ctx context.Context, cmdStr string, stdin io.Read
 	cmd.Stderr = stderr
 
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("%w: failed to start: %w", ErrCommandFailed, err)
+		return nil, fmt.Errorf("start command: %w", err)
 	}
 
 	return cmd, nil
 }
 
 // ExecInteractive executes an interactive command on the remote host, streaming stdin, stdout and stderr
-func (c *OpenSSH) ExecInteractive(cmdStr string, stdin io.Reader, stdout, stderr io.Writer) error {
+func (c *Client) ExecInteractive(cmdStr string, stdin io.Reader, stdout, stderr io.Writer) error {
 	cmd, err := c.StartProcess(context.Background(), cmdStr, stdin, stdout, stderr)
 	if err != nil {
 		return err
@@ -308,7 +313,7 @@ func (c *OpenSSH) ExecInteractive(cmdStr string, stdin io.Reader, stdout, stderr
 	return nil
 }
 
-func (c *OpenSSH) String() string {
+func (c *Client) String() string {
 	if c.name != "" {
 		return c.name
 	}
@@ -322,13 +327,13 @@ func (c *OpenSSH) String() string {
 }
 
 // IsConnected returns true if the connection is connected
-func (c *OpenSSH) IsConnected() bool {
+func (c *Client) IsConnected() bool {
 	return c.isConnected
 }
 
 // Disconnect disconnects from the remote host. If multiplexing is enabled, this will close the control master.
 // If multiplexing is disabled, this will do nothing.
-func (c *OpenSSH) Disconnect() {
+func (c *Client) Disconnect() {
 	if c.DisableMultiplexing {
 		// nothing to do
 		return

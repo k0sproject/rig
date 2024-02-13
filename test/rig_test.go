@@ -16,9 +16,13 @@ import (
 	"time"
 
 	"github.com/k0sproject/rig"
+	"github.com/k0sproject/rig/localhost"
 	"github.com/k0sproject/rig/log"
+	"github.com/k0sproject/rig/openssh"
 	"github.com/k0sproject/rig/remotefs"
+	"github.com/k0sproject/rig/ssh"
 	"github.com/k0sproject/rig/stattime"
+	"github.com/k0sproject/rig/winrm"
 	"github.com/kevinburke/ssh_config"
 
 	"github.com/stretchr/testify/require"
@@ -86,7 +90,7 @@ func TestMain(m *testing.M) {
 		if err != nil {
 			panic(err)
 		}
-		rig.SSHConfigGetAll = func(dst, key string) []string {
+		ssh.SSHConfigGetAll = func(dst, key string) []string {
 			res, err := cfg.GetAll(dst, key)
 			if err != nil {
 				return nil
@@ -156,28 +160,28 @@ func GetHost(t *testing.T, options ...rig.Option) *Host {
 	var client rig.Client
 	switch protocol {
 	case "ssh":
-		ssh := rig.SSHConfig{
+		cfg := ssh.Config{
 			Address: targetHost,
 			Port:    targetPort,
 			User:    username,
 		}
 
 		if privateKey != "" {
-			authM, err := rig.ParseSSHPrivateKey([]byte(privateKey), rig.DefaultPasswordCallback)
+			authM, err := ssh.ParseSSHPrivateKey([]byte(privateKey), ssh.DefaultPasswordCallback)
 			if err != nil {
 				panic(err)
 			}
-			ssh.AuthMethods = authM
+			cfg.AuthMethods = authM
 		}
 
 		if keyPath != "" {
-			ssh.KeyPath = &keyPath
+			cfg.KeyPath = &keyPath
 		}
-		sshclient, err := rig.NewSSH(ssh)
+		sshclient, err := ssh.NewClient(cfg)
 		require.NoError(t, err)
 		client = sshclient
 	case "winrm":
-		winrm := rig.WinRMConfig{
+		cfg := winrm.Config{
 			Address:  targetHost,
 			Port:     targetPort,
 			User:     username,
@@ -185,30 +189,30 @@ func GetHost(t *testing.T, options ...rig.Option) *Host {
 			Insecure: true,
 			Password: password,
 		}
-		winrmclient, err := rig.NewWinRM(winrm)
+		winrmclient, err := winrm.NewClient(cfg)
 		require.NoError(t, err)
 		client = winrmclient
 	case "localhost":
-		client, _ = rig.NewLocalhost(rig.LocalhostConfig{Enabled: true})
+		client, _ = localhost.NewClient(localhost.Config{Enabled: true})
 	case "openssh":
-		openssh := rig.OpenSSHConfig{
+		cfg := openssh.Config{
 			Address:             targetHost,
 			DisableMultiplexing: !enableMultiplex,
 		}
 		if targetPort != 22 {
-			openssh.Port = &targetPort
+			cfg.Port = &targetPort
 		}
 
 		if keyPath != "" {
-			openssh.KeyPath = &keyPath
+			cfg.KeyPath = &keyPath
 		}
 		if username != "" {
-			openssh.User = &username
+			cfg.User = &username
 		}
 		if configPath != "" {
-			openssh.ConfigPath = &configPath
+			cfg.ConfigPath = &configPath
 		}
-		opensshclient, err := rig.NewOpenSSH(openssh)
+		opensshclient, err := openssh.NewClient(cfg)
 		require.NoError(t, err)
 		client = opensshclient
 	default:

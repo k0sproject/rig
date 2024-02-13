@@ -1,6 +1,14 @@
 package rig
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+
+	"github.com/k0sproject/rig/localhost"
+	"github.com/k0sproject/rig/openssh"
+	"github.com/k0sproject/rig/ssh"
+	"github.com/k0sproject/rig/winrm"
+)
 
 var _ ClientConfigurer = (*ClientConfig)(nil)
 
@@ -8,10 +16,10 @@ var _ ClientConfigurer = (*ClientConfig)(nil)
 // You can create a subset of this to only support some of them or use one of the protocols as a standalone
 // ClientConfigurer.
 type ClientConfig struct {
-	WinRM     *WinRM     `yaml:"winRM,omitempty"`
-	SSH       *SSH       `yaml:"ssh,omitempty"`
-	Localhost *Localhost `yaml:"localhost,omitempty"`
-	OpenSSH   *OpenSSH   `yaml:"openSSH,omitempty"`
+	WinRM     *winrm.Config     `yaml:"winRM,omitempty"`
+	SSH       *ssh.Config       `yaml:"ssh,omitempty"`
+	Localhost *localhost.Config `yaml:"localhost,omitempty"`
+	OpenSSH   *openssh.Config   `yaml:"openSSH,omitempty"`
 
 	s *string
 }
@@ -21,23 +29,33 @@ var ErrNoClientConfig = errors.New("no protocol configuration found")
 
 // Client returns the first configured protocol configuration found in the ClientConfig.
 func (c *ClientConfig) Client() (Client, error) {
+	var err error
+	var client Client
 	if c.WinRM != nil {
-		return c.WinRM, nil
+		client, err = winrm.NewClient(*c.WinRM)
 	}
 
 	if c.Localhost != nil {
-		return c.Localhost, nil
+		client, err = localhost.NewClient(*c.Localhost)
 	}
 
 	if c.SSH != nil {
-		return c.SSH, nil
+		client, err = ssh.NewClient(*c.SSH)
 	}
 
 	if c.OpenSSH != nil {
-		return c.OpenSSH, nil
+		client, err = openssh.NewClient(*c.OpenSSH)
 	}
 
-	return nil, ErrNoClientConfig
+	if client == nil && err == nil {
+		return nil, ErrNoClientConfig
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("create client: %w", err)
+	}
+
+	return client, nil
 }
 
 // String returns a string representation of the first configured protocol configuration found in the ClientConfig.

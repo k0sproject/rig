@@ -10,7 +10,6 @@ require (
 	github.com/kevinburke/ssh_config v1.2.0
 	github.com/masterzen/winrm v0.0.0-20231128182143-52a9e15d5730
 	github.com/mattn/go-shellwords v1.0.12
-	github.com/mitchellh/go-homedir v1.1.0
 	github.com/stretchr/testify v1.9.0
 	golang.org/x/crypto v0.21.0
 	golang.org/x/term v0.18.0
