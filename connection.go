@@ -3,10 +3,12 @@
 package rig
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"sync"
 
+	"github.com/k0sproject/rig/abort"
 	"github.com/k0sproject/rig/initsystem"
 	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/packagemanager"
@@ -50,6 +52,48 @@ type Connection struct {
 
 	once sync.Once
 	sudo *Connection
+}
+
+// ErrNotInitialized is returned when a Connection is used without being properly initialized
+var ErrNotInitialized = errors.New("connection not properly initialized")
+
+// DefaultConnection is a Connection that is especially suitable for embedding into something that is unmarshalled from YAML.
+type DefaultConnection struct {
+	ClientConfig ClientConfig `yaml:",inline"`
+	*Connection  `yaml:"-"`
+}
+
+func (c *DefaultConnection) Setup(opts ...Option) error {
+	client, err := c.ClientConfig.Client()
+	if err != nil {
+		return fmt.Errorf("get client: %w", err)
+	}
+	opts = append(opts, WithClient(client))
+	connection, err := NewConnection(opts...)
+	if err != nil {
+		return fmt.Errorf("new connection: %w", err)
+	}
+	c.Connection = connection
+	return nil
+}
+
+func (c *DefaultConnection) Connect(opts ...Option) error {
+	if c.Connection == nil {
+		if err := c.Setup(opts...); err != nil {
+			return err
+		}
+	}
+	return c.Connection.Connect()
+}
+
+// UnmarshalYAML unmarshals and setups a DefaultConnection from YAML
+func (c *DefaultConnection) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	type configuredConnection DefaultConnection
+	conn := (*configuredConnection)(c)
+	if err := unmarshal(conn); err != nil {
+		return fmt.Errorf("unmarshal client config: %w", err)
+	}
+	return c.Setup()
 }
 
 // NewConnection returns a new Connection object with the given options
@@ -122,11 +166,9 @@ func (c *Connection) FS() remotefs.FS {
 }
 
 // Connect to the host.
-func (c *Connection) Connect(opts ...Option) error {
+func (c *Connection) Connect() error {
 	if c.client == nil {
-		if err := c.setup(opts...); err != nil {
-			return err
-		}
+		return errors.Join(abort.ErrAbort, ErrNotInitialized)
 	}
 	if conn, ok := c.client.(connector); ok {
 		if err := conn.Connect(); err != nil {

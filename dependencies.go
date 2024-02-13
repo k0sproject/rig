@@ -21,9 +21,8 @@ type ClientConfigurer interface {
 	Client() (Client, error)
 }
 
-// DefaultClientConfigurer is a function that returns a new ClientConfigurer. You can override this to provide your own
-// as a global default.
-var DefaultClientConfigurer = func() ClientConfigurer {
+// DefaultClientConfigurer is a function that returns a new ClientConfig to use as a default client configurator.
+func DefaultClientConfigurer() ClientConfigurer {
 	return &ClientConfig{}
 }
 

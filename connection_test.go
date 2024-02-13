@@ -90,3 +90,39 @@ func TestConnectionUnmarshal(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "hello", out)
 }
+
+type testConfigConfigured struct {
+	Hosts []*testHostConfigured `yaml:"hosts"`
+}
+
+type testHostConfigured struct {
+	rig.DefaultConnection `yaml:"-,inline"`
+}
+
+func TestConfiguredConnectionUnmarshal(t *testing.T) {
+	hostConfig := map[string]any{
+		"localhost": map[string]any{
+			"enabled": true,
+		},
+	}
+	mainConfig := map[string]any{
+		"hosts": []map[string]any{hostConfig},
+	}
+	yamlContent, err := yaml.Marshal(mainConfig)
+	require.NoError(t, err)
+
+	testConfig := &testConfigConfigured{}
+	require.NoError(t, yaml.Unmarshal(yamlContent, testConfig))
+	require.Len(t, testConfig.Hosts, 1)
+	conn := testConfig.Hosts[0]
+
+	require.NoError(t, conn.Connect())
+
+	require.Equal(t, "Local", conn.Protocol())
+
+	require.NoError(t, conn.Connect())
+
+	out, err := conn.ExecOutput("echo hello")
+	require.NoError(t, err)
+	require.Equal(t, "hello", out)
+}
