@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"sync"
 	"time"
@@ -13,6 +14,8 @@ import (
 	"github.com/k0sproject/rig/abort"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
+	"github.com/k0sproject/rig/ssh"
+	"github.com/k0sproject/rig/ssh/hostkey"
 	"github.com/masterzen/winrm"
 )
 
@@ -35,6 +38,8 @@ type Connection struct {
 
 	client *winrm.Client
 }
+
+type dialFunc func(network, addr string) (net.Conn, error)
 
 // NewConnection creates a new WinRM connection. Error is currently always nil.
 func NewConnection(cfg Config) (*Connection, error) {
@@ -96,6 +101,25 @@ func (c *Connection) loadCertificates() error {
 	return nil
 }
 
+func (c *Connection) bastionDialer() (dialFunc, error) {
+	bastion, err := c.Bastion.Connection()
+	if err != nil {
+		return nil, fmt.Errorf("create bastion connection: %w", err)
+	}
+	bastionSSH, ok := bastion.(*ssh.Connection)
+	if !ok {
+		return nil, fmt.Errorf("%w: bastion connection is not an SSH connection", abort.ErrAbort)
+	}
+	c.Log().Debugf("connecting to bastion %s", c)
+	if err := bastionSSH.Connect(); err != nil {
+		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
+			return nil, fmt.Errorf("%w: bastion connect: %w", abort.ErrAbort, err)
+		}
+		return nil, fmt.Errorf("bastion connect: %w", err)
+	}
+	return bastionSSH.Dial, nil
+}
+
 // Connect opens the WinRM connection
 func (c *Connection) Connect() error {
 	if err := c.loadCertificates(); err != nil {
@@ -126,11 +150,11 @@ func (c *Connection) Connect() error {
 	params := winrm.DefaultParameters
 
 	if c.Bastion != nil {
-		err := c.Bastion.Connect()
+		dialer, err := c.bastionDialer()
 		if err != nil {
-			return fmt.Errorf("bastion connect: %w", err)
+			return err
 		}
-		params.Dial = c.Bastion.Dial
+		params.Dial = dialer
 	}
 
 	if c.UseNTLM {
@@ -144,12 +168,6 @@ func (c *Connection) Connect() error {
 	client, err := winrm.NewClientWithParameters(endpoint, c.User, c.Password, params)
 	if err != nil {
 		return fmt.Errorf("create winrm client: %w", err)
-	}
-
-	c.Log().Debugf("testing connection")
-	_, err = client.RunWithContext(context.Background(), "echo ok", io.Discard, io.Discard)
-	if err != nil {
-		return fmt.Errorf("test connection: %w", err)
 	}
 
 	c.client = client

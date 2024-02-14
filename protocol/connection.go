@@ -3,11 +3,15 @@ package protocol
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
 	"github.com/k0sproject/rig/exec"
 )
+
+// ErrValidationFailed is returned when a connection config fails validation
+var ErrValidationFailed = errors.New("validation failed")
 
 // ProcessStarter can start processes
 type ProcessStarter interface {

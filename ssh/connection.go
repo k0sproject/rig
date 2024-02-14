@@ -269,11 +269,6 @@ func shouldHash(c *Connection) bool {
 }
 
 func (c *Connection) hostkeyCallback() (ssh.HostKeyCallback, error) {
-	if c.HostKey != "" {
-		c.Log().Debugf("using host key from config")
-		return hostkey.StaticKeyCallback(c.HostKey), nil
-	}
-
 	knownHostsMU.Lock()
 	defer knownHostsMU.Unlock()
 
@@ -381,6 +376,38 @@ func (c *Connection) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
 	return config, nil
 }
 
+func (c *Connection) connectViaBastion(dst string, config *ssh.ClientConfig) error {
+	bastion, err := c.Bastion.Connection()
+	if err != nil {
+		return fmt.Errorf("create bastion connection: %w", err)
+	}
+	bastionSSH, ok := bastion.(*Connection)
+	if !ok {
+		return fmt.Errorf("%w: bastion connection is not an SSH connection", abort.ErrAbort)
+	}
+	c.Log().Debugf("connecting to bastion %s", c)
+	if err := bastionSSH.Connect(); err != nil {
+		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
+			return fmt.Errorf("%w: bastion connect: %w", abort.ErrAbort, err)
+		}
+		return err
+	}
+	bconn, err := bastionSSH.Dial("tcp", dst)
+	if err != nil {
+		return fmt.Errorf("bastion dial: %w", err)
+	}
+	client, chans, reqs, err := ssh.NewClientConn(bconn, dst, config)
+	if err != nil {
+		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
+			return fmt.Errorf("%w: bastion client connect: %w", abort.ErrAbort, err)
+		}
+		return fmt.Errorf("bastion client connect: %w", err)
+	}
+	c.client = ssh.NewClient(client, chans, reqs)
+
+	return nil
+}
+
 // Connect opens the SSH connection
 func (c *Connection) Connect() error {
 	if err := defaults.Set(c); err != nil {
@@ -394,37 +421,18 @@ func (c *Connection) Connect() error {
 
 	dst := net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
 
-	if c.Bastion == nil {
-		clientDirect, err := ssh.Dial("tcp", dst, config)
-		if err != nil {
-			if errors.Is(err, hostkey.ErrHostKeyMismatch) {
-				return fmt.Errorf("%w: %w", abort.ErrAbort, err)
-			}
-			return fmt.Errorf("ssh dial: %w", err)
-		}
-		c.client = clientDirect
-		return nil
+	if c.Bastion != nil {
+		return c.connectViaBastion(dst, config)
 	}
 
-	if err := c.Bastion.Connect(); err != nil {
-		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
-			return fmt.Errorf("%w: bastion connect: %w", abort.ErrAbort, err)
-		}
-		return err
-	}
-	bconn, err := c.Bastion.client.Dial("tcp", dst)
-	if err != nil {
-		return fmt.Errorf("bastion dial: %w", err)
-	}
-	client, chans, reqs, err := ssh.NewClientConn(bconn, dst, config)
+	clientDirect, err := ssh.Dial("tcp", dst, config)
 	if err != nil {
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
-			return fmt.Errorf("%w: bastion client connect: %w", abort.ErrAbort, err)
+			return fmt.Errorf("%w: %w", abort.ErrAbort, err)
 		}
-		return fmt.Errorf("bastion client connect: %w", err)
+		return fmt.Errorf("ssh dial: %w", err)
 	}
-	c.client = ssh.NewClient(client, chans, reqs)
-
+	c.client = clientDirect
 	return nil
 }
 

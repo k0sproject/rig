@@ -5,6 +5,7 @@ import (
 	"net"
 	"strconv"
 
+	"github.com/k0sproject/rig/homedir"
 	"github.com/k0sproject/rig/protocol"
 )
 
@@ -30,6 +31,33 @@ func (c *Config) String() string {
 		return "openssh.Config{" + c.Address + "}"
 	}
 	return "openssh.Config{" + net.JoinHostPort(c.Address, strconv.Itoa(*c.Port)) + "}"
+}
+
+// SetDefaults sets the default values for the configuration
+func (c *Config) SetDefaults() {
+	if c.KeyPath != nil {
+		if path, err := homedir.Expand(*c.KeyPath); err == nil {
+			c.KeyPath = &path
+		}
+	}
+	if c.ConfigPath != nil {
+		if path, err := homedir.Expand(*c.ConfigPath); err == nil {
+			c.ConfigPath = &path
+		}
+	}
+}
+
+// Validate checks the configuration for any invalid values
+func (c *Config) Validate() error {
+	if c.Address == "" {
+		return fmt.Errorf("%w: address is required", protocol.ErrValidationFailed)
+	}
+
+	if c.Port != nil && (*c.Port <= 0 || *c.Port > 65535) {
+		return fmt.Errorf("%w: port must be between 1 and 65535", protocol.ErrValidationFailed)
+	}
+
+	return nil
 }
 
 // OptionArguments are options for the OpenSSH client. For example StrictHostkeyChecking: false becomes -o StrictHostKeyChecking=no
