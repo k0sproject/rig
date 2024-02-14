@@ -46,7 +46,7 @@ type testConfig struct {
 
 type testHost struct {
 	ClientConfig rig.ClientConfig `yaml:"-,inline"`
-	*rig.Connection
+	*rig.Client
 }
 
 func (th *testHost) UnmarshalYAML(unmarshal func(interface{}) error) error {
@@ -59,7 +59,7 @@ func (th *testHost) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	if err != nil {
 		return err
 	}
-	h.Connection = conn
+	h.Client = conn
 	return nil
 }
 
@@ -96,7 +96,7 @@ type testConfigConfigured struct {
 }
 
 type testHostConfigured struct {
-	rig.DefaultConnection `yaml:"-,inline"`
+	rig.DefaultClient `yaml:"-,inline"`
 }
 
 func TestConfiguredConnectionUnmarshal(t *testing.T) {

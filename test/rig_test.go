@@ -141,7 +141,7 @@ func TestFSSuite(t *testing.T) {
 
 // Host is a host that utilizes rig for connections
 type Host struct {
-	*rig.Connection
+	*rig.Client
 }
 
 func retry(fn func() error) error {
@@ -226,7 +226,7 @@ func GetHost(t *testing.T, options ...rig.Option) *Host {
 	opts = append(opts, options...)
 	conn, err := rig.NewConnection(opts...)
 	require.NoError(t, err)
-	return &Host{Connection: conn}
+	return &Host{Client: conn}
 }
 
 type SuiteLogger struct {

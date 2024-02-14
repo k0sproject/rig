@@ -15,56 +15,26 @@ import (
 	"github.com/k0sproject/rig/remotefs"
 )
 
-// Connection is a Struct you can embed into your application's "Host" types
+// Client is a struct you can embed into your application's "Host" types
 // to give them multi-protocol connectivity.
-//
-// All of the important fields have YAML tags.
-//
-// If you have a host like this:
-//
-//	type Host struct {
-//	  rig.Connection `yaml:"connection"`
-//	}
-//
-// and a YAML like this:
-//
-//	hosts:
-//	  - connection:
-//	      ssh:
-//	        address: 10.0.0.1
-//	        port: 8022
-//
-// you can then simply do this:
-//
-//	var hosts []*Host
-//	if err := yaml.Unmarshal(data, &hosts); err != nil {
-//	  panic(err)
-//	}
-//	for _, h := range hosts {
-//	  err := h.Connect()
-//	  if err != nil {
-//	    panic(err)
-//	  }
-//	  output, err := h.ExecOutput("echo hello")
-//	}
-type Connection struct {
+type Client struct {
 	*Dependencies
 
 	once sync.Once
-	sudo *Connection
+	sudo *Client
 }
 
 // ErrNotInitialized is returned when a Connection is used without being properly initialized
 var ErrNotInitialized = errors.New("connection not properly initialized")
 
-// DefaultConnection is a Connection that is especially suitable for embedding into something that is unmarshalled from YAML.
-type DefaultConnection struct {
+// DefaultClient is a Connection that is especially suitable for embedding into something that is unmarshalled from YAML.
+type DefaultClient struct {
 	ClientConfig ClientConfig `yaml:",inline"`
-	*Connection  `yaml:"-"`
+	*Client      `yaml:"-"`
 }
 
 // Setup allows applying options to the connection to configure subcomponents
-func (c *DefaultConnection) Setup(opts ...Option) error {
+func (c *DefaultClient) Setup(opts ...Option) error {
 	client, err := c.ClientConfig.Client()
 	if err != nil {
 		return fmt.Errorf("get client: %w", err)
@@ -74,23 +44,23 @@ func (c *DefaultConnection) Setup(opts ...Option) error {
 	if err != nil {
 		return fmt.Errorf("new connection: %w", err)
 	}
-	c.Connection = connection
+	c.Client = connection
 	return nil
 }
 
 // Connect to the host.
-func (c *DefaultConnection) Connect(opts ...Option) error {
-	if c.Connection == nil {
+func (c *DefaultClient) Connect(opts ...Option) error {
+	if c.Client == nil {
 		if err := c.Setup(opts...); err != nil {
 			return err
 		}
 	}
-	return c.Connection.Connect()
+	return c.Client.Connect()
 }
 
 // UnmarshalYAML unmarshals and setups a DefaultConnection from YAML
-func (c *DefaultConnection) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	type configuredConnection DefaultConnection
+func (c *DefaultClient) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	type configuredConnection DefaultClient
 	conn := (*configuredConnection)(c)
 	if err := unmarshal(conn); err != nil {
 		return fmt.Errorf("unmarshal client config: %w", err)
@@ -99,15 +69,15 @@ func (c *DefaultConnection) UnmarshalYAML(unmarshal func(interface{}) error) err
 }
 
 // NewConnection returns a new Connection object with the given options
-func NewConnection(opts ...Option) (*Connection, error) {
-	conn := &Connection{}
+func NewConnection(opts ...Option) (*Client, error) {
+	conn := &Client{}
 	if err := conn.setup(opts...); err != nil {
 		return nil, err
 	}
 	return conn, nil
 }
 
-func (c *Connection) setup(opts ...Option) error {
+func (c *Client) setup(opts ...Option) error {
 	var err error
 	c.once.Do(func() {
 		options := NewOptions(opts...)
@@ -121,7 +91,7 @@ func (c *Connection) setup(opts ...Option) error {
 }
 
 // Service returns a Service object for the named service using the host's init system
-func (c *Connection) Service(name string) (*Service, error) {
+func (c *Client) Service(name string) (*Service, error) {
 	is, err := c.InitSystem()
 	if err != nil {
 		return nil, err
@@ -131,7 +101,7 @@ func (c *Connection) Service(name string) (*Service, error) {
 
 // String returns a printable representation of the connection, which will look
 // like: `[ssh] address:port`
-func (c *Connection) String() string {
+func (c *Client) String() string {
 	if c.client == nil {
 		if c.clientConfigurer == nil {
 			return "[uninitialized connection]"
@@ -143,14 +113,14 @@ func (c *Connection) String() string {
 }
 
 // Clone returns a copy of the connection with the given options.
-func (c *Connection) Clone(opts ...Option) *Connection {
-	return &Connection{
+func (c *Client) Clone(opts ...Option) *Client {
+	return &Client{
 		Dependencies: c.Dependencies.Clone(opts...),
 	}
 }
 
 // Sudo returns a copy of the connection with a Runner that uses sudo.
-func (c *Connection) Sudo() *Connection {
+func (c *Client) Sudo() *Client {
 	if c.sudo == nil {
 		c.sudo = c.Clone(WithRunner(c.sudoRunner()))
 	}
@@ -158,7 +128,7 @@ func (c *Connection) Sudo() *Connection {
 }
 
 // FS returns a fs.FS compatible filesystem interface for accessing files on remote hosts
-func (c *Connection) FS() remotefs.FS {
+func (c *Client) FS() remotefs.FS {
 	fs, err := c.getFS()
 	if err != nil {
 		// TODO: maybe this needs to be setup in the constructor because getting an error here is very inconvenient for the user
@@ -168,7 +138,7 @@ func (c *Connection) FS() remotefs.FS {
 }
 
 // Connect to the host.
-func (c *Connection) Connect() error {
+func (c *Client) Connect() error {
 	if c.client == nil {
 		return errors.Join(abort.ErrAbort, ErrNotInitialized)
 	}
@@ -192,7 +162,7 @@ func (c *Dependencies) Disconnect() {
 }
 
 // ExecInteractive runs a command interactively on the host if supported by the client implementation.
-func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
+func (c *Client) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if conn, ok := c.client.(interactiveExecer); ok {
 		if err := conn.ExecInteractive(cmd, stdin, stdout, stderr); err != nil {
 			return fmt.Errorf("exec interactive: %w", err)
@@ -203,22 +173,22 @@ func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr
 }
 
 // InitSystem returns a ServiceManager for the host's init system
-func (c *Connection) InitSystem() (initsystem.ServiceManager, error) {
+func (c *Client) InitSystem() (initsystem.ServiceManager, error) {
 	return c.getInitSystem()
 }
 
 // PackageManager returns a PackageManager for the host's package manager
-func (c *Connection) PackageManager() (packagemanager.PackageManager, error) {
+func (c *Client) PackageManager() (packagemanager.PackageManager, error) {
 	return c.getPackageManager()
 }
 
 // OS returns the host's operating system
-func (c *Connection) OS() (*os.Release, error) {
+func (c *Client) OS() (*os.Release, error) {
 	return c.getOS()
 }
 
 // Protocol returns the protocol used to connect to the host
-func (c *Connection) Protocol() string {
+func (c *Client) Protocol() string {
 	if c.client == nil {
 		return "unknown"
 	}
@@ -226,7 +196,7 @@ func (c *Connection) Protocol() string {
 }
 
 // Address returns the address of the host
-func (c *Connection) Address() string {
+func (c *Client) Address() string {
 	if c.client == nil {
 		return ""
 	}
