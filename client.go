@@ -29,7 +29,7 @@ var ErrNotInitialized = errors.New("connection not properly initialized")
 
 // DefaultClient is a Connection that is especially suitable for embedding into something that is unmarshalled from YAML.
 type DefaultClient struct {
-	ClientConfig ClientConfig `yaml:",inline"`
+	ClientConfig CompositeConfig `yaml:",inline"`
 	*Client      `yaml:"-"`
 }
 

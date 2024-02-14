@@ -23,7 +23,7 @@ type ProtocolConfigurer interface {
 
 // DefaultProtocolConfigurer is a function that returns a new ClientConfig to use as a default client configurator.
 func DefaultProtocolConfigurer() ProtocolConfigurer {
-	return &ClientConfig{}
+	return &CompositeConfig{}
 }
 
 // LoggerFactory is a function that creates a logger

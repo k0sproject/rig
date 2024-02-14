@@ -10,12 +10,11 @@ import (
 	"github.com/k0sproject/rig/winrm"
 )
 
-var _ ProtocolConfigurer = (*ClientConfig)(nil)
+var _ ProtocolConfigurer = (*CompositeConfig)(nil)
 
-// ClientConfig is the full configuration for a client with all the protocols supported by this package.
-// You can create a subset of this to only support some of them or use one of the protocols as a standalone
-// ClientConfigurer.
-type ClientConfig struct {
+// CompositeConfig is a composite configuration of all the protocols supported by rig.
+// It is intended to be embedded into host structs that are unmarshaled from configuration files.
+type CompositeConfig struct {
 	WinRM     *winrm.Config     `yaml:"winRM,omitempty"`
 	SSH       *ssh.Config       `yaml:"ssh,omitempty"`
 	Localhost *localhost.Config `yaml:"localhost,omitempty"`
@@ -24,11 +23,11 @@ type ClientConfig struct {
 	s *string
 }
 
-// ErrNoClientConfig is returned when no protocol configuration is found in the ClientConfig.
+// ErrNoClientConfig is returned when no protocol configuration is found in the CompositeConfig.
 var ErrNoClientConfig = errors.New("no protocol configuration found")
 
-// Client returns the first configured protocol configuration found in the ClientConfig.
-func (c *ClientConfig) Client() (Protocol, error) {
+// Client returns the first configured protocol configuration found in the CompositeConfig.
+func (c *CompositeConfig) Client() (Protocol, error) {
 	var err error
 	var client Protocol
 	if c.WinRM != nil {
@@ -58,8 +57,8 @@ func (c *ClientConfig) Client() (Protocol, error) {
 	return client, nil
 }
 
-// String returns a string representation of the first configured protocol configuration found in the ClientConfig.
-func (c *ClientConfig) String() string {
+// String returns a string representation of the first configured protocol configuration.
+func (c *CompositeConfig) String() string {
 	if c.s == nil {
 		client, err := c.Client()
 		if err != nil {

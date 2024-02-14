@@ -10,7 +10,7 @@ import (
 )
 
 func TestConnectionWithConfigurer(t *testing.T) {
-	cc := &rig.ClientConfig{
+	cc := &rig.CompositeConfig{
 		Localhost: &localhost.Config{Enabled: true},
 	}
 	conn, err := rig.NewConnection(
@@ -45,7 +45,7 @@ type testConfig struct {
 }
 
 type testHost struct {
-	ClientConfig rig.ClientConfig `yaml:"-,inline"`
+	ClientConfig rig.CompositeConfig `yaml:"-,inline"`
 	*rig.Client
 }
 
