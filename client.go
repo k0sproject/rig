@@ -12,6 +12,7 @@ import (
 	"github.com/k0sproject/rig/initsystem"
 	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/packagemanager"
+	"github.com/k0sproject/rig/protocol"
 	"github.com/k0sproject/rig/remotefs"
 )
 
@@ -81,7 +82,7 @@ func (c *Client) setup(opts ...Option) error {
 	var err error
 	c.once.Do(func() {
 		options := NewOptions(opts...)
-		c.dependencies = options.ConnectionDependencies()
+		c.dependencies = options.dependencies()
 		err = c.initClient()
 	})
 	if err != nil {
@@ -142,7 +143,7 @@ func (c *Client) Connect() error {
 	if c.client == nil {
 		return errors.Join(abort.ErrAbort, ErrNotInitialized)
 	}
-	if conn, ok := c.client.(connector); ok {
+	if conn, ok := c.client.(protocol.Connector); ok {
 		if err := conn.Connect(); err != nil {
 			return fmt.Errorf("client connect: %w", err)
 		}
@@ -156,14 +157,14 @@ func (c *dependencies) Disconnect() {
 	if c.client == nil {
 		return
 	}
-	if conn, ok := c.client.(disconnector); ok {
+	if conn, ok := c.client.(protocol.Disconnector); ok {
 		conn.Disconnect()
 	}
 }
 
 // ExecInteractive runs a command interactively on the host if supported by the client implementation.
 func (c *Client) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
-	if conn, ok := c.client.(interactiveExecer); ok {
+	if conn, ok := c.client.(protocol.InteractiveExecer); ok {
 		if err := conn.ExecInteractive(cmd, stdin, stdout, stderr); err != nil {
 			return fmt.Errorf("exec interactive: %w", err)
 		}
@@ -190,15 +191,15 @@ func (c *Client) OS() (*os.Release, error) {
 // Protocol returns the protocol used to connect to the host
 func (c *Client) Protocol() string {
 	if c.client == nil {
-		return "unknown"
+		return "uninitialized"
 	}
 	return c.client.Protocol()
 }
 
 // Address returns the address of the host
 func (c *Client) Address() string {
-	if c.client == nil {
-		return ""
+	if c.client != nil {
+		return c.client.IPAddress()
 	}
-	return c.client.IPAddress()
+	return ""
 }

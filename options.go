@@ -5,6 +5,7 @@ import (
 	"github.com/k0sproject/rig/initsystem"
 	"github.com/k0sproject/rig/log"
 	"github.com/k0sproject/rig/packagemanager"
+	"github.com/k0sproject/rig/protocol"
 	"github.com/k0sproject/rig/remotefs"
 )
 
@@ -20,8 +21,7 @@ func (o *Options) Apply(opts ...Option) {
 	}
 }
 
-// ConnectionDependencies returns configured dependencies for a connection.
-func (o *Options) ConnectionDependencies() *dependencies {
+func (o *Options) dependencies() *dependencies {
 	return o.connectionDependencies
 }
 
@@ -29,7 +29,7 @@ func (o *Options) ConnectionDependencies() *dependencies {
 type Option func(*Options)
 
 // WithConnection is a functional option that sets the client to use for connecting instead of getting it from the ConnectionConfigurer.
-func WithConnection(conn Connection) Option {
+func WithConnection(conn protocol.Connection) Option {
 	return func(o *Options) {
 		o.connectionDependencies.client = conn
 	}
@@ -122,7 +122,7 @@ func WithLoggerFactory(loggerFactory LoggerFactory) Option {
 // NewOptions creates a new Options struct with the supplied options applied over the defaults.
 func NewOptions(opts ...Option) *Options {
 	options := &Options{
-		connectionDependencies: DefaultDependencies(),
+		connectionDependencies: defaultDependencies(),
 	}
 
 	options.Apply(opts...)

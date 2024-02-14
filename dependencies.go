@@ -10,6 +10,7 @@ import (
 	"github.com/k0sproject/rig/log"
 	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/packagemanager"
+	"github.com/k0sproject/rig/protocol"
 	"github.com/k0sproject/rig/remotefs"
 	"github.com/k0sproject/rig/sudo"
 )
@@ -18,7 +19,7 @@ import (
 // to get a client to use for connecting.
 type ConnectionConfigurer interface {
 	fmt.Stringer
-	Connection() (Connection, error)
+	Connection() (protocol.Connection, error)
 }
 
 // DefaultConnectionConfigurer returns a new CompositeConfig to use as a default client configurator.
@@ -27,12 +28,12 @@ func DefaultConnectionConfigurer() ConnectionConfigurer {
 }
 
 // LoggerFactory is a function that creates a logger
-type LoggerFactory func(client Connection) log.Logger
+type LoggerFactory func(protocol.Connection) log.Logger
 
 var nullLogger = &log.NullLog{}
 
 // defaultLoggerFactory returns a logger factory that returns a null logger
-func defaultLoggerFactory(_ Connection) log.Logger {
+func defaultLoggerFactory(_ protocol.Connection) log.Logger {
 	return nullLogger
 }
 
@@ -42,7 +43,7 @@ type dependencies struct {
 	exec.Runner          `yaml:"-"`
 	log.LoggerInjectable `yaml:"-"`
 
-	client     Connection
+	client     protocol.Connection
 	clientOnce sync.Once
 
 	fs     remotefs.FS
@@ -102,8 +103,7 @@ func DefaultProviders() SubsystemProviders {
 	}
 }
 
-// DefaultDependencies returns a set of default injectables for a connection
-func DefaultDependencies() *dependencies {
+func defaultDependencies() *dependencies {
 	return &dependencies{
 		connectionConfigurer: DefaultConnectionConfigurer(),
 		providers:            DefaultProviders(),
@@ -118,7 +118,7 @@ func (c *dependencies) Clone(opts ...Option) *dependencies {
 		providers:            c.providers,
 	}}
 	options.Apply(opts...)
-	return options.ConnectionDependencies()
+	return options.dependencies()
 }
 
 var (
