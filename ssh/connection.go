@@ -102,7 +102,7 @@ func (c *Connection) initGlobalDefaults() {
 	sort.Strings(dummyHostIdentityFiles)
 	dummyHostIdentityFiles = slices.Compact(dummyHostIdentityFiles)
 	for _, keyPath := range dummyHostIdentityFiles {
-		if expanded, err := homedir.ExpandFile(keyPath); err == nil {
+		if expanded, err := homedir.Expand(keyPath); err == nil {
 			dummyhostKeyPaths = append(dummyhostKeyPaths, expanded)
 		}
 	}
@@ -129,7 +129,7 @@ func (c *Connection) SetDefaults() {
 	globalOnce.Do(c.initGlobalDefaults)
 	c.once.Do(func() {
 		if c.KeyPath != nil && *c.KeyPath != "" {
-			if expanded, err := homedir.ExpandFile(*c.KeyPath); err == nil {
+			if expanded, err := homedir.Expand(*c.KeyPath); err == nil {
 				c.keyPaths = append(c.keyPaths, expanded)
 			}
 			// keypath is explicitly set, accept the fact even if it's invalid and
@@ -297,7 +297,7 @@ func (c *Connection) hostkeyCallback() (ssh.HostKeyCallback, error) {
 	if files, err := shellwords.Parse(strings.Join(kfs, " ")); err == nil {
 		for _, f := range files {
 			c.Log().Tracef("trying known_hosts file from ssh config %s", f)
-			exp, err := homedir.ExpandFile(f)
+			exp, err := homedir.Expand(f)
 			if err == nil {
 				khPath = exp
 				break
@@ -311,7 +311,7 @@ func (c *Connection) hostkeyCallback() (ssh.HostKeyCallback, error) {
 	}
 
 	c.Log().Tracef("using default known_hosts file %s", hostkey.DefaultKnownHostsPath)
-	defaultPath, err := homedir.ExpandFile(hostkey.DefaultKnownHostsPath)
+	defaultPath, err := homedir.Expand(hostkey.DefaultKnownHostsPath)
 	if err != nil {
 		return nil, fmt.Errorf("expand known_hosts file path: %w", err)
 	}
@@ -444,6 +444,10 @@ func (c *Connection) pubkeySigner(signers []ssh.Signer, key ssh.PublicKey) (ssh.
 }
 
 func (c *Connection) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMethod, error) {
+	path, err := homedir.ExpandFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("expand keyfile path: %w", err)
+	}
 	c.Log().Tracef("checking identity file %s", path)
 	key, err := os.ReadFile(path)
 	if err != nil {
