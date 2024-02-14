@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func mockClient() *rigtest.MockClient {
-	return rigtest.NewMockClient()
+func mockClient() *rigtest.MockConnection {
+	return rigtest.NewMockConnection()
 }
 
 func TestSimpleExec(t *testing.T) {

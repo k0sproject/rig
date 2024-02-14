@@ -13,7 +13,7 @@ import (
 )
 
 func TestAddAndProcessMockCommand(t *testing.T) {
-	mc := rigtest.NewMockClient()
+	mc := rigtest.NewMockConnection()
 	expectedOutput := "mock output"
 
 	mc.AddMockCommand(regexp.MustCompile("^test$"), func(_ context.Context, _ io.Reader, stdout, _ io.Writer) error {
@@ -32,7 +32,7 @@ func TestAddAndProcessMockCommand(t *testing.T) {
 }
 
 func TestCommandReception(t *testing.T) {
-	mc := rigtest.NewMockClient()
+	mc := rigtest.NewMockConnection()
 	runner, err := rig.NewRunner(mc)
 	require.NoError(t, err)
 	_ = runner.Exec("test command")
@@ -51,7 +51,7 @@ func TestCommandReception(t *testing.T) {
 }
 
 func TestCommandHistoryAndReset(t *testing.T) {
-	mc := rigtest.NewMockClient()
+	mc := rigtest.NewMockConnection()
 	runner, err := rig.NewRunner(mc)
 	require.NoError(t, err)
 	if mc.Len() != 0 {
@@ -77,14 +77,15 @@ func TestCommandHistoryAndReset(t *testing.T) {
 }
 
 func TestIsWindows(t *testing.T) {
-	mc := rigtest.NewMockClient()
+	mc := rigtest.NewMockConnection()
 	require.False(t, mc.IsWindows())
 	mc.Windows = true
 	require.True(t, mc.IsWindows())
 }
 
-func ExampleNewMockClient() {
-	mc := rigtest.NewMockClient()
+// ExampleNewMockConnection demonstrates how to mock a connection to match the "ls" command and return a list of fake filenames.
+func ExampleNewMockConnection() {
+	mc := rigtest.NewMockConnection()
 	mc.AddMockCommand(regexp.MustCompile("ls"), func(_ context.Context, _ io.Reader, stdout, _ io.Writer) error {
 		stdout.Write([]byte("file1\nfile2\n"))
 		return nil
