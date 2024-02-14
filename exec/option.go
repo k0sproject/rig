@@ -89,15 +89,6 @@ func (o *Options) AllowWinStderr() bool {
 
 // LogCmd is for logging the command to be executed
 func (o *Options) LogCmd(cmd string) {
-	if Confirm {
-		mutex.Lock()
-		if !ConfirmFunc("\nCommand: " + o.Redact(decodeEncoded(cmd))) {
-			os.Stderr.WriteString("aborted\n")
-			os.Exit(1)
-		}
-		mutex.Unlock()
-	}
-
 	if o.logCommand {
 		o.Log().Debugf("executing `%s`", o.Redact(decodeEncoded(cmd)))
 	} else {
