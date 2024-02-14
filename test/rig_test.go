@@ -224,7 +224,7 @@ func GetHost(t *testing.T, options ...rig.Option) *Host {
 		}),
 	}
 	opts = append(opts, options...)
-	conn, err := rig.NewConnection(opts...)
+	conn, err := rig.NewClient(opts...)
 	require.NoError(t, err)
 	return &Host{Client: conn}
 }

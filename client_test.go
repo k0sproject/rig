@@ -13,7 +13,7 @@ func TestClientWithConfigurer(t *testing.T) {
 	cc := &rig.CompositeConfig{
 		Localhost: true,
 	}
-	conn, err := rig.NewConnection(
+	conn, err := rig.NewClient(
 		rig.WithConnectionConfigurer(cc),
 	)
 	require.NoError(t, err)
@@ -29,7 +29,7 @@ func TestClientWithConfigurer(t *testing.T) {
 func TestClient(t *testing.T) {
 	conn, err := localhost.NewConnection()
 	require.NoError(t, err)
-	client, err := rig.NewConnection(rig.WithConnection(conn))
+	client, err := rig.NewClient(rig.WithConnection(conn))
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 
@@ -55,7 +55,7 @@ func (th *testHost) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	if err := unmarshal(h); err != nil {
 		return err
 	}
-	conn, err := rig.NewConnection(rig.WithConnectionConfigurer(&h.ClientConfig))
+	conn, err := rig.NewClient(rig.WithConnectionConfigurer(&h.ClientConfig))
 	if err != nil {
 		return err
 	}

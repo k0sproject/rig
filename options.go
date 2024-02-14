@@ -10,7 +10,7 @@ import (
 
 // Options is a struct that holds the variadic options for the rig package.
 type Options struct {
-	connectionDependencies *Dependencies
+	connectionDependencies *dependencies
 }
 
 // Apply applies the supplied options to the Options struct.
@@ -21,7 +21,7 @@ func (o *Options) Apply(opts ...Option) {
 }
 
 // ConnectionDependencies returns configured dependencies for a connection.
-func (o *Options) ConnectionDependencies() *Dependencies {
+func (o *Options) ConnectionDependencies() *dependencies {
 	return o.connectionDependencies
 }
 

@@ -18,7 +18,7 @@ import (
 // Client is a struct you can embed into your application's "Host" types
 // to give them multi-protocol connectivity.
 type Client struct {
-	*Dependencies
+	*dependencies
 
 	once sync.Once
 	sudo *Client
@@ -40,7 +40,7 @@ func (c *DefaultClient) Setup(opts ...Option) error {
 		return fmt.Errorf("get client: %w", err)
 	}
 	opts = append(opts, WithConnection(client))
-	connection, err := NewConnection(opts...)
+	connection, err := NewClient(opts...)
 	if err != nil {
 		return fmt.Errorf("new connection: %w", err)
 	}
@@ -68,8 +68,8 @@ func (c *DefaultClient) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	return c.Setup()
 }
 
-// NewConnection returns a new Connection object with the given options
-func NewConnection(opts ...Option) (*Client, error) {
+// NewClient returns a new Connection object with the given options
+func NewClient(opts ...Option) (*Client, error) {
 	conn := &Client{}
 	if err := conn.setup(opts...); err != nil {
 		return nil, err
@@ -81,7 +81,7 @@ func (c *Client) setup(opts ...Option) error {
 	var err error
 	c.once.Do(func() {
 		options := NewOptions(opts...)
-		c.Dependencies = options.ConnectionDependencies()
+		c.dependencies = options.ConnectionDependencies()
 		err = c.initClient()
 	})
 	if err != nil {
@@ -115,7 +115,7 @@ func (c *Client) String() string {
 // Clone returns a copy of the connection with the given options.
 func (c *Client) Clone(opts ...Option) *Client {
 	return &Client{
-		Dependencies: c.Dependencies.Clone(opts...),
+		dependencies: c.dependencies.Clone(opts...),
 	}
 }
 
@@ -152,7 +152,7 @@ func (c *Client) Connect() error {
 }
 
 // Disconnect from the host.
-func (c *Dependencies) Disconnect() {
+func (c *dependencies) Disconnect() {
 	if c.client == nil {
 		return
 	}

@@ -36,8 +36,8 @@ func defaultLoggerFactory(_ Connection) log.Logger {
 	return nullLogger
 }
 
-// Dependencies is a collection of injectable dependencies for a connection
-type Dependencies struct {
+// dependencies is a collection of injectable dependencies for a connection
+type dependencies struct {
 	connectionConfigurer ConnectionConfigurer
 	exec.Runner          `yaml:"-"`
 	log.LoggerInjectable `yaml:"-"`
@@ -103,16 +103,16 @@ func DefaultProviders() SubsystemProviders {
 }
 
 // DefaultDependencies returns a set of default injectables for a connection
-func DefaultDependencies() *Dependencies {
-	return &Dependencies{
+func DefaultDependencies() *dependencies {
+	return &dependencies{
 		connectionConfigurer: DefaultConnectionConfigurer(),
 		providers:            DefaultProviders(),
 	}
 }
 
 // Clone returns a copy of the ConnectionInjectables with the given options applied
-func (c *Dependencies) Clone(opts ...Option) *Dependencies {
-	options := Options{connectionDependencies: &Dependencies{
+func (c *dependencies) Clone(opts ...Option) *dependencies {
+	options := Options{connectionDependencies: &dependencies{
 		connectionConfigurer: c.connectionConfigurer,
 		client:               c.client,
 		providers:            c.providers,
@@ -129,7 +129,7 @@ var (
 	ErrClientNotSet = errors.New("client not set")
 )
 
-func (c *Dependencies) initClient() error {
+func (c *dependencies) initClient() error {
 	var err error
 	c.clientOnce.Do(func() {
 		if c.client != nil {
@@ -162,11 +162,11 @@ func (c *Dependencies) initClient() error {
 	return err
 }
 
-func (c *Dependencies) injectLogger(obj any) {
+func (c *dependencies) injectLogger(obj any) {
 	log.InjectLogger(c.Log(), obj)
 }
 
-func (c *Dependencies) sudoRunner() exec.Runner {
+func (c *dependencies) sudoRunner() exec.Runner {
 	decorator, err := c.providers.sudo.Get(c)
 	if err != nil {
 		return exec.NewErrorRunner(err)
@@ -177,7 +177,7 @@ func (c *Dependencies) sudoRunner() exec.Runner {
 }
 
 // InitSystem returns a ServiceManager for the host's init system
-func (c *Dependencies) getInitSystem() (initsystem.ServiceManager, error) {
+func (c *dependencies) getInitSystem() (initsystem.ServiceManager, error) {
 	var err error
 	c.initSysOnce.Do(func() {
 		c.initSys, err = c.providers.initsys.Get(c)
@@ -190,7 +190,7 @@ func (c *Dependencies) getInitSystem() (initsystem.ServiceManager, error) {
 }
 
 // PackageManager returns a PackageManager for the host's package manager
-func (c *Dependencies) getPackageManager() (packagemanager.PackageManager, error) {
+func (c *dependencies) getPackageManager() (packagemanager.PackageManager, error) {
 	var err error
 	c.packageManOnce.Do(func() {
 		c.packageMan, err = c.providers.packagemanager.Get(c)
@@ -202,7 +202,7 @@ func (c *Dependencies) getPackageManager() (packagemanager.PackageManager, error
 	return c.packageMan, err
 }
 
-func (c *Dependencies) getFS() (remotefs.FS, error) { //nolint:unparam
+func (c *dependencies) getFS() (remotefs.FS, error) { //nolint:unparam
 	var err error
 	c.fsOnce.Do(func() {
 		c.fs, err = c.providers.fs.Get(c)
@@ -214,7 +214,7 @@ func (c *Dependencies) getFS() (remotefs.FS, error) { //nolint:unparam
 	return c.fs, nil
 }
 
-func (c *Dependencies) getOS() (*os.Release, error) {
+func (c *dependencies) getOS() (*os.Release, error) {
 	var err error
 	c.osOnce.Do(func() {
 		c.os, err = c.providers.os.Get(c)
