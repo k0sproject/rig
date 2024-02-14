@@ -33,8 +33,8 @@ type interactiveExecer interface {
 	ExecInteractive(cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error
 }
 
-// Protocol is the minimum interface for protocol implementations
-type Protocol interface {
+// Connection is the minimum interface for protocol implementations
+type Connection interface {
 	fmt.Stringer
 	ProcessStarter
 	WindowsChecker

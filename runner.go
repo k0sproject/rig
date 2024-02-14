@@ -4,6 +4,6 @@ import "github.com/k0sproject/rig/exec"
 
 // NewRunner returns a new exec.Runner for the given client.
 // Currently the error is always nil.
-func NewRunner(client Protocol) (*exec.HostRunner, error) {
+func NewRunner(client Connection) (*exec.HostRunner, error) {
 	return exec.NewHostRunner(client), nil
 }

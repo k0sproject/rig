@@ -1,4 +1,4 @@
-// Package openssh provides a rig.Client implementation that uses the system openssh client "ssh" to connect to remote hosts.
+// Package openssh provides a rig protocol implementation that uses the system openssh client "ssh" to connect to remote hosts.
 package openssh
 
 import (
@@ -49,8 +49,8 @@ type Client struct {
 	name string
 }
 
-// NewClient creates a new OpenSSH connection. Error is currently always nil.
-func NewClient(cfg Config) (*Client, error) {
+// NewConnection creates a new OpenSSH connection. Error is currently always nil.
+func NewConnection(cfg Config) (*Client, error) {
 	return &Client{Config: cfg}, nil
 }
 

@@ -27,7 +27,7 @@ func TestConnectionWithConfigurer(t *testing.T) {
 }
 
 func TestConnectionWithClient(t *testing.T) {
-	client, err := localhost.NewClient(localhost.Config{Enabled: true})
+	client, err := localhost.NewConnection(localhost.Config{Enabled: true})
 	require.NoError(t, err)
 	conn, err := rig.NewConnection(rig.WithClient(client))
 	require.NoError(t, err)

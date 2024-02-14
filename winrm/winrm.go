@@ -1,4 +1,4 @@
-// Package winrm provides a rig.Client implementation for WinRM connections
+// Package winrm provides a rig protocol implementation for WinRM connections
 package winrm
 
 import (
@@ -37,11 +37,11 @@ type Config struct {
 	CertPath      string      `yaml:"certPath,omitempty" validate:"omitempty,file"`
 	KeyPath       string      `yaml:"keyPath,omitempty" validate:"omitempty,file"`
 	TLSServerName string      `yaml:"tlsServerName,omitempty" validate:"omitempty,hostname_rfc1123|ip"`
-	Bastion       *ssh.Client `yaml:"bastion,omitempty"` // TODO: this needs to be done some other way. and it's just a dial function. need to figure out the unmarshaling.
+	Bastion       *ssh.Connection `yaml:"bastion,omitempty"` // TODO: this needs to be done some other way. and it's just a dial function. need to figure out the unmarshaling.
 }
 
-// Client describes a Client connection with its configuration options
-type Client struct {
+// Connection describes a Connection connection with its configuration options
+type Connection struct {
 	log.LoggerInjectable `yaml:"-"`
 	Config               `yaml:",inline"`
 
@@ -54,18 +54,18 @@ type Client struct {
 	client *winrm.Client
 }
 
-// NewClient creates a new WinRM connection. Error is currently always nil.
-func NewClient(cfg Config) (*Client, error) {
-	return &Client{Config: cfg}, nil
+// NewConnection creates a new WinRM connection. Error is currently always nil.
+func NewConnection(cfg Config) (*Connection, error) {
+	return &Connection{Config: cfg}, nil
 }
 
 // Client implements the ClientConfigurer interface
-func (c *Client) Client() (*Client, error) {
+func (c *Connection) Client() (*Connection, error) {
 	return c, nil
 }
 
 // SetDefaults sets various default values
-func (c *Client) SetDefaults() {
+func (c *Connection) SetDefaults() {
 	if p, err := homedir.ExpandFile(c.CACertPath); err == nil {
 		c.CACertPath = p
 	}
@@ -84,17 +84,17 @@ func (c *Client) SetDefaults() {
 }
 
 // Protocol returns the protocol name, "WinRM"
-func (c *Client) Protocol() string {
+func (c *Connection) Protocol() string {
 	return "WinRM"
 }
 
 // IPAddress returns the connection address
-func (c *Client) IPAddress() string {
+func (c *Connection) IPAddress() string {
 	return c.Address
 }
 
 // String returns the connection's printable name
-func (c *Client) String() string {
+func (c *Connection) String() string {
 	if c.name == "" {
 		c.name = fmt.Sprintf("[winrm] %s:%d", c.Address, c.Port)
 	}
@@ -103,11 +103,11 @@ func (c *Client) String() string {
 }
 
 // IsWindows always returns true on winrm
-func (c *Client) IsWindows() bool {
+func (c *Connection) IsWindows() bool {
 	return true
 }
 
-func (c *Client) loadCertificates() error {
+func (c *Connection) loadCertificates() error {
 	c.caCert = nil
 	if c.CACertPath != "" {
 		ca, err := os.ReadFile(c.CACertPath)
@@ -139,7 +139,7 @@ func (c *Client) loadCertificates() error {
 }
 
 // Connect opens the WinRM connection
-func (c *Client) Connect() error {
+func (c *Connection) Connect() error {
 	if err := c.loadCertificates(); err != nil {
 		return fmt.Errorf("%w: failed to load certificates: %w", abort.ErrAbort, err)
 	}
@@ -200,7 +200,7 @@ func (c *Client) Connect() error {
 }
 
 // Disconnect closes the WinRM connection
-func (c *Client) Disconnect() {
+func (c *Connection) Disconnect() {
 	c.client = nil
 }
 
@@ -238,7 +238,7 @@ func (c *command) Close() error {
 
 // StartProcess executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
-func (c *Client) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) (exec.Waiter, error) {
+func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) (exec.Waiter, error) {
 	if c.client == nil {
 		return nil, errNotConnected
 	}
@@ -302,7 +302,7 @@ func (c *Client) StartProcess(ctx context.Context, cmd string, stdin io.Reader, 
 }
 
 // ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host
-func (c *Client) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
+func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if cmd == "" {
 		cmd = "cmd.exe"
 	}

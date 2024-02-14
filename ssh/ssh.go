@@ -1,4 +1,4 @@
-// Package ssh provides a rig Client implementation for SSH connections.
+// Package ssh provides a rig protocol implementation for SSH connections.
 package ssh
 
 import (
@@ -38,7 +38,7 @@ type Config struct {
 	Port             int              `yaml:"port" default:"22" validate:"gt=0,lte=65535"`
 	KeyPath          *string          `yaml:"keyPath" validate:"omitempty"`
 	HostKey          string           `yaml:"hostKey,omitempty"`
-	Bastion          *Client          `yaml:"bastion,omitempty"`
+	Bastion          *Connection      `yaml:"bastion,omitempty"` // TODO: validate that bastion is not the same as the current client, also the unmarshaling needs to be fixed
 	PasswordCallback PasswordCallback `yaml:"-"`
 
 	// AuthMethods can be used to pass in a list of ssh.AuthMethod objects
@@ -49,8 +49,8 @@ type Config struct {
 	AuthMethods []ssh.AuthMethod `yaml:"-"`
 }
 
-// Client describes an SSH connection
-type Client struct {
+// Connection describes an SSH connection
+type Connection struct {
 	log.LoggerInjectable `yaml:"-"`
 	Config               `yaml:",inline"`
 
@@ -65,9 +65,9 @@ type Client struct {
 	keyPaths []string
 }
 
-// NewClient creates a new SSH connection. Error is currently always nil.
-func NewClient(cfg Config) (*Client, error) {
-	return &Client{Config: cfg}, nil
+// NewConnection creates a new SSH connection. Error is currently always nil.
+func NewConnection(cfg Config) (*Connection, error) {
+	return &Connection{Config: cfg}, nil
 }
 
 // PasswordCallback is a function that is called when a passphrase is needed to decrypt a private key
@@ -87,12 +87,12 @@ var (
 const hopefullyNonexistentHost = "thisH0stDoe5not3xist"
 
 // Client implements the ClientConfigurer interface
-func (c *Client) Client() (*Client, error) {
+func (c *Connection) Client() (*Connection, error) {
 	return c, nil
 }
 
 // Dial initiates a connection to the addr from the remote host.
-func (c *Client) Dial(network, address string) (net.Conn, error) {
+func (c *Connection) Dial(network, address string) (net.Conn, error) {
 	conn, err := c.client.Dial(network, address)
 	if err != nil {
 		return nil, fmt.Errorf("ssh dial: %w", err)
@@ -100,7 +100,7 @@ func (c *Client) Dial(network, address string) (net.Conn, error) {
 	return conn, nil
 }
 
-func (c *Client) keypathsFromConfig() []string {
+func (c *Connection) keypathsFromConfig() []string {
 	c.Log().Tracef("trying to get a keyfile path from ssh config")
 	idf := c.getConfigAll("IdentityFile")
 	// https://github.com/kevinburke/ssh_config/blob/master/config.go#L254 says:
@@ -118,7 +118,7 @@ func (c *Client) keypathsFromConfig() []string {
 	return []string{}
 }
 
-func (c *Client) initGlobalDefaults() {
+func (c *Connection) initGlobalDefaults() {
 	c.Log().Tracef("discovering global default keypaths")
 	dummyHostIdentityFiles := SSHConfigGetAll(hopefullyNonexistentHost, "IdentityFile")
 	// https://github.com/kevinburke/ssh_config/blob/master/config.go#L254 says:
@@ -151,7 +151,7 @@ func findUniq(a, b []string) (string, bool) {
 }
 
 // SetDefaults sets various default values
-func (c *Client) SetDefaults() {
+func (c *Connection) SetDefaults() {
 	globalOnce.Do(c.initGlobalDefaults)
 	c.once.Do(func() {
 		if c.KeyPath != nil && *c.KeyPath != "" {
@@ -200,12 +200,12 @@ func (c *Client) SetDefaults() {
 }
 
 // Protocol returns the protocol name, "SSH"
-func (c *Client) Protocol() string {
+func (c *Connection) Protocol() string {
 	return "SSH"
 }
 
 // IPAddress returns the connection address
-func (c *Client) IPAddress() string {
+func (c *Connection) IPAddress() string {
 	return c.Address
 }
 
@@ -213,7 +213,7 @@ func (c *Client) IPAddress() string {
 // you can override it with your own implementation for testing purposes
 var SSHConfigGetAll = ssh_config.GetAll
 
-func (c *Client) getConfigAll(key string) []string {
+func (c *Connection) getConfigAll(key string) []string {
 	if c.alias != "" {
 		return SSHConfigGetAll(c.alias, key)
 	}
@@ -221,7 +221,7 @@ func (c *Client) getConfigAll(key string) []string {
 }
 
 // String returns the connection's printable name
-func (c *Client) String() string {
+func (c *Connection) String() string {
 	if c.name == "" {
 		c.name = "[ssh] " + net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
 	}
@@ -230,7 +230,7 @@ func (c *Client) String() string {
 }
 
 // Disconnect closes the SSH connection
-func (c *Client) Disconnect() {
+func (c *Connection) Disconnect() {
 	if c.client == nil {
 		return
 	}
@@ -238,7 +238,7 @@ func (c *Client) Disconnect() {
 }
 
 // IsWindows is true when the host is running windows
-func (c *Client) IsWindows() bool {
+func (c *Connection) IsWindows() bool {
 	if c.isWindows != nil {
 		return *c.isWindows
 	}
@@ -274,7 +274,7 @@ func knownhostsCallback(path string, permissive, hash bool) (ssh.HostKeyCallback
 	return cb, nil
 }
 
-func isPermissive(c *Client) bool {
+func isPermissive(c *Connection) bool {
 	if strict := c.getConfigAll("StrictHostkeyChecking"); len(strict) > 0 && strict[0] == "no" {
 		c.Log().Debugf("StrictHostkeyChecking is set to 'no'")
 		return true
@@ -283,7 +283,7 @@ func isPermissive(c *Client) bool {
 	return false
 }
 
-func shouldHash(c *Client) bool {
+func shouldHash(c *Connection) bool {
 	var hash bool
 	if hashKnownHosts := c.getConfigAll("HashKnownHosts"); len(hashKnownHosts) == 1 {
 		hash := hashKnownHosts[0] == "yes"
@@ -294,7 +294,7 @@ func shouldHash(c *Client) bool {
 	return hash
 }
 
-func (c *Client) hostkeyCallback() (ssh.HostKeyCallback, error) {
+func (c *Connection) hostkeyCallback() (ssh.HostKeyCallback, error) {
 	if c.HostKey != "" {
 		c.Log().Debugf("using host key from config")
 		return hostkey.StaticKeyCallback(c.HostKey), nil
@@ -345,7 +345,7 @@ func (c *Client) hostkeyCallback() (ssh.HostKeyCallback, error) {
 	return knownhostsCallback(defaultPath, permissive, hash)
 }
 
-func (c *Client) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
+func (c *Connection) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
 	config := &ssh.ClientConfig{
 		User: c.User,
 	}
@@ -408,7 +408,7 @@ func (c *Client) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
 }
 
 // Connect opens the SSH connection
-func (c *Client) Connect() error {
+func (c *Connection) Connect() error {
 	if err := defaults.Set(c); err != nil {
 		return fmt.Errorf("set defaults: %w", err)
 	}
@@ -454,7 +454,7 @@ func (c *Client) Connect() error {
 	return nil
 }
 
-func (c *Client) pubkeySigner(signers []ssh.Signer, key ssh.PublicKey) (ssh.AuthMethod, error) {
+func (c *Connection) pubkeySigner(signers []ssh.Signer, key ssh.PublicKey) (ssh.AuthMethod, error) {
 	if len(signers) == 0 {
 		return nil, fmt.Errorf("%w: signer not found for public key", abort.ErrAbort)
 	}
@@ -469,7 +469,7 @@ func (c *Client) pubkeySigner(signers []ssh.Signer, key ssh.PublicKey) (ssh.Auth
 	return nil, fmt.Errorf("%w: the provided key is a public key and is not known by agent", abort.ErrAbort)
 }
 
-func (c *Client) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMethod, error) {
+func (c *Connection) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMethod, error) {
 	c.Log().Tracef("checking identity file %s", path)
 	key, err := os.ReadFile(path)
 	if err != nil {
@@ -517,7 +517,7 @@ func (c *Client) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMethod, 
 
 // StartProcess executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
-func (c *Client) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) (exec.Waiter, error) {
+func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) (exec.Waiter, error) {
 	if c.client == nil {
 		return nil, errNotConnected
 	}
@@ -547,7 +547,7 @@ func (c *Client) StartProcess(ctx context.Context, cmd string, stdin io.Reader, 
 }
 
 // ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host
-func (c *Client) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
+func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
 	session, err := c.client.NewSession()
 	if err != nil {
 		return fmt.Errorf("ssh new session: %w", err)

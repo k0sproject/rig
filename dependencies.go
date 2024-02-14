@@ -18,7 +18,7 @@ import (
 // to get a client to use for connecting.
 type ProtocolConfigurer interface {
 	fmt.Stringer
-	Client() (Protocol, error)
+	Client() (Connection, error)
 }
 
 // DefaultProtocolConfigurer is a function that returns a new ClientConfig to use as a default client configurator.
@@ -27,12 +27,12 @@ func DefaultProtocolConfigurer() ProtocolConfigurer {
 }
 
 // LoggerFactory is a function that creates a logger
-type LoggerFactory func(client Protocol) log.Logger
+type LoggerFactory func(client Connection) log.Logger
 
 var nullLogger = &log.NullLog{}
 
 // defaultLoggerFactory returns a logger factory that returns a null logger
-func defaultLoggerFactory(_ Protocol) log.Logger {
+func defaultLoggerFactory(_ Connection) log.Logger {
 	return nullLogger
 }
 
@@ -42,7 +42,7 @@ type Dependencies struct {
 	exec.Runner          `yaml:"-"`
 	log.LoggerInjectable `yaml:"-"`
 
-	client     Protocol
+	client     Connection
 	clientOnce sync.Once
 
 	fs     remotefs.FS

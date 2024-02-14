@@ -1,4 +1,4 @@
-// Package localhost provides a rig.Client implementation to the local host using the os/exec package.
+// Package localhost provides a rig protocol implementation to the local host using the os/exec package.
 package localhost
 
 import (
@@ -20,44 +20,44 @@ type Config struct {
 	Enabled bool `yaml:"enabled" validate:"required,eq=true" default:"true"`
 }
 
-// Client is a direct localhost connection
-type Client struct {
+// Connection is a direct localhost connection
+type Connection struct {
 	Config `yaml:",inline"`
 }
 
-// NewClient creates a new Localhost connection. Error is currently always nil.
-func NewClient(cfg Config) (*Client, error) {
-	return &Client{cfg}, nil
+// NewConnection creates a new Localhost connection. Error is currently always nil.
+func NewConnection(cfg Config) (*Connection, error) {
+	return &Connection{cfg}, nil
 }
 
 // Client implements the ClientConfigurer interface
-func (c *Client) Client() (*Client, error) {
+func (c *Connection) Client() (*Connection, error) {
 	return c, nil
 }
 
 // Protocol returns the protocol name, "Local"
-func (c *Client) Protocol() string {
+func (c *Connection) Protocol() string {
 	return "Local"
 }
 
 // IPAddress returns the connection address
-func (c *Client) IPAddress() string {
+func (c *Connection) IPAddress() string {
 	return "127.0.0.1"
 }
 
 // String returns the connection's printable name
-func (c *Client) String() string {
+func (c *Connection) String() string {
 	return name
 }
 
 // IsWindows is true when running on a windows host
-func (c *Client) IsWindows() bool {
+func (c *Connection) IsWindows() bool {
 	return runtime.GOOS == "windows"
 }
 
 // StartProcess executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
-func (c *Client) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) (exec.Waiter, error) {
+func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) (exec.Waiter, error) {
 	command := c.command(ctx, cmd)
 
 	command.Stdin = stdin
@@ -71,7 +71,7 @@ func (c *Client) StartProcess(ctx context.Context, cmd string, stdin io.Reader, 
 	return command, nil
 }
 
-func (c *Client) command(ctx context.Context, cmd string) *osexec.Cmd {
+func (c *Connection) command(ctx context.Context, cmd string) *osexec.Cmd {
 	if c.IsWindows() {
 		return osexec.CommandContext(ctx, "cmd.exe", "/c", cmd)
 	}
@@ -80,7 +80,7 @@ func (c *Client) command(ctx context.Context, cmd string) *osexec.Cmd {
 }
 
 // ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host
-func (c *Client) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error { //nolint:cyclop
+func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error { //nolint:cyclop
 	if cmd == "" {
 		cmd = os.Getenv("SHELL") + " -l"
 	}

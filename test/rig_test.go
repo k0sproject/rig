@@ -157,7 +157,7 @@ func retry(fn func() error) error {
 }
 
 func GetHost(t *testing.T, options ...rig.Option) *Host {
-	var client rig.Protocol
+	var client rig.Connection
 	switch protocol {
 	case "ssh":
 		cfg := ssh.Config{
@@ -177,7 +177,7 @@ func GetHost(t *testing.T, options ...rig.Option) *Host {
 		if keyPath != "" {
 			cfg.KeyPath = &keyPath
 		}
-		sshclient, err := ssh.NewClient(cfg)
+		sshclient, err := ssh.NewConnection(cfg)
 		require.NoError(t, err)
 		client = sshclient
 	case "winrm":
@@ -189,11 +189,11 @@ func GetHost(t *testing.T, options ...rig.Option) *Host {
 			Insecure: true,
 			Password: password,
 		}
-		winrmclient, err := winrm.NewClient(cfg)
+		winrmclient, err := winrm.NewConnection(cfg)
 		require.NoError(t, err)
 		client = winrmclient
 	case "localhost":
-		client, _ = localhost.NewClient(localhost.Config{Enabled: true})
+		client, _ = localhost.NewConnection(localhost.Config{Enabled: true})
 	case "openssh":
 		cfg := openssh.Config{
 			Address:             targetHost,
@@ -212,14 +212,14 @@ func GetHost(t *testing.T, options ...rig.Option) *Host {
 		if configPath != "" {
 			cfg.ConfigPath = &configPath
 		}
-		opensshclient, err := openssh.NewClient(cfg)
+		opensshclient, err := openssh.NewConnection(cfg)
 		require.NoError(t, err)
 		client = opensshclient
 	default:
 		panic("unknown protocol")
 	}
 	opts := []rig.Option{rig.WithClient(client), rig.WithLoggerFactory(
-		func(client rig.Protocol) log.Logger {
+		func(client rig.Connection) log.Logger {
 			return log.NewPrefixLog(&SuiteLogger{t}, client.String()+": ")
 		}),
 	}

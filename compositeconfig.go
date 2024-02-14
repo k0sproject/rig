@@ -27,23 +27,23 @@ type CompositeConfig struct {
 var ErrNoClientConfig = errors.New("no protocol configuration found")
 
 // Client returns the first configured protocol configuration found in the CompositeConfig.
-func (c *CompositeConfig) Client() (Protocol, error) {
+func (c *CompositeConfig) Client() (Connection, error) {
 	var err error
-	var client Protocol
+	var client Connection
 	if c.WinRM != nil {
-		client, err = winrm.NewClient(*c.WinRM)
+		client, err = winrm.NewConnection(*c.WinRM)
 	}
 
 	if c.Localhost != nil {
-		client, err = localhost.NewClient(*c.Localhost)
+		client, err = localhost.NewConnection(*c.Localhost)
 	}
 
 	if c.SSH != nil {
-		client, err = ssh.NewClient(*c.SSH)
+		client, err = ssh.NewConnection(*c.SSH)
 	}
 
 	if c.OpenSSH != nil {
-		client, err = openssh.NewClient(*c.OpenSSH)
+		client, err = openssh.NewConnection(*c.OpenSSH)
 	}
 
 	if client == nil && err == nil {
