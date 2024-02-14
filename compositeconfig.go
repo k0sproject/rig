@@ -17,8 +17,8 @@ var _ ConnectionConfigurer = (*CompositeConfig)(nil)
 type CompositeConfig struct {
 	WinRM     *winrm.Config   `yaml:"winRM,omitempty"`
 	SSH       *ssh.Config     `yaml:"ssh,omitempty"`
-	Localhost bool            `yaml:"localhost,omitempty"`
 	OpenSSH   *openssh.Config `yaml:"openSSH,omitempty"`
+	Localhost bool            `yaml:"localhost,omitempty"`
 
 	s *string
 }
