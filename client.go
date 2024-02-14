@@ -29,13 +29,13 @@ var ErrNotInitialized = errors.New("connection not properly initialized")
 
 // DefaultClient is a Connection that is especially suitable for embedding into something that is unmarshalled from YAML.
 type DefaultClient struct {
-	ClientConfig CompositeConfig `yaml:",inline"`
-	*Client      `yaml:"-"`
+	ConnectionConfig CompositeConfig `yaml:",inline"`
+	*Client          `yaml:"-"`
 }
 
 // Setup allows applying options to the connection to configure subcomponents
 func (c *DefaultClient) Setup(opts ...Option) error {
-	client, err := c.ClientConfig.Client()
+	client, err := c.ConnectionConfig.Connection()
 	if err != nil {
 		return fmt.Errorf("get client: %w", err)
 	}
@@ -103,10 +103,10 @@ func (c *Client) Service(name string) (*Service, error) {
 // like: `[ssh] address:port`
 func (c *Client) String() string {
 	if c.client == nil {
-		if c.protocolConfigurer == nil {
+		if c.connectionConfigurer == nil {
 			return "[uninitialized connection]"
 		}
-		return c.protocolConfigurer.String()
+		return c.connectionConfigurer.String()
 	}
 
 	return c.client.String()

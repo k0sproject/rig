@@ -10,7 +10,7 @@ import (
 	"github.com/k0sproject/rig/winrm"
 )
 
-var _ ProtocolConfigurer = (*CompositeConfig)(nil)
+var _ ConnectionConfigurer = (*CompositeConfig)(nil)
 
 // CompositeConfig is a composite configuration of all the protocols supported by rig.
 // It is intended to be embedded into host structs that are unmarshaled from configuration files.
@@ -23,31 +23,31 @@ type CompositeConfig struct {
 	s *string
 }
 
-// ErrNoClientConfig is returned when no protocol configuration is found in the CompositeConfig.
-var ErrNoClientConfig = errors.New("no protocol configuration found")
+// ErrNoConnectionConfig is returned when no protocol configuration is found in the CompositeConfig.
+var ErrNoConnectionConfig = errors.New("no protocol configuration found")
 
-// Client returns the first configured protocol configuration found in the CompositeConfig.
-func (c *CompositeConfig) Client() (Connection, error) {
+// Connection returns the first configured protocol configuration found in the CompositeConfig.
+func (c *CompositeConfig) Connection() (Connection, error) {
 	var err error
 	var client Connection
 	if c.WinRM != nil {
-		client, err = winrm.NewConnection(*c.WinRM)
+		client, err = c.WinRM.Connection()
 	}
 
 	if c.Localhost != nil {
-		client, err = localhost.NewConnection(*c.Localhost)
+		client, err = c.Localhost.Connection()
 	}
 
 	if c.SSH != nil {
-		client, err = ssh.NewConnection(*c.SSH)
+		client, err = c.SSH.Connection()
 	}
 
 	if c.OpenSSH != nil {
-		client, err = openssh.NewConnection(*c.OpenSSH)
+		client, err = c.OpenSSH.Connection()
 	}
 
 	if client == nil && err == nil {
-		return nil, ErrNoClientConfig
+		return nil, ErrNoConnectionConfig
 	}
 
 	if err != nil {
@@ -60,11 +60,11 @@ func (c *CompositeConfig) Client() (Connection, error) {
 // String returns a string representation of the first configured protocol configuration.
 func (c *CompositeConfig) String() string {
 	if c.s == nil {
-		client, err := c.Client()
+		conn, err := c.Connection()
 		if err != nil {
 			return "[invalid]"
 		}
-		s := client.String()
+		s := conn.String()
 		c.s = &s
 	}
 

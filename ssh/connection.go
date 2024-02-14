@@ -31,24 +31,6 @@ import (
 
 var errNotConnected = errors.New("not connected")
 
-// Config describes an SSH connection's configuration
-type Config struct {
-	Address          string           `yaml:"address" validate:"required,hostname_rfc1123|ip"`
-	User             string           `yaml:"user" validate:"required" default:"root"`
-	Port             int              `yaml:"port" default:"22" validate:"gt=0,lte=65535"`
-	KeyPath          *string          `yaml:"keyPath" validate:"omitempty"`
-	HostKey          string           `yaml:"hostKey,omitempty"`
-	Bastion          *Connection      `yaml:"bastion,omitempty"` // TODO: validate that bastion is not the same as the current client, also the unmarshaling needs to be fixed
-	PasswordCallback PasswordCallback `yaml:"-"`
-
-	// AuthMethods can be used to pass in a list of ssh.AuthMethod objects
-	// for example to use a private key from memory:
-	//   ssh.PublicKeys(privateKey)
-	// For convenience, you can use ParseSSHPrivateKey() to parse a private key:
-	//   authMethods, err := rig.ParseSSHPrivateKey(key, rig.DefaultPassphraseCallback)
-	AuthMethods []ssh.AuthMethod `yaml:"-"`
-}
-
 // Connection describes an SSH connection
 type Connection struct {
 	log.LoggerInjectable `yaml:"-"`
@@ -70,9 +52,6 @@ func NewConnection(cfg Config) (*Connection, error) {
 	return &Connection{Config: cfg}, nil
 }
 
-// PasswordCallback is a function that is called when a passphrase is needed to decrypt a private key
-type PasswordCallback func() (secret string, err error)
-
 var (
 	authMethodCache   = sync.Map{}
 	defaultKeypaths   = []string{"~/.ssh/id_rsa", "~/.ssh/identity", "~/.ssh/id_dsa", "~/.ssh/id_ecdsa", "~/.ssh/id_ed25519"}
@@ -85,11 +64,6 @@ var (
 )
 
 const hopefullyNonexistentHost = "thisH0stDoe5not3xist"
-
-// Client implements the ClientConfigurer interface
-func (c *Connection) Client() (*Connection, error) {
-	return c, nil
-}
 
 // Dial initiates a connection to the addr from the remote host.
 func (c *Connection) Dial(network, address string) (net.Conn, error) {

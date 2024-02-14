@@ -28,7 +28,7 @@ func (o *Options) ConnectionDependencies() *Dependencies {
 // Option is a functional option type for the Options struct.
 type Option func(*Options)
 
-// WithClient is a functional option that sets the client to use for connecting instead of getting it from the ClientConfigurer.
+// WithClient is a functional option that sets the client to use for connecting instead of getting it from the ConnectionConfigurer.
 func WithClient(client Connection) Option {
 	return func(o *Options) {
 		o.connectionDependencies.client = client
@@ -49,10 +49,10 @@ func WithLogger(logger log.Logger) Option {
 	}
 }
 
-// WithProtocolConfigurer is a functional option that sets the client configurer to use for connecting.
-func WithProtocolConfigurer(configurer ProtocolConfigurer) Option {
+// WithConnectionConfigurer is a functional option that sets the client configurer to use for connecting.
+func WithConnectionConfigurer(configurer ConnectionConfigurer) Option {
 	return func(o *Options) {
-		o.connectionDependencies.protocolConfigurer = configurer
+		o.connectionDependencies.connectionConfigurer = configurer
 	}
 }
 

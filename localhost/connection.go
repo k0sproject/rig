@@ -20,6 +20,11 @@ type Config struct {
 	Enabled bool `yaml:"enabled" validate:"required,eq=true" default:"true"`
 }
 
+// Connection returns a new localhost Connection from the configuration
+func (c Config) Connection() (*Connection, error) {
+	return NewConnection(c)
+}
+
 // Connection is a direct localhost connection
 type Connection struct {
 	Config `yaml:",inline"`
@@ -28,11 +33,6 @@ type Connection struct {
 // NewConnection creates a new Localhost connection. Error is currently always nil.
 func NewConnection(cfg Config) (*Connection, error) {
 	return &Connection{cfg}, nil
-}
-
-// Client implements the ClientConfigurer interface
-func (c *Connection) Client() (*Connection, error) {
-	return c, nil
 }
 
 // Protocol returns the protocol name, "Local"

@@ -14,15 +14,15 @@ import (
 	"github.com/k0sproject/rig/sudo"
 )
 
-// ProtocolConfigurer is an interface that can be used to configure a client. The Connect() function calls the Client() function
+// ConnectionConfigurer is an interface that can be used to configure a client.
 // to get a client to use for connecting.
-type ProtocolConfigurer interface {
+type ConnectionConfigurer interface {
 	fmt.Stringer
-	Client() (Connection, error)
+	Connection() (Connection, error)
 }
 
-// DefaultProtocolConfigurer is a function that returns a new ClientConfig to use as a default client configurator.
-func DefaultProtocolConfigurer() ProtocolConfigurer {
+// DefaultConnectionConfigurer returns a new CompositeConfig to use as a default client configurator.
+func DefaultConnectionConfigurer() ConnectionConfigurer {
 	return &CompositeConfig{}
 }
 
@@ -38,7 +38,7 @@ func defaultLoggerFactory(_ Connection) log.Logger {
 
 // Dependencies is a collection of injectable dependencies for a connection
 type Dependencies struct {
-	protocolConfigurer     ProtocolConfigurer
+	connectionConfigurer ConnectionConfigurer
 	exec.Runner          `yaml:"-"`
 	log.LoggerInjectable `yaml:"-"`
 
@@ -105,17 +105,17 @@ func DefaultProviders() SubsystemProviders {
 // DefaultDependencies returns a set of default injectables for a connection
 func DefaultDependencies() *Dependencies {
 	return &Dependencies{
-		protocolConfigurer: DefaultProtocolConfigurer(),
-		providers:        DefaultProviders(),
+		connectionConfigurer: DefaultConnectionConfigurer(),
+		providers:            DefaultProviders(),
 	}
 }
 
 // Clone returns a copy of the ConnectionInjectables with the given options applied
 func (c *Dependencies) Clone(opts ...Option) *Dependencies {
 	options := Options{connectionDependencies: &Dependencies{
-		protocolConfigurer: c.protocolConfigurer,
-		client:           c.client,
-		providers:        c.providers,
+		connectionConfigurer: c.connectionConfigurer,
+		client:               c.client,
+		providers:            c.providers,
 	}}
 	options.Apply(opts...)
 	return options.ConnectionDependencies()
@@ -133,17 +133,17 @@ func (c *Dependencies) initClient() error {
 	var err error
 	c.clientOnce.Do(func() {
 		if c.client != nil {
-			c.protocolConfigurer = nil
+			c.connectionConfigurer = nil
 		}
-		if c.client == nil && c.protocolConfigurer == nil {
+		if c.client == nil && c.connectionConfigurer == nil {
 			err = errors.Join(ErrClientNotSet, ErrConfiguratorNotSet)
 			return
 		}
-		if c.protocolConfigurer != nil {
-			c.injectLogger(c.protocolConfigurer)
-			c.client, err = c.protocolConfigurer.Client()
+		if c.connectionConfigurer != nil {
+			c.injectLogger(c.connectionConfigurer)
+			c.client, err = c.connectionConfigurer.Connection()
 			if err != nil {
-				err = fmt.Errorf("configure client (%v): %w", c.protocolConfigurer, err)
+				err = fmt.Errorf("configure client (%v): %w", c.connectionConfigurer, err)
 				return
 			}
 		}
