@@ -63,6 +63,7 @@ type DefaultConnection struct {
 	*Connection  `yaml:"-"`
 }
 
+// Setup allows applying options to the connection to configure subcomponents
 func (c *DefaultConnection) Setup(opts ...Option) error {
 	client, err := c.ClientConfig.Client()
 	if err != nil {
@@ -77,6 +78,7 @@ func (c *DefaultConnection) Setup(opts ...Option) error {
 	return nil
 }
 
+// Connect to the host.
 func (c *DefaultConnection) Connect(opts ...Option) error {
 	if c.Connection == nil {
 		if err := c.Setup(opts...); err != nil {

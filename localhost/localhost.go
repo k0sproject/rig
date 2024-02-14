@@ -15,7 +15,7 @@ import (
 
 const name = "[local] localhost"
 
-// LocalhostConfig is the configuration for the Localhost connection
+// Config is the configuration for the Localhost connection
 type Config struct {
 	Enabled bool `yaml:"enabled" validate:"required,eq=true" default:"true"`
 }

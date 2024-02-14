@@ -339,7 +339,7 @@ func (c *Client) hostkeyCallback() (ssh.HostKeyCallback, error) {
 	c.Log().Tracef("using default known_hosts file %s", hostkey.DefaultKnownHostsPath)
 	defaultPath, err := homedir.ExpandFile(hostkey.DefaultKnownHostsPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("expand known_hosts file path: %w", err)
 	}
 
 	return knownhostsCallback(defaultPath, permissive, hash)
