@@ -10,7 +10,7 @@ import (
 	"github.com/k0sproject/rig/winrm"
 )
 
-var _ ClientConfigurer = (*ClientConfig)(nil)
+var _ ProtocolConfigurer = (*ClientConfig)(nil)
 
 // ClientConfig is the full configuration for a client with all the protocols supported by this package.
 // You can create a subset of this to only support some of them or use one of the protocols as a standalone

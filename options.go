@@ -49,10 +49,10 @@ func WithLogger(logger log.Logger) Option {
 	}
 }
 
-// WithClientConfigurer is a functional option that sets the client configurer to use for connecting.
-func WithClientConfigurer(configurer ClientConfigurer) Option {
+// WithProtocolConfigurer is a functional option that sets the client configurer to use for connecting.
+func WithProtocolConfigurer(configurer ProtocolConfigurer) Option {
 	return func(o *Options) {
-		o.connectionDependencies.clientConfigurer = configurer
+		o.connectionDependencies.protocolConfigurer = configurer
 	}
 }
 

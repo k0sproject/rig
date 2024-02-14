@@ -14,7 +14,7 @@ func TestConnectionWithConfigurer(t *testing.T) {
 		Localhost: &localhost.Config{Enabled: true},
 	}
 	conn, err := rig.NewConnection(
-		rig.WithClientConfigurer(cc),
+		rig.WithProtocolConfigurer(cc),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, conn)
@@ -55,7 +55,7 @@ func (th *testHost) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	if err := unmarshal(h); err != nil {
 		return err
 	}
-	conn, err := rig.NewConnection(rig.WithClientConfigurer(&h.ClientConfig))
+	conn, err := rig.NewConnection(rig.WithProtocolConfigurer(&h.ClientConfig))
 	if err != nil {
 		return err
 	}

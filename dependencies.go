@@ -14,15 +14,15 @@ import (
 	"github.com/k0sproject/rig/sudo"
 )
 
-// ClientConfigurer is an interface that can be used to configure a client. The Connect() function calls the Client() function
+// ProtocolConfigurer is an interface that can be used to configure a client. The Connect() function calls the Client() function
 // to get a client to use for connecting.
-type ClientConfigurer interface {
-	String() string
+type ProtocolConfigurer interface {
+	fmt.Stringer
 	Client() (Protocol, error)
 }
 
-// DefaultClientConfigurer is a function that returns a new ClientConfig to use as a default client configurator.
-func DefaultClientConfigurer() ClientConfigurer {
+// DefaultProtocolConfigurer is a function that returns a new ClientConfig to use as a default client configurator.
+func DefaultProtocolConfigurer() ProtocolConfigurer {
 	return &ClientConfig{}
 }
 
@@ -38,7 +38,7 @@ func defaultLoggerFactory(_ Protocol) log.Logger {
 
 // Dependencies is a collection of injectable dependencies for a connection
 type Dependencies struct {
-	clientConfigurer     ClientConfigurer
+	protocolConfigurer     ProtocolConfigurer
 	exec.Runner          `yaml:"-"`
 	log.LoggerInjectable `yaml:"-"`
 
@@ -105,7 +105,7 @@ func DefaultProviders() SubsystemProviders {
 // DefaultDependencies returns a set of default injectables for a connection
 func DefaultDependencies() *Dependencies {
 	return &Dependencies{
-		clientConfigurer: DefaultClientConfigurer(),
+		protocolConfigurer: DefaultProtocolConfigurer(),
 		providers:        DefaultProviders(),
 	}
 }
@@ -113,7 +113,7 @@ func DefaultDependencies() *Dependencies {
 // Clone returns a copy of the ConnectionInjectables with the given options applied
 func (c *Dependencies) Clone(opts ...Option) *Dependencies {
 	options := Options{connectionDependencies: &Dependencies{
-		clientConfigurer: c.clientConfigurer,
+		protocolConfigurer: c.protocolConfigurer,
 		client:           c.client,
 		providers:        c.providers,
 	}}
@@ -133,17 +133,17 @@ func (c *Dependencies) initClient() error {
 	var err error
 	c.clientOnce.Do(func() {
 		if c.client != nil {
-			c.clientConfigurer = nil
+			c.protocolConfigurer = nil
 		}
-		if c.client == nil && c.clientConfigurer == nil {
+		if c.client == nil && c.protocolConfigurer == nil {
 			err = errors.Join(ErrClientNotSet, ErrConfiguratorNotSet)
 			return
 		}
-		if c.clientConfigurer != nil {
-			c.injectLogger(c.clientConfigurer)
-			c.client, err = c.clientConfigurer.Client()
+		if c.protocolConfigurer != nil {
+			c.injectLogger(c.protocolConfigurer)
+			c.client, err = c.protocolConfigurer.Client()
 			if err != nil {
-				err = fmt.Errorf("configure client (%v): %w", c.clientConfigurer, err)
+				err = fmt.Errorf("configure client (%v): %w", c.protocolConfigurer, err)
 				return
 			}
 		}

@@ -103,10 +103,10 @@ func (c *Client) Service(name string) (*Service, error) {
 // like: `[ssh] address:port`
 func (c *Client) String() string {
 	if c.client == nil {
-		if c.clientConfigurer == nil {
+		if c.protocolConfigurer == nil {
 			return "[uninitialized connection]"
 		}
-		return c.clientConfigurer.String()
+		return c.protocolConfigurer.String()
 	}
 
 	return c.client.String()
