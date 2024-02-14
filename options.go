@@ -29,7 +29,7 @@ func (o *Options) ConnectionDependencies() *Dependencies {
 type Option func(*Options)
 
 // WithClient is a functional option that sets the client to use for connecting instead of getting it from the ClientConfigurer.
-func WithClient(client Client) Option {
+func WithClient(client Protocol) Option {
 	return func(o *Options) {
 		o.connectionDependencies.client = client
 	}

@@ -28,9 +28,9 @@ type ClientConfig struct {
 var ErrNoClientConfig = errors.New("no protocol configuration found")
 
 // Client returns the first configured protocol configuration found in the ClientConfig.
-func (c *ClientConfig) Client() (Client, error) {
+func (c *ClientConfig) Client() (Protocol, error) {
 	var err error
-	var client Client
+	var client Protocol
 	if c.WinRM != nil {
 		client, err = winrm.NewClient(*c.WinRM)
 	}

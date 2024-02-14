@@ -17,7 +17,7 @@ func GetSudoDecorator(runner exec.SimpleRunner) (exec.DecorateFunc, error) {
 }
 
 // GetSudoRunner returns a new runner that uses sudo to execute commands.
-func GetSudoRunner(client Client) (*exec.HostRunner, error) {
+func GetSudoRunner(client Protocol) (*exec.HostRunner, error) {
 	runner := exec.NewHostRunner(client)
 	de, err := GetSudoDecorator(runner)
 	if err != nil {
