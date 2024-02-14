@@ -218,7 +218,7 @@ func GetHost(t *testing.T, options ...rig.Option) *Host {
 	default:
 		panic("unknown protocol")
 	}
-	opts := []rig.Option{rig.WithClient(client), rig.WithLoggerFactory(
+	opts := []rig.Option{rig.WithConnection(client), rig.WithLoggerFactory(
 		func(client rig.Connection) log.Logger {
 			return log.NewPrefixLog(&SuiteLogger{t}, client.String()+": ")
 		}),

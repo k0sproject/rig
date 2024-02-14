@@ -39,7 +39,7 @@ func (c *DefaultClient) Setup(opts ...Option) error {
 	if err != nil {
 		return fmt.Errorf("get client: %w", err)
 	}
-	opts = append(opts, WithClient(client))
+	opts = append(opts, WithConnection(client))
 	connection, err := NewConnection(opts...)
 	if err != nil {
 		return fmt.Errorf("new connection: %w", err)
