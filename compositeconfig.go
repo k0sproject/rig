@@ -15,10 +15,10 @@ var _ ConnectionConfigurer = (*CompositeConfig)(nil)
 // CompositeConfig is a composite configuration of all the protocols supported by rig.
 // It is intended to be embedded into host structs that are unmarshaled from configuration files.
 type CompositeConfig struct {
-	WinRM     *winrm.Config     `yaml:"winRM,omitempty"`
-	SSH       *ssh.Config       `yaml:"ssh,omitempty"`
-	Localhost *localhost.Config `yaml:"localhost,omitempty"`
-	OpenSSH   *openssh.Config   `yaml:"openSSH,omitempty"`
+	WinRM     *winrm.Config   `yaml:"winRM,omitempty"`
+	SSH       *ssh.Config     `yaml:"ssh,omitempty"`
+	Localhost bool            `yaml:"localhost,omitempty"`
+	OpenSSH   *openssh.Config `yaml:"openSSH,omitempty"`
 
 	s *string
 }
@@ -34,16 +34,16 @@ func (c *CompositeConfig) Connection() (Connection, error) {
 		client, err = c.WinRM.Connection()
 	}
 
-	if c.Localhost != nil {
-		client, err = c.Localhost.Connection()
-	}
-
 	if c.SSH != nil {
 		client, err = c.SSH.Connection()
 	}
 
 	if c.OpenSSH != nil {
 		client, err = c.OpenSSH.Connection()
+	}
+
+	if c.Localhost {
+		client, err = localhost.NewConnection()
 	}
 
 	if client == nil && err == nil {

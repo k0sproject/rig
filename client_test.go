@@ -9,9 +9,9 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-func TestConnectionWithConfigurer(t *testing.T) {
+func TestClientWithConfigurer(t *testing.T) {
 	cc := &rig.CompositeConfig{
-		Localhost: &localhost.Config{Enabled: true},
+		Localhost: true,
 	}
 	conn, err := rig.NewConnection(
 		rig.WithConnectionConfigurer(cc),
@@ -26,16 +26,16 @@ func TestConnectionWithConfigurer(t *testing.T) {
 	require.Equal(t, "hello", out)
 }
 
-func TestConnectionWithClient(t *testing.T) {
-	client, err := localhost.NewConnection(localhost.Config{Enabled: true})
+func TestClient(t *testing.T) {
+	conn, err := localhost.NewConnection()
 	require.NoError(t, err)
-	conn, err := rig.NewConnection(rig.WithConnection(client))
+	client, err := rig.NewConnection(rig.WithConnection(conn))
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 
-	require.NoError(t, conn.Connect())
+	require.NoError(t, client.Connect())
 
-	out, err := conn.ExecOutput("echo hello")
+	out, err := client.ExecOutput("echo hello")
 	require.NoError(t, err)
 	require.Equal(t, "hello", out)
 }
@@ -65,9 +65,7 @@ func (th *testHost) UnmarshalYAML(unmarshal func(interface{}) error) error {
 
 func TestConnectionUnmarshal(t *testing.T) {
 	hostConfig := map[string]any{
-		"localhost": map[string]any{
-			"enabled": true,
-		},
+		"localhost": true,
 	}
 	mainConfig := map[string]any{
 		"hosts": []map[string]any{hostConfig},
@@ -101,9 +99,7 @@ type testHostConfigured struct {
 
 func TestConfiguredConnectionUnmarshal(t *testing.T) {
 	hostConfig := map[string]any{
-		"localhost": map[string]any{
-			"enabled": true,
-		},
+		"localhost": true,
 	}
 	mainConfig := map[string]any{
 		"hosts": []map[string]any{hostConfig},

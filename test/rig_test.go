@@ -193,7 +193,7 @@ func GetHost(t *testing.T, options ...rig.Option) *Host {
 		require.NoError(t, err)
 		client = winrmclient
 	case "localhost":
-		client, _ = localhost.NewConnection(localhost.Config{Enabled: true})
+		client, _ = localhost.NewConnection()
 	case "openssh":
 		cfg := openssh.Config{
 			Address:             targetHost,
