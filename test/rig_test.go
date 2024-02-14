@@ -19,6 +19,7 @@ import (
 	"github.com/k0sproject/rig/localhost"
 	"github.com/k0sproject/rig/log"
 	"github.com/k0sproject/rig/openssh"
+	"github.com/k0sproject/rig/protocol"
 	"github.com/k0sproject/rig/remotefs"
 	"github.com/k0sproject/rig/ssh"
 	"github.com/k0sproject/rig/stattime"
@@ -34,7 +35,7 @@ var (
 	targetHost      string
 	targetPort      int
 	username        string
-	protocol        string
+	proto           string
 	keyPath         string
 	configPath      string
 	password        string
@@ -56,7 +57,7 @@ func TestMain(m *testing.M) {
 	flag.StringVar(&targetHost, "host", "", "target host")
 	flag.IntVar(&targetPort, "port", 22, "target host port (defaulted based on protocol)")
 	flag.StringVar(&username, "user", "root", "user name")
-	flag.StringVar(&protocol, "protocol", "ssh", "ssh/winrm/localhost/openssh")
+	flag.StringVar(&proto, "protocol", "ssh", "ssh/winrm/localhost/openssh")
 	flag.StringVar(&keyPath, "ssh-keypath", "", "ssh keypath")
 	flag.StringVar(&configPath, "ssh-configpath", "", "ssh config path")
 	flag.StringVar(&privateKey, "ssh-private-key", "", "ssh private key")
@@ -73,7 +74,7 @@ func TestMain(m *testing.M) {
 		return
 	}
 
-	if targetPort == 22 && protocol == "winrm" {
+	if targetPort == 22 && proto == "winrm" {
 		if useHTTPS {
 			targetPort = 5986
 		} else {
@@ -157,8 +158,8 @@ func retry(fn func() error) error {
 }
 
 func GetHost(t *testing.T, options ...rig.Option) *Host {
-	var client rig.Connection
-	switch protocol {
+	var client protocol.Connection
+	switch proto {
 	case "ssh":
 		cfg := ssh.Config{
 			Address: targetHost,
@@ -219,7 +220,7 @@ func GetHost(t *testing.T, options ...rig.Option) *Host {
 		panic("unknown protocol")
 	}
 	opts := []rig.Option{rig.WithConnection(client), rig.WithLoggerFactory(
-		func(client rig.Connection) log.Logger {
+		func(client protocol.Connection) log.Logger {
 			return log.NewPrefixLog(&SuiteLogger{t}, client.String()+": ")
 		}),
 	}

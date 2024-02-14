@@ -7,14 +7,14 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/k0sproject/rig"
 	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/protocol"
 )
 
 // MockClient is a mock client. It can be used to simulate a client in tests.
 type MockClient struct {
 	commands []string
-	starter  rig.ProcessStarter
+	starter  protocol.ProcessStarter
 	Windows  bool
 	mu       sync.Mutex
 }
@@ -50,7 +50,7 @@ func (m *MockClient) StartProcess(ctx context.Context, cmd string, stdin io.Read
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.commands = append(m.commands, cmd)
-	return m.starter.StartProcess(ctx, cmd, stdin, stdout, stderr)
+	return m.starter.StartProcess(ctx, cmd, stdin, stdout, stderr) //nolint:wrapcheck
 }
 
 // Reset clears the command history

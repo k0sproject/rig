@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/protocol"
 	"github.com/k0sproject/rig/sudo"
 )
 
@@ -17,11 +18,11 @@ func GetSudoDecorator(runner exec.SimpleRunner) (exec.DecorateFunc, error) {
 }
 
 // GetSudoRunner returns a new runner that uses sudo to execute commands.
-func GetSudoRunner(client Connection) (*exec.HostRunner, error) {
-	runner := exec.NewHostRunner(client)
+func GetSudoRunner(conn protocol.Connection) (exec.Runner, error) {
+	runner := exec.NewHostRunner(conn)
 	de, err := GetSudoDecorator(runner)
 	if err != nil {
 		return nil, fmt.Errorf("get sudo runner: %w", err)
 	}
-	return exec.NewHostRunner(client, de), nil
+	return exec.NewHostRunner(conn, de), nil
 }

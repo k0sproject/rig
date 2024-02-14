@@ -1,4 +1,5 @@
-package rig
+// Package protocol : contains the interfaces for the protocol implementations
+package protocol
 
 import (
 	"context"
@@ -13,13 +14,13 @@ type ProcessStarter interface {
 	StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (exec.Waiter, error)
 }
 
-// connector is a connection that can be established
-type connector interface {
+// Connector is a connection that can be established
+type Connector interface {
 	Connect() error
 }
 
-// disconnector is a connection that can be closed
-type disconnector interface {
+// Disconnector is a connection that can be closed
+type Disconnector interface {
 	Disconnect()
 }
 
@@ -28,16 +29,16 @@ type WindowsChecker interface {
 	IsWindows() bool
 }
 
-// interactiveExecer is a connection that can start an interactive session
-type interactiveExecer interface {
+// InteractiveExecer is a connection that can start an interactive session
+type InteractiveExecer interface {
 	ExecInteractive(cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error
 }
 
 // Connection is the minimum interface for protocol implementations
 type Connection interface {
 	fmt.Stringer
-	ProcessStarter
-	WindowsChecker
 	Protocol() string
 	IPAddress() string
+	ProcessStarter
+	WindowsChecker
 }

@@ -1,7 +1,11 @@
 package winrm
 
 import (
+	"net"
+	"strconv"
+
 	"github.com/k0sproject/rig/homedir"
+	"github.com/k0sproject/rig/protocol"
 	"github.com/k0sproject/rig/ssh"
 )
 
@@ -41,6 +45,11 @@ func (c *Config) SetDefaults() {
 }
 
 // Connection returns a new WinRM Connection based on the configuration
-func (c *Config) Connection() (*Connection, error) {
+func (c *Config) Connection() (protocol.Connection, error) {
 	return NewConnection(*c)
+}
+
+// String returns a string representation of the configuration
+func (c *Config) String() string {
+	return "winrm.Config{" + net.JoinHostPort(c.Address, strconv.Itoa(c.Port)) + "}"
 }

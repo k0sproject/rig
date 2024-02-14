@@ -6,6 +6,7 @@ import (
 
 	"github.com/k0sproject/rig/localhost"
 	"github.com/k0sproject/rig/openssh"
+	"github.com/k0sproject/rig/protocol"
 	"github.com/k0sproject/rig/ssh"
 	"github.com/k0sproject/rig/winrm"
 )
@@ -24,42 +25,48 @@ type CompositeConfig struct {
 // ErrNoConnectionConfig is returned when no protocol configuration is found in the CompositeConfig.
 var ErrNoConnectionConfig = errors.New("no protocol configuration found")
 
-// Connection returns the first configured protocol configuration found in the CompositeConfig.
-func (c *CompositeConfig) Connection() (Connection, error) {
-	var err error
-	var client Connection
+func (c *CompositeConfig) configuredConfig() (ConnectionConfigurer, error) {
 	if c.WinRM != nil {
-		client, err = c.WinRM.Connection()
+		return c.WinRM, nil
 	}
 
 	if c.SSH != nil {
-		client, err = c.SSH.Connection()
+		return c.SSH, nil
 	}
 
 	if c.OpenSSH != nil {
-		client, err = c.OpenSSH.Connection()
+		return c.OpenSSH, nil
 	}
 
 	if c.Localhost {
-		client, err = localhost.NewConnection()
+		conn, err := localhost.NewConnection()
+		if err != nil {
+			return nil, fmt.Errorf("create localhost connection: %w", err)
+		}
+		return conn, nil
 	}
 
-	if client == nil && err == nil {
-		return nil, ErrNoConnectionConfig
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("create client: %w", err)
-	}
-
-	return client, nil
+	return nil, ErrNoConnectionConfig
 }
 
-// String returns a string representation of the first configured protocol configuration.
-func (c *CompositeConfig) String() string {
-	conn, err := c.Connection()
+// Connection returns the first configured protocol configuration found in the CompositeConfig.
+func (c *CompositeConfig) Connection() (protocol.Connection, error) {
+	cfg, err := c.configuredConfig()
 	if err != nil {
-		return "[invalid]"
+		return nil, err
 	}
-	return conn.String()
+	conn, err := cfg.Connection()
+	if err != nil {
+		return nil, fmt.Errorf("create connection for %T: %w", cfg, err)
+	}
+	return conn, nil
+}
+
+// String returns the string representation of the first configured protocol configuration found in the CompositeConfig.
+func (c *CompositeConfig) String() string {
+	cfg, err := c.configuredConfig()
+	if err != nil {
+		return "unknown{}"
+	}
+	return cfg.String()
 }

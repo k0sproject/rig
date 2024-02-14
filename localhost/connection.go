@@ -10,6 +10,7 @@ import (
 	"runtime"
 
 	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/protocol"
 	"github.com/mattn/go-shellwords"
 )
 
@@ -19,7 +20,7 @@ const name = "[local] localhost"
 type Connection struct{}
 
 // Connection returns the connection itself. This is because there's no config for localhost connections.
-func (c *Connection) Connection() (*Connection, error) {
+func (c *Connection) Connection() (protocol.Connection, error) {
 	return c, nil
 }
 

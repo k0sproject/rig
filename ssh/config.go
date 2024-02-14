@@ -1,6 +1,12 @@
 package ssh
 
-import ssh "golang.org/x/crypto/ssh"
+import (
+	"net"
+	"strconv"
+
+	"github.com/k0sproject/rig/protocol"
+	ssh "golang.org/x/crypto/ssh"
+)
 
 // PasswordCallback is a function that is called when a passphrase is needed to decrypt a private key
 type PasswordCallback func() (secret string, err error)
@@ -24,6 +30,11 @@ type Config struct {
 }
 
 // Connection returns a new Connection object based on the configuration
-func (c *Config) Connection() (*Connection, error) {
+func (c *Config) Connection() (protocol.Connection, error) {
 	return NewConnection(*c)
+}
+
+// String returns a string representation of the configuration
+func (c *Config) String() string {
+	return "ssh.Config{" + net.JoinHostPort(c.Address, strconv.Itoa(c.Port)) + "}"
 }

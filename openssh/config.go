@@ -1,6 +1,12 @@
 package openssh
 
-import "fmt"
+import (
+	"fmt"
+	"net"
+	"strconv"
+
+	"github.com/k0sproject/rig/protocol"
+)
 
 // Config describes the configuration options for an OpenSSH connection
 type Config struct {
@@ -14,8 +20,16 @@ type Config struct {
 }
 
 // Connection returns a new OpenSSH connection based on the configuration
-func (c *Config) Connection() (*Connection, error) {
+func (c *Config) Connection() (protocol.Connection, error) {
 	return NewConnection(*c)
+}
+
+// String returns a string representation of the configuration
+func (c *Config) String() string {
+	if c.Port == nil {
+		return "openssh.Config{" + c.Address + "}"
+	}
+	return "openssh.Config{" + net.JoinHostPort(c.Address, strconv.Itoa(*c.Port)) + "}"
 }
 
 // OptionArguments are options for the OpenSSH client. For example StrictHostkeyChecking: false becomes -o StrictHostKeyChecking=no
