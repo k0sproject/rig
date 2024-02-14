@@ -15,15 +15,14 @@ import (
 	"github.com/k0sproject/rig/sudo"
 )
 
-// ConnectionConfigurer is an interface that can be used to configure a client.
-// to get a client to use for connecting.
+// ConnectionConfigurer can create connections. When a connection is not given, the configurer is used
+// to build a connection.
 type ConnectionConfigurer interface {
 	fmt.Stringer
 	Connection() (protocol.Connection, error)
 }
 
-// DefaultConnectionConfigurer returns a new CompositeConfig to use as a default client configurator.
-func DefaultConnectionConfigurer() ConnectionConfigurer {
+func defaultConnectionConfigurer() ConnectionConfigurer {
 	return &CompositeConfig{}
 }
 
@@ -105,7 +104,7 @@ func DefaultProviders() SubsystemProviders {
 
 func defaultDependencies() *dependencies {
 	return &dependencies{
-		connectionConfigurer: DefaultConnectionConfigurer(),
+		connectionConfigurer: defaultConnectionConfigurer(),
 		providers:            DefaultProviders(),
 	}
 }

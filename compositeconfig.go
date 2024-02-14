@@ -13,7 +13,7 @@ import (
 
 var _ ConnectionConfigurer = (*CompositeConfig)(nil)
 
-// CompositeConfig is a composite configuration of all the protocols supported by rig.
+// CompositeConfig is a composite configuration of all the protocols supported out of the box by rig.
 // It is intended to be embedded into host structs that are unmarshaled from configuration files.
 type CompositeConfig struct {
 	SSH       *ssh.Config     `yaml:"ssh,omitempty"`
@@ -49,7 +49,7 @@ func (c *CompositeConfig) configuredConfig() (ConnectionConfigurer, error) {
 	return nil, ErrNoConnectionConfig
 }
 
-// Connection returns the first configured protocol configuration found in the CompositeConfig.
+// Connection returns a connection for the first configured protocol.
 func (c *CompositeConfig) Connection() (protocol.Connection, error) {
 	cfg, err := c.configuredConfig()
 	if err != nil {
@@ -62,7 +62,7 @@ func (c *CompositeConfig) Connection() (protocol.Connection, error) {
 	return conn, nil
 }
 
-// String returns the string representation of the first configured protocol configuration found in the CompositeConfig.
+// String returns the string representation of the first configured protocol configuration.
 func (c *CompositeConfig) String() string {
 	cfg, err := c.configuredConfig()
 	if err != nil {

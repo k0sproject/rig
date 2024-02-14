@@ -17,7 +17,15 @@ import (
 )
 
 // Client is a struct you can embed into your application's "Host" types
-// to give them multi-protocol connectivity.
+// to give them multi-protocol connectivity or use directly. The Client
+// provides a consistent interface to the host's init system, package
+// manager, filesystem, and more, regardless of the protocol used to
+// connect to the host. The Client also provides a consistent interface
+// to the host's operating system's basic functions in a similar fasion
+// as the stdlib's os package does for the local system, regardless
+// of the protocol used to connect and the remote operating system.
+// The client also contains multiple methods for running commands on the
+// remote host, see exec.Runner for more.
 type Client struct {
 	*dependencies
 
