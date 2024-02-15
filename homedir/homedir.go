@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	gopath "path"
+	"strings"
 )
 
 var (
@@ -27,21 +29,23 @@ func Home() (string, error) {
 
 // Expand does ~/ style path expansion for files under current user home. ~user/ style paths are not supported.
 func Expand(path string) (string, error) {
-	if path[0] != '~' {
+	if !strings.HasPrefix(path, "~") {
 		return path, nil
 	}
-	if len(path) == 1 {
-		return Home()
-	}
-	if path[1] != '/' {
+
+	parts := strings.Split(path, "/")
+	if parts[0] != "~" {
 		return "", fmt.Errorf("%w: ~user/ style paths not supported", errNotImplemented)
 	}
 
 	home, err := Home()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("homedir expand: %w", err)
 	}
-	return home + path[1:], nil
+
+	parts[0] = home
+
+	return gopath.Join(parts...), nil
 }
 
 func expandStat(path string) (os.FileInfo, error) {

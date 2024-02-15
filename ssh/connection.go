@@ -346,6 +346,11 @@ func (c *Connection) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
 	}
 
 	for _, keyPath := range c.keyPaths {
+		keyPath, err := homedir.Expand(keyPath)
+		if err != nil {
+			c.Log().Tracef("expand keypath %s: %v", keyPath, err)
+			continue
+		}
 		if am, ok := authMethodCache.Load(keyPath); ok {
 			switch authM := am.(type) {
 			case ssh.AuthMethod:
