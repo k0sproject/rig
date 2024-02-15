@@ -31,7 +31,7 @@ import (
 
 var errNotConnected = errors.New("not connected")
 
-// Connection describes an SSH connection
+// Connection describes an SSH connection.
 type Connection struct {
 	log.LoggerInjectable `yaml:"-"`
 	Config               `yaml:",inline"`
@@ -59,7 +59,7 @@ var (
 	globalOnce        sync.Once
 	knownHostsMU      sync.Mutex
 
-	// ErrChecksumMismatch is returned when the checksum of an uploaded file does not match expectation
+	// ErrChecksumMismatch is returned when the checksum of an uploaded file does not match expectation.
 	ErrChecksumMismatch = errors.New("checksum mismatch")
 )
 
@@ -124,7 +124,7 @@ func findUniq(a, b []string) (string, bool) {
 	return "", false
 }
 
-// SetDefaults sets various default values
+// SetDefaults sets various default values.
 func (c *Connection) SetDefaults() {
 	globalOnce.Do(c.initGlobalDefaults)
 	c.once.Do(func() {
@@ -173,18 +173,18 @@ func (c *Connection) SetDefaults() {
 	})
 }
 
-// Protocol returns the protocol name, "SSH"
+// Protocol returns the protocol name, "SSH".
 func (c *Connection) Protocol() string {
 	return "SSH"
 }
 
-// IPAddress returns the connection address
+// IPAddress returns the connection address.
 func (c *Connection) IPAddress() string {
 	return c.Address
 }
 
 // SSHConfigGetAll by default points to ssh_config package's GetAll() function
-// you can override it with your own implementation for testing purposes
+// you can override it with your own implementation for testing purposes.
 var SSHConfigGetAll = ssh_config.GetAll
 
 func (c *Connection) getConfigAll(key string) []string {
@@ -194,7 +194,7 @@ func (c *Connection) getConfigAll(key string) []string {
 	return SSHConfigGetAll(c.Address, key)
 }
 
-// String returns the connection's printable name
+// String returns the connection's printable name.
 func (c *Connection) String() string {
 	if c.name == "" {
 		c.name = "[ssh] " + net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
@@ -203,7 +203,7 @@ func (c *Connection) String() string {
 	return c.name
 }
 
-// Disconnect closes the SSH connection
+// Disconnect closes the SSH connection.
 func (c *Connection) Disconnect() {
 	if c.client == nil {
 		return
@@ -211,7 +211,7 @@ func (c *Connection) Disconnect() {
 	c.client.Close()
 }
 
-// IsWindows is true when the host is running windows
+// IsWindows is true when the host is running windows.
 func (c *Connection) IsWindows() bool {
 	if c.isWindows != nil {
 		return *c.isWindows
@@ -408,7 +408,7 @@ func (c *Connection) connectViaBastion(dst string, config *ssh.ClientConfig) err
 	return nil
 }
 
-// Connect opens the SSH connection
+// Connect opens the SSH connection.
 func (c *Connection) Connect() error {
 	if err := defaults.Set(c); err != nil {
 		return fmt.Errorf("set defaults: %w", err)
@@ -532,7 +532,7 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 	return session, nil
 }
 
-// ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host
+// ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host.
 func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
 	session, err := c.client.NewSession()
 	if err != nil {
@@ -625,7 +625,7 @@ func ParseSSHPrivateKey(key []byte, callback PasswordCallback) ([]ssh.AuthMethod
 	return []ssh.AuthMethod{ssh.PublicKeys(signer)}, nil
 }
 
-// DefaultPasswordCallback is a default implementation for PasswordCallback
+// DefaultPasswordCallback is a default implementation for PasswordCallback.
 func DefaultPasswordCallback() (string, error) {
 	fmt.Print("Enter passphrase: ")
 	pass, err := term.ReadPassword(int(os.Stdin.Fd()))

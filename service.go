@@ -18,7 +18,7 @@ const (
 	ServiceStateStarted serviceState = 1
 )
 
-// ErrEmptyResult is returned when a command returns an empty result
+// ErrEmptyResult is returned when a command returns an empty result.
 var ErrEmptyResult = errors.New("empty result")
 
 // Service is an interface for managing a service on an initsystem.

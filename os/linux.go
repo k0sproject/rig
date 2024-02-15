@@ -9,7 +9,7 @@ import (
 	"github.com/k0sproject/rig/exec"
 )
 
-// ResolveLinux resolves the OS release information for a linux host
+// ResolveLinux resolves the OS release information for a linux host.
 func ResolveLinux(conn exec.SimpleRunner) *Release {
 	if conn.IsWindows() {
 		return nil
@@ -71,7 +71,7 @@ func unquote(s string) string {
 	return s
 }
 
-// RegisterLinux registers the linux OS release resolver to a provider
+// RegisterLinux registers the linux OS release resolver to a provider.
 func RegisterLinux(provider *Provider) {
 	provider.Register(ResolveLinux)
 }

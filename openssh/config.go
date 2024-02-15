@@ -9,7 +9,7 @@ import (
 	"github.com/k0sproject/rig/protocol"
 )
 
-// Config describes the configuration options for an OpenSSH connection
+// Config describes the configuration options for an OpenSSH connection.
 type Config struct {
 	Address             string          `yaml:"address" validate:"required"`
 	User                *string         `yaml:"user"`
@@ -20,12 +20,12 @@ type Config struct {
 	DisableMultiplexing bool            `yaml:"disableMultiplexing,omitempty"`
 }
 
-// Connection returns a new OpenSSH connection based on the configuration
+// Connection returns a new OpenSSH connection based on the configuration.
 func (c *Config) Connection() (protocol.Connection, error) {
 	return NewConnection(*c)
 }
 
-// String returns a string representation of the configuration
+// String returns a string representation of the configuration.
 func (c *Config) String() string {
 	if c.Port == nil {
 		return "openssh.Config{" + c.Address + "}"
@@ -33,7 +33,7 @@ func (c *Config) String() string {
 	return "openssh.Config{" + net.JoinHostPort(c.Address, strconv.Itoa(*c.Port)) + "}"
 }
 
-// SetDefaults sets the default values for the configuration
+// SetDefaults sets the default values for the configuration.
 func (c *Config) SetDefaults() {
 	if c.KeyPath != nil {
 		if path, err := homedir.Expand(*c.KeyPath); err == nil {
@@ -47,7 +47,7 @@ func (c *Config) SetDefaults() {
 	}
 }
 
-// Validate checks the configuration for any invalid values
+// Validate checks the configuration for any invalid values.
 func (c *Config) Validate() error {
 	if c.Address == "" {
 		return fmt.Errorf("%w: address is required", protocol.ErrValidationFailed)
@@ -60,10 +60,10 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// OptionArguments are options for the OpenSSH client. For example StrictHostkeyChecking: false becomes -o StrictHostKeyChecking=no
+// OptionArguments are options for the OpenSSH client. For example StrictHostkeyChecking: false becomes -o StrictHostKeyChecking=no.
 type OptionArguments map[string]any
 
-// Copy returns a copy of the options
+// Copy returns a copy of the options.
 func (o OptionArguments) Copy() OptionArguments {
 	dup := make(OptionArguments, len(o))
 	for k, v := range o {
@@ -72,12 +72,12 @@ func (o OptionArguments) Copy() OptionArguments {
 	return dup
 }
 
-// Set sets an option key to value
+// Set sets an option key to value.
 func (o OptionArguments) Set(key string, value any) {
 	o[key] = value
 }
 
-// SetIfUnset sets the option if it's not already set
+// SetIfUnset sets the option if it's not already set.
 func (o OptionArguments) SetIfUnset(key string, value any) {
 	if o.IsSet(key) {
 		return
@@ -85,13 +85,13 @@ func (o OptionArguments) SetIfUnset(key string, value any) {
 	o.Set(key, value)
 }
 
-// IsSet returns true if the option is set
+// IsSet returns true if the option is set.
 func (o OptionArguments) IsSet(key string) bool {
 	_, ok := o[key]
 	return ok
 }
 
-// ToArgs converts the options to command line arguments
+// ToArgs converts the options to command line arguments.
 func (o OptionArguments) ToArgs() []string {
 	args := make([]string, 0, len(o)*2)
 	for k, v := range o {

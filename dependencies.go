@@ -26,17 +26,17 @@ func defaultConnectionConfigurer() ConnectionConfigurer {
 	return &CompositeConfig{}
 }
 
-// LoggerFactory is a function that creates a logger
+// LoggerFactory is a function that creates a logger.
 type LoggerFactory func(protocol.Connection) log.Logger
 
 var nullLogger = &log.NullLog{}
 
-// defaultLoggerFactory returns a logger factory that returns a null logger
+// defaultLoggerFactory returns a logger factory that returns a null logger.
 func defaultLoggerFactory(_ protocol.Connection) log.Logger {
 	return nullLogger
 }
 
-// dependencies is a collection of injectable dependencies for a connection
+// dependencies is a collection of injectable dependencies for a connection.
 type dependencies struct {
 	connectionConfigurer ConnectionConfigurer
 	exec.Runner          `yaml:"-"`
@@ -80,7 +80,7 @@ type osreleaseProvider interface {
 	Get(runner exec.SimpleRunner) (os *os.Release, err error)
 }
 
-// SubsystemProviders is a collection of repositories for connection injectables
+// SubsystemProviders is a collection of repositories for connection injectables.
 type SubsystemProviders struct {
 	initsys        initsystemProvider
 	packagemanager packagemanagerProvider
@@ -90,7 +90,7 @@ type SubsystemProviders struct {
 	loggerFactory  LoggerFactory
 }
 
-// DefaultProviders returns a set of default repositories for connection injectables
+// DefaultProviders returns a set of default repositories for connection injectables.
 func DefaultProviders() SubsystemProviders {
 	return SubsystemProviders{
 		initsys:        initsystem.DefaultProvider,
@@ -109,7 +109,7 @@ func defaultDependencies() *dependencies {
 	}
 }
 
-// Clone returns a copy of the ConnectionInjectables with the given options applied
+// Clone returns a copy of the ConnectionInjectables with the given options applied.
 func (c *dependencies) Clone(opts ...Option) *dependencies {
 	options := Options{connectionDependencies: &dependencies{
 		connectionConfigurer: c.connectionConfigurer,
@@ -121,10 +121,10 @@ func (c *dependencies) Clone(opts ...Option) *dependencies {
 }
 
 var (
-	// ErrConfiguratorNotSet is returned when a client configurator is not set when trying to connect
+	// ErrConfiguratorNotSet is returned when a client configurator is not set when trying to connect.
 	ErrConfiguratorNotSet = errors.New("client configurator not set")
 
-	// ErrClientNotSet is returned when a client is not set when trying to connect
+	// ErrClientNotSet is returned when a client is not set when trying to connect.
 	ErrClientNotSet = errors.New("client not set")
 )
 
@@ -175,7 +175,7 @@ func (c *dependencies) sudoRunner() exec.Runner {
 	return runner
 }
 
-// InitSystem returns a ServiceManager for the host's init system
+// InitSystem returns a ServiceManager for the host's init system.
 func (c *dependencies) getInitSystem() (initsystem.ServiceManager, error) {
 	var err error
 	c.initSysOnce.Do(func() {
@@ -188,7 +188,7 @@ func (c *dependencies) getInitSystem() (initsystem.ServiceManager, error) {
 	return c.initSys, err
 }
 
-// PackageManager returns a PackageManager for the host's package manager
+// PackageManager returns a PackageManager for the host's package manager.
 func (c *dependencies) getPackageManager() (packagemanager.PackageManager, error) {
 	var err error
 	c.packageManOnce.Do(func() {

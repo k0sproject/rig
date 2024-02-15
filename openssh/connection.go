@@ -18,7 +18,7 @@ import (
 )
 
 var (
-	// ErrControlPathNotSet is returned when the controlpath is not set when disconnecting from a multiplexed connection
+	// ErrControlPathNotSet is returned when the controlpath is not set when disconnecting from a multiplexed connection.
 	ErrControlPathNotSet = errors.New("controlpath not set")
 
 	errNotConnected = errors.New("not connected")
@@ -43,17 +43,17 @@ func NewConnection(cfg Config) (*Connection, error) {
 	return &Connection{Config: cfg}, nil
 }
 
-// Protocol returns the protocol name
+// Protocol returns the protocol name.
 func (c *Connection) Protocol() string {
 	return "OpenSSH"
 }
 
-// IPAddress returns the IP address of the remote host
+// IPAddress returns the IP address of the remote host.
 func (c *Connection) IPAddress() string {
 	return c.Address
 }
 
-// IsWindows returns true if the remote host is windows
+// IsWindows returns true if the remote host is windows.
 func (c *Connection) IsWindows() bool {
 	// Implement your logic here
 	if c.isWindows != nil {
@@ -74,7 +74,7 @@ func (c *Connection) IsWindows() bool {
 	return *c.isWindows
 }
 
-// DefaultOpenSSHOptions are the default options for the OpenSSH client
+// DefaultOpenSSHOptions are the default options for the OpenSSH client.
 var DefaultOpenSSHOptions = OptionArguments{
 	// It's easy to end up with control paths that are too long for unix sockets (104 chars?)
 	// with the default ~/.ssh/master-%r@%h:%p, for example something like:
@@ -92,7 +92,7 @@ var DefaultOpenSSHOptions = OptionArguments{
 	"ConnectTimeout":        "10",
 }
 
-// SetDefaults sets default values
+// SetDefaults sets default values.
 func (c *Connection) SetDefaults() {
 	if c.Options == nil {
 		c.Options = make(OptionArguments)
@@ -214,7 +214,7 @@ func (c *Connection) closeControl() error {
 	return nil
 }
 
-// StartProcess executes a command on the remote host, streaming stdin, stdout and stderr
+// StartProcess executes a command on the remote host, streaming stdin, stdout and stderr.
 func (c *Connection) StartProcess(ctx context.Context, cmdStr string, stdin io.Reader, stdout, stderr io.Writer) (exec.Waiter, error) {
 	if !c.DisableMultiplexing && !c.isConnected {
 		return nil, errNotConnected
@@ -237,7 +237,7 @@ func (c *Connection) StartProcess(ctx context.Context, cmdStr string, stdin io.R
 	return cmd, nil
 }
 
-// ExecInteractive executes an interactive command on the remote host, streaming stdin, stdout and stderr
+// ExecInteractive executes an interactive command on the remote host, streaming stdin, stdout and stderr.
 func (c *Connection) ExecInteractive(cmdStr string, stdin io.Reader, stdout, stderr io.Writer) error {
 	cmd, err := c.StartProcess(context.Background(), cmdStr, stdin, stdout, stderr)
 	if err != nil {
@@ -262,7 +262,7 @@ func (c *Connection) String() string {
 	return c.name
 }
 
-// IsConnected returns true if the connection is connected
+// IsConnected returns true if the connection is connected.
 func (c *Connection) IsConnected() bool {
 	return c.isConnected
 }

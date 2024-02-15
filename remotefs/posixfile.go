@@ -19,7 +19,7 @@ var (
 	_ File    = (*PosixFile)(nil)
 )
 
-// PosixFile implements fs.File for a remote file
+// PosixFile implements fs.File for a remote file.
 type PosixFile struct {
 	withPath
 	fs     *PosixFS
@@ -71,7 +71,7 @@ func (f *PosixFile) ddParams(offset int64, numBytes int) (blocksize int, skip in
 	return bs, s, c
 }
 
-// Stat returns a FileInfo describing the named file
+// Stat returns a FileInfo describing the named file.
 func (f *PosixFile) Stat() (fs.FileInfo, error) {
 	return f.fs.Stat(f.path)
 }
@@ -145,7 +145,7 @@ func (f *PosixFile) Write(p []byte) (int, error) {
 	return written, nil
 }
 
-// CopyTo copies the remote file to the writer dst
+// CopyTo copies the remote file to the writer dst.
 func (f *PosixFile) CopyTo(dst io.Writer) (int64, error) {
 	if f.isEOF {
 		return 0, io.EOF
@@ -170,7 +170,7 @@ func (f *PosixFile) CopyTo(dst io.Writer) (int64, error) {
 	return counter.Count(), nil
 }
 
-// CopyFrom copies the local reader src to the remote file
+// CopyFrom copies the local reader src to the remote file.
 func (f *PosixFile) CopyFrom(src io.Reader) (int64, error) {
 	if !f.isWritable() {
 		return 0, f.pathErr(OpCopyFrom, fmt.Errorf("%w: file %s is not open for writing", fs.ErrClosed, f.path))

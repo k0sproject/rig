@@ -22,17 +22,17 @@ import (
 var (
 	_ fs.FS = (*WinFS)(nil)
 	_ FS    = (*WinFS)(nil)
-	// EWINDOWS is returned when a function is not supported on Windows
+	// EWINDOWS is returned when a function is not supported on Windows.
 	EWINDOWS = errors.New("not supported on windows") //nolint:revive,stylecheck // modeled after syscall
 )
 
-// WinFS is a fs.FS implemen{
+// WinFS is a fs.FS implemen{.
 type WinFS struct {
 	exec.Runner
 	log.LoggerInjectable
 }
 
-// NewWindowsFS returns a new fs.FS implementing filesystem for Windows targets
+// NewWindowsFS returns a new fs.FS implementing filesystem for Windows targets.
 func NewWindowsFS(conn exec.Runner) *WinFS {
 	return &WinFS{Runner: conn}
 }
@@ -104,7 +104,7 @@ func (s *WinFS) Remove(name string) error {
 	return nil
 }
 
-// RemoveAll deletes the named file or directory and all its child items
+// RemoveAll deletes the named file or directory and all its child items.
 func (s *WinFS) RemoveAll(name string) error {
 	if existing, err := s.Stat(name); err == nil && existing.IsDir() {
 		return s.removeDirAll(name)
@@ -250,7 +250,7 @@ func (s *WinFS) FileExist(name string) bool {
 	return s.Exec("if (Test-Path -LiteralPath %s) { exit 0 } else { exit 1 }", ps.DoubleQuotePath(name), exec.PS()) == nil
 }
 
-// LookPath checks if a command exists on the host
+// LookPath checks if a command exists on the host.
 func (s *WinFS) LookPath(name string) (string, error) {
 	path, err := s.ExecOutput("Get-Command %s -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source", ps.DoubleQuotePath(name), exec.PS())
 	if err != nil {
@@ -319,7 +319,7 @@ func (s *WinFS) Getenv(key string) string {
 	return out
 }
 
-// Hostname returns the hostname of the remote host
+// Hostname returns the hostname of the remote host.
 func (s *WinFS) Hostname() (string, error) {
 	out, err := s.ExecOutput("$env:COMPUTERNAME", exec.PS())
 	if err != nil {
@@ -328,7 +328,7 @@ func (s *WinFS) Hostname() (string, error) {
 	return out, nil
 }
 
-// LongHostname resolves the FQDN (long) hostname
+// LongHostname resolves the FQDN (long) hostname.
 func (s *WinFS) LongHostname() (string, error) {
 	out, err := s.ExecOutput("([System.Net.Dns]::GetHostByName(($env:COMPUTERNAME))).Hostname", exec.PS())
 	if err != nil {

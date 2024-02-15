@@ -29,7 +29,7 @@ const (
 	supportedFlags   = os.O_RDONLY | os.O_WRONLY | os.O_RDWR | os.O_CREATE | os.O_EXCL | os.O_TRUNC | os.O_APPEND | os.O_SYNC
 )
 
-// PosixFS implements fs.FS for a remote filesystem that uses POSIX commands for access
+// PosixFS implements fs.FS for a remote filesystem that uses POSIX commands for access.
 type PosixFS struct {
 	exec.SimpleRunner
 	log.LoggerInjectable
@@ -40,7 +40,7 @@ type PosixFS struct {
 	timeTrunc time.Duration
 }
 
-// NewPosixFS returns a fs.FS implementation for a remote filesystem that uses POSIX commands for access
+// NewPosixFS returns a fs.FS implementation for a remote filesystem that uses POSIX commands for access.
 func NewPosixFS(conn exec.SimpleRunner) *PosixFS {
 	return &PosixFS{SimpleRunner: conn, statCmd: nil, chtimesFn: nil}
 }
@@ -63,7 +63,7 @@ func (s *PosixFS) initStat() error {
 	return nil
 }
 
-// second precision touch for busybox
+// second precision touch for busybox.
 func (s *PosixFS) secChtimes(name string, atime, mtime int64) error {
 	accessOrMod := [2]rune{'a', 'm'}
 	// only supports setting one of them at a time
@@ -82,7 +82,7 @@ func (s *PosixFS) secChtimes(name string, atime, mtime int64) error {
 	return nil
 }
 
-// nanosecond precision touch for stats that support it
+// nanosecond precision touch for stats that support it.
 func (s *PosixFS) nsecChtimes(name string, atime, mtime int64) error {
 	atimeTS := int64ToTime(atime)
 	mtimeTS := int64ToTime(mtime)
@@ -274,7 +274,7 @@ func (s *PosixFS) Stat(name string) (fs.FileInfo, error) {
 	}
 }
 
-// Sha256 returns the sha256 checksum of the file at path
+// Sha256 returns the sha256 checksum of the file at path.
 func (s *PosixFS) Sha256(name string) (string, error) {
 	out, err := s.ExecOutput("sha256sum -b %s", shellescape.Quote(name))
 	if err != nil {
@@ -290,7 +290,7 @@ func (s *PosixFS) Sha256(name string) (string, error) {
 	return sha, nil
 }
 
-// Touch creates a new empty file at path or updates the timestamp of an existing file to the current time
+// Touch creates a new empty file at path or updates the timestamp of an existing file to the current time.
 func (s *PosixFS) Touch(name string) error {
 	err := s.Exec("touch -- %s", shellescape.Quote(name))
 	if err != nil {
@@ -305,7 +305,7 @@ func int64ToTime(timestamp int64) time.Time {
 	return time.Unix(seconds, nanoseconds)
 }
 
-// Chtimes changes the access and modification times of the named file
+// Chtimes changes the access and modification times of the named file.
 func (s *PosixFS) Chtimes(name string, atime, mtime int64) error {
 	if err := s.initTouch(); err != nil {
 		return err
@@ -313,7 +313,7 @@ func (s *PosixFS) Chtimes(name string, atime, mtime int64) error {
 	return s.chtimesFn(name, atime, mtime)
 }
 
-// Truncate changes the size of the named file or creates a new file if it doesn't exist
+// Truncate changes the size of the named file or creates a new file if it doesn't exist.
 func (s *PosixFS) Truncate(name string, size int64) error {
 	if err := s.Exec("truncate -s %d %s", size, shellescape.Quote(name)); err != nil {
 		return fmt.Errorf("truncate %s: %w", name, err)
@@ -321,7 +321,7 @@ func (s *PosixFS) Truncate(name string, size int64) error {
 	return nil
 }
 
-// Chmod changes the mode of the named file to mode
+// Chmod changes the mode of the named file to mode.
 func (s *PosixFS) Chmod(name string, mode fs.FileMode) error {
 	if err := s.Exec("chmod %#o %s", mode, shellescape.Quote(name)); err != nil {
 		if isNotExist(err) {
@@ -332,7 +332,7 @@ func (s *PosixFS) Chmod(name string, mode fs.FileMode) error {
 	return nil
 }
 
-// Chown changes the numeric uid and gid of the named file
+// Chown changes the numeric uid and gid of the named file.
 func (s *PosixFS) Chown(name string, uid, gid int) error {
 	if err := s.Exec("chown %d:%d %s", uid, gid, shellescape.Quote(name)); err != nil {
 		if isNotExist(err) {
@@ -429,7 +429,7 @@ func (s *PosixFS) OpenFile(name string, flags int, perm fs.FileMode) (File, erro
 	return file, nil
 }
 
-// ReadDir reads the directory named by dirname and returns a list of directory entries
+// ReadDir reads the directory named by dirname and returns a list of directory entries.
 func (s *PosixFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	if name == "" {
 		name = "."
@@ -553,12 +553,12 @@ func (s *PosixFS) MkdirTemp(dir, prefix string) (string, error) {
 	return out, nil
 }
 
-// FileExist checks if a file exists on the host
+// FileExist checks if a file exists on the host.
 func (s *PosixFS) FileExist(name string) bool {
 	return s.Exec("test -f %s", shellescape.Quote(name), exec.HideOutput()) == nil
 }
 
-// LookPath checks if a command exists on the host
+// LookPath checks if a command exists on the host.
 func (s *PosixFS) LookPath(name string) (string, error) {
 	path, err := s.ExecOutput("command -v %s", name, exec.HideOutput())
 	if err != nil {
@@ -572,7 +572,7 @@ func (s *PosixFS) Join(elem ...string) string {
 	return path.Join(elem...)
 }
 
-// Getenv returns the value of the environment variable named by the key
+// Getenv returns the value of the environment variable named by the key.
 func (s *PosixFS) Getenv(key string) string {
 	out, err := s.ExecOutput("echo ${%s}", key, exec.HideOutput())
 	if err != nil {
@@ -581,7 +581,7 @@ func (s *PosixFS) Getenv(key string) string {
 	return out
 }
 
-// Hostname returns the name of the host
+// Hostname returns the name of the host.
 func (s *PosixFS) Hostname() (string, error) {
 	out, err := s.ExecOutput("hostname")
 	if err != nil {
@@ -590,7 +590,7 @@ func (s *PosixFS) Hostname() (string, error) {
 	return out, nil
 }
 
-// LongHostname returns the FQDN of the host
+// LongHostname returns the FQDN of the host.
 func (s *PosixFS) LongHostname() (string, error) {
 	out, err := s.ExecOutput("hostname -f 2> /dev/null")
 	if err != nil {

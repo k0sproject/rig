@@ -9,14 +9,14 @@ import (
 	"strings"
 )
 
-// PipeHasEnded string is used during the base64+sha265 upload process
+// PipeHasEnded string is used during the base64+sha265 upload process.
 const PipeHasEnded = "The pipe has been ended."
 
-// PipeIsBeingClosed string is used during the base64+sha265 upload process
+// PipeIsBeingClosed string is used during the base64+sha265 upload process.
 const PipeIsBeingClosed = "The pipe is being closed."
 
 // CompressedCmd creates a scriptlet that will decompress and execute a gzipped script to both avoid
-// command line length limits and to reduce data transferred
+// command line length limits and to reduce data transferred.
 func CompressedCmd(psCmd string) string {
 	var trimmed []string //nolint:prealloc
 	lines := strings.Split(psCmd, "\n")
@@ -46,7 +46,7 @@ Invoke-Expression "function s(){$u}"; s`
 	return Cmd(scriptlet)
 }
 
-// EncodeCmd base64-encodes a string in a way that is accepted by PowerShell -EncodedCommand
+// EncodeCmd base64-encodes a string in a way that is accepted by PowerShell -EncodedCommand.
 func EncodeCmd(psCmd string) string {
 	if !strings.Contains(psCmd, "begin {") {
 		psCmd = "$ProgressPreference='SilentlyContinue'; " + psCmd
@@ -62,7 +62,7 @@ func EncodeCmd(psCmd string) string {
 	return base64.StdEncoding.EncodeToString(input)
 }
 
-// Cmd builds a command-line for executing a complex command or script as an EncodedCommand through powershell
+// Cmd builds a command-line for executing a complex command or script as an EncodedCommand through powershell.
 func Cmd(psCmd string) string {
 	encodedCmd := EncodeCmd(psCmd)
 
@@ -71,7 +71,7 @@ func Cmd(psCmd string) string {
 }
 
 // SingleQuote quotes and escapes a string in a format that is accepted by powershell scriptlets
-// from jbrekelmans/go-winrm/util.go PowerShellSingleQuotedStringLiteral
+// from jbrekelmans/go-winrm/util.go PowerShellSingleQuotedStringLiteral.
 func SingleQuote(v string) string {
 	var buf strings.Builder
 	_, _ = buf.WriteRune('\'')
@@ -114,7 +114,7 @@ func DoubleQuotePath(v string) string {
 	return DoubleQuote(ToWindowsPath(v))
 }
 
-// ToWindowsPath converts a unix-style forward slash separated path to a windows-style path
+// ToWindowsPath converts a unix-style forward slash separated path to a windows-style path.
 func ToWindowsPath(v string) string {
 	return strings.ReplaceAll(v, "/", "\\")
 }

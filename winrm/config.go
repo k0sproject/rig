@@ -10,7 +10,7 @@ import (
 	"github.com/k0sproject/rig/ssh"
 )
 
-// Config describes the configuration options for a WinRM connection
+// Config describes the configuration options for a WinRM connection.
 type Config struct {
 	Address       string      `yaml:"address" validate:"required,hostname_rfc1123|ip"`
 	User          string      `yaml:"user" validate:"omitempty,gt=2" default:"Administrator"`
@@ -26,7 +26,7 @@ type Config struct {
 	Bastion       *ssh.Config `yaml:"bastion,omitempty"`
 }
 
-// SetDefaults sets various default values
+// SetDefaults sets various default values.
 func (c *Config) SetDefaults() {
 	if p, err := homedir.Expand(c.CACertPath); err == nil {
 		c.CACertPath = p
@@ -53,7 +53,7 @@ func (c *Config) SetDefaults() {
 	}
 }
 
-// Validate checks the configuration for any invalid values
+// Validate checks the configuration for any invalid values.
 func (c *Config) Validate() error {
 	if c.Address == "" {
 		return fmt.Errorf("%w: address is required", protocol.ErrValidationFailed)
@@ -76,12 +76,12 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// Connection returns a new WinRM Connection based on the configuration
+// Connection returns a new WinRM Connection based on the configuration.
 func (c *Config) Connection() (protocol.Connection, error) {
 	return NewConnection(*c)
 }
 
-// String returns a string representation of the configuration
+// String returns a string representation of the configuration.
 func (c *Config) String() string {
 	return "winrm.Config{" + net.JoinHostPort(c.Address, strconv.Itoa(c.Port)) + "}"
 }

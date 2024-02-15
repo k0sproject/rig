@@ -10,10 +10,10 @@ import (
 	ssh "golang.org/x/crypto/ssh"
 )
 
-// PasswordCallback is a function that is called when a passphrase is needed to decrypt a private key
+// PasswordCallback is a function that is called when a passphrase is needed to decrypt a private key.
 type PasswordCallback func() (secret string, err error)
 
-// Config describes an SSH connection's configuration
+// Config describes an SSH connection's configuration.
 type Config struct {
 	Address          string           `yaml:"address" validate:"required,hostname_rfc1123|ip"`
 	User             string           `yaml:"user" validate:"required" default:"root"`
@@ -30,17 +30,17 @@ type Config struct {
 	AuthMethods []ssh.AuthMethod `yaml:"-"`
 }
 
-// Connection returns a new Connection object based on the configuration
+// Connection returns a new Connection object based on the configuration.
 func (c *Config) Connection() (protocol.Connection, error) {
 	return NewConnection(*c)
 }
 
-// String returns a string representation of the configuration
+// String returns a string representation of the configuration.
 func (c *Config) String() string {
 	return "ssh.Config{" + net.JoinHostPort(c.Address, strconv.Itoa(c.Port)) + "}"
 }
 
-// SetDefaults sets the default values for the configuration
+// SetDefaults sets the default values for the configuration.
 func (c *Config) SetDefaults() {
 	if c.Port == 0 {
 		c.Port = 22
@@ -58,7 +58,7 @@ func (c *Config) SetDefaults() {
 	}
 }
 
-// Validate returns an error if the configuration is invalid
+// Validate returns an error if the configuration is invalid.
 func (c *Config) Validate() error {
 	if c.Address == "" {
 		return fmt.Errorf("%w: address is required", protocol.ErrValidationFailed)

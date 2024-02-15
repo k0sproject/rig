@@ -15,7 +15,7 @@ import (
 	"golang.org/x/term"
 )
 
-// captureSignals intercepts interrupt / resize signals and sends them over to the writer
+// captureSignals intercepts interrupt / resize signals and sends them over to the writer.
 func captureSignals(stdin io.Writer, session *ssh.Session) func() {
 	stopCh := make(chan struct{})
 	sigCh := make(chan os.Signal, 1)

@@ -27,7 +27,7 @@ type Provider struct {
 	factories []Factory
 }
 
-// NewProvider creates a new OS release provider
+// NewProvider creates a new OS release provider.
 func NewProvider(factories ...Factory) *Provider {
 	return &Provider{factories: factories}
 }

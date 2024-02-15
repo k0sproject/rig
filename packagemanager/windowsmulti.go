@@ -62,7 +62,7 @@ func (w *WindowsMultiManager) Remove(ctx context.Context, packageNames ...string
 	return nil
 }
 
-// Update the package lists in all the package managers
+// Update the package lists in all the package managers.
 func (w *WindowsMultiManager) Update(ctx context.Context) error {
 	if len(w.managers) == 0 {
 		return ErrNoWindowsPackageManager

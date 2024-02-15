@@ -31,19 +31,19 @@ func MinPrecision(a, b time.Time) time.Duration {
 	return precB
 }
 
-// Equal returns true if the times are equal up to common time resolution
+// Equal returns true if the times are equal up to common time resolution.
 func Equal(timeA, timeB time.Time) bool {
 	timeA, timeB = Truncate(timeA, timeB)
 	return timeA.Equal(timeB)
 }
 
-// Before returns true if a is before b up to common time resolution
+// Before returns true if a is before b up to common time resolution.
 func Before(a, b time.Time) bool {
 	a, b = Truncate(a, b)
 	return a.Before(b)
 }
 
-// After returns true if a is after b up to common time resolution
+// After returns true if a is after b up to common time resolution.
 func After(a, b time.Time) bool {
 	a, b = Truncate(a, b)
 	return a.After(b)

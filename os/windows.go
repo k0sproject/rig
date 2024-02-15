@@ -12,7 +12,7 @@ type windowsVersion struct {
 	Version string `json:"Version"`
 }
 
-// ResolveWindows resolves the OS release information for a windows host
+// ResolveWindows resolves the OS release information for a windows host.
 func ResolveWindows(conn exec.SimpleRunner) *Release {
 	if !conn.IsWindows() {
 		return nil
@@ -34,7 +34,7 @@ func ResolveWindows(conn exec.SimpleRunner) *Release {
 	}
 }
 
-// RegisterWindows registers the windows OS release resolver to a provider
+// RegisterWindows registers the windows OS release resolver to a provider.
 func RegisterWindows(provider *Provider) {
 	provider.Register(ResolveWindows)
 }

@@ -11,10 +11,10 @@ import (
 	"github.com/k0sproject/rig/exec"
 )
 
-// Launchd is the init system for macOS (and darwin), the implementation is very basic and doesn't handle services in user space
+// Launchd is the init system for macOS (and darwin), the implementation is very basic and doesn't handle services in user space.
 type Launchd struct{}
 
-// StartService starts a launchd service
+// StartService starts a launchd service.
 func (i Launchd) StartService(ctx context.Context, h exec.ContextRunner, s string) error {
 	if err := h.ExecContext(ctx, "launchctl kickstart %s", shellescape.Quote(s)); err != nil {
 		return fmt.Errorf("failed to start service %s: %w", s, err)
@@ -22,7 +22,7 @@ func (i Launchd) StartService(ctx context.Context, h exec.ContextRunner, s strin
 	return nil
 }
 
-// StopService stops a launchd service
+// StopService stops a launchd service.
 func (i Launchd) StopService(ctx context.Context, h exec.ContextRunner, s string) error {
 	if err := h.ExecContext(ctx, "launchctl kill %s", shellescape.Quote(s)); err != nil {
 		return fmt.Errorf("failed to stop service %s: %w", s, err)
@@ -30,20 +30,20 @@ func (i Launchd) StopService(ctx context.Context, h exec.ContextRunner, s string
 	return nil
 }
 
-// ServiceIsRunning checks if a launchd service is running
+// ServiceIsRunning checks if a launchd service is running.
 func (i Launchd) ServiceIsRunning(ctx context.Context, h exec.ContextRunner, s string) bool {
 	// This might need more sophisticated parsing
 	return h.ExecContext(ctx, "launchctl list | grep -q %s", shellescape.Quote(s)) == nil
 }
 
-// ServiceScriptPath returns the path to a launchd service plist file
+// ServiceScriptPath returns the path to a launchd service plist file.
 func (i Launchd) ServiceScriptPath(_ context.Context, _ exec.ContextRunner, s string) (string, error) {
 	// Assumes plist files are located in /Library/LaunchDaemons
 	plistPath := path.Join("/Library/LaunchDaemons", s+".plist")
 	return plistPath, nil
 }
 
-// EnableService enables a launchd service (not very elegant)
+// EnableService enables a launchd service (not very elegant).
 func (i Launchd) EnableService(ctx context.Context, h exec.ContextRunner, s string) error {
 	if err := h.ExecContext(ctx, "launchctl enable %s", shellescape.Quote(s)); err != nil {
 		return fmt.Errorf("failed to enable service: %w", err)
@@ -51,7 +51,7 @@ func (i Launchd) EnableService(ctx context.Context, h exec.ContextRunner, s stri
 	return nil
 }
 
-// DisableService disables a launchd service by renaming the plist file (not very elegant)
+// DisableService disables a launchd service by renaming the plist file (not very elegant).
 func (i Launchd) DisableService(ctx context.Context, h exec.ContextRunner, s string) error {
 	if err := h.ExecContext(ctx, "launchctl disable %s", shellescape.Quote(s)); err != nil {
 		return fmt.Errorf("failed to disable service: %w", err)
@@ -59,7 +59,7 @@ func (i Launchd) DisableService(ctx context.Context, h exec.ContextRunner, s str
 	return nil
 }
 
-// ServiceLogs returns the logs for a launchd service
+// ServiceLogs returns the logs for a launchd service.
 func (i Launchd) ServiceLogs(ctx context.Context, h exec.ContextRunner, s string, lines int) ([]string, error) {
 	out, err := h.ExecOutputContext(ctx, "log show --predicate 'subsystem contains %s' --debug --info --last 10m --style syslog", strconv.QuoteToASCII(s))
 	if err != nil {
@@ -72,7 +72,7 @@ func (i Launchd) ServiceLogs(ctx context.Context, h exec.ContextRunner, s string
 	return rows, nil
 }
 
-// RegisterLaunchd registers the launchd init system to a init system repository
+// RegisterLaunchd registers the launchd init system to a init system repository.
 func RegisterLaunchd(repo *Provider) {
 	repo.Register(func(c exec.ContextRunner) ServiceManager {
 		if c.IsWindows() {

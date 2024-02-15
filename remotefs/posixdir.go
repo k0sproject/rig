@@ -4,13 +4,13 @@ import "io/fs"
 
 var _ fs.ReadDirFile = (*PosixDir)(nil)
 
-// PosixDir implements fs.ReadDirFile for a remote directory
+// PosixDir implements fs.ReadDirFile for a remote directory.
 type PosixDir struct {
 	PosixFile
 	buffer *dirEntryBuffer
 }
 
-// ReadDir returns a list of directory entries
+// ReadDir returns a list of directory entries.
 func (f *PosixDir) ReadDir(n int) ([]fs.DirEntry, error) {
 	if f.buffer == nil {
 		entries, err := f.fs.ReadDir(f.path)

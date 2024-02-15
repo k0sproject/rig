@@ -33,7 +33,7 @@ type Client struct {
 	sudo *Client
 }
 
-// ErrNotInitialized is returned when a Connection is used without being properly initialized
+// ErrNotInitialized is returned when a Connection is used without being properly initialized.
 var ErrNotInitialized = errors.New("connection not properly initialized")
 
 // DefaultClient is a Connection that is especially suitable for embedding into something that is unmarshalled from YAML.
@@ -42,7 +42,7 @@ type DefaultClient struct {
 	*Client          `yaml:"-"`
 }
 
-// Setup allows applying options to the connection to configure subcomponents
+// Setup allows applying options to the connection to configure subcomponents.
 func (c *DefaultClient) Setup(opts ...Option) error {
 	client, err := c.ConnectionConfig.Connection()
 	if err != nil {
@@ -67,7 +67,7 @@ func (c *DefaultClient) Connect(opts ...Option) error {
 	return c.Client.Connect()
 }
 
-// UnmarshalYAML unmarshals and setups a DefaultConnection from YAML
+// UnmarshalYAML unmarshals and setups a DefaultConnection from YAML.
 func (c *DefaultClient) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	type configuredConnection DefaultClient
 	conn := (*configuredConnection)(c)
@@ -77,7 +77,7 @@ func (c *DefaultClient) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	return c.Setup()
 }
 
-// NewClient returns a new Connection object with the given options
+// NewClient returns a new Connection object with the given options.
 func NewClient(opts ...Option) (*Client, error) {
 	conn := &Client{}
 	if err := conn.setup(opts...); err != nil {
@@ -99,7 +99,7 @@ func (c *Client) setup(opts ...Option) error {
 	return nil
 }
 
-// Service returns a Service object for the named service using the host's init system
+// Service returns a Service object for the named service using the host's init system.
 func (c *Client) Service(name string) (*Service, error) {
 	is, err := c.InitSystem()
 	if err != nil {
@@ -136,7 +136,7 @@ func (c *Client) Sudo() *Client {
 	return c.sudo
 }
 
-// FS returns a fs.FS compatible filesystem interface for accessing files on remote hosts
+// FS returns a fs.FS compatible filesystem interface for accessing files on remote hosts.
 func (c *Client) FS() remotefs.FS {
 	fs, err := c.getFS()
 	if err != nil {
@@ -183,22 +183,22 @@ func (c *Client) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.
 	return errInteractiveNotSupported
 }
 
-// InitSystem returns a ServiceManager for the host's init system
+// InitSystem returns a ServiceManager for the host's init system.
 func (c *Client) InitSystem() (initsystem.ServiceManager, error) {
 	return c.getInitSystem()
 }
 
-// PackageManager returns a PackageManager for the host's package manager
+// PackageManager returns a PackageManager for the host's package manager.
 func (c *Client) PackageManager() (packagemanager.PackageManager, error) {
 	return c.getPackageManager()
 }
 
-// OS returns the host's operating system
+// OS returns the host's operating system.
 func (c *Client) OS() (*os.Release, error) {
 	return c.getOS()
 }
 
-// Protocol returns the protocol used to connect to the host
+// Protocol returns the protocol used to connect to the host.
 func (c *Client) Protocol() string {
 	if c.client == nil {
 		return "uninitialized"
@@ -206,7 +206,7 @@ func (c *Client) Protocol() string {
 	return c.client.Protocol()
 }
 
-// Address returns the address of the host
+// Address returns the address of the host.
 func (c *Client) Address() string {
 	if c.client != nil {
 		return c.client.IPAddress()

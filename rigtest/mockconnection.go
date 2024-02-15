@@ -1,3 +1,4 @@
+// Package rigtest provides testing utilities for mocking functionality of the rig package.
 package rigtest
 
 import (

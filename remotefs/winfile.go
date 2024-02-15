@@ -55,7 +55,7 @@ type winFile struct {
 // Seek sets the offset for the next Read or Write on the remote file. The whence argument controls the interpretation of offset.
 // io.SeekStart = offset from the beginning of file
 // io.SeekCurrent = offset from the current position
-// io.SeekEnd = offset from the end of file
+// io.SeekEnd = offset from the end of file.
 func (f *winFile) Seek(offset int64, whence int) (int64, error) {
 	if f.closed {
 		return 0, f.pathErr(OpSeek, fs.ErrClosed)

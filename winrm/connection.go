@@ -25,7 +25,7 @@ var (
 	errInvalidCommand = errors.New("invalid command")
 )
 
-// Connection describes a Connection connection with its configuration options
+// Connection describes a Connection connection with its configuration options.
 type Connection struct {
 	log.LoggerInjectable `yaml:"-"`
 	Config               `yaml:",inline"`
@@ -46,17 +46,17 @@ func NewConnection(cfg Config) (*Connection, error) {
 	return &Connection{Config: cfg}, nil
 }
 
-// Protocol returns the protocol name, "WinRM"
+// Protocol returns the protocol name, "WinRM".
 func (c *Connection) Protocol() string {
 	return "WinRM"
 }
 
-// IPAddress returns the connection address
+// IPAddress returns the connection address.
 func (c *Connection) IPAddress() string {
 	return c.Address
 }
 
-// String returns the connection's printable name
+// String returns the connection's printable name.
 func (c *Connection) String() string {
 	if c.name == "" {
 		c.name = fmt.Sprintf("[winrm] %s:%d", c.Address, c.Port)
@@ -65,7 +65,7 @@ func (c *Connection) String() string {
 	return c.name
 }
 
-// IsWindows always returns true on winrm
+// IsWindows always returns true on winrm.
 func (c *Connection) IsWindows() bool {
 	return true
 }
@@ -120,7 +120,7 @@ func (c *Connection) bastionDialer() (dialFunc, error) {
 	return bastionSSH.Dial, nil
 }
 
-// Connect opens the WinRM connection
+// Connect opens the WinRM connection.
 func (c *Connection) Connect() error {
 	if err := c.loadCertificates(); err != nil {
 		return fmt.Errorf("%w: failed to load certificates: %w", abort.ErrAbort, err)
@@ -175,7 +175,7 @@ func (c *Connection) Connect() error {
 	return nil
 }
 
-// Disconnect closes the WinRM connection
+// Disconnect closes the WinRM connection.
 func (c *Connection) Disconnect() {
 	c.client = nil
 }
@@ -187,7 +187,7 @@ type command struct {
 	log log.Logger
 }
 
-// Wait blocks until the command finishes
+// Wait blocks until the command finishes.
 func (c *command) Wait() error {
 	defer c.sh.Close()
 	defer c.cmd.Close()
@@ -204,7 +204,7 @@ func (c *command) Wait() error {
 	return nil
 }
 
-// Close terminates the command
+// Close terminates the command.
 func (c *command) Close() error {
 	if err := c.cmd.Close(); err != nil {
 		return fmt.Errorf("close command: %w", err)
@@ -277,7 +277,7 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 	return res, nil
 }
 
-// ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host
+// ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host.
 func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if cmd == "" {
 		cmd = "cmd.exe"

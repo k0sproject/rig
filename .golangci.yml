@@ -15,9 +15,8 @@ linters:
     - exhaustivestruct
     - exhaustruct
     - forbidigo
-    - gochecknoglobals
     - gochecknoinits
-    - godot
+    - gochecknoglobals
     - godox
     - golint
     - interfacer

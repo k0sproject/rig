@@ -9,13 +9,13 @@ import (
 	"time"
 )
 
-// Check interfaces
+// Check interfaces.
 var (
 	_ fs.FileInfo = (*FileInfo)(nil)
 	_ fs.DirEntry = (*FileInfo)(nil)
 )
 
-// FileInfo implements fs.FileInfo for stat on remote files
+// FileInfo implements fs.FileInfo for stat on remote files.
 type FileInfo struct {
 	FName    string      `json:"name"`
 	FSize    int64       `json:"size"`
@@ -27,7 +27,7 @@ type FileInfo struct {
 	fs       fs.FS
 }
 
-// UnmarshalJSON implements json.Unmarshaler
+// UnmarshalJSON implements json.Unmarshaler.
 func (f *FileInfo) UnmarshalJSON(b []byte) error {
 	type fileInfo *FileInfo
 	fi := fileInfo(f)
@@ -39,22 +39,22 @@ func (f *FileInfo) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// Name returns the file name
+// Name returns the file name.
 func (f *FileInfo) Name() string {
 	return path.Base(f.FName)
 }
 
-// FullPath returns the full path
+// FullPath returns the full path.
 func (f *FileInfo) FullPath() string {
 	return f.FName
 }
 
-// Size returns the file size
+// Size returns the file size.
 func (f *FileInfo) Size() int64 {
 	return f.FSize
 }
 
-// Mode returns the file permission mode
+// Mode returns the file permission mode.
 func (f *FileInfo) Mode() fs.FileMode {
 	if f.FUnix != 0 {
 		return f.FUnix
@@ -62,17 +62,17 @@ func (f *FileInfo) Mode() fs.FileMode {
 	return f.FMode
 }
 
-// ModTime returns the last modification time of a file
+// ModTime returns the last modification time of a file.
 func (f *FileInfo) ModTime() time.Time {
 	return f.FModTime
 }
 
-// IsDir returns true if the file path points to a directory
+// IsDir returns true if the file path points to a directory.
 func (f *FileInfo) IsDir() bool {
 	return f.FIsDir
 }
 
-// Sys returns the underlying data source
+// Sys returns the underlying data source.
 func (f *FileInfo) Sys() any {
 	return f.fs
 }

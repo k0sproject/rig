@@ -16,7 +16,7 @@ import (
 
 const name = "[local] localhost"
 
-// Connection is a direct localhost connection
+// Connection is a direct localhost connection.
 type Connection struct{}
 
 // Connection returns the connection itself. This is because there's no config for localhost connections.
@@ -29,22 +29,22 @@ func NewConnection() (*Connection, error) {
 	return &Connection{}, nil
 }
 
-// Protocol returns the protocol name, "Local"
+// Protocol returns the protocol name, "Local".
 func (c *Connection) Protocol() string {
 	return "Local"
 }
 
-// IPAddress returns the connection address
+// IPAddress returns the connection address.
 func (c *Connection) IPAddress() string {
 	return "127.0.0.1"
 }
 
-// String returns the connection's printable name
+// String returns the connection's printable name.
 func (c *Connection) String() string {
 	return name
 }
 
-// IsWindows is true when running on a windows host
+// IsWindows is true when running on a windows host.
 func (c *Connection) IsWindows() bool {
 	return runtime.GOOS == "windows"
 }
@@ -73,7 +73,7 @@ func (c *Connection) command(ctx context.Context, cmd string) *osexec.Cmd {
 	return osexec.CommandContext(ctx, "sh", "-c", "--", cmd)
 }
 
-// ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host
+// ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host.
 func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error { //nolint:cyclop
 	if cmd == "" {
 		cmd = os.Getenv("SHELL") + " -l"

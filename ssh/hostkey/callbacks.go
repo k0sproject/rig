@@ -16,22 +16,22 @@ import (
 )
 
 var (
-	// ErrHostKeyMismatch is returned when the host key does not match the host key or a key in known_hosts file
+	// ErrHostKeyMismatch is returned when the host key does not match the host key or a key in known_hosts file.
 	ErrHostKeyMismatch = errors.New("host key mismatch")
 
-	// ErrCheckHostKey is returned when the callback could not be created
+	// ErrCheckHostKey is returned when the callback could not be created.
 	ErrCheckHostKey = errors.New("check hostkey")
 
 	// InsecureIgnoreHostKeyCallback is an insecure HostKeyCallback that accepts any host key.
 	InsecureIgnoreHostKeyCallback = ssh.InsecureIgnoreHostKey() //nolint:gosec
 
-	// DefaultKnownHostsPath is the default path to the known_hosts file - make sure to homedir-expand it
+	// DefaultKnownHostsPath is the default path to the known_hosts file - make sure to homedir-expand it.
 	DefaultKnownHostsPath = "~/.ssh/known_hosts"
 
 	mu sync.Mutex
 )
 
-// StaticKeyCallback returns a HostKeyCallback that checks the host key against a given host key
+// StaticKeyCallback returns a HostKeyCallback that checks the host key against a given host key.
 func StaticKeyCallback(trustedKey string) ssh.HostKeyCallback {
 	return func(_ string, _ net.Addr, k ssh.PublicKey) error {
 		ks := keyString(k)
@@ -43,12 +43,12 @@ func StaticKeyCallback(trustedKey string) ssh.HostKeyCallback {
 	}
 }
 
-// KnownHostsPathFromEnv returns the path to a known_hosts file from the environment variable SSH_KNOWN_HOSTS
+// KnownHostsPathFromEnv returns the path to a known_hosts file from the environment variable SSH_KNOWN_HOSTS.
 var KnownHostsPathFromEnv = func() (string, bool) {
 	return os.LookupEnv("SSH_KNOWN_HOSTS")
 }
 
-// KnownHostsFileCallback returns a HostKeyCallback that uses a known hosts file to verify host keys
+// KnownHostsFileCallback returns a HostKeyCallback that uses a known hosts file to verify host keys.
 func KnownHostsFileCallback(path string, permissive, hash bool) (ssh.HostKeyCallback, error) {
 	if path == "/dev/null" {
 		return InsecureIgnoreHostKeyCallback, nil
@@ -71,7 +71,7 @@ func KnownHostsFileCallback(path string, permissive, hash bool) (ssh.HostKeyCall
 
 // extends a knownhosts callback to not return an error when the key
 // is not found in the known_hosts file but instead adds it to the file as new
-// entry
+// entry.
 func wrapCallback(hkc ssh.HostKeyCallback, path string, permissive, hash bool) ssh.HostKeyCallback {
 	return ssh.HostKeyCallback(func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 		mu.Lock()
@@ -148,7 +148,7 @@ func ensureFile(path string) error {
 	return nil
 }
 
-// create human-readable SSH-key strings e.g. "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTY...."
+// create human-readable SSH-key strings e.g. "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTY....".
 func keyString(k ssh.PublicKey) string {
 	return k.Type() + " " + base64.StdEncoding.EncodeToString(k.Marshal())
 }

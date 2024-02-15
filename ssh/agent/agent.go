@@ -1,6 +1,6 @@
 //go:build !windows
 
-// Package agent provides an implementation of the SSH agent protocol.
+// Package agent provides a client implementation for the SSH agent.
 package agent
 
 import (
@@ -12,10 +12,10 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 )
 
-// ErrSSHAgent is returned when connection to SSH agent fails
+// ErrSSHAgent is returned when connection to SSH agent fails.
 var ErrSSHAgent = errors.New("connect ssh agent")
 
-// NewClient returns an SSH agent if a socket address is defined in SSH_AUTH_SOCK environment variable
+// NewClient returns an SSH agent if a socket address is defined in SSH_AUTH_SOCK environment variable.
 func NewClient() (agent.Agent, error) {
 	sshAgentSock := os.Getenv("SSH_AUTH_SOCK")
 	if sshAgentSock == "" {

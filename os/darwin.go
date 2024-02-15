@@ -6,7 +6,7 @@ import (
 	"github.com/k0sproject/rig/exec"
 )
 
-// ResolveDarwin resolves the OS release information for a darwin host
+// ResolveDarwin resolves the OS release information for a darwin host.
 func ResolveDarwin(conn exec.SimpleRunner) *Release {
 	if conn.IsWindows() {
 		return nil
@@ -34,7 +34,7 @@ func ResolveDarwin(conn exec.SimpleRunner) *Release {
 	}
 }
 
-// RegisterDarwin registers the darwin OS release resolver to a provider
+// RegisterDarwin registers the darwin OS release resolver to a provider.
 func RegisterDarwin(provider *Provider) {
 	provider.Register(ResolveDarwin)
 }

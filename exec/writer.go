@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// a writer that hides sensitive data from the output
+// a writer that hides sensitive data from the output.
 type redactingWriter struct {
 	w  io.Writer
 	fn func(string) string
@@ -20,12 +20,12 @@ func (r redactingWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// a writer that calls a logging function for each line written
+// a writer that calls a logging function for each line written.
 type logWriter struct {
 	fn func(string, ...any)
 }
 
-// Write writes the given bytes to the log function
+// Write writes the given bytes to the log function.
 func (l logWriter) Write(p []byte) (int, error) {
 	s := string(p)
 	l.fn(strings.ReplaceAll(s, "%", "%%"))
@@ -33,7 +33,7 @@ func (l logWriter) Write(p []byte) (int, error) {
 }
 
 // flaggingWriter is a discarding writer that sets a flag when it writes something, used
-// to check if a command has output to stderr
+// to check if a command has output to stderr.
 type flaggingWriter struct {
 	b *bool
 }

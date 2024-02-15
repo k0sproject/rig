@@ -1,10 +1,12 @@
 //go:build windows
 
+// Package agent provides a client implementation for the SSH agent.
 package agent
 
 import (
 	"errors"
 	"fmt"
+
 	"github.com/Microsoft/go-winio"
 	"github.com/davidmz/go-pageant"
 	"golang.org/x/crypto/ssh/agent"
