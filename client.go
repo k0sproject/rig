@@ -170,6 +170,8 @@ func (c *dependencies) Disconnect() {
 	}
 }
 
+var errInteractiveNotSupported = errors.New("the connection does not provide interactive exec support")
+
 // ExecInteractive runs a command interactively on the host if supported by the client implementation.
 func (c *Client) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if conn, ok := c.client.(protocol.InteractiveExecer); ok {
@@ -178,7 +180,7 @@ func (c *Client) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.
 		}
 		return nil
 	}
-	return fmt.Errorf("can't start an interactive session: %w", ErrNotSupported)
+	return errInteractiveNotSupported
 }
 
 // InitSystem returns a ServiceManager for the host's init system

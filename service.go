@@ -123,11 +123,13 @@ func (m *Service) IsRunning(ctx context.Context) bool {
 	return m.initsys.ServiceIsRunning(ctx, m.runner, m.name)
 }
 
+var errLogReaderNotSupported = errors.New("init system provider does not implement log reader")
+
 // Logs returns latest log lines for the service.
 func (m *Service) Logs(ctx context.Context, lines int) ([]string, error) {
 	logreader, ok := m.initsys.(initsystem.ServiceManagerLogReader)
 	if !ok {
-		return nil, fmt.Errorf("%w: system's init system does not implement log reader", ErrNotSupported)
+		return nil, errLogReaderNotSupported
 	}
 
 	rows, err := logreader.ServiceLogs(ctx, m.runner, m.name, lines)
