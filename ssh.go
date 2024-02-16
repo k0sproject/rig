@@ -406,6 +406,9 @@ func (c *SSH) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
 	if len(c.AuthMethods) > 0 {
 		log.Tracef("%s: using %d passed-in auth methods", c, len(c.AuthMethods))
 		config.Auth = c.AuthMethods
+	} else if len(signers) > 0 {
+		log.Debugf("%s: using all keys (%d) from ssh agent because a keypath was not explicitly given", c, len(signers))
+		config.Auth = append(config.Auth, ssh.PublicKeys(signers...))
 	}
 
 	for _, keyPath := range c.keyPaths {
@@ -433,11 +436,7 @@ func (c *SSH) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
 	}
 
 	if len(config.Auth) == 0 {
-		if len(signers) == 0 {
-			return nil, fmt.Errorf("%w: no usable authentication method found", ErrCantConnect)
-		}
-		log.Debugf("%s: using all keys (%d) from ssh agent because a keypath was not explicitly given", c, len(signers))
-		config.Auth = append(config.Auth, ssh.PublicKeys(signers...))
+		return nil, fmt.Errorf("%w: no usable authentication method found", ErrCantConnect)
 	}
 
 	return config, nil
