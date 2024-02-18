@@ -7,7 +7,7 @@ import (
 )
 
 // RegisterWindowsNoop registers a noop DecorateFunc with the given repository if the user is root.
-func RegisterWindowsNoop(repository *Repository) {
+func RegisterWindowsNoop(repository *Provider) {
 	repository.Register(func(runner exec.SimpleRunner) exec.DecorateFunc {
 		if !runner.IsWindows() {
 			return nil

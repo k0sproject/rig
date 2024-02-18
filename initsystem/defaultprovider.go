@@ -59,6 +59,11 @@ func init() {
 	RegisterLaunchd(DefaultProvider)
 }
 
+// InitSystemProvider is a function that returns a ServiceManager given a runner.
+type InitSystemProvider interface {
+	Get(conn exec.ContextRunner) (ServiceManager, error)
+}
+
 // Provider is a collection of ServiceManagerFactories.
 type Provider struct {
 	systems []ServiceManagerFactory

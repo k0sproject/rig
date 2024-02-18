@@ -8,21 +8,12 @@ import (
 	"github.com/k0sproject/rig/sudo"
 )
 
-// GetSudoDecorator returns a sudo decorator for the given runner from the default sudo provider.
-func GetSudoDecorator(runner exec.SimpleRunner) (exec.DecorateFunc, error) {
-	de, err := sudo.DefaultProvider.Get(runner)
-	if err != nil {
-		return nil, fmt.Errorf("get sudo decorator: %w", err)
-	}
-	return de, nil
-}
-
 // GetSudoRunner returns a new runner that uses sudo to execute commands.
 func GetSudoRunner(conn protocol.Connection) (exec.Runner, error) {
 	runner := exec.NewHostRunner(conn)
-	de, err := GetSudoDecorator(runner)
+	sudoR, err := sudo.DefaultProvider.Get(runner)
 	if err != nil {
 		return nil, fmt.Errorf("get sudo runner: %w", err)
 	}
-	return exec.NewHostRunner(conn, de), nil
+	return sudoR, nil
 }

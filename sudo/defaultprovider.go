@@ -24,26 +24,31 @@ func init() {
 // Factory is a function that returns a DecorateFunc if the sudo method is supported.
 type Factory func(exec.SimpleRunner) exec.DecorateFunc
 
-// Repository is a collection of sudo builders.
-type Repository struct {
+// SudoProvider is a factory for sudo methods.
+type SudoProvider interface {
+	Get(runner exec.Runner) (exec.Runner, error)
+}
+
+// Provider is a collection of sudo builders.
+type Provider struct {
 	builders []Factory
 }
 
 // NewProvider returns a new sudo repository.
-func NewProvider(factories ...Factory) *Repository {
-	return &Repository{builders: factories}
+func NewProvider(factories ...Factory) *Provider {
+	return &Provider{builders: factories}
 }
 
 // Register a new sudo builder.
-func (r *Repository) Register(b Factory) {
+func (r *Provider) Register(b Factory) {
 	r.builders = append(r.builders, b)
 }
 
 // Get the first builder that returns a non-nil DecorateFunc.
-func (r *Repository) Get(runner exec.SimpleRunner) (exec.DecorateFunc, error) {
+func (r *Provider) Get(runner exec.Runner) (exec.Runner, error) {
 	for _, b := range r.builders {
 		if f := b(runner); f != nil {
-			return f, nil
+			return exec.NewHostRunner(runner, f), nil
 		}
 	}
 	return nil, ErrNoSudo

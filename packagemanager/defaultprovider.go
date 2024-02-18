@@ -15,6 +15,11 @@ type PackageManager interface {
 	Update(ctx context.Context) error
 }
 
+// PackageManagerProvider returns a package manager implementation from a provider when given a runner.
+type PackageManagerProvider interface { //nolint:revive // TODO stutter
+	Get(runner exec.ContextRunner) (PackageManager, error)
+}
+
 var (
 	// DefaultProvider is the default repository of package managers.
 	DefaultProvider = NewProvider()
@@ -53,9 +58,9 @@ func (r *Provider) Register(factory Factory) {
 }
 
 // Get returns a package manager from the repository.
-func (r *Provider) Get(c exec.ContextRunner) (PackageManager, error) {
+func (r *Provider) Get(runner exec.ContextRunner) (PackageManager, error) {
 	for _, builder := range r.managers {
-		if mgr := builder(c); mgr != nil {
+		if mgr := builder(runner); mgr != nil {
 			return mgr, nil
 		}
 	}

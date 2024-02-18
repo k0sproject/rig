@@ -3,7 +3,12 @@ package remotefs
 import "github.com/k0sproject/rig/exec"
 
 // DefaultProvider is the default Repository for remote filesystem implementations.
-var DefaultProvider = NewRepository()
+var DefaultProvider = NewProvider()
+
+// RemoteFSProvider is a factory for remote filesystem implementations.
+type RemoteFSProvider interface {
+	Get(runner exec.Runner) (FS, error)
+}
 
 // Provider is a factory for remote filesystem implementations.
 type Provider struct{}
@@ -17,7 +22,7 @@ func (r *Provider) Get(c exec.Runner) (FS, error) {
 	return NewPosixFS(c), nil
 }
 
-// NewRepository returns a new Repository.
-func NewRepository() *Provider {
+// NewProvider returns a new Repository.
+func NewProvider() *Provider {
 	return &Provider{}
 }

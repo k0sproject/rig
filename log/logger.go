@@ -35,6 +35,11 @@ type LoggerInjectable struct {
 	logger Logger
 }
 
+// Log interface is implemented by the LoggerInjectable struct.
+type Log interface {
+	Log() Logger
+}
+
 type injectable interface {
 	SetLogger(logger Logger)
 	Log() Logger

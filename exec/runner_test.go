@@ -12,12 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func mockClient() *rigtest.MockConnection {
-	return rigtest.NewMockConnection()
-}
-
 func TestSimpleExec(t *testing.T) {
-	mc := mockClient()
+	mc := rigtest.NewMockConnection()
 	runner := exec.NewHostRunner(mc)
 	mc.AddMockCommand(regexp.MustCompile("^true"), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
 		return nil
@@ -31,7 +27,7 @@ func TestSimpleExec(t *testing.T) {
 }
 
 func TestExecOutput(t *testing.T) {
-	mc := mockClient()
+	mc := rigtest.NewMockConnection()
 	runner := exec.NewHostRunner(mc)
 	mc.AddMockCommand(regexp.MustCompile("^foo"), func(_ context.Context, _ io.Reader, stdout, _ io.Writer) error {
 		_, _ = stdout.Write([]byte("bar\n"))
@@ -43,7 +39,7 @@ func TestExecOutput(t *testing.T) {
 }
 
 func TestStdinInput(t *testing.T) {
-	mc := mockClient()
+	mc := rigtest.NewMockConnection()
 	runner := exec.NewHostRunner(mc)
 	mc.AddMockCommand(regexp.MustCompile("^foo"), func(_ context.Context, stdin io.Reader, stdout, _ io.Writer) error {
 		_, _ = io.Copy(stdout, stdin)
@@ -55,7 +51,7 @@ func TestStdinInput(t *testing.T) {
 }
 
 func TestBackground(t *testing.T) {
-	mc := mockClient()
+	mc := rigtest.NewMockConnection()
 	runner := exec.NewHostRunner(mc)
 	mc.AddMockCommand(regexp.MustCompile("^foo"), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
 		return errors.New("error from wait")

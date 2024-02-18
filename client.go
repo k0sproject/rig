@@ -9,7 +9,9 @@ import (
 	"sync"
 
 	"github.com/k0sproject/rig/abort"
+	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/initsystem"
+	"github.com/k0sproject/rig/log"
 	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/packagemanager"
 	"github.com/k0sproject/rig/protocol"
@@ -27,10 +29,26 @@ import (
 // The client also contains multiple methods for running commands on the
 // remote host, see exec.Runner for more.
 type Client struct {
-	*dependencies
+	options *Options
 
-	once sync.Once
-	sudo *Client
+	connectionConfigurer ConnectionConfigurer
+	connection           protocol.Connection
+	once                 sync.Once
+	mu                   sync.Mutex
+	initErr              error
+
+	exec.Runner `yaml:"-"`
+
+	log.LoggerInjectable `yaml:"-"`
+
+	*PackageManagerService `yaml:"-"`
+	*InitSystemService     `yaml:"-"`
+	*RemoteFSService       `yaml:"-"`
+	*OSReleaseService      `yaml:"-"`
+	*SudoService           `yaml:"-"`
+
+	sudoOnce  sync.Once
+	sudoClone *Client
 }
 
 // ErrNotInitialized is returned when a Connection is used without being properly initialized.
@@ -79,79 +97,93 @@ func (c *DefaultClient) UnmarshalYAML(unmarshal func(interface{}) error) error {
 
 // NewClient returns a new Connection object with the given options.
 func NewClient(opts ...Option) (*Client, error) {
-	conn := &Client{}
+	conn := &Client{options: NewOptions(opts...)}
 	if err := conn.setup(opts...); err != nil {
 		return nil, err
 	}
 	return conn, nil
 }
 
-func (c *Client) setup(opts ...Option) error {
-	var err error
-	c.once.Do(func() {
-		options := NewOptions(opts...)
-		c.dependencies = options.dependencies()
-		err = c.initClient()
-	})
+func (c *Client) setupConnection() error {
+	conn, err := c.options.GetConnection()
 	if err != nil {
-		return fmt.Errorf("init client: %w", err)
+		return fmt.Errorf("get connection: %w", err)
 	}
+	c.connection = conn
 	return nil
+}
+
+func (c *Client) setup(opts ...Option) error {
+	c.once.Do(func() {
+		c.options.Apply(opts...)
+		c.initErr = c.setupConnection()
+		if c.initErr != nil {
+			return
+		}
+		c.Runner = c.options.GetRunner(c.connection)
+		c.SudoService = c.options.GetSudoService(c)
+		c.InitSystemService = c.options.GetInitSystemService(c)
+		c.RemoteFSService = c.options.GetRemoteFSService(c)
+		c.PackageManagerService = c.options.GetPackageManagerService(c)
+	})
+	return c.initErr
 }
 
 // Service returns a Service object for the named service using the host's init system.
 func (c *Client) Service(name string) (*Service, error) {
-	is, err := c.InitSystem()
+	is, err := c.InitSystemService.GetServiceManager()
 	if err != nil {
 		return nil, err
 	}
-	return &Service{runner: c.Sudo(), initsys: is, name: name}, nil
+	runner, err := c.SudoService.GetSudoRunner()
+	if err != nil {
+		return nil, err
+	}
+	return &Service{runner: runner, initsys: is, name: name}, nil
 }
 
 // String returns a printable representation of the connection, which will look
 // like: `[ssh] address:port`
 func (c *Client) String() string {
-	if c.client == nil {
+	if c.connection == nil {
 		if c.connectionConfigurer == nil {
 			return "[uninitialized connection]"
 		}
 		return c.connectionConfigurer.String()
 	}
 
-	return c.client.String()
+	return c.connection.String()
 }
 
 // Clone returns a copy of the connection with the given options.
 func (c *Client) Clone(opts ...Option) *Client {
+	options := c.options.Clone()
+	options.Apply(opts...)
 	return &Client{
-		dependencies: c.dependencies.Clone(opts...),
+		options: options,
 	}
 }
 
 // Sudo returns a copy of the connection with a Runner that uses sudo.
 func (c *Client) Sudo() *Client {
-	if c.sudo == nil {
-		c.sudo = c.Clone(WithRunner(c.sudoRunner()))
-	}
-	return c.sudo
-}
-
-// FS returns a fs.FS compatible filesystem interface for accessing files on remote hosts.
-func (c *Client) FS() remotefs.FS {
-	fs, err := c.getFS()
-	if err != nil {
-		// TODO: maybe this needs to be setup in the constructor because getting an error here is very inconvenient for the user
-		return nil // get a null panic. this does not actually happen since getFS never returns an error, need some rethink
-	}
-	return fs
+	c.sudoOnce.Do(func() {
+		c.sudoClone = c.Clone(
+			WithRunner(c.SudoService.SudoRunner()),
+			WithConnection(c.connection),
+		)
+	})
+	return c.sudoClone
 }
 
 // Connect to the host.
 func (c *Client) Connect() error {
-	if c.client == nil {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.connection == nil {
 		return errors.Join(abort.ErrAbort, ErrNotInitialized)
 	}
-	if conn, ok := c.client.(protocol.Connector); ok {
+	if conn, ok := c.connection.(protocol.Connector); ok {
 		if err := conn.Connect(); err != nil {
 			return fmt.Errorf("client connect: %w", err)
 		}
@@ -161,11 +193,14 @@ func (c *Client) Connect() error {
 }
 
 // Disconnect from the host.
-func (c *dependencies) Disconnect() {
-	if c.client == nil {
+func (c *Client) Disconnect() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.connection == nil {
 		return
 	}
-	if conn, ok := c.client.(protocol.Disconnector); ok {
+	if conn, ok := c.connection.(protocol.Disconnector); ok {
 		conn.Disconnect()
 	}
 }
@@ -174,7 +209,7 @@ var errInteractiveNotSupported = errors.New("the connection does not provide int
 
 // ExecInteractive runs a command interactively on the host if supported by the client implementation.
 func (c *Client) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
-	if conn, ok := c.client.(protocol.InteractiveExecer); ok {
+	if conn, ok := c.connection.(protocol.InteractiveExecer); ok {
 		if err := conn.ExecInteractive(cmd, stdin, stdout, stderr); err != nil {
 			return fmt.Errorf("exec interactive: %w", err)
 		}
@@ -183,33 +218,44 @@ func (c *Client) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.
 	return errInteractiveNotSupported
 }
 
+// FS returns a fs.FS compatible filesystem interface for accessing files on the host.
+// If the filesystem can't be accessed, a filesystem that returns an error for all operations is returned.
+// If you need to handle the error, you can use client.RemoteFSService.GetFS() (FS, error) directly.
+func (c *Client) FS() remotefs.FS {
+	return c.RemoteFSService.FS()
+}
+
 // InitSystem returns a ServiceManager for the host's init system.
-func (c *Client) InitSystem() (initsystem.ServiceManager, error) {
-	return c.getInitSystem()
+// If the init system can't be determined, a ServiceManager that returns an error for all operations is returned.
+// If you need to handle the error, you can use client.InitSystemService.GetServiceManager() (initsystem.ServiceManager, error) directly.
+func (c *Client) InitSystem() initsystem.ServiceManager {
+	return c.InitSystemService.ServiceManager()
 }
 
-// PackageManager returns a PackageManager for the host's package manager.
-func (c *Client) PackageManager() (packagemanager.PackageManager, error) {
-	return c.getPackageManager()
+// PackageManager returns a PackageManager for the host's package manager
+// If the package manager can't be determined, a PackageManager that returns an error for all operations is returned.
+// If you need to handle the error, you can use client.PackageManagerService.GetPackageManager() (packagemanager.PackageManager, error) directly.
+func (c *Client) PackageManager() packagemanager.PackageManager {
+	return c.PackageManagerService.PackageManager()
 }
 
-// OS returns the host's operating system.
+// OS returns the host's operating system version and release information or an error if it can't be determined.
 func (c *Client) OS() (*os.Release, error) {
-	return c.getOS()
+	return c.OSReleaseService.GetOSRelease()
 }
 
 // Protocol returns the protocol used to connect to the host.
 func (c *Client) Protocol() string {
-	if c.client == nil {
+	if c.connection == nil {
 		return "uninitialized"
 	}
-	return c.client.Protocol()
+	return c.connection.Protocol()
 }
 
 // Address returns the address of the host.
 func (c *Client) Address() string {
-	if c.client != nil {
-		return c.client.IPAddress()
+	if c.connection != nil {
+		return c.connection.IPAddress()
 	}
 	return ""
 }

@@ -8,7 +8,9 @@ import (
 	"io"
 )
 
-type client interface {
+var _ connection = (*HostRunner)(nil)
+
+type connection interface {
 	fmt.Stringer
 	IsWindows() bool
 	StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (Waiter, error)
@@ -45,6 +47,7 @@ type Runner interface {
 	SimpleRunner
 	ContextRunner
 	CommandFormatter
+	connection
 }
 
 // validate interfaces.
@@ -58,7 +61,7 @@ var (
 
 // HostRunner is an exec.Runner that runs commands on a host.
 type HostRunner struct {
-	client     client
+	connection connection
 	decorators []DecorateFunc
 }
 
@@ -83,16 +86,16 @@ func (w *windowsWaiter) Wait() error {
 }
 
 // NewHostRunner returns a new HostRunner.
-func NewHostRunner(host client, decorators ...DecorateFunc) *HostRunner {
+func NewHostRunner(host connection, decorators ...DecorateFunc) *HostRunner {
 	return &HostRunner{
-		client:     host,
+		connection: host,
 		decorators: decorators,
 	}
 }
 
 // IsWindows returns true if the host is windows.
 func (r *HostRunner) IsWindows() bool {
-	return r.client.IsWindows()
+	return r.connection.IsWindows()
 }
 
 // Command returns the command string decorated with the runner's decorators.
@@ -110,7 +113,7 @@ func (r *HostRunner) Commandf(format string, args ...any) string {
 
 // String returns the client's string representation.
 func (r *HostRunner) String() string {
-	return r.client.String()
+	return r.connection.String()
 }
 
 // Start starts the command and returns a Waiter.
@@ -119,11 +122,11 @@ func (r *HostRunner) Start(ctx context.Context, format string, argsOrOpts ...any
 	execOpts := Build(opts...)
 	cmd := r.Command(execOpts.Commandf(format, args...))
 	execOpts.LogCmd(cmd)
-	waiter, err := r.client.StartProcess(ctx, cmd, execOpts.Stdin(), execOpts.Stdout(), execOpts.Stderr())
+	waiter, err := r.connection.StartProcess(ctx, cmd, execOpts.Stdin(), execOpts.Stdout(), execOpts.Stderr())
 	if err != nil {
 		return nil, fmt.Errorf("runner start command: %w", err)
 	}
-	if !execOpts.AllowWinStderr() && r.client.IsWindows() {
+	if !execOpts.AllowWinStderr() && r.connection.IsWindows() {
 		return &windowsWaiter{waiter, execOpts.WroteErr}, nil
 	}
 	return waiter, nil
@@ -173,6 +176,16 @@ func (r *HostRunner) ExecOutputContext(ctx context.Context, format string, argsO
 // ExecOutput executes the command and returns the stdout output or an error.
 func (r *HostRunner) ExecOutput(cmd string, argsOrOpts ...any) (string, error) {
 	return r.ExecOutputContext(context.Background(), cmd, argsOrOpts...)
+}
+
+// StartProcess calls the connection's StartProcess method. This is done to satisfy the client
+// interface and allow chaining of runners.
+func (r *HostRunner) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (Waiter, error) {
+	waiter, err := r.connection.StartProcess(ctx, r.Command(cmd), stdin, stdout, stderr)
+	if err != nil {
+		return nil, fmt.Errorf("runner start process: %w", err)
+	}
+	return waiter, nil
 }
 
 func groupParams(params ...any) ([]Option, []any) {
@@ -239,4 +252,9 @@ func (n ErrorRunner) Start(_ context.Context, _ string, _ ...any) (Waiter, error
 // StartBackground returns the error.
 func (n ErrorRunner) StartBackground(_ string, _ ...any) (Waiter, error) {
 	return nil, n.err
+}
+
+// StartProcess returns the error.
+func (r *ErrorRunner) StartProcess(_ context.Context, _ string, _ io.Reader, _ io.Writer, _ io.Writer) (Waiter, error) {
+	return nil, r.err
 }

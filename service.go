@@ -12,10 +12,10 @@ import (
 type serviceState int
 
 const (
-	// ServiceStateStopped is the stopped state.
-	ServiceStateStopped serviceState = 0
-	// ServiceStateStarted is the started state.
-	ServiceStateStarted serviceState = 1
+	// serviceStateStopped is the stopped state.
+	serviceStateStopped serviceState = 0
+	// serviceStateStarted is the started state.
+	serviceStateStarted serviceState = 1
 )
 
 // ErrEmptyResult is returned when a command returns an empty result.
@@ -43,7 +43,7 @@ func (m *Service) Start(ctx context.Context) error {
 	if err := m.initsys.StartService(ctx, m.runner, m.name); err != nil {
 		return fmt.Errorf("failed to start service '%s': %w", m.name, err)
 	}
-	return m.waitState(ctx, ServiceStateStarted)
+	return m.waitState(ctx, serviceStateStarted)
 }
 
 // Stop the service.
@@ -51,7 +51,7 @@ func (m *Service) Stop(ctx context.Context) error {
 	if err := m.initsys.StopService(ctx, m.runner, m.name); err != nil {
 		return fmt.Errorf("failed to stop service '%s': %w", m.name, err)
 	}
-	return m.waitState(ctx, ServiceStateStopped)
+	return m.waitState(ctx, serviceStateStopped)
 }
 
 // Restart the service.
@@ -76,7 +76,7 @@ func (m *Service) waitState(ctx context.Context, state serviceState) error {
 		case <-ctx.Done():
 			return fmt.Errorf("service '%s' did not reach the desired state: %w", m.name, ctx.Err())
 		default:
-			if m.initsys.ServiceIsRunning(ctx, m.runner, m.name) == (state == ServiceStateStarted) {
+			if m.initsys.ServiceIsRunning(ctx, m.runner, m.name) == (state == serviceStateStarted) {
 				return nil
 			}
 		}

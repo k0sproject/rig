@@ -22,6 +22,11 @@ func init() {
 // Factory is a function that returns release information for a host.
 type Factory func(runner exec.SimpleRunner) *Release
 
+// OSProvider is a factory for OS release information.
+type OSProvider interface {
+	Get(runner exec.SimpleRunner) (*Release, error)
+}
+
 // Provider is a collection of factories that can determine the host OS.
 type Provider struct {
 	factories []Factory
