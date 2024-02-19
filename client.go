@@ -8,7 +8,6 @@ import (
 	"io"
 	"sync"
 
-	"github.com/k0sproject/rig/abort"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/initsystem"
 	"github.com/k0sproject/rig/log"
@@ -18,16 +17,16 @@ import (
 	"github.com/k0sproject/rig/remotefs"
 )
 
-// Client is a struct you can embed into your application's "Host" types
-// to give them multi-protocol connectivity or use directly. The Client
-// provides a consistent interface to the host's init system, package
-// manager, filesystem, and more, regardless of the protocol used to
-// connect to the host. The Client also provides a consistent interface
-// to the host's operating system's basic functions in a similar fasion
-// as the stdlib's os package does for the local system, regardless
-// of the protocol used to connect and the remote operating system.
-// The client also contains multiple methods for running commands on the
-// remote host, see exec.Runner for more.
+// Client is a connection client and toolkit that can adapt to target
+// hosts running multiple operating systems and using multiple protocols
+// for connecting. The Client provides a consistent interface to the
+// host's init system, package manager, filesystem, and more, regardless
+// of the protocol used to connect. The Client also provides a consistent
+// interface to the host's operating system's basic functions in a
+// similar fasion as the stdlib's os package does for the local system,
+// regardless of the protocol used to connect and the remote operating
+// system. The client also contains multiple methods for running commands
+// on the remote host.
 type Client struct {
 	options *Options
 
@@ -37,15 +36,15 @@ type Client struct {
 	mu                   sync.Mutex
 	initErr              error
 
-	exec.Runner `yaml:"-"`
+	exec.Runner
 
-	log.LoggerInjectable `yaml:"-"`
+	log.LoggerInjectable
 
-	*PackageManagerService `yaml:"-"`
-	*InitSystemService     `yaml:"-"`
-	*RemoteFSService       `yaml:"-"`
-	*OSReleaseService      `yaml:"-"`
-	*SudoService           `yaml:"-"`
+	*PackageManagerService
+	*InitSystemService
+	*RemoteFSService
+	*OSReleaseService
+	*SudoService
 
 	sudoOnce  sync.Once
 	sudoClone *Client
@@ -56,22 +55,18 @@ var ErrNotInitialized = errors.New("connection not properly initialized")
 
 // DefaultClient is a Connection that is especially suitable for embedding into something that is unmarshalled from YAML.
 type DefaultClient struct {
-	ConnectionConfig CompositeConfig `yaml:",inline"`
+	ConnectionConfig *CompositeConfig `yaml:",inline"`
 	*Client          `yaml:"-"`
 }
 
 // Setup allows applying options to the connection to configure subcomponents.
 func (c *DefaultClient) Setup(opts ...Option) error {
-	client, err := c.ConnectionConfig.Connection()
+	opts = append(opts, WithConnectionConfigurer(c.ConnectionConfig))
+	client, err := NewClient(opts...)
 	if err != nil {
-		return fmt.Errorf("get client: %w", err)
+		return fmt.Errorf("new client: %w", err)
 	}
-	opts = append(opts, WithConnection(client))
-	connection, err := NewClient(opts...)
-	if err != nil {
-		return fmt.Errorf("new connection: %w", err)
-	}
-	c.Client = connection
+	c.Client = client
 	return nil
 }
 
@@ -151,7 +146,7 @@ func (c *Client) String() string {
 	return c.connection.String()
 }
 
-// Clone returns a copy of the connection with the given options.
+// Clone returns a copy of the connection with the given additional options applied.
 func (c *Client) Clone(opts ...Option) *Client {
 	options := c.options.Clone()
 	options.Apply(opts...)
@@ -177,7 +172,7 @@ func (c *Client) Connect() error {
 	defer c.mu.Unlock()
 
 	if c.connection == nil {
-		return errors.Join(abort.ErrAbort, ErrNotInitialized)
+		return errors.Join(protocol.ErrAbort, ErrNotInitialized)
 	}
 	if conn, ok := c.connection.(protocol.Connector); ok {
 		if err := conn.Connect(); err != nil {

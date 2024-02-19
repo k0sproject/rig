@@ -3,7 +3,6 @@ package rig
 import (
 	"fmt"
 
-	"github.com/k0sproject/rig/abort"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/initsystem"
 	"github.com/k0sproject/rig/log"
@@ -126,7 +125,7 @@ func (o *Options) GetConnection() (protocol.Connection, error) {
 		return o.connection, nil
 	}
 	if o.connectionConfigurer == nil {
-		return nil, fmt.Errorf("%w: no connection or connection configurer provided", abort.ErrAbort)
+		return nil, fmt.Errorf("%w: no connection or connection configurer provided", protocol.ErrAbort)
 	}
 	conn, err := o.connectionConfigurer.Connection()
 	if err != nil {

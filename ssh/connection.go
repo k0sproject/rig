@@ -17,10 +17,10 @@ import (
 	"time"
 
 	"github.com/creasty/defaults"
-	"github.com/k0sproject/rig/abort"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/homedir"
 	"github.com/k0sproject/rig/log"
+	"github.com/k0sproject/rig/protocol"
 	"github.com/k0sproject/rig/ssh/agent"
 	"github.com/k0sproject/rig/ssh/hostkey"
 	"github.com/kevinburke/ssh_config"
@@ -243,7 +243,7 @@ func (c *Connection) IsWindows() bool {
 func knownhostsCallback(path string, permissive, hash bool) (ssh.HostKeyCallback, error) {
 	cb, err := hostkey.KnownHostsFileCallback(path, permissive, hash)
 	if err != nil {
-		return nil, fmt.Errorf("%w: create host key validator: %w", abort.ErrAbort, err)
+		return nil, fmt.Errorf("%w: create host key validator: %w", protocol.ErrAbort, err)
 	}
 	return cb, nil
 }
@@ -375,7 +375,7 @@ func (c *Connection) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
 	}
 
 	if len(config.Auth) == 0 {
-		return nil, fmt.Errorf("%w: no usable authentication method found", abort.ErrAbort)
+		return nil, fmt.Errorf("%w: no usable authentication method found", protocol.ErrAbort)
 	}
 
 	return config, nil
@@ -388,12 +388,12 @@ func (c *Connection) connectViaBastion(dst string, config *ssh.ClientConfig) err
 	}
 	bastionSSH, ok := bastion.(*Connection)
 	if !ok {
-		return fmt.Errorf("%w: bastion connection is not an SSH connection", abort.ErrAbort)
+		return fmt.Errorf("%w: bastion connection is not an SSH connection", protocol.ErrAbort)
 	}
 	c.Log().Debugf("connecting to bastion %s", c)
 	if err := bastionSSH.Connect(); err != nil {
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
-			return fmt.Errorf("%w: bastion connect: %w", abort.ErrAbort, err)
+			return fmt.Errorf("%w: bastion connect: %w", protocol.ErrAbort, err)
 		}
 		return err
 	}
@@ -404,7 +404,7 @@ func (c *Connection) connectViaBastion(dst string, config *ssh.ClientConfig) err
 	client, chans, reqs, err := ssh.NewClientConn(bconn, dst, config)
 	if err != nil {
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
-			return fmt.Errorf("%w: bastion client connect: %w", abort.ErrAbort, err)
+			return fmt.Errorf("%w: bastion client connect: %w", protocol.ErrAbort, err)
 		}
 		return fmt.Errorf("bastion client connect: %w", err)
 	}
@@ -421,7 +421,7 @@ func (c *Connection) Connect() error {
 
 	config, err := c.clientConfig()
 	if err != nil {
-		return fmt.Errorf("%w: create config: %w", abort.ErrAbort, err)
+		return fmt.Errorf("%w: create config: %w", protocol.ErrAbort, err)
 	}
 
 	dst := net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
@@ -433,7 +433,7 @@ func (c *Connection) Connect() error {
 	clientDirect, err := ssh.Dial("tcp", dst, config)
 	if err != nil {
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
-			return fmt.Errorf("%w: %w", abort.ErrAbort, err)
+			return fmt.Errorf("%w: %w", protocol.ErrAbort, err)
 		}
 		return fmt.Errorf("ssh dial: %w", err)
 	}
@@ -443,7 +443,7 @@ func (c *Connection) Connect() error {
 
 func (c *Connection) pubkeySigner(signers []ssh.Signer, key ssh.PublicKey) (ssh.AuthMethod, error) {
 	if len(signers) == 0 {
-		return nil, fmt.Errorf("%w: signer not found for public key", abort.ErrAbort)
+		return nil, fmt.Errorf("%w: signer not found for public key", protocol.ErrAbort)
 	}
 
 	for _, s := range signers {
@@ -453,7 +453,7 @@ func (c *Connection) pubkeySigner(signers []ssh.Signer, key ssh.PublicKey) (ssh.
 		}
 	}
 
-	return nil, fmt.Errorf("%w: the provided key is a public key and is not known by agent", abort.ErrAbort)
+	return nil, fmt.Errorf("%w: the provided key is a public key and is not known by agent", protocol.ErrAbort)
 }
 
 func (c *Connection) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMethod, error) {
@@ -464,7 +464,7 @@ func (c *Connection) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMeth
 	c.Log().Tracef("checking identity file %s", path)
 	key, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("%w: read identity file %s: %w", abort.ErrAbort, path, err)
+		return nil, fmt.Errorf("%w: read identity file %s: %w", protocol.ErrAbort, path, err)
 	}
 
 	pubKey, _, _, _, err := ssh.ParseAuthorizedKey(key)
@@ -493,17 +493,17 @@ func (c *Connection) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMeth
 			c.Log().Tracef("%s: asking for a password to decrypt %s", c, path)
 			pass, err := c.PasswordCallback()
 			if err != nil {
-				return nil, fmt.Errorf("%w: password provider failed: %w", abort.ErrAbort, err)
+				return nil, fmt.Errorf("%w: password provider failed: %w", protocol.ErrAbort, err)
 			}
 			signer, err := ssh.ParsePrivateKeyWithPassphrase(key, []byte(pass))
 			if err != nil {
-				return nil, fmt.Errorf("%w: protected key %s decoding failed: %w", abort.ErrAbort, path, err)
+				return nil, fmt.Errorf("%w: protected key %s decoding failed: %w", protocol.ErrAbort, path, err)
 			}
 			return ssh.PublicKeys(signer), nil
 		}
 	}
 
-	return nil, fmt.Errorf("%w: can't parse keyfile: %s: %w", abort.ErrAbort, path, err)
+	return nil, fmt.Errorf("%w: can't parse keyfile: %s: %w", protocol.ErrAbort, path, err)
 }
 
 // StartProcess executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
