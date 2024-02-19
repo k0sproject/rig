@@ -17,16 +17,19 @@ import (
 	"github.com/k0sproject/rig/remotefs"
 )
 
-// Client is a connection client and toolkit that can adapt to target
-// hosts running multiple operating systems and using multiple protocols
-// for connecting. The Client provides a consistent interface to the
-// host's init system, package manager, filesystem, and more, regardless
-// of the protocol used to connect. The Client also provides a consistent
+// ErrNotInitialized is returned when a Connection is used without being properly initialized.
+var ErrNotInitialized = errors.New("connection not properly initialized")
+
+// Client is a swiss army knife client that can perform actions and run
+// commands on target hosts running on multiple operating systems and
+// using different protocols for communication.
+//
+// It provides a consistent interface to the host's init system,
+// package manager, filesystem, and more, regardless of the protocol
+// or the remote operating system. It also provides a consistent
 // interface to the host's operating system's basic functions in a
-// similar fasion as the stdlib's os package does for the local system,
-// regardless of the protocol used to connect and the remote operating
-// system. The client also contains multiple methods for running commands
-// on the remote host.
+// similar manner as the stdlib's os package does for the local system,
+// for example file operations.
 type Client struct {
 	options *Options
 
@@ -50,25 +53,44 @@ type Client struct {
 	sudoClone *Client
 }
 
-// ErrNotInitialized is returned when a Connection is used without being properly initialized.
-var ErrNotInitialized = errors.New("connection not properly initialized")
-
-// DefaultClient is a Connection that is especially suitable for embedding into something that is unmarshalled from YAML.
-type DefaultClient struct {
+// ClientWithConfig is a Client that is especially suitable for embedding into something that is unmarshalled from YAML.
+//
+// When embedded into a "host" object like this:
+//
+//	type Host struct {
+//	  rig.ClientWithConfig `yaml:",inline"`
+//	  // ...
+//	}
+//
+// And a configuration YAML like this:
+//
+//	hosts:
+//	- ssh:
+//	  address: 10.0.0.1
+//	  user: root
+//
+// You can unmarshal the configuration and start using the clients on the host objects:
+//
+//	if err := host.Connect(); err != nil {
+//	    log.Fatal(err)
+//	}
+//	out, err := host.ExecOutput("ls")
+//
+// The available protocols and defined in the CompositeConfig struct.
+type ClientWithConfig struct {
 	mu               sync.Mutex
 	ConnectionConfig CompositeConfig `yaml:",inline"`
 	*Client          `yaml:"-"`
 }
 
 // Setup allows applying options to the connection to configure subcomponents.
-func (c *DefaultClient) Setup(opts ...Option) error {
+func (c *ClientWithConfig) Setup(opts ...Option) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.Client != nil {
 		return nil
 	}
-	opts = append(opts, WithConnectionConfigurer(&c.ConnectionConfig))
-	client, err := NewClient(opts...)
+	client, err := NewClientWithConnectionConfigurer(&c.ConnectionConfig, opts...)
 	if err != nil {
 		return fmt.Errorf("new client: %w", err)
 	}
@@ -77,16 +99,16 @@ func (c *DefaultClient) Setup(opts ...Option) error {
 }
 
 // Connect to the host.
-func (c *DefaultClient) Connect(opts ...Option) error {
+func (c *ClientWithConfig) Connect(opts ...Option) error {
 	if err := c.Setup(opts...); err != nil {
 		return err
 	}
 	return c.Client.Connect()
 }
 
-// UnmarshalYAML unmarshals and setups a DefaultConnection from YAML.
-func (c *DefaultClient) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	type configuredConnection DefaultClient
+// UnmarshalYAML unmarshals and setups a connection from a YAML configuration.
+func (c *ClientWithConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	type configuredConnection ClientWithConfig
 	conn := (*configuredConnection)(c)
 	if err := unmarshal(conn); err != nil {
 		return fmt.Errorf("unmarshal client config: %w", err)
@@ -94,8 +116,29 @@ func (c *DefaultClient) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	return c.Setup()
 }
 
+// NewClientWithConnection returns a new Client with the given connection and options.
+func NewClientWithConnection(conn protocol.Connection, opts ...Option) (*Client, error) {
+	return NewClient(append(opts, WithConnection(conn))...)
+}
+
+// NewClientWithConnectionConfigurer returns a new Client with the given connection configurer and options.
+func NewClientWithConnectionConfigurer(cc ConnectionConfigurer, opts ...Option) (*Client, error) {
+	return NewClient(append(opts, WithConnectionConfigurer(cc))...)
+}
+
 // NewClient returns a new Connection object with the given options.
+//
+// You must use either WithConnection or WithConnectionConfigurer to provide a connection or
+// a way to configure a connection for the client.
+//
+// An example SSH connection:
+//
+//	client, err := rig.NewClient(WithConnectionConfigurer(&ssh.Config{Address: "10.0.0.1"}))
 func NewClient(opts ...Option) (*Client, error) {
+	options := NewOptions(opts...)
+	if err := options.Validate(); err != nil {
+		return nil, fmt.Errorf("validate client options: %w", err)
+	}
 	conn := &Client{options: NewOptions(opts...)}
 	if err := conn.setup(opts...); err != nil {
 		return nil, err
@@ -202,7 +245,7 @@ func (c *Client) Disconnect() {
 
 var errInteractiveNotSupported = errors.New("the connection does not provide interactive exec support")
 
-// ExecInteractive runs a command interactively on the host if supported by the client implementation.
+// ExecInteractive executes a command on the host and passes stdin/stdout/stderr as-is to the session.
 func (c *Client) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if conn, ok := c.connection.(protocol.InteractiveExecer); ok {
 		if err := conn.ExecInteractive(cmd, stdin, stdout, stderr); err != nil {

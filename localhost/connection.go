@@ -73,7 +73,7 @@ func (c *Connection) command(ctx context.Context, cmd string) *osexec.Cmd {
 	return osexec.CommandContext(ctx, "sh", "-c", "--", cmd)
 }
 
-// ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host.
+// ExecInteractive executes a command on the host and passes stdin/stdout/stderr as-is to the session.
 func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error { //nolint:cyclop
 	if cmd == "" {
 		cmd = os.Getenv("SHELL") + " -l"

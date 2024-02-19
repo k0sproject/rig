@@ -94,7 +94,7 @@ type testConfigConfigured struct {
 }
 
 type testHostConfigured struct {
-	rig.DefaultClient `yaml:"-,inline"`
+	rig.ClientWithConfig `yaml:"-,inline"`
 }
 
 func TestConfiguredConnectionUnmarshal(t *testing.T) {

@@ -146,7 +146,7 @@ func (m *Service) Logs(ctx context.Context, lines int) ([]string, error) {
 func GetService(runner exec.ContextRunner, name string) (*Service, error) {
 	initsys, err := GetServiceManager(runner)
 	if err != nil {
-		return nil, fmt.Errorf("get init system: %w", err)
+		return nil, fmt.Errorf("get init system service manager: %w", err)
 	}
 	return &Service{
 		runner:  runner,

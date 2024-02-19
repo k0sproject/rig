@@ -31,8 +31,8 @@ type OSReleaseService = os.Service
 // SudoService is a type alias for sudo.Service.
 type SudoService = sudo.Service
 
-// GetFS returns a new remote FS instance from the default remote.FS provider.
-func GetFS(runner exec.Runner) (remotefs.FS, error) {
+// GetRemoteFS returns a new remote FS instance from the default remote.FS provider.
+func GetRemoteFS(runner exec.Runner) (remotefs.FS, error) {
 	fs, err := remotefs.DefaultProvider().Get(runner)
 	if err != nil {
 		return nil, fmt.Errorf("get FS: %w", err)
