@@ -12,12 +12,12 @@ import (
 	ps "github.com/k0sproject/rig/pkg/powershell"
 )
 
-type resolveFunc func(*Connection) (OSVersion, error)
+type ResolveFunc func(*Connection) (OSVersion, error)
 
 var (
 	// Resolvers exposes an array of resolve functions where you can add your own if you need to detect some OS rig doesn't already know about
 	// (consider making a PR)
-	Resolvers = []resolveFunc{resolveLinux, resolveDarwin, resolveWindows}
+	Resolvers = []ResolveFunc{resolveLinux, resolveDarwin, resolveWindows}
 
 	errAbort = errors.New("base os detected but version resolving failed")
 )
@@ -54,7 +54,7 @@ func resolveLinux(conn *Connection) (OSVersion, error) {
 	}
 
 	var version OSVersion
-	if err := parseOSReleaseFile(output, &version); err != nil {
+	if err := ParseOSReleaseFile(output, &version); err != nil {
 		return OSVersion{}, errors.Join(errAbort, err)
 	}
 	return version, nil
@@ -115,11 +115,13 @@ func unquote(s string) string {
 	return s
 }
 
-func parseOSReleaseFile(s string, version *OSVersion) error {
+func ParseOSReleaseFile(s string, version *OSVersion) error {
 	scanner := bufio.NewScanner(strings.NewReader(s))
 	for scanner.Scan() {
 		fields := strings.SplitN(scanner.Text(), "=", 2)
 		switch fields[0] {
+		case "":
+		        // Empty line in the file - unexpected but may happen
 		case "ID":
 			version.ID = unquote(fields[1])
 		case "ID_LIKE":
@@ -128,6 +130,15 @@ func parseOSReleaseFile(s string, version *OSVersion) error {
 			version.Version = unquote(fields[1])
 		case "PRETTY_NAME":
 			version.Name = unquote(fields[1])
+		default:
+			if version.ExtraFields == nil {
+				version.ExtraFields = make(map[string]string)
+			}
+			if len(fields) > 1 {
+				version.ExtraFields[fields[0]] = unquote(fields[1])
+			} else {
+				version.ExtraFields[fields[0]] = ""
+			}
 		}
 	}
 
