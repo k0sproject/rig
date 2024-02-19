@@ -55,13 +55,19 @@ var ErrNotInitialized = errors.New("connection not properly initialized")
 
 // DefaultClient is a Connection that is especially suitable for embedding into something that is unmarshalled from YAML.
 type DefaultClient struct {
-	ConnectionConfig *CompositeConfig `yaml:",inline"`
+	mu               sync.Mutex
+	ConnectionConfig CompositeConfig `yaml:",inline"`
 	*Client          `yaml:"-"`
 }
 
 // Setup allows applying options to the connection to configure subcomponents.
 func (c *DefaultClient) Setup(opts ...Option) error {
-	opts = append(opts, WithConnectionConfigurer(c.ConnectionConfig))
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.Client != nil {
+		return nil
+	}
+	opts = append(opts, WithConnectionConfigurer(&c.ConnectionConfig))
 	client, err := NewClient(opts...)
 	if err != nil {
 		return fmt.Errorf("new client: %w", err)
@@ -72,10 +78,8 @@ func (c *DefaultClient) Setup(opts ...Option) error {
 
 // Connect to the host.
 func (c *DefaultClient) Connect(opts ...Option) error {
-	if c.Client == nil {
-		if err := c.Setup(opts...); err != nil {
-			return err
-		}
+	if err := c.Setup(opts...); err != nil {
+		return err
 	}
 	return c.Client.Connect()
 }
