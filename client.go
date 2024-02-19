@@ -237,7 +237,11 @@ func (c *Client) PackageManager() packagemanager.PackageManager {
 
 // OS returns the host's operating system version and release information or an error if it can't be determined.
 func (c *Client) OS() (*os.Release, error) {
-	return c.OSReleaseService.GetOSRelease()
+	os, err := c.OSReleaseService.GetOSRelease()
+	if err != nil {
+		return nil, fmt.Errorf("get os release: %w", err)
+	}
+	return os, nil
 }
 
 // Protocol returns the protocol used to connect to the host.

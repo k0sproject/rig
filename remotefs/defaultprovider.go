@@ -7,7 +7,7 @@ import (
 )
 
 // DefaultProvider is the default Repository for remote filesystem implementations.
-var DefaultProvider = sync.OnceValue(func() *Provider { return NewProvider() })
+var DefaultProvider = sync.OnceValue(NewProvider)
 
 // RemoteFSProvider is a factory for remote filesystem implementations.
 type RemoteFSProvider interface { //nolint:revive // stutter

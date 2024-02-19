@@ -16,19 +16,19 @@ import (
 // "Service" in their respective packages, you would need to define type aliases
 // locally to avoid name collisions.
 
-// PackageManagerService is a type alias for packagemanager.Service
+// PackageManagerService is a type alias for packagemanager.Service.
 type PackageManagerService = packagemanager.Service
 
-// InitSystemService is a type alias for initsystem.Service
+// InitSystemService is a type alias for initsystem.Service.
 type InitSystemService = initsystem.Service
 
-// RemoteFSService is a type alias for remotefs.Service
+// RemoteFSService is a type alias for remotefs.Service.
 type RemoteFSService = remotefs.Service
 
-// OSReleaseService is a type alias for os.Service
+// OSReleaseService is a type alias for os.Service.
 type OSReleaseService = os.Service
 
-// SudoService is a type alias for sudo.Service
+// SudoService is a type alias for sudo.Service.
 type SudoService = sudo.Service
 
 // GetFS returns a new remote FS instance from the default remote.FS provider.
@@ -67,7 +67,7 @@ func GetSudoRunner(runner exec.Runner) (exec.Runner, error) {
 	return sudoR, nil
 }
 
-// GetOS returns the remote host's operating system information from the default provider.
+// GetOSRelease returns the remote host's operating system information from the default provider.
 func GetOSRelease(runner exec.SimpleRunner) (*os.Release, error) {
 	os, err := os.DefaultProvider().Get(runner)
 	if err != nil {

@@ -109,6 +109,7 @@ func (o *Options) Apply(opts ...Option) {
 	}
 }
 
+// Clone returns a copy of the Options struct.
 func (o *Options) Clone() *Options {
 	return &Options{
 		connection:           o.connection,
@@ -119,6 +120,7 @@ func (o *Options) Clone() *Options {
 	}
 }
 
+// GetConnection returns the connection to use for the rig client. If no connection is set, it will use the ConnectionConfigurer to create one.
 func (o *Options) GetConnection() (protocol.Connection, error) {
 	if o.connection != nil {
 		return o.connection, nil
@@ -133,6 +135,7 @@ func (o *Options) GetConnection() (protocol.Connection, error) {
 	return conn, nil
 }
 
+// GetRunner returns the runner to use for the rig client.
 func (o *Options) GetRunner(conn protocol.Connection) exec.Runner {
 	if o.runner != nil {
 		return o.runner
@@ -164,33 +167,35 @@ func WithConnectionConfigurer(configurer ConnectionConfigurer) Option {
 	}
 }
 
-// WithFSService is a functional option that sets the filesystem to use for the connection.
+// WithRemoteFSProvider is a functional option that sets the filesystem provider to use for the connection's RemoteFSService.
 func WithRemoteFSProvider(provider remotefs.RemoteFSProvider) Option {
 	return func(o *Options) {
 		o.providers.remoteFSProvider = remoteFSProvider{provider: provider}
 	}
 }
 
-// WithInitSystem is a functional option that sets the init system to use for the connection.
+// WithInitSystemProvider is a functional option that sets the init system provider to use for the connection's InitSystemService.
 func WithInitSystemProvider(provider initsystem.InitSystemProvider) Option {
 	return func(o *Options) {
 		o.providers.initSystemProvider = initSystemProvider{provider: provider}
 	}
 }
 
+// WithOSReleaseProvider is a functional option that sets the os release provider to use for the connection's OSReleaseService.
 func WithOSReleaseProvider(provider os.OSReleaseProvider) Option {
 	return func(o *Options) {
 		o.providers.osReleaseProvider = osReleaseProvider{provider: provider}
 	}
 }
 
-// WithPackageManagerProvider is a functional option that sets the package manager repository to use for the connection.
+// WithPackageManagerProvider is a functional option that sets the package manager provider to use for the connection's PackageManagerService.
 func WithPackageManagerProvider(provider packagemanager.PackageManagerProvider) Option {
 	return func(o *Options) {
 		o.providers.packageManagerProvider = packageManagerProvider{provider: provider}
 	}
 }
 
+// WithSudoProvider is a functional option that sets the sudo provider to use for the connection's SudoService.
 func WithSudoProvider(provider sudo.SudoProvider) Option {
 	return func(o *Options) {
 		o.providers.sudoProvider = sudoProvider{provider: provider}
@@ -204,9 +209,10 @@ func WithLoggerFactory(loggerFactory LoggerFactory) Option {
 	}
 }
 
+// DefaultOptions returns a new Options struct with the default options applied.
 func DefaultOptions() *Options {
 	return &Options{
-		connectionConfigurer: &CompositeConfig{},
+		connectionConfigurer: defaultConnectionConfigurer(),
 		loggerFactory:        defaultLoggerFactory,
 		providers:            defaultProviders(),
 	}

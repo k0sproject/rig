@@ -29,7 +29,7 @@ type Factory = plumbing.Factory[exec.SimpleRunner, *Release]
 type Provider = plumbing.Provider[exec.SimpleRunner, *Release]
 
 // OSReleaseProvider is a factory for OS release information.
-type OSReleaseProvider interface {
+type OSReleaseProvider interface { //nolint:revive // stutter
 	Get(runner exec.SimpleRunner) (*Release, error)
 }
 

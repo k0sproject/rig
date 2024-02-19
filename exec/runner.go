@@ -217,44 +217,46 @@ type ErrorRunner struct {
 }
 
 // IsWindows returns false.
-func (n ErrorRunner) IsWindows() bool { return false }
+func (n *ErrorRunner) IsWindows() bool { return false }
 
 // String returns "always failing error runner".
-func (n ErrorRunner) String() string { return "always failing error runner" }
+func (n *ErrorRunner) String() string { return "always failing error runner" }
 
 // Exec returns the error.
-func (n ErrorRunner) Exec(_ string, _ ...any) error { return n.err }
+func (n *ErrorRunner) Exec(_ string, _ ...any) error { return n.err }
 
 // ExecOutput returns the error.
-func (n ErrorRunner) ExecOutput(_ string, _ ...any) (string, error) { return "", n.err }
+func (n *ErrorRunner) ExecOutput(_ string, _ ...any) (string, error) { return "", n.err }
 
 // ExecContext returns the error.
-func (n ErrorRunner) ExecContext(_ context.Context, _ string, _ ...any) error {
+func (n *ErrorRunner) ExecContext(_ context.Context, _ string, _ ...any) error {
 	return n.err
 }
 
 // ExecOutputContext returns the error.
-func (n ErrorRunner) ExecOutputContext(_ context.Context, _ string, _ ...any) (string, error) {
+func (n *ErrorRunner) ExecOutputContext(_ context.Context, _ string, _ ...any) (string, error) {
 	return "", n.err
 }
 
 // Commandf formats the string and returns it.
-func (n ErrorRunner) Commandf(format string, args ...any) string { return fmt.Sprintf(format, args...) }
+func (n *ErrorRunner) Commandf(format string, args ...any) string {
+	return fmt.Sprintf(format, args...)
+}
 
 // Command returns the string as is.
-func (n ErrorRunner) Command(cmd string) string { return cmd }
+func (n *ErrorRunner) Command(cmd string) string { return cmd }
 
 // Start returns the error.
-func (n ErrorRunner) Start(_ context.Context, _ string, _ ...any) (Waiter, error) {
+func (n *ErrorRunner) Start(_ context.Context, _ string, _ ...any) (Waiter, error) {
 	return nil, n.err
 }
 
 // StartBackground returns the error.
-func (n ErrorRunner) StartBackground(_ string, _ ...any) (Waiter, error) {
+func (n *ErrorRunner) StartBackground(_ string, _ ...any) (Waiter, error) {
 	return nil, n.err
 }
 
 // StartProcess returns the error.
-func (r *ErrorRunner) StartProcess(_ context.Context, _ string, _ io.Reader, _ io.Writer, _ io.Writer) (Waiter, error) {
-	return nil, r.err
+func (n *ErrorRunner) StartProcess(_ context.Context, _ string, _ io.Reader, _ io.Writer, _ io.Writer) (Waiter, error) {
+	return nil, n.err
 }
