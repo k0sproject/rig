@@ -108,6 +108,14 @@ func (o *Options) Apply(opts ...Option) {
 	}
 }
 
+// Validate the options.
+func (o *Options) Validate() error {
+	if o.connection == nil && o.connectionConfigurer == nil {
+		return fmt.Errorf("%w: no connection or connection configurer provided", protocol.ErrValidationFailed)
+	}
+	return nil
+}
+
 // Clone returns a copy of the Options struct.
 func (o *Options) Clone() *Options {
 	return &Options{
