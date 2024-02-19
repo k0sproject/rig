@@ -13,13 +13,13 @@ func NewHomebrew(c exec.ContextRunner) PackageManager {
 
 // RegisterHomebrew registers the homebrew package manager to a repository.
 func RegisterHomebrew(repository *Provider) {
-	repository.Register(func(c exec.ContextRunner) PackageManager {
+	repository.Register(func(c exec.ContextRunner) (PackageManager, bool) {
 		if c.IsWindows() {
-			return nil
+			return nil, false
 		}
 		if c.ExecContext(context.Background(), "command -v brew") != nil {
-			return nil
+			return nil, false
 		}
-		return NewHomebrew(c)
+		return NewHomebrew(c), true
 	})
 }

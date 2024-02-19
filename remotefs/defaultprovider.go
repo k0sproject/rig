@@ -1,12 +1,16 @@
 package remotefs
 
-import "github.com/k0sproject/rig/exec"
+import (
+	"sync"
+
+	"github.com/k0sproject/rig/exec"
+)
 
 // DefaultProvider is the default Repository for remote filesystem implementations.
-var DefaultProvider = NewProvider()
+var DefaultProvider = sync.OnceValue(func() *Provider { return NewProvider() })
 
 // RemoteFSProvider is a factory for remote filesystem implementations.
-type RemoteFSProvider interface {
+type RemoteFSProvider interface { //nolint:revive // stutter
 	Get(runner exec.Runner) (FS, error)
 }
 

@@ -133,13 +133,9 @@ func (c *Client) setup(opts ...Option) error {
 func (c *Client) Service(name string) (*Service, error) {
 	is, err := c.InitSystemService.GetServiceManager()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get service manager: %w", err)
 	}
-	runner, err := c.SudoService.GetSudoRunner()
-	if err != nil {
-		return nil, err
-	}
-	return &Service{runner: runner, initsys: is, name: name}, nil
+	return &Service{runner: c.Runner, initsys: is, name: name}, nil
 }
 
 // String returns a printable representation of the connection, which will look

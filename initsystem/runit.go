@@ -81,14 +81,14 @@ func (i Runit) ServiceLogs(ctx context.Context, h exec.ContextRunner, s string, 
 
 // RegisterRunit register runit in a repository.
 func RegisterRunit(repo *Provider) {
-	repo.Register(func(c exec.ContextRunner) ServiceManager {
+	repo.Register(func(c exec.ContextRunner) (ServiceManager, bool) {
 		if c.IsWindows() {
-			return nil
+			return nil, false
 		}
 		// Checking for 'runit' command presence
 		if c.ExecContext(context.Background(), "command -v runit > /dev/null 2>&1") != nil {
-			return nil
+			return nil, false
 		}
-		return Runit{}
+		return Runit{}, true
 	})
 }

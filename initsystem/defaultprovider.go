@@ -4,8 +4,10 @@ package initsystem
 import (
 	"context"
 	"errors"
+	"sync"
 
 	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/plumbing"
 )
 
 // ServiceManager defines the methods for interacting with an init system like OpenRC.
@@ -39,53 +41,36 @@ type ServiceEnvironmentManager interface {
 	ServiceEnvironmentContent(env map[string]string) string
 }
 
-// ServiceManagerFactory is a function that returns a ServiceManager.
-type ServiceManagerFactory func(c exec.ContextRunner) ServiceManager
-
 var (
 	// DefaultProvider is the default repository for init systems.
-	DefaultProvider = NewProvider()
+	DefaultProvider = sync.OnceValue(func() *Provider {
+		provider := NewProvider()
+		RegisterSystemd(provider)
+		RegisterOpenRC(provider)
+		RegisterUpstart(provider)
+		RegisterSysVinit(provider)
+		RegisterWinSCM(provider)
+		RegisterRunit(provider)
+		RegisterLaunchd(provider)
+		return provider
+	})
+
 	// ErrNoInitSystem is returned when no supported init system is found.
 	ErrNoInitSystem = errors.New("no supported init system found")
 )
 
-func init() {
-	RegisterSystemd(DefaultProvider)
-	RegisterOpenRC(DefaultProvider)
-	RegisterUpstart(DefaultProvider)
-	RegisterSysVinit(DefaultProvider)
-	RegisterWinSCM(DefaultProvider)
-	RegisterRunit(DefaultProvider)
-	RegisterLaunchd(DefaultProvider)
-}
-
 // InitSystemProvider is a function that returns a ServiceManager given a runner.
-type InitSystemProvider interface {
+type InitSystemProvider interface { //nolint:revive // stutter
 	Get(conn exec.ContextRunner) (ServiceManager, error)
 }
 
-// Provider is a collection of ServiceManagerFactories.
-type Provider struct {
-	systems []ServiceManagerFactory
-}
+// Factory is a type alias for the plumbing.Factory type specialized for initsystem ServiceManagers.
+type Factory = plumbing.Factory[exec.ContextRunner, ServiceManager]
 
-// Register adds a ServiceManagerFactory to the repository.
-func (r *Provider) Register(factory ServiceManagerFactory) {
-	r.systems = append(r.systems, factory)
-}
-
-// Get returns the first ServiceManager that matches the current system.
-func (r *Provider) Get(c exec.ContextRunner) (ServiceManager, error) {
-	for _, factory := range r.systems {
-		system := factory(c)
-		if system != nil {
-			return system, nil
-		}
-	}
-	return nil, ErrNoInitSystem
-}
+// Provider is a type alias for the plumbing.Provider type specialized for initsystem ServiceManagers.
+type Provider = plumbing.Provider[exec.ContextRunner, ServiceManager]
 
 // NewProvider returns a new Provider.
-func NewProvider(factories ...ServiceManagerFactory) *Provider {
-	return &Provider{systems: factories}
+func NewProvider() *Provider {
+	return plumbing.NewProvider[exec.ContextRunner, ServiceManager](ErrNoInitSystem)
 }

@@ -82,14 +82,14 @@ func (i SysVinit) DisableService(ctx context.Context, h exec.ContextRunner, s st
 
 // RegisterSysVinit registers SysVinit in a repository.
 func RegisterSysVinit(repo *Provider) {
-	repo.Register(func(c exec.ContextRunner) ServiceManager {
+	repo.Register(func(c exec.ContextRunner) (ServiceManager, bool) {
 		if c.IsWindows() {
-			return nil
+			return nil, false
 		}
 		if c.ExecContext(context.Background(), "test -d /etc/init.d") != nil {
-			return nil
+			return nil, false
 		}
 
-		return SysVinit{}
+		return SysVinit{}, true
 	})
 }

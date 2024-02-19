@@ -13,25 +13,25 @@ type windowsVersion struct {
 }
 
 // ResolveWindows resolves the OS release information for a windows host.
-func ResolveWindows(conn exec.SimpleRunner) *Release {
+func ResolveWindows(conn exec.SimpleRunner) (*Release, bool) {
 	if !conn.IsWindows() {
-		return nil
+		return nil, false
 	}
 	script := ps.Cmd("Get-CimInstance -ClassName Win32_OperatingSystem | Select-Object Caption, Version | ConvertTo-Json")
 	output, err := conn.ExecOutput(script)
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	var winver windowsVersion
 	if err := json.Unmarshal([]byte(output), &winver); err != nil {
-		return nil
+		return nil, false
 	}
 	return &Release{
 		ID:      "windows",
 		IDLike:  "windows",
 		Name:    winver.Caption,
 		Version: winver.Version,
-	}
+	}, true
 }
 
 // RegisterWindows registers the windows OS release resolver to a provider.

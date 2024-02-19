@@ -12,13 +12,13 @@ func Sudo(cmd string) string {
 
 // RegisterSudo registers a sudo DecorateFunc with the given repository.
 func RegisterSudo(repository *Provider) {
-	repository.Register(func(c exec.SimpleRunner) exec.DecorateFunc {
+	repository.Register(func(c exec.Runner) (exec.Runner, bool) {
 		if c.IsWindows() {
-			return nil
+			return nil, false
 		}
 		if c.Exec(Sudo("true")) != nil {
-			return nil
+			return nil, false
 		}
-		return Sudo
+		return exec.NewHostRunner(c, Sudo), true
 	})
 }

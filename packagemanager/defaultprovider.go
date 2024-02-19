@@ -4,8 +4,10 @@ package packagemanager
 import (
 	"context"
 	"errors"
+	"sync"
 
 	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/plumbing"
 )
 
 // PackageManager is a generic interface for package managers.
@@ -22,57 +24,30 @@ type PackageManagerProvider interface { //nolint:revive // TODO stutter
 
 var (
 	// DefaultProvider is the default repository of package managers.
-	DefaultProvider = NewProvider()
+	DefaultProvider = sync.OnceValue(func() *Provider {
+		provider := NewProvider()
+		RegisterApk(provider)
+		RegisterApt(provider)
+		RegisterYum(provider)
+		RegisterDnf(provider)
+		RegisterPacman(provider)
+		RegisterZypper(provider)
+		RegisterWindowsMultiManager(provider)
+		RegisterHomebrew(provider)
+		RegisterMacports(provider)
+		return provider
+	})
 	// ErrNoPackageManager is returned when no supported package manager is found.
 	ErrNoPackageManager = errors.New("no supported package manager found")
 )
 
-func init() {
-	RegisterApk(DefaultProvider)
-	RegisterApt(DefaultProvider)
-	RegisterYum(DefaultProvider)
-	RegisterDnf(DefaultProvider)
-	RegisterPacman(DefaultProvider)
-	RegisterZypper(DefaultProvider)
-	RegisterWindowsMultiManager(DefaultProvider)
-	RegisterHomebrew(DefaultProvider)
-	RegisterMacports(DefaultProvider)
-}
+// Factory is an alias for plumbing.Factory specialized for PackageManager.
+type Factory = plumbing.Factory[exec.ContextRunner, PackageManager]
 
-// Factory is a function that creates a package manager.
-type Factory func(c exec.ContextRunner) PackageManager
+// Provider is an alias for plumbing.Provider specialized for PackageManager.
+type Provider = plumbing.Provider[exec.ContextRunner, PackageManager]
 
-// Provider is a repository of package managers.
-type Provider struct {
-	managers []Factory
-}
-
-// NewProvider creates a new repository of package managers.
-func NewProvider(factories ...Factory) *Provider {
-	return &Provider{managers: factories}
-}
-
-// Register registers a package manager to the repository.
-func (r *Provider) Register(factory Factory) {
-	r.managers = append(r.managers, factory)
-}
-
-// Get returns a package manager from the repository.
-func (r *Provider) Get(runner exec.ContextRunner) (PackageManager, error) {
-	for _, builder := range r.managers {
-		if mgr := builder(runner); mgr != nil {
-			return mgr, nil
-		}
-	}
-	return nil, ErrNoPackageManager
-}
-
-func (r *Provider) getAll(c exec.ContextRunner) []PackageManager {
-	var managers []PackageManager
-	for _, builder := range r.managers {
-		if mgr := builder(c); mgr != nil {
-			managers = append(managers, mgr)
-		}
-	}
-	return managers
+// NewProvider creates a new instance of the specialized Provider.
+func NewProvider() *Provider {
+	return plumbing.NewProvider[exec.ContextRunner, PackageManager](ErrNoPackageManager)
 }

@@ -13,13 +13,13 @@ func NewDnf(c exec.ContextRunner) PackageManager {
 
 // RegisterDnf registers the dnf package manager to a repository.
 func RegisterDnf(repository *Provider) {
-	repository.Register(func(c exec.ContextRunner) PackageManager {
+	repository.Register(func(c exec.ContextRunner) (PackageManager, bool) {
 		if c.IsWindows() {
-			return nil
+			return nil, false
 		}
 		if c.ExecContext(context.Background(), "command -v dnf") != nil {
-			return nil
+			return nil, false
 		}
-		return NewDnf(c)
+		return NewDnf(c), true
 	})
 }

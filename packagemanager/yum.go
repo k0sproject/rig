@@ -13,17 +13,17 @@ func NewYum(c exec.ContextRunner) PackageManager {
 
 // RegisterYum registers the dnf package manager to a repository.
 func RegisterYum(repository *Provider) {
-	repository.Register(func(runner exec.ContextRunner) PackageManager {
+	repository.Register(func(runner exec.ContextRunner) (PackageManager, bool) {
 		if runner.IsWindows() {
-			return nil
+			return nil, false
 		}
 		if runner.ExecContext(context.Background(), "command -v yum") != nil {
-			return nil
+			return nil, false
 		}
 		if runner.ExecContext(context.Background(), "command -v dnf") == nil {
-			// use dnf when available
-			return nil
+			// prefer dnf when available
+			return nil, false
 		}
-		return NewYum(runner)
+		return NewYum(runner), true
 	})
 }

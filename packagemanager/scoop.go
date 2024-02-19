@@ -8,18 +8,18 @@ import (
 
 // NewScoop creates a new scoop package manager.
 func NewScoop(c exec.ContextRunner) PackageManager {
-	return newUniversalPackageManager(c, "scoop", "scoop", "install", "uninstall", "update *")
+	return newUniversalPackageManager(c, "scoop", "scoop.exe", "install", "uninstall", "update *")
 }
 
 // RegisterScoop registers the apk package manager to a repository.
 func RegisterScoop(repository *Provider) {
-	repository.Register(func(c exec.ContextRunner) PackageManager {
+	repository.Register(func(c exec.ContextRunner) (PackageManager, bool) {
 		if !c.IsWindows() {
-			return nil
+			return nil, false
 		}
-		if c.ExecContext(context.Background(), "where scoop.exe") != nil {
-			return nil
+		if c.ExecContext(context.Background(), "where.exe scoop.exe") != nil {
+			return nil, false
 		}
-		return NewScoop(c)
+		return NewScoop(c), true
 	})
 }

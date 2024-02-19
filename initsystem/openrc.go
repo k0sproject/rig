@@ -83,13 +83,13 @@ func (i OpenRC) ServiceEnvironmentContent(env map[string]string) string {
 
 // RegisterOpenRC registers OpenRC to a repository.
 func RegisterOpenRC(repo *Provider) {
-	repo.Register(func(c exec.ContextRunner) ServiceManager {
+	repo.Register(func(c exec.ContextRunner) (ServiceManager, bool) {
 		if c.IsWindows() {
-			return nil
+			return nil, false
 		}
 		if c.ExecContext(context.Background(), `command -v openrc-init > /dev/null 2>&1 || (stat /etc/inittab > /dev/null 2>&1 && (grep ::sysinit: /etc/inittab | grep -q openrc) )`) != nil {
-			return nil
+			return nil, false
 		}
-		return &OpenRC{}
+		return &OpenRC{}, true
 	})
 }

@@ -8,18 +8,18 @@ import (
 
 // NewWinget creates a new winget package manager.
 func NewWinget(c exec.ContextRunner) PackageManager {
-	return newUniversalPackageManager(c, "winget", "winget", "install", "uninstall", "upgrade --all")
+	return newUniversalPackageManager(c, "winget", "winget.exe", "install", "uninstall", "upgrade --all")
 }
 
 // RegisterWinget registers the winget (preinstalled on win10+) package manager to a repository.
 func RegisterWinget(repository *Provider) {
-	repository.Register(func(c exec.ContextRunner) PackageManager {
+	repository.Register(func(c exec.ContextRunner) (PackageManager, bool) {
 		if !c.IsWindows() {
-			return nil
+			return nil, false
 		}
-		if c.ExecContext(context.Background(), "where.exe winget") != nil {
-			return nil
+		if c.ExecContext(context.Background(), "where.exe winget.exe") != nil {
+			return nil, false
 		}
-		return NewWinget(c)
+		return NewWinget(c), true
 	})
 }

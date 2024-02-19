@@ -20,13 +20,13 @@ func NewApt(c exec.ContextRunner) PackageManager {
 
 // RegisterApt registers the apt package manager to a repository.
 func RegisterApt(repository *Provider) {
-	repository.Register(func(c exec.ContextRunner) PackageManager {
+	repository.Register(func(c exec.ContextRunner) (PackageManager, bool) {
 		if c.IsWindows() {
-			return nil
+			return nil, false
 		}
 		if c.ExecContext(context.Background(), "command -v apk") != nil {
-			return nil
+			return nil, false
 		}
-		return NewApt(c)
+		return NewApt(c), true
 	})
 }

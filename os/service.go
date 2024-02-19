@@ -25,6 +25,6 @@ func (p *Service) GetOSRelease() (*Release, error) {
 
 // NewOSReleaseService creates a new instance of Service with the provided
 // provider and runner.
-func NewOSReleaseService(provider OSProvider, runner exec.SimpleRunner) *Service {
+func NewOSReleaseService(provider OSReleaseProvider, runner exec.SimpleRunner) *Service {
 	return &Service{plumbing.NewLazyService[exec.SimpleRunner, *Release](provider, runner)}
 }

@@ -12,13 +12,13 @@ func Doas(cmd string) string {
 
 // RegisterDoas registers a doas DecorateFunc with the given repository.
 func RegisterDoas(repository *Provider) {
-	repository.Register(func(c exec.SimpleRunner) exec.DecorateFunc {
+	repository.Register(func(c exec.Runner) (exec.Runner, bool) {
 		if c.IsWindows() {
-			return nil
+			return nil, false
 		}
 		if c.Exec(Doas("true")) != nil {
-			return nil
+			return nil, false
 		}
-		return Sudo
+		return exec.NewHostRunner(c, Doas), true
 	})
 }

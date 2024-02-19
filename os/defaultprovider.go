@@ -2,52 +2,38 @@ package os
 
 import (
 	"errors"
+	"sync"
 
 	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/plumbing"
 )
 
 var (
 	// DefaultProvider is the default OS release provider.
-	DefaultProvider = NewProvider()
+	DefaultProvider = sync.OnceValue(func() *Provider {
+		provider := NewProvider()
+		provider.Register(ResolveLinux)
+		provider.Register(ResolveWindows)
+		provider.Register(ResolveDarwin)
+		return provider
+	})
+
 	// ErrNotRecognized is returned when the host OS is not recognized.
 	ErrNotRecognized = errors.New("host OS not recognized")
 )
 
-func init() {
-	DefaultProvider.Register(ResolveLinux)
-	DefaultProvider.Register(ResolveWindows)
-	DefaultProvider.Register(ResolveDarwin)
-}
+// Factory is a function that returns an OS release based on the provided runner.
+type Factory = plumbing.Factory[exec.SimpleRunner, *Release]
 
-// Factory is a function that returns release information for a host.
-type Factory func(runner exec.SimpleRunner) *Release
+// Provider is a type that can determine the host OS given a runner.
+type Provider = plumbing.Provider[exec.SimpleRunner, *Release]
 
-// OSProvider is a factory for OS release information.
-type OSProvider interface {
+// OSReleaseProvider is a factory for OS release information.
+type OSReleaseProvider interface {
 	Get(runner exec.SimpleRunner) (*Release, error)
 }
 
-// Provider is a collection of factories that can determine the host OS.
-type Provider struct {
-	factories []Factory
-}
-
 // NewProvider creates a new OS release provider.
-func NewProvider(factories ...Factory) *Provider {
-	return &Provider{factories: factories}
-}
-
-// Get returns the OS release information for the host using the registered factories.
-func (p *Provider) Get(runner exec.SimpleRunner) (*Release, error) {
-	for _, f := range p.factories {
-		if os := f(runner); os != nil {
-			return os, nil
-		}
-	}
-	return nil, ErrNotRecognized
-}
-
-// Register a factory to the provider.
-func (p *Provider) Register(f Factory) {
-	p.factories = append(p.factories, f)
+func NewProvider() *Provider {
+	return plumbing.NewProvider[exec.SimpleRunner, *Release](ErrNotRecognized)
 }

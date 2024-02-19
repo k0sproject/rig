@@ -74,14 +74,14 @@ func (i Launchd) ServiceLogs(ctx context.Context, h exec.ContextRunner, s string
 
 // RegisterLaunchd registers the launchd init system to a init system repository.
 func RegisterLaunchd(repo *Provider) {
-	repo.Register(func(c exec.ContextRunner) ServiceManager {
+	repo.Register(func(c exec.ContextRunner) (ServiceManager, bool) {
 		if c.IsWindows() {
-			return nil
+			return nil, false
 		}
 		if err := c.ExecContext(context.Background(), "test -f /System/Library/CoreServices/SystemVersion.plist"); err != nil {
-			return nil
+			return nil, false
 		}
 
-		return Launchd{}
+		return Launchd{}, true
 	})
 }

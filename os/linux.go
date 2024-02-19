@@ -10,25 +10,25 @@ import (
 )
 
 // ResolveLinux resolves the OS release information for a linux host.
-func ResolveLinux(conn exec.SimpleRunner) *Release {
+func ResolveLinux(conn exec.SimpleRunner) (*Release, bool) {
 	if conn.IsWindows() {
-		return nil
+		return nil, false
 	}
 
 	if err := conn.Exec("uname | grep -q Linux"); err != nil {
-		return nil
+		return nil, false
 	}
 
 	output, err := conn.ExecOutput("cat /etc/os-release || cat /usr/lib/os-release")
 	if err != nil {
-		return nil
+		return nil, false
 	}
 
 	version := &Release{}
 	if err := parseOSReleaseFile(output, version); err != nil {
-		return nil
+		return nil, false
 	}
-	return version
+	return version, true
 }
 
 func parseOSReleaseFile(s string, version *Release) error {

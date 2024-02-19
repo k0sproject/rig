@@ -13,13 +13,13 @@ func NewApk(c exec.ContextRunner) PackageManager {
 
 // RegisterApk registers the apk package manager to a repository.
 func RegisterApk(repository *Provider) {
-	repository.Register(func(c exec.ContextRunner) PackageManager {
+	repository.Register(func(c exec.ContextRunner) (PackageManager, bool) {
 		if c.IsWindows() {
-			return nil
+			return nil, false
 		}
 		if c.ExecContext(context.Background(), "command -v apk") != nil {
-			return nil
+			return nil, false
 		}
-		return NewApk(c)
+		return NewApk(c), true
 	})
 }

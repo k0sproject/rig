@@ -24,7 +24,7 @@ func TestPackageManagerService_SuccessfulInitialization(t *testing.T) {
 		return errors.New("mock error")
 	})
 
-	pms := packagemanager.NewPackageManagerService(packagemanager.DefaultProvider, runner)
+	pms := packagemanager.NewPackageManagerService(packagemanager.DefaultProvider(), runner)
 
 	pm, err := pms.GetPackageManager()
 	require.NoError(t, err)
@@ -45,14 +45,14 @@ func TestPackageManagerService_InitializationFailure(t *testing.T) {
 		return errors.New("mock error")
 	})
 
-	pms := packagemanager.NewPackageManagerService(packagemanager.DefaultProvider, runner)
+	pms := packagemanager.NewPackageManagerService(packagemanager.DefaultProvider(), runner)
 	pm, err := pms.GetPackageManager()
 	require.ErrorIs(t, err, packagemanager.ErrNoPackageManager)
 	require.Nil(t, pm)
 
 	require.NotNil(t, pms.PackageManager())
 	err = pms.PackageManager().Install(context.Background(), "sample-package")
-	require.ErrorContains(t, err, "get package manager")
+	require.ErrorIs(t, err, packagemanager.ErrNoPackageManager)
 	commands := mc.Commands()
 	require.Contains(t, commands, "command -v zypper")
 	require.Contains(t, commands, "command -v apk")

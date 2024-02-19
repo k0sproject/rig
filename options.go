@@ -77,7 +77,7 @@ func (p *remoteFSProvider) GetRemoteFSService(runner exec.Runner) *remotefs.Serv
 }
 
 type osReleaseProvider struct {
-	provider os.OSProvider
+	provider os.OSReleaseProvider
 }
 
 func (p *osReleaseProvider) GetOSReleaseService(runner exec.Runner) *os.Service {
@@ -94,11 +94,11 @@ func (p *sudoProvider) GetSudoService(runner exec.Runner) *sudo.Service {
 
 func defaultProviders() providers {
 	return providers{
-		packageManagerProvider: packageManagerProvider{provider: packagemanager.DefaultProvider},
-		initSystemProvider:     initSystemProvider{provider: initsystem.DefaultProvider},
-		remoteFSProvider:       remoteFSProvider{provider: remotefs.DefaultProvider},
-		osReleaseProvider:      osReleaseProvider{provider: os.DefaultProvider},
-		sudoProvider:           sudoProvider{provider: sudo.DefaultProvider},
+		packageManagerProvider: packageManagerProvider{provider: packagemanager.DefaultProvider()},
+		initSystemProvider:     initSystemProvider{provider: initsystem.DefaultProvider()},
+		remoteFSProvider:       remoteFSProvider{provider: remotefs.DefaultProvider()},
+		osReleaseProvider:      osReleaseProvider{provider: os.DefaultProvider()},
+		sudoProvider:           sudoProvider{provider: sudo.DefaultProvider()},
 	}
 }
 
@@ -178,7 +178,7 @@ func WithInitSystemProvider(provider initsystem.InitSystemProvider) Option {
 	}
 }
 
-func WithOSReleaseProvider(provider os.OSProvider) Option {
+func WithOSReleaseProvider(provider os.OSReleaseProvider) Option {
 	return func(o *Options) {
 		o.providers.osReleaseProvider = osReleaseProvider{provider: provider}
 	}

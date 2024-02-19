@@ -13,14 +13,14 @@ func NewMacports(c exec.ContextRunner) PackageManager {
 
 // RegisterMacports registers the macports package manager to a repository.
 func RegisterMacports(repository *Provider) {
-	repository.Register(func(c exec.ContextRunner) PackageManager {
+	repository.Register(func(c exec.ContextRunner) (PackageManager, bool) {
 		if c.IsWindows() {
-			return nil
+			return nil, false
 		}
 		// seems a bit suspiciously vague, maybe we should check port --help and match against that?
 		if c.ExecContext(context.Background(), "command -v port") != nil {
-			return nil
+			return nil, false
 		}
-		return NewMacports(c)
+		return NewMacports(c), true
 	})
 }

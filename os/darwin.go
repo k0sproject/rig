@@ -7,18 +7,18 @@ import (
 )
 
 // ResolveDarwin resolves the OS release information for a darwin host.
-func ResolveDarwin(conn exec.SimpleRunner) *Release {
+func ResolveDarwin(conn exec.SimpleRunner) (*Release, bool) {
 	if conn.IsWindows() {
-		return nil
+		return nil, false
 	}
 
 	if err := conn.Exec("uname | grep -q Darwin"); err != nil {
-		return nil
+		return nil, false
 	}
 
 	version, err := conn.ExecOutput("sw_vers -productVersion")
 	if err != nil {
-		return nil
+		return nil, false
 	}
 
 	var name string
@@ -31,7 +31,7 @@ func ResolveDarwin(conn exec.SimpleRunner) *Release {
 		IDLike:  "darwin",
 		Version: version,
 		Name:    name,
-	}
+	}, true
 }
 
 // RegisterDarwin registers the darwin OS release resolver to a provider.

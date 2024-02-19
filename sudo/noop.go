@@ -11,13 +11,13 @@ func Noop(cmd string) string {
 
 // RegisterUID0Noop registers a noop DecorateFunc with the given repository which can be used when the user is root.
 func RegisterUID0Noop(repository *Provider) {
-	repository.Register(func(c exec.SimpleRunner) exec.DecorateFunc {
+	repository.Register(func(c exec.Runner) (exec.Runner, bool) {
 		if c.IsWindows() {
-			return nil
+			return nil, false
 		}
 		if c.Exec(`[ "$(id -u)" = 0 ]`) != nil {
-			return nil
+			return nil, false
 		}
-		return Noop
+		return exec.NewHostRunner(c, Noop), true
 	})
 }
