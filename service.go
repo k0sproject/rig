@@ -21,7 +21,7 @@ const (
 // ErrEmptyResult is returned when a command returns an empty result.
 var ErrEmptyResult = errors.New("empty result")
 
-// Service is an interface for managing a service on an initsystem.
+// Service running on a host.
 type Service struct {
 	runner  exec.ContextRunner
 	name    string

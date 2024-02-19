@@ -1,4 +1,4 @@
-// Package protocol : contains the interfaces for the protocol implementations
+// Package protocol contains the interfaces for the protocol implementations
 package protocol
 
 import (

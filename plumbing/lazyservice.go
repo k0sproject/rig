@@ -1,4 +1,4 @@
-// Package plumbing defines a generic types for the dependency injection mechanics in rig.
+// Package plumbing defines generic types for the dependency injection mechanics in rig.
 package plumbing
 
 import (

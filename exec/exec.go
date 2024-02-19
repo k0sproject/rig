@@ -1,4 +1,4 @@
-// Package exec provides helpers for setting execution options for commands
+// Package exec provides command exeecution capabilities for rig connections.
 package exec
 
 // DisableRedact will disable all redaction of sensitive data.

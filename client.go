@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/k0sproject/rig/exec"
-	"github.com/k0sproject/rig/initsystem"
 	"github.com/k0sproject/rig/log"
 	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/packagemanager"
@@ -171,7 +170,13 @@ func (c *Client) setup(opts ...Option) error {
 	return c.initErr
 }
 
-// Service returns a Service object for the named service using the host's init system.
+// Service returns a manager for a named service on the remote host using
+// the host's init system if one can be detected. This can be used to
+// start, stop, restart, and check the status of services.
+//
+// You most likely need to use this with Sudo:
+//
+//	service, err := client.Sudo().Service("nginx")
 func (c *Client) Service(name string) (*Service, error) {
 	is, err := c.InitSystemService.GetServiceManager()
 	if err != nil {
@@ -257,21 +262,16 @@ func (c *Client) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.
 }
 
 // FS returns a fs.FS compatible filesystem interface for accessing files on the host.
-// If the filesystem can't be accessed, a filesystem that returns an error for all operations is returned.
-// If you need to handle the error, you can use client.RemoteFSService.GetFS() (FS, error) directly.
+//
+// If the filesystem can't be accessed, a filesystem that returns an error for all operations is returned
+// instead. If you need to handle the error, you can use c.RemoteFSService.GetFS() directly.
 func (c *Client) FS() remotefs.FS {
 	return c.RemoteFSService.FS()
 }
 
-// InitSystem returns a ServiceManager for the host's init system.
-// If the init system can't be determined, a ServiceManager that returns an error for all operations is returned.
-// If you need to handle the error, you can use client.InitSystemService.GetServiceManager() (initsystem.ServiceManager, error) directly.
-func (c *Client) InitSystem() initsystem.ServiceManager {
-	return c.InitSystemService.ServiceManager()
-}
-
-// PackageManager returns a PackageManager for the host's package manager
-// If the package manager can't be determined, a PackageManager that returns an error for all operations is returned.
+// PackageManager for the host's operating system. This can be used to install or remove packages.
+//
+// If a known package manager can't be detected, a PackageManager that returns an error for all operations is returned.
 // If you need to handle the error, you can use client.PackageManagerService.GetPackageManager() (packagemanager.PackageManager, error) directly.
 func (c *Client) PackageManager() packagemanager.PackageManager {
 	return c.PackageManagerService.PackageManager()

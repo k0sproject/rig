@@ -43,6 +43,7 @@ type dialFunc func(network, addr string) (net.Conn, error)
 
 // NewConnection creates a new WinRM connection. Error is currently always nil.
 func NewConnection(cfg Config) (*Connection, error) {
+	cfg.SetDefaults()
 	return &Connection{Config: cfg}, nil
 }
 
@@ -277,7 +278,7 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 	return res, nil
 }
 
-// ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host.
+// ExecInteractive executes a command on the host and passes stdin/stdout/stderr as-is to the session.
 func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if cmd == "" {
 		cmd = "cmd.exe"

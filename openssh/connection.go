@@ -1,4 +1,4 @@
-// Package openssh provides a rig protocol implementation that uses the system openssh client "ssh" to connect to remote hosts.
+// Package openssh provides a rig protocol implementation that uses the system's openssh client "ssh" to connect to remote hosts.
 package openssh
 
 import (
@@ -40,6 +40,7 @@ type Connection struct {
 
 // NewConnection creates a new OpenSSH connection. Error is currently always nil.
 func NewConnection(cfg Config) (*Connection, error) {
+	cfg.SetDefaults()
 	return &Connection{Config: cfg}, nil
 }
 
@@ -237,7 +238,7 @@ func (c *Connection) StartProcess(ctx context.Context, cmdStr string, stdin io.R
 	return cmd, nil
 }
 
-// ExecInteractive executes an interactive command on the remote host, streaming stdin, stdout and stderr.
+// ExecInteractive executes a command on the host and passes stdin/stdout/stderr as-is to the session.
 func (c *Connection) ExecInteractive(cmdStr string, stdin io.Reader, stdout, stderr io.Writer) error {
 	cmd, err := c.StartProcess(context.Background(), cmdStr, stdin, stdout, stderr)
 	if err != nil {
