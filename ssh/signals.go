@@ -15,6 +15,9 @@ import (
 	"golang.org/x/term"
 )
 
+// TODO use session.WindowChange() instead of sending the request manually.
+// TODO use session.Signal() instead of writing control characters to the stdin.
+
 // captureSignals intercepts interrupt / resize signals and sends them over to the writer.
 func captureSignals(stdin io.Writer, session *ssh.Session) func() {
 	stopCh := make(chan struct{})
