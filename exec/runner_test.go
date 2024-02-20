@@ -3,6 +3,7 @@ package exec_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"regexp"
 	"testing"
@@ -28,12 +29,22 @@ func TestSimpleExec(t *testing.T) {
 
 func TestWindowsShell(t *testing.T) {
 	mc := rigtest.NewMockConnection()
+	mc.Windows = true
 	runner := exec.NewHostRunner(mc)
 	mc.AddMockCommand(regexp.MustCompile("^cmd.exe"), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
 		return nil
 	})
 	require.NoError(t, runner.Exec("echo hello"))
 	require.True(t, mc.ReceivedString("cmd.exe /C echo hello"))
+}
+
+func TestPrintfErrors(t *testing.T) {
+	mc := rigtest.NewMockConnection()
+	runner := exec.NewHostRunner(mc)
+	args := []interface{}{"hello"}
+	err := runner.Exec(fmt.Sprintf("echo %s %d", args...)) // intentional error
+	require.ErrorIs(t, err, exec.ErrInvalidCommand)
+	require.ErrorContains(t, err, "refusing")
 }
 
 func TestExecOutput(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 )
 
@@ -66,8 +67,12 @@ type HostRunner struct {
 	decorators []DecorateFunc
 }
 
-// ErrWroteStderr is returned when a windows command writes to stderr, unless AllowWinStderr is set.
-var ErrWroteStderr = errors.New("command wrote output to stderr")
+var (
+	// ErrWroteStderr is returned when a windows command writes to stderr, unless AllowWinStderr is set.
+	ErrWroteStderr = errors.New("command wrote output to stderr")
+	// ErrInvalidCommand is returned when a command is somehow invalid
+	ErrInvalidCommand = errors.New("invalid command")
+)
 
 // windowsWaiter is a Waiter that checks for errors written to stderr.
 type windowsWaiter struct {
@@ -117,11 +122,17 @@ func (r *HostRunner) String() string {
 	return r.connection.String()
 }
 
+var printfErrorRegex = regexp.MustCompile(`[^\\]%![a-zA-Z]\(.+?\)`)
+
 // Start starts the command and returns a Waiter.
 func (r *HostRunner) Start(ctx context.Context, command string, opts ...Option) (Waiter, error) {
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("runner context error: %w", ctx.Err())
 	}
+	if printfErrorRegex.MatchString(command) {
+		return nil, fmt.Errorf("%w: refusing to run a command containing printf-style %%!(..) errors: %s", ErrInvalidCommand, command)
+	}
+
 	execOpts := Build(opts...)
 	cmd := r.Command(execOpts.Command(command))
 	// we don't know if the default shell is cmd or powershell, so to make sure commands
