@@ -26,6 +26,16 @@ func TestSimpleExec(t *testing.T) {
 	require.Error(t, runner.Exec("false"))
 }
 
+func TestWindowsShell(t *testing.T) {
+	mc := rigtest.NewMockConnection()
+	runner := exec.NewHostRunner(mc)
+	mc.AddMockCommand(regexp.MustCompile("^cmd.exe"), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
+		return nil
+	})
+	require.NoError(t, runner.Exec("echo hello"))
+	require.True(t, mc.ReceivedString("cmd.exe /C echo hello"))
+}
+
 func TestExecOutput(t *testing.T) {
 	mc := rigtest.NewMockConnection()
 	runner := exec.NewHostRunner(mc)

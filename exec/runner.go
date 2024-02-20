@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 )
 
 var _ connection = (*HostRunner)(nil)
@@ -13,7 +14,7 @@ var _ connection = (*HostRunner)(nil)
 type connection interface {
 	fmt.Stringer
 	IsWindows() bool
-	StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (Waiter, error)
+	StartProcess(ctx context.Context, command string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (Waiter, error)
 }
 
 // CommandFormatter is an interface that can format commands.
@@ -28,18 +29,18 @@ type SimpleRunner interface {
 
 	fmt.Stringer
 	IsWindows() bool
-	Exec(format string, argsOrOpts ...any) error
-	ExecOutput(format string, argsOrOpts ...any) (string, error)
-	StartBackground(format string, argsOrOpts ...any) (Waiter, error)
+	Exec(command string, opts ...Option) error
+	ExecOutput(command string, opts ...Option) (string, error)
+	StartBackground(command string, opts ...Option) (Waiter, error)
 }
 
 // ContextRunner is a command runner that can run commands with a context.
 type ContextRunner interface {
 	fmt.Stringer
 	IsWindows() bool
-	ExecContext(ctx context.Context, format string, argsOrOpts ...any) error
-	ExecOutputContext(ctx context.Context, format string, argsOrOpts ...any) (string, error)
-	Start(ctx context.Context, format string, argsOrOpts ...any) (Waiter, error)
+	ExecContext(ctx context.Context, command string, opts ...Option) error
+	ExecOutputContext(ctx context.Context, command string, opts ...Option) (string, error)
+	Start(ctx context.Context, command string, opts ...Option) (Waiter, error)
 }
 
 // Runner is a full featured command runner for clients.
@@ -117,10 +118,18 @@ func (r *HostRunner) String() string {
 }
 
 // Start starts the command and returns a Waiter.
-func (r *HostRunner) Start(ctx context.Context, format string, argsOrOpts ...any) (Waiter, error) {
-	opts, args := groupParams(argsOrOpts...)
+func (r *HostRunner) Start(ctx context.Context, command string, opts ...Option) (Waiter, error) {
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("runner context error: %w", ctx.Err())
+	}
 	execOpts := Build(opts...)
-	cmd := r.Command(execOpts.Commandf(format, args...))
+	cmd := r.Command(execOpts.Command(command))
+	// we don't know if the default shell is cmd or powershell, so to make sure commands
+	// without a shell prefix go consistently go through the same shell, we default to running
+	// non-prefixed commands through cmd.exe.
+	if r.connection.IsWindows() && !strings.HasPrefix(cmd, "cmd") && !strings.HasPrefix(cmd, "powershell") {
+		cmd = "cmd.exe /C " + cmd
+	}
 	execOpts.LogCmd(cmd)
 	waiter, err := r.connection.StartProcess(ctx, cmd, execOpts.Stdin(), execOpts.Stdout(), execOpts.Stderr())
 	if err != nil {
@@ -133,13 +142,13 @@ func (r *HostRunner) Start(ctx context.Context, format string, argsOrOpts ...any
 }
 
 // StartBackground starts the command and returns a Waiter.
-func (r *HostRunner) StartBackground(format string, argsOrOpts ...any) (Waiter, error) {
-	return r.Start(context.Background(), format, argsOrOpts...)
+func (r *HostRunner) StartBackground(command string, opts ...Option) (Waiter, error) {
+	return r.Start(context.Background(), command, opts...)
 }
 
 // ExecContext executes the command and returns an error if unsuccessful.
-func (r *HostRunner) ExecContext(ctx context.Context, format string, argsOrOpts ...any) error {
-	proc, err := r.Start(ctx, format, argsOrOpts...)
+func (r *HostRunner) ExecContext(ctx context.Context, command string, opts ...Option) error {
+	proc, err := r.Start(ctx, command, opts...)
 	if err != nil {
 		return fmt.Errorf("start command: %w", err)
 	}
@@ -151,18 +160,16 @@ func (r *HostRunner) ExecContext(ctx context.Context, format string, argsOrOpts 
 }
 
 // Exec executes the command and returns an error if unsuccessful.
-func (r *HostRunner) Exec(format string, argsOrOpts ...any) error {
-	return r.ExecContext(context.Background(), format, argsOrOpts...)
+func (r *HostRunner) Exec(command string, opts ...Option) error {
+	return r.ExecContext(context.Background(), command, opts...)
 }
 
 // ExecOutputContext executes the command and returns the stdout output or an error.
-func (r *HostRunner) ExecOutputContext(ctx context.Context, format string, argsOrOpts ...any) (string, error) {
-	opts, _ := groupParams(argsOrOpts...)
-	execOpts := Build(opts...)
+func (r *HostRunner) ExecOutputContext(ctx context.Context, command string, opts ...Option) (string, error) {
 	out := &bytes.Buffer{}
-	argsOrOpts = append(argsOrOpts, Stdout(out))
+	opts = append(opts, Stdout(out))
 
-	proc, err := r.Start(ctx, format, argsOrOpts...)
+	proc, err := r.Start(ctx, command, opts...)
 	if err != nil {
 		return "", fmt.Errorf("start command: %w", err)
 	}
@@ -170,40 +177,23 @@ func (r *HostRunner) ExecOutputContext(ctx context.Context, format string, argsO
 		return "", fmt.Errorf("command result: %w", err)
 	}
 
+	execOpts := Build(opts...)
 	return execOpts.FormatOutput(out.String()), nil
 }
 
 // ExecOutput executes the command and returns the stdout output or an error.
-func (r *HostRunner) ExecOutput(cmd string, argsOrOpts ...any) (string, error) {
-	return r.ExecOutputContext(context.Background(), cmd, argsOrOpts...)
+func (r *HostRunner) ExecOutput(command string, opts ...Option) (string, error) {
+	return r.ExecOutputContext(context.Background(), command, opts...)
 }
 
-// StartProcess calls the connection's StartProcess method. This is done to satisfy the client
-// interface and allow chaining of runners.
-func (r *HostRunner) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (Waiter, error) {
-	waiter, err := r.connection.StartProcess(ctx, r.Command(cmd), stdin, stdout, stderr)
+// StartProcess calls the connection's StartProcess method. This is done to satisfy the
+// connection interface and thus allow chaining of runners.
+func (r *HostRunner) StartProcess(ctx context.Context, command string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (Waiter, error) {
+	waiter, err := r.connection.StartProcess(ctx, r.Command(command), stdin, stdout, stderr)
 	if err != nil {
 		return nil, fmt.Errorf("runner start process: %w", err)
 	}
 	return waiter, nil
-}
-
-func groupParams(params ...any) ([]Option, []any) {
-	var opts []Option
-	var args []any
-	for _, v := range params {
-		switch vv := v.(type) {
-		case []any:
-			o, a := groupParams(vv...)
-			opts = append(opts, o...)
-			args = append(args, a...)
-		case Option:
-			opts = append(opts, vv)
-		default:
-			args = append(args, vv)
-		}
-	}
-	return opts, args
 }
 
 // NewErrorRunner returns a new ErrorRunner.
@@ -223,18 +213,18 @@ func (n *ErrorRunner) IsWindows() bool { return false }
 func (n *ErrorRunner) String() string { return "always failing error runner" }
 
 // Exec returns the error.
-func (n *ErrorRunner) Exec(_ string, _ ...any) error { return n.err }
+func (n *ErrorRunner) Exec(_ string, _ ...Option) error { return n.err }
 
 // ExecOutput returns the error.
-func (n *ErrorRunner) ExecOutput(_ string, _ ...any) (string, error) { return "", n.err }
+func (n *ErrorRunner) ExecOutput(_ string, _ ...Option) (string, error) { return "", n.err }
 
 // ExecContext returns the error.
-func (n *ErrorRunner) ExecContext(_ context.Context, _ string, _ ...any) error {
+func (n *ErrorRunner) ExecContext(_ context.Context, _ string, _ ...Option) error {
 	return n.err
 }
 
 // ExecOutputContext returns the error.
-func (n *ErrorRunner) ExecOutputContext(_ context.Context, _ string, _ ...any) (string, error) {
+func (n *ErrorRunner) ExecOutputContext(_ context.Context, _ string, _ ...Option) (string, error) {
 	return "", n.err
 }
 
@@ -247,12 +237,12 @@ func (n *ErrorRunner) Commandf(format string, args ...any) string {
 func (n *ErrorRunner) Command(cmd string) string { return cmd }
 
 // Start returns the error.
-func (n *ErrorRunner) Start(_ context.Context, _ string, _ ...any) (Waiter, error) {
+func (n *ErrorRunner) Start(_ context.Context, _ string, _ ...Option) (Waiter, error) {
 	return nil, n.err
 }
 
 // StartBackground returns the error.
-func (n *ErrorRunner) StartBackground(_ string, _ ...any) (Waiter, error) {
+func (n *ErrorRunner) StartBackground(_ string, _ ...Option) (Waiter, error) {
 	return nil, n.err
 }
 

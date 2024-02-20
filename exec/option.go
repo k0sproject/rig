@@ -322,10 +322,19 @@ func PS() Option {
 	}
 }
 
-// PSCompressed is like PS but for long command scriptlets.
+// PSCompressed is like PS but for long command scriptlets. The script will be gzipped
+// and base64 encoded and includes a small decompression script at the beginning of the command.
+// This can allow running longer scripts than the 8191 characters that powershell.exe allows.
 func PSCompressed() Option {
 	return func(o *Options) {
 		o.decorateFuncs = append(o.decorateFuncs, powershell.CompressedCmd)
+	}
+}
+
+// Decorate exec option for applying a custom decorator to the command string.
+func Decorate(decorator DecorateFunc) Option {
+	return func(o *Options) {
+		o.decorateFuncs = append(o.decorateFuncs, decorator)
 	}
 }
 
@@ -342,9 +351,14 @@ func Build(opts ...Option) *Options {
 		trimOutput:   true,
 	}
 
-	for _, o := range opts {
-		o(options)
-	}
+	options.Apply(opts...)
 
 	return options
+}
+
+// Apply the supplied options to the Options.
+func (o *Options) Apply(opts ...Option) {
+	for _, opt := range opts {
+		opt(o)
+	}
 }
