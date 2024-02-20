@@ -75,8 +75,8 @@ func (c *Connection) IsWindows() bool {
 	return *c.isWindows
 }
 
-// DefaultOpenSSHOptions are the default options for the OpenSSH client.
-var DefaultOpenSSHOptions = OptionArguments{
+// DefaultOptionArguments are the default options for the OpenSSH client.
+var DefaultOptionArguments = OptionArguments{
 	// It's easy to end up with control paths that are too long for unix sockets (104 chars?)
 	// with the default ~/.ssh/master-%r@%h:%p, for example something like:
 	// /Users/user/.ssh/master-ec2-xx-xx-xx-xx.eu-central-1.compute.amazonaws.com-centos.AAZFTHkT5....
@@ -98,7 +98,7 @@ func (c *Connection) SetDefaults() {
 	if c.Options == nil {
 		c.Options = make(OptionArguments)
 	}
-	for k, v := range DefaultOpenSSHOptions {
+	for k, v := range DefaultOptionArguments {
 		if v == nil {
 			delete(c.Options, k)
 			continue
