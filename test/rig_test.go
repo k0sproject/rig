@@ -157,7 +157,7 @@ func retry(fn func() error) error {
 	return err
 }
 
-func GetHost(t *testing.T, options ...rig.Option) *Host {
+func GetHost(t *testing.T, options ...rig.ClientOption) *Host {
 	var client protocol.Connection
 	switch proto {
 	case "ssh":
@@ -219,7 +219,7 @@ func GetHost(t *testing.T, options ...rig.Option) *Host {
 	default:
 		panic("unknown protocol")
 	}
-	opts := []rig.Option{rig.WithConnection(client), rig.WithLoggerFactory(
+	opts := []rig.ClientOption{rig.WithConnection(client), rig.WithLoggerFactory(
 		func(client protocol.Connection) log.Logger {
 			return log.NewPrefixLog(&SuiteLogger{t}, client.String()+": ")
 		}),

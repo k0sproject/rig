@@ -30,7 +30,7 @@ var ErrNotInitialized = errors.New("connection not properly initialized")
 // similar manner as the stdlib's os package does for the local system,
 // for example file operations.
 type Client struct {
-	options *Options
+	options *ClientOptions
 
 	connectionConfigurer ConnectionConfigurer
 	connection           protocol.Connection
@@ -83,7 +83,7 @@ type ClientWithConfig struct {
 }
 
 // Setup allows applying options to the connection to configure subcomponents.
-func (c *ClientWithConfig) Setup(opts ...Option) error {
+func (c *ClientWithConfig) Setup(opts ...ClientOption) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.Client != nil {
@@ -98,7 +98,7 @@ func (c *ClientWithConfig) Setup(opts ...Option) error {
 }
 
 // Connect to the host.
-func (c *ClientWithConfig) Connect(opts ...Option) error {
+func (c *ClientWithConfig) Connect(opts ...ClientOption) error {
 	if err := c.Setup(opts...); err != nil {
 		return err
 	}
@@ -116,12 +116,12 @@ func (c *ClientWithConfig) UnmarshalYAML(unmarshal func(interface{}) error) erro
 }
 
 // NewClientWithConnection returns a new Client with the given connection and options.
-func NewClientWithConnection(conn protocol.Connection, opts ...Option) (*Client, error) {
+func NewClientWithConnection(conn protocol.Connection, opts ...ClientOption) (*Client, error) {
 	return NewClient(append(opts, WithConnection(conn))...)
 }
 
 // NewClientWithConnectionConfigurer returns a new Client with the given connection configurer and options.
-func NewClientWithConnectionConfigurer(cc ConnectionConfigurer, opts ...Option) (*Client, error) {
+func NewClientWithConnectionConfigurer(cc ConnectionConfigurer, opts ...ClientOption) (*Client, error) {
 	return NewClient(append(opts, WithConnectionConfigurer(cc))...)
 }
 
@@ -133,12 +133,12 @@ func NewClientWithConnectionConfigurer(cc ConnectionConfigurer, opts ...Option) 
 // An example SSH connection:
 //
 //	client, err := rig.NewClient(WithConnectionConfigurer(&ssh.Config{Address: "10.0.0.1"}))
-func NewClient(opts ...Option) (*Client, error) {
-	options := NewOptions(opts...)
+func NewClient(opts ...ClientOption) (*Client, error) {
+	options := NewClientOptions(opts...)
 	if err := options.Validate(); err != nil {
 		return nil, fmt.Errorf("validate client options: %w", err)
 	}
-	conn := &Client{options: NewOptions(opts...)}
+	conn := &Client{options: options}
 	if err := conn.setup(opts...); err != nil {
 		return nil, err
 	}
@@ -154,7 +154,7 @@ func (c *Client) setupConnection() error {
 	return nil
 }
 
-func (c *Client) setup(opts ...Option) error {
+func (c *Client) setup(opts ...ClientOption) error {
 	c.once.Do(func() {
 		c.options.Apply(opts...)
 		c.initErr = c.setupConnection()
@@ -199,7 +199,7 @@ func (c *Client) String() string {
 }
 
 // Clone returns a copy of the connection with the given additional options applied.
-func (c *Client) Clone(opts ...Option) *Client {
+func (c *Client) Clone(opts ...ClientOption) *Client {
 	options := c.options.Clone()
 	options.Apply(opts...)
 	return &Client{

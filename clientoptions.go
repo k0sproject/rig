@@ -34,16 +34,16 @@ func defaultConnectionConfigurer() ConnectionConfigurer {
 	return &CompositeConfig{}
 }
 
-// Options is a struct that holds the variadic options for the rig package.
-type Options struct {
+// ClientOptions is a struct that holds the variadic options for the rig package.
+type ClientOptions struct {
 	connection           protocol.Connection
 	connectionConfigurer ConnectionConfigurer
 	loggerFactory        LoggerFactory
 	runner               exec.Runner
-	providers
+	providersContainer
 }
 
-type providers struct {
+type providersContainer struct {
 	packageManagerProvider
 	initSystemProvider
 	remoteFSProvider
@@ -91,8 +91,8 @@ func (p *sudoProvider) GetSudoService(runner exec.Runner) *sudo.Service {
 	return sudo.NewSudoService(p.provider, runner)
 }
 
-func defaultProviders() providers {
-	return providers{
+func defaultProviders() providersContainer {
+	return providersContainer{
 		packageManagerProvider: packageManagerProvider{provider: packagemanager.DefaultProvider()},
 		initSystemProvider:     initSystemProvider{provider: initsystem.DefaultProvider()},
 		remoteFSProvider:       remoteFSProvider{provider: remotefs.DefaultProvider()},
@@ -102,14 +102,14 @@ func defaultProviders() providers {
 }
 
 // Apply applies the supplied options to the Options struct.
-func (o *Options) Apply(opts ...Option) {
+func (o *ClientOptions) Apply(opts ...ClientOption) {
 	for _, opt := range opts {
 		opt(o)
 	}
 }
 
 // Validate the options.
-func (o *Options) Validate() error {
+func (o *ClientOptions) Validate() error {
 	if o.connection == nil && o.connectionConfigurer == nil {
 		return fmt.Errorf("%w: no connection or connection configurer provided", protocol.ErrValidationFailed)
 	}
@@ -117,18 +117,18 @@ func (o *Options) Validate() error {
 }
 
 // Clone returns a copy of the Options struct.
-func (o *Options) Clone() *Options {
-	return &Options{
+func (o *ClientOptions) Clone() *ClientOptions {
+	return &ClientOptions{
 		connection:           o.connection,
 		connectionConfigurer: o.connectionConfigurer,
 		loggerFactory:        o.loggerFactory,
 		runner:               o.runner,
-		providers:            o.providers,
+		providersContainer:   o.providersContainer,
 	}
 }
 
 // GetConnection returns the connection to use for the rig client. If no connection is set, it will use the ConnectionConfigurer to create one.
-func (o *Options) GetConnection() (protocol.Connection, error) {
+func (o *ClientOptions) GetConnection() (protocol.Connection, error) {
 	if o.connection != nil {
 		return o.connection, nil
 	}
@@ -143,91 +143,91 @@ func (o *Options) GetConnection() (protocol.Connection, error) {
 }
 
 // GetRunner returns the runner to use for the rig client.
-func (o *Options) GetRunner(conn protocol.Connection) exec.Runner {
+func (o *ClientOptions) GetRunner(conn protocol.Connection) exec.Runner {
 	if o.runner != nil {
 		return o.runner
 	}
 	return exec.NewHostRunner(conn)
 }
 
-// Option is a functional option type for the Options struct.
-type Option func(*Options)
+// ClientOption is a functional option type for the Options struct.
+type ClientOption func(*ClientOptions)
 
 // WithConnection is a functional option that sets the client to use for connecting instead of getting it from the ConnectionConfigurer.
-func WithConnection(conn protocol.Connection) Option {
-	return func(o *Options) {
+func WithConnection(conn protocol.Connection) ClientOption {
+	return func(o *ClientOptions) {
 		o.connection = conn
 	}
 }
 
 // WithRunner is a functional option that sets the runner to use for executing commands.
-func WithRunner(runner exec.Runner) Option {
-	return func(o *Options) {
+func WithRunner(runner exec.Runner) ClientOption {
+	return func(o *ClientOptions) {
 		o.runner = runner
 	}
 }
 
 // WithConnectionConfigurer is a functional option that sets the client configurer to use for connecting.
-func WithConnectionConfigurer(configurer ConnectionConfigurer) Option {
-	return func(o *Options) {
+func WithConnectionConfigurer(configurer ConnectionConfigurer) ClientOption {
+	return func(o *ClientOptions) {
 		o.connectionConfigurer = configurer
 	}
 }
 
 // WithRemoteFSProvider is a functional option that sets the filesystem provider to use for the connection's RemoteFSService.
-func WithRemoteFSProvider(provider remotefs.RemoteFSProvider) Option {
-	return func(o *Options) {
-		o.providers.remoteFSProvider = remoteFSProvider{provider: provider}
+func WithRemoteFSProvider(provider remotefs.RemoteFSProvider) ClientOption {
+	return func(o *ClientOptions) {
+		o.providersContainer.remoteFSProvider = remoteFSProvider{provider: provider}
 	}
 }
 
 // WithInitSystemProvider is a functional option that sets the init system provider to use for the connection's InitSystemService.
-func WithInitSystemProvider(provider initsystem.InitSystemProvider) Option {
-	return func(o *Options) {
-		o.providers.initSystemProvider = initSystemProvider{provider: provider}
+func WithInitSystemProvider(provider initsystem.InitSystemProvider) ClientOption {
+	return func(o *ClientOptions) {
+		o.providersContainer.initSystemProvider = initSystemProvider{provider: provider}
 	}
 }
 
 // WithOSReleaseProvider is a functional option that sets the os release provider to use for the connection's OSReleaseService.
-func WithOSReleaseProvider(provider os.OSReleaseProvider) Option {
-	return func(o *Options) {
-		o.providers.osReleaseProvider = osReleaseProvider{provider: provider}
+func WithOSReleaseProvider(provider os.OSReleaseProvider) ClientOption {
+	return func(o *ClientOptions) {
+		o.providersContainer.osReleaseProvider = osReleaseProvider{provider: provider}
 	}
 }
 
 // WithPackageManagerProvider is a functional option that sets the package manager provider to use for the connection's PackageManagerService.
-func WithPackageManagerProvider(provider packagemanager.PackageManagerProvider) Option {
-	return func(o *Options) {
-		o.providers.packageManagerProvider = packageManagerProvider{provider: provider}
+func WithPackageManagerProvider(provider packagemanager.PackageManagerProvider) ClientOption {
+	return func(o *ClientOptions) {
+		o.providersContainer.packageManagerProvider = packageManagerProvider{provider: provider}
 	}
 }
 
 // WithSudoProvider is a functional option that sets the sudo provider to use for the connection's SudoService.
-func WithSudoProvider(provider sudo.SudoProvider) Option {
-	return func(o *Options) {
-		o.providers.sudoProvider = sudoProvider{provider: provider}
+func WithSudoProvider(provider sudo.SudoProvider) ClientOption {
+	return func(o *ClientOptions) {
+		o.providersContainer.sudoProvider = sudoProvider{provider: provider}
 	}
 }
 
 // WithLoggerFactory is a functional option that sets the logger factory to use for creating a logger for the connection.
-func WithLoggerFactory(loggerFactory LoggerFactory) Option {
-	return func(o *Options) {
+func WithLoggerFactory(loggerFactory LoggerFactory) ClientOption {
+	return func(o *ClientOptions) {
 		o.loggerFactory = loggerFactory
 	}
 }
 
-// DefaultOptions returns a new Options struct with the default options applied.
-func DefaultOptions() *Options {
-	return &Options{
+// DefaultClientOptions returns a new Options struct with the default options applied.
+func DefaultClientOptions() *ClientOptions {
+	return &ClientOptions{
 		connectionConfigurer: defaultConnectionConfigurer(),
 		loggerFactory:        defaultLoggerFactory,
-		providers:            defaultProviders(),
+		providersContainer:   defaultProviders(),
 	}
 }
 
-// NewOptions creates a new Options struct with the supplied options applied over the defaults.
-func NewOptions(opts ...Option) *Options {
-	options := DefaultOptions()
+// NewClientOptions creates a new Options struct with the supplied options applied over the defaults.
+func NewClientOptions(opts ...ClientOption) *ClientOptions {
+	options := DefaultClientOptions()
 	options.Apply(opts...)
 	return options
 }
