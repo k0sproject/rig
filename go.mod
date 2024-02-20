@@ -4,7 +4,6 @@ go 1.21
 
 require (
 	github.com/Microsoft/go-winio v0.6.1
-	github.com/creasty/defaults v1.7.0
 	github.com/davidmz/go-pageant v1.0.2
 	github.com/kevinburke/ssh_config v1.2.0
 	github.com/masterzen/winrm v0.0.0-20231128182143-52a9e15d5730

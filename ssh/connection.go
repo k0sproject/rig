@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/creasty/defaults"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/homedir"
 	"github.com/k0sproject/rig/log"
@@ -416,9 +415,7 @@ func (c *Connection) connectViaBastion(dst string, config *ssh.ClientConfig) err
 
 // Connect opens the SSH connection.
 func (c *Connection) Connect() error {
-	if err := defaults.Set(c); err != nil {
-		return fmt.Errorf("set defaults: %w", err)
-	}
+	c.SetDefaults()
 
 	config, err := c.clientConfig()
 	if err != nil {
