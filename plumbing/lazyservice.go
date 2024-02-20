@@ -12,7 +12,7 @@ type Service[T any] interface {
 	Get() (T, error)
 }
 
-// providers take an exec.Runner or a subset of it and return a value of type T or an error.
+// providers return a value of type T or an error given a source S.
 type provider[S any, T any] interface {
 	Get(source S) (T, error)
 }
