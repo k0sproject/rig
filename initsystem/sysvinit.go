@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/shellescape"
 )
 
 // SysVinit is the service manager for SysVinit.

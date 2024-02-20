@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/shellescape"
 )
 
 // Upstart is the init system used by Ubuntu 14.04 and older.

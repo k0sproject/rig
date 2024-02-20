@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alessio/shellescape"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
+	"github.com/k0sproject/rig/shellescape"
 )
 
 var (
