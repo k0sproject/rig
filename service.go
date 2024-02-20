@@ -18,9 +18,6 @@ const (
 	serviceStateStarted serviceState = 1
 )
 
-// ErrEmptyResult is returned when a command returns an empty result.
-var ErrEmptyResult = errors.New("empty result")
-
 // Service running on a host.
 type Service struct {
 	runner  exec.ContextRunner
@@ -135,9 +132,6 @@ func (m *Service) Logs(ctx context.Context, lines int) ([]string, error) {
 	rows, err := logreader.ServiceLogs(ctx, m.runner, m.name, lines)
 	if err != nil {
 		return nil, fmt.Errorf("get logs: %w", err)
-	}
-	if len(rows) == 0 {
-		return nil, fmt.Errorf("get logs: %w", ErrEmptyResult)
 	}
 	return rows, nil
 }

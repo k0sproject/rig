@@ -16,9 +16,6 @@ import (
 	"github.com/k0sproject/rig/remotefs"
 )
 
-// ErrNotInitialized is returned when a Connection is used without being properly initialized.
-var ErrNotInitialized = errors.New("connection not properly initialized")
-
 // Client is a swiss army knife client that can perform actions and run
 // commands on target hosts running on multiple operating systems and
 // using different protocols for communication.
@@ -224,7 +221,7 @@ func (c *Client) Connect() error {
 	defer c.mu.Unlock()
 
 	if c.connection == nil {
-		return errors.Join(protocol.ErrAbort, ErrNotInitialized)
+		return fmt.Errorf("%w: connection not properly intialized", protocol.ErrAbort)
 	}
 	if conn, ok := c.connection.(protocol.Connector); ok {
 		if err := conn.Connect(); err != nil {

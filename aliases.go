@@ -12,8 +12,16 @@ import (
 	"github.com/k0sproject/rig/sudo"
 )
 
-// Some of the constructors and types from subpackages are aliased here to make it
+// Some of the constructors, errors and types from subpackages are aliased here to make it
 // easier to consume them without importing more packages.
+
+var (
+	// ErrAbort is returned when retrying an action will not yield a different outcome.
+	ErrAbort = protocol.ErrAbort
+
+	// ErrValidationFailed is returned when a validation check fails.
+	ErrValidationFailed = protocol.ErrValidationFailed
+)
 
 // PackageManagerService is a type alias for packagemanager.Service.
 type PackageManagerService = packagemanager.Service

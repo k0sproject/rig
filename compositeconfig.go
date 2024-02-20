@@ -1,7 +1,6 @@
 package rig
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/k0sproject/rig/localhost"
@@ -21,9 +20,6 @@ type CompositeConfig struct {
 	OpenSSH   *openssh.Config `yaml:"openSSH,omitempty"`
 	Localhost bool            `yaml:"localhost,omitempty"`
 }
-
-// ErrNoConnectionConfig is returned when no protocol configuration is found in the CompositeConfig.
-var ErrNoConnectionConfig = errors.New("no protocol configuration found")
 
 func (c *CompositeConfig) configuredConfig() (ConnectionConfigurer, error) {
 	if c.WinRM != nil {
@@ -46,7 +42,25 @@ func (c *CompositeConfig) configuredConfig() (ConnectionConfigurer, error) {
 		return conn, nil
 	}
 
-	return nil, ErrNoConnectionConfig
+	return nil, fmt.Errorf("%w: no protocol configuration", protocol.ErrValidationFailed)
+}
+
+type validatable interface {
+	Validate() error
+}
+
+// Validate the configuration.
+func (c *CompositeConfig) Validate() error {
+	configurer, err := c.configuredConfig()
+	if err != nil {
+		return err
+	}
+	if v, ok := configurer.(validatable); ok {
+		if err := v.Validate(); err != nil {
+			return fmt.Errorf("validate %T: %w", configurer, err)
+		}
+	}
+	return nil
 }
 
 // Connection returns a connection for the first configured protocol.
