@@ -7,14 +7,13 @@ import (
 	"github.com/k0sproject/rig/initsystem"
 	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/packagemanager"
+	"github.com/k0sproject/rig/protocol"
 	"github.com/k0sproject/rig/remotefs"
 	"github.com/k0sproject/rig/sudo"
 )
 
-// The types here are aliased to make it easier to embed them into your own types
-// without having to import the packages individually. Also, as they're all called
-// "Service" in their respective packages, you would need to define type aliases
-// locally to avoid name collisions.
+// Some of the constructors and types from subpackages are aliased here to make it
+// easier to consume them without importing more packages.
 
 // PackageManagerService is a type alias for packagemanager.Service.
 type PackageManagerService = packagemanager.Service
@@ -74,4 +73,10 @@ func GetOSRelease(runner exec.SimpleRunner) (*os.Release, error) {
 		return nil, fmt.Errorf("get os release: %w", err)
 	}
 	return os, nil
+}
+
+// NewRunner returns a new exec.Runner for the connection.
+// Currently the error is always nil.
+func NewRunner(conn protocol.Connection) (exec.Runner, error) {
+	return exec.NewHostRunner(conn), nil
 }
