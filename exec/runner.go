@@ -135,11 +135,20 @@ func (r *HostRunner) Start(ctx context.Context, command string, opts ...Option) 
 
 	execOpts := Build(opts...)
 	cmd := r.Command(execOpts.Command(command))
-	// we don't know if the default shell is cmd or powershell, so to make sure commands
-	// without a shell prefix go consistently go through the same shell, we default to running
-	// non-prefixed commands through cmd.exe.
-	if r.connection.IsWindows() && !strings.HasPrefix(cmd, "cmd") && !strings.HasPrefix(cmd, "powershell") {
-		cmd = "cmd.exe /C " + cmd
+	if r.connection.IsWindows() {
+		// we don't know if the default shell is cmd or powershell, so to make sure commands
+		// without a shell prefix go consistently go through the same shell, we default to running
+		// non-prefixed commands through cmd.exe.
+		var firstWord string
+		firstWordIdx := strings.Index(cmd, " ")
+		if firstWordIdx == -1 {
+			firstWord = cmd
+		} else {
+			firstWord = cmd[:firstWordIdx]
+		}
+		if !strings.HasSuffix(firstWord, ".exe") {
+			cmd = "cmd.exe /C " + cmd
+		}
 	}
 	execOpts.LogCmd(cmd)
 	waiter, err := r.connection.StartProcess(ctx, cmd, execOpts.Stdin(), execOpts.Stdout(), execOpts.Stderr())
