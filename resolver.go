@@ -53,11 +53,11 @@ func resolveLinux(conn *Connection) (OSVersion, error) {
 		return OSVersion{}, fmt.Errorf("%w: unable to read os-release file: %w", errAbort, err)
 	}
 
-	var version OSVersion
-	if err := ParseOSReleaseFile(output, &version); err != nil {
+	version := NewOSVersion()
+	if err := ParseOSReleaseFile(output, version); err != nil {
 		return OSVersion{}, errors.Join(errAbort, err)
 	}
-	return version, nil
+	return *version, nil
 }
 
 func resolveWindows(conn *Connection) (OSVersion, error) {
@@ -130,9 +130,9 @@ func ParseOSReleaseFile(s string, version *OSVersion) error {
 			version.Name = unquote(fields[1])
 		default:
 			if len(fields) > 1 {
-				version.SetExtraField(fields[0], unquote(fields[1]))
+				version.ExtraFields[fields[0]] = unquote(fields[1])
 			} else {
-				version.SetExtraField(fields[0], "")
+				version.ExtraFields[fields[0]] = ""
 			}
 		}
 	}
