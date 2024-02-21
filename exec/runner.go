@@ -70,7 +70,7 @@ type HostRunner struct {
 var (
 	// ErrWroteStderr is returned when a windows command writes to stderr, unless AllowWinStderr is set.
 	ErrWroteStderr = errors.New("command wrote output to stderr")
-	// ErrInvalidCommand is returned when a command is somehow invalid
+	// ErrInvalidCommand is returned when a command is somehow invalid.
 	ErrInvalidCommand = errors.New("invalid command")
 )
 

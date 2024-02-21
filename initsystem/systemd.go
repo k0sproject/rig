@@ -8,14 +8,19 @@ import (
 	"strings"
 
 	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/sh"
 )
 
 // Systemd is found by default on most linux distributions today.
 type Systemd struct{}
 
+const systemctl = sh.CommandBuilder("systemctl")
+
+var systemctlCmd = systemctl.Args
+
 // StartService starts a service.
 func (i Systemd) StartService(ctx context.Context, h exec.ContextRunner, s string) error {
-	if err := h.ExecContext(ctx, "systemctl start %s 2> /dev/null", s); err != nil {
+	if err := h.ExecContext(ctx, systemctlCmd("start", s).String()); err != nil {
 		return fmt.Errorf("failed to start service %s: %w", s, err)
 	}
 	return nil
@@ -23,7 +28,7 @@ func (i Systemd) StartService(ctx context.Context, h exec.ContextRunner, s strin
 
 // EnableService enables a service.
 func (i Systemd) EnableService(ctx context.Context, h exec.ContextRunner, s string) error {
-	if err := h.ExecContext(ctx, "systemctl enable %s 2> /dev/null", s); err != nil {
+	if err := h.ExecContext(ctx, systemctlCmd("enable", s).String()); err != nil {
 		return fmt.Errorf("failed to enable service %s: %w", s, err)
 	}
 	return nil
@@ -31,7 +36,7 @@ func (i Systemd) EnableService(ctx context.Context, h exec.ContextRunner, s stri
 
 // DisableService disables a service.
 func (i Systemd) DisableService(ctx context.Context, h exec.ContextRunner, s string) error {
-	if err := h.ExecContext(ctx, "systemctl disable %s 2> /dev/null", s); err != nil {
+	if err := h.ExecContext(ctx, systemctlCmd("disable", s).String()); err != nil {
 		return fmt.Errorf("failed to disable service %s: %w", s, err)
 	}
 	return nil
@@ -39,7 +44,7 @@ func (i Systemd) DisableService(ctx context.Context, h exec.ContextRunner, s str
 
 // StopService stops a service.
 func (i Systemd) StopService(ctx context.Context, h exec.ContextRunner, s string) error {
-	if err := h.ExecContext(ctx, "systemctl stop %s 2> /dev/null", s); err != nil {
+	if err := h.ExecContext(ctx, systemctlCmd("stop", s).String()); err != nil {
 		return fmt.Errorf("failed to stop service %s: %w", s, err)
 	}
 	return nil
@@ -47,7 +52,7 @@ func (i Systemd) StopService(ctx context.Context, h exec.ContextRunner, s string
 
 // RestartService restarts a service.
 func (i Systemd) RestartService(ctx context.Context, h exec.ContextRunner, s string) error {
-	if err := h.ExecContext(ctx, "systemctl restart %s 2> /dev/null", s); err != nil {
+	if err := h.ExecContext(ctx, systemctlCmd("restart", s).String()); err != nil {
 		return fmt.Errorf("failed to restart service %s: %w", s, err)
 	}
 	return nil
@@ -55,7 +60,7 @@ func (i Systemd) RestartService(ctx context.Context, h exec.ContextRunner, s str
 
 // DaemonReload reloads init system configuration.
 func (i Systemd) DaemonReload(ctx context.Context, h exec.ContextRunner) error {
-	if err := h.ExecContext(ctx, "systemctl daemon-reload 2> /dev/null"); err != nil {
+	if err := h.ExecContext(ctx, systemctlCmd("daemon-reload").String()); err != nil {
 		return fmt.Errorf("failed to daemon-reload: %w", err)
 	}
 	return nil
@@ -63,12 +68,12 @@ func (i Systemd) DaemonReload(ctx context.Context, h exec.ContextRunner) error {
 
 // ServiceIsRunning returns true if a service is running.
 func (i Systemd) ServiceIsRunning(ctx context.Context, h exec.ContextRunner, s string) bool {
-	return h.ExecContext(ctx, `systemctl status %s 2> /dev/null | grep -q "(running)"`, s) == nil
+	return h.ExecContext(ctx, systemctlCmd("status", s).Pipe("grep", "-q", "(running)").String()) == nil
 }
 
 // ServiceScriptPath returns the path to a service configuration file.
 func (i Systemd) ServiceScriptPath(ctx context.Context, h exec.ContextRunner, s string) (string, error) {
-	out, err := h.ExecOutputContext(ctx, `systemctl show -p FragmentPath %s.service 2> /dev/null | cut -d"=" -f2`, s)
+	out, err := h.ExecOutputContext(ctx, systemctlCmd("show", "-p", "FragmentPath", s+".service").Pipe("cut", `-d"="`, "-f2").String())
 	if err != nil {
 		return "", fmt.Errorf("failed to get service %s script path: %w", s, err)
 	}
@@ -99,7 +104,7 @@ func (i Systemd) ServiceEnvironmentContent(env map[string]string) string {
 
 // ServiceLogs returns the last n lines of a service log.
 func (i Systemd) ServiceLogs(ctx context.Context, h exec.ContextRunner, s string, lines int) ([]string, error) {
-	out, err := h.ExecOutputContext(ctx, "journalctl -n %d -u %s 2> /dev/null", lines, s)
+	out, err := h.ExecOutputContext(ctx, sh.Command("journalctl", "-n", strconv.Itoa(lines), "-u", s))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get logs for service %s: %w", s, err)
 	}

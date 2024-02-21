@@ -7,14 +7,19 @@ import (
 	"strings"
 
 	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/sh"
 )
 
 // OpenRC is found on some linux systems, often installed on Alpine for example.
 type OpenRC struct{}
 
+const rcservice = sh.CommandBuilder("rc-service")
+
+var rcserviceCmd = rcservice.Args
+
 // StartService starts a service.
 func (i OpenRC) StartService(ctx context.Context, h exec.ContextRunner, s string) error {
-	if err := h.ExecContext(ctx, "rc-service %s start", s); err != nil {
+	if err := h.ExecContext(ctx, rcserviceCmd(s, "start").String()); err != nil {
 		return fmt.Errorf("failed to start service %s: %w", s, err)
 	}
 	return nil
@@ -22,7 +27,7 @@ func (i OpenRC) StartService(ctx context.Context, h exec.ContextRunner, s string
 
 // StopService stops a service.
 func (i OpenRC) StopService(ctx context.Context, h exec.ContextRunner, s string) error {
-	if err := h.ExecContext(ctx, "rc-service %s stop", s); err != nil {
+	if err := h.ExecContext(ctx, rcserviceCmd(s, "stop").String()); err != nil {
 		return fmt.Errorf("failed to stop service %s: %w", s, err)
 	}
 	return nil
@@ -30,7 +35,7 @@ func (i OpenRC) StopService(ctx context.Context, h exec.ContextRunner, s string)
 
 // ServiceScriptPath returns the path to a service configuration file.
 func (i OpenRC) ServiceScriptPath(ctx context.Context, h exec.ContextRunner, s string) (string, error) {
-	out, err := h.ExecOutputContext(ctx, "rc-service -r %s 2> /dev/null", s)
+	out, err := h.ExecOutputContext(ctx, rcserviceCmd("-r", s).String())
 	if err != nil {
 		return "", fmt.Errorf("failed to get service script path for %s: %w", s, err)
 	}
@@ -39,7 +44,7 @@ func (i OpenRC) ServiceScriptPath(ctx context.Context, h exec.ContextRunner, s s
 
 // RestartService restarts a service.
 func (i OpenRC) RestartService(ctx context.Context, h exec.ContextRunner, s string) error {
-	if err := h.ExecContext(ctx, "rc-service %s restart", s); err != nil {
+	if err := h.ExecContext(ctx, rcserviceCmd(s, "restart").String()); err != nil {
 		return fmt.Errorf("failed to restart service %s: %w", s, err)
 	}
 	return nil
@@ -47,7 +52,7 @@ func (i OpenRC) RestartService(ctx context.Context, h exec.ContextRunner, s stri
 
 // EnableService enables a service.
 func (i OpenRC) EnableService(ctx context.Context, h exec.ContextRunner, s string) error {
-	if err := h.ExecContext(ctx, "rc-update add %s", s); err != nil {
+	if err := h.ExecContext(ctx, sh.Command("rc-update", "add", s)); err != nil {
 		return fmt.Errorf("failed to enable service %s: %w", s, err)
 	}
 	return nil
@@ -55,7 +60,7 @@ func (i OpenRC) EnableService(ctx context.Context, h exec.ContextRunner, s strin
 
 // DisableService disables a service.
 func (i OpenRC) DisableService(ctx context.Context, h exec.ContextRunner, s string) error {
-	if err := h.ExecContext(ctx, "rc-update del %s", s); err != nil {
+	if err := h.ExecContext(ctx, sh.Command("rc-update", "del", s)); err != nil {
 		return fmt.Errorf("failed to disable service %s: %w", s, err)
 	}
 	return nil
@@ -63,7 +68,7 @@ func (i OpenRC) DisableService(ctx context.Context, h exec.ContextRunner, s stri
 
 // ServiceIsRunning returns true if a service is running.
 func (i OpenRC) ServiceIsRunning(ctx context.Context, h exec.ContextRunner, s string) bool {
-	return h.ExecContext(ctx, `rc-service %s status | grep -q "status: started"`, s) == nil
+	return h.ExecContext(ctx, rcserviceCmd(s, "status").Pipe("grep", "-q", "status: started").String()) == nil
 }
 
 // ServiceEnvironmentPath returns a path to an environment override file path.

@@ -38,7 +38,7 @@ func (f *PosixFile) fsBlockSize() int {
 		return f.blockSize
 	}
 
-	out, err := f.fs.ExecOutput(`stat -c "%%s" %[1]s 2> /dev/null || stat -f "%%k" %[1]s`, shellescape.Quote(path.Dir(f.path)))
+	out, err := f.fs.ExecOutput(fmt.Sprintf(`stat -c "%%s" %[1]s 2> /dev/null || stat -f "%%k" %[1]s`, shellescape.Quote(path.Dir(f.path))))
 	if err != nil {
 		// fall back to default
 		f.blockSize = defaultBlockSize
@@ -89,7 +89,7 @@ func (f *PosixFile) Read(p []byte) (int, error) {
 
 	bs, skip, count := f.ddParams(f.pos, len(p))
 
-	if err := f.fs.Exec("dd if=%s bs=%d skip=%d count=%d", shellescape.Quote(f.path), bs, skip, count, exec.Stdout(buf), exec.HideOutput()); err != nil {
+	if err := f.fs.Exec(fmt.Sprintf("dd if=%s bs=%d skip=%d count=%d", shellescape.Quote(f.path), bs, skip, count), exec.Stdout(buf), exec.HideOutput()); err != nil {
 		return 0, fmt.Errorf("failed to execute dd: %w", err)
 	}
 
@@ -123,7 +123,7 @@ func (f *PosixFile) Write(p []byte) (int, error) {
 		limitedReader := bytes.NewReader(remaining[:toWrite])
 
 		err := f.fs.Exec(
-			"dd if=/dev/stdin of=%s bs=%d count=%d seek=%d conv=notrunc", f.path, bs, count, skip,
+			fmt.Sprintf("dd if=/dev/stdin of=%s bs=%d count=%d seek=%d conv=notrunc", f.path, bs, count, skip),
 			exec.Stdin(limitedReader),
 		)
 		if err != nil {
@@ -157,7 +157,7 @@ func (f *PosixFile) CopyTo(dst io.Writer) (int64, error) {
 	counter := &ByteCounter{}
 	writer := io.MultiWriter(dst, counter)
 	err := f.fs.Exec(
-		"dd if=%s bs=%d skip=%d count=%d", shellescape.Quote(f.path), bs, skip, count,
+		fmt.Sprintf("dd if=%s bs=%d skip=%d count=%d", shellescape.Quote(f.path), bs, skip, count),
 		exec.Stdout(writer),
 		exec.HideOutput(),
 	)
@@ -181,7 +181,7 @@ func (f *PosixFile) CopyFrom(src io.Reader) (int64, error) {
 	counter := &ByteCounter{}
 
 	err := f.fs.Exec(
-		"dd if=/dev/stdin of=%s bs=%d seek=%d conv=notrunc", shellescape.Quote(f.path), f.fsBlockSize(), f.pos,
+		fmt.Sprintf("dd if=/dev/stdin of=%s bs=%d seek=%d conv=notrunc", shellescape.Quote(f.path), f.fsBlockSize(), f.pos),
 		exec.Stdin(io.TeeReader(src, counter)),
 	)
 	if err != nil {

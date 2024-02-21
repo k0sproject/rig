@@ -13,6 +13,7 @@ import (
 
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
+	"github.com/k0sproject/rig/sh"
 	"github.com/k0sproject/rig/sh/shellescape"
 )
 
@@ -236,7 +237,7 @@ func (s *PosixFS) multiStat(names ...string) ([]fs.FileInfo, error) {
 			idx++
 		}
 
-		out, err := s.ExecOutput(*s.statCmd, batch.String())
+		out, err := s.ExecOutput(fmt.Sprintf(*s.statCmd, batch.String()))
 		if err != nil {
 			if len(names) == 1 {
 				return nil, PathError(OpStat, names[0], fs.ErrNotExist)
@@ -276,7 +277,7 @@ func (s *PosixFS) Stat(name string) (fs.FileInfo, error) {
 
 // Sha256 returns the sha256 checksum of the file at path.
 func (s *PosixFS) Sha256(name string) (string, error) {
-	out, err := s.ExecOutput("sha256sum -b %s", shellescape.Quote(name))
+	out, err := s.ExecOutput(sh.Command("sha256sum", "-b", name))
 	if err != nil {
 		if isNotExist(err) {
 			return "", PathError("sha256sum", name, fs.ErrNotExist)
@@ -292,7 +293,7 @@ func (s *PosixFS) Sha256(name string) (string, error) {
 
 // Touch creates a new empty file at path or updates the timestamp of an existing file to the current time.
 func (s *PosixFS) Touch(name string) error {
-	err := s.Exec("touch -- %s", shellescape.Quote(name))
+	err := s.Exec(sh.Command("touch", "--", name))
 	if err != nil {
 		return fmt.Errorf("touch %s: %w", name, err)
 	}
@@ -315,7 +316,7 @@ func (s *PosixFS) Chtimes(name string, atime, mtime int64) error {
 
 // Truncate changes the size of the named file or creates a new file if it doesn't exist.
 func (s *PosixFS) Truncate(name string, size int64) error {
-	if err := s.Exec("truncate -s %d %s", size, shellescape.Quote(name)); err != nil {
+	if err := s.Exec(sh.Command("truncate", "-s", strconv.FormatInt(size, 10), name)); err != nil {
 		return fmt.Errorf("truncate %s: %w", name, err)
 	}
 	return nil
@@ -323,7 +324,7 @@ func (s *PosixFS) Truncate(name string, size int64) error {
 
 // Chmod changes the mode of the named file to mode.
 func (s *PosixFS) Chmod(name string, mode fs.FileMode) error {
-	if err := s.Exec("chmod %#o %s", mode, shellescape.Quote(name)); err != nil {
+	if err := s.Exec(fmt.Sprintf("chmod %#o %s", mode, shellescape.Quote(name))); err != nil {
 		if isNotExist(err) {
 			return PathError("chmod", name, fs.ErrNotExist)
 		}
@@ -334,7 +335,7 @@ func (s *PosixFS) Chmod(name string, mode fs.FileMode) error {
 
 // Chown changes the numeric uid and gid of the named file.
 func (s *PosixFS) Chown(name string, uid, gid int) error {
-	if err := s.Exec("chown %d:%d %s", uid, gid, shellescape.Quote(name)); err != nil {
+	if err := s.Exec(fmt.Sprintf("chown %d:%d %s", uid, gid, shellescape.Quote(name))); err != nil {
 		if isNotExist(err) {
 			return PathError("chown", name, fs.ErrNotExist)
 		}
@@ -360,7 +361,7 @@ func (s *PosixFS) openNew(name string, flags int, perm fs.FileMode) (fs.FileInfo
 		return nil, PathErrorf(OpOpen, name, "%w: failed to stat parent directory", fs.ErrInvalid)
 	}
 
-	if err := s.Exec("install -m %#o /dev/null %s", perm, shellescape.Quote(name)); err != nil {
+	if err := s.Exec(fmt.Sprintf("install -m %#o /dev/null %s", perm, shellescape.Quote(name))); err != nil {
 		return nil, PathError(OpOpen, name, err)
 	}
 
@@ -435,7 +436,7 @@ func (s *PosixFS) ReadDir(name string) ([]fs.DirEntry, error) {
 		name = "."
 	}
 
-	out, err := s.ExecOutput("find %s -maxdepth 1 -print0", shellescape.Quote(name))
+	out, err := s.ExecOutput(sh.Command("find", name, "-maxdepth", "1", "-print0"))
 	if err != nil {
 		return nil, fmt.Errorf("read dir (find) %s: %w", name, err)
 	}
@@ -462,7 +463,7 @@ func (s *PosixFS) ReadDir(name string) ([]fs.DirEntry, error) {
 
 // Remove deletes the named file or (empty) directory.
 func (s *PosixFS) Remove(name string) error {
-	if err := s.Exec("rm -f %s", shellescape.Quote(name)); err != nil {
+	if err := s.Exec(sh.Command("rm", "-f", name)); err != nil {
 		return fmt.Errorf("delete %s: %w", name, err)
 	}
 	return nil
@@ -474,7 +475,7 @@ func isNotExist(err error) bool {
 
 // RemoveAll removes path and any children it contains.
 func (s *PosixFS) RemoveAll(name string) error {
-	if err := s.Exec("rm -rf %s", shellescape.Quote(name)); err != nil {
+	if err := s.Exec(sh.Command("rm", "-rf", name)); err != nil {
 		return fmt.Errorf("remove all %s: %w", name, err)
 	}
 	return nil
@@ -482,7 +483,7 @@ func (s *PosixFS) RemoveAll(name string) error {
 
 // Rename renames (moves) oldpath to newpath.
 func (s *PosixFS) Rename(oldpath, newpath string) error {
-	if err := s.Exec("mv -f %s %s", shellescape.Quote(oldpath), shellescape.Quote(newpath)); err != nil {
+	if err := s.Exec(sh.Command("mv", "-f", oldpath, newpath)); err != nil {
 		return fmt.Errorf("rename %s -> %s: %w", oldpath, newpath, err)
 	}
 	return nil
@@ -508,7 +509,7 @@ func (s *PosixFS) MkdirAll(name string, perm fs.FileMode) error {
 		return fmt.Errorf("mkdir %s: %w", name, fs.ErrExist)
 	}
 
-	if err := s.Exec("install -d -m %#o %s", perm, shellescape.Quote(dir)); err != nil {
+	if err := s.Exec(fmt.Sprintf("install -d -m %#o %s", perm, shellescape.Quote(dir))); err != nil {
 		return fmt.Errorf("mkdir %s: %w", name, err)
 	}
 
@@ -517,7 +518,7 @@ func (s *PosixFS) MkdirAll(name string, perm fs.FileMode) error {
 
 // Mkdir creates a new directory with the specified name and permission bits.
 func (s *PosixFS) Mkdir(name string, perm fs.FileMode) error {
-	if err := s.Exec("mkdir -m %#o %s", perm, shellescape.Quote(name)); err != nil {
+	if err := s.Exec(fmt.Sprintf("mkdir -m %#o %s", perm, shellescape.Quote(name))); err != nil {
 		return PathError("mkdir", name, err)
 	}
 
@@ -526,7 +527,7 @@ func (s *PosixFS) Mkdir(name string, perm fs.FileMode) error {
 
 // WriteFile writes data to a file named by filename.
 func (s *PosixFS) WriteFile(filename string, data []byte, perm fs.FileMode) error {
-	if err := s.Exec("install -D -m %#o /dev/stdin %s", perm, shellescape.Quote(filename), exec.Stdin(bytes.NewReader(data))); err != nil {
+	if err := s.Exec(fmt.Sprintf("install -D -m %#o /dev/stdin %s", perm, shellescape.Quote(filename)), exec.Stdin(bytes.NewReader(data))); err != nil {
 		return fmt.Errorf("write file %s: %w", filename, err)
 	}
 	return nil
@@ -534,7 +535,7 @@ func (s *PosixFS) WriteFile(filename string, data []byte, perm fs.FileMode) erro
 
 // ReadFile reads the file named by filename and returns the contents.
 func (s *PosixFS) ReadFile(filename string) ([]byte, error) {
-	out, err := s.ExecOutput("cat -- %s", shellescape.Quote(filename), exec.HideOutput(), exec.TrimOutput(false))
+	out, err := s.ExecOutput(sh.Command("cat", "--", filename), exec.HideOutput(), exec.TrimOutput(false))
 	if err != nil {
 		return nil, fmt.Errorf("read file %s: %w", filename, err)
 	}
@@ -546,7 +547,7 @@ func (s *PosixFS) MkdirTemp(dir, prefix string) (string, error) {
 	if dir == "" {
 		dir = s.TempDir()
 	}
-	out, err := s.ExecOutput("mktemp -d %s", shellescape.Quote(s.Join(dir, prefix+"XXXXXX")))
+	out, err := s.ExecOutput(sh.Command("mktemp", "-d", s.Join(dir, prefix+"XXXXXX")))
 	if err != nil {
 		return "", fmt.Errorf("mkdir temp %s: %w", dir, err)
 	}
@@ -555,12 +556,12 @@ func (s *PosixFS) MkdirTemp(dir, prefix string) (string, error) {
 
 // FileExist checks if a file exists on the host.
 func (s *PosixFS) FileExist(name string) bool {
-	return s.Exec("test -f %s", shellescape.Quote(name), exec.HideOutput()) == nil
+	return s.Exec(sh.Command("test", "-f", name), exec.HideOutput()) == nil
 }
 
 // LookPath checks if a command exists on the host.
 func (s *PosixFS) LookPath(name string) (string, error) {
-	path, err := s.ExecOutput("command -v %s", name, exec.HideOutput())
+	path, err := s.ExecOutput(sh.Command("command", "-v", name), exec.HideOutput())
 	if err != nil {
 		return "", fmt.Errorf("lookpath %s: %w", name, err)
 	}
@@ -574,7 +575,7 @@ func (s *PosixFS) Join(elem ...string) string {
 
 // Getenv returns the value of the environment variable named by the key.
 func (s *PosixFS) Getenv(key string) string {
-	out, err := s.ExecOutput("echo ${%s}", key, exec.HideOutput())
+	out, err := s.ExecOutput(fmt.Sprintf("echo ${%s}", key), exec.HideOutput())
 	if err != nil {
 		return ""
 	}

@@ -17,7 +17,7 @@ type WinSCM struct{}
 
 // StartService starts a service.
 func (c WinSCM) StartService(ctx context.Context, h exec.ContextRunner, s string) error {
-	if err := h.ExecContext(ctx, `sc start %s`, ps.DoubleQuote(s)); err != nil {
+	if err := h.ExecContext(ctx, "sc.exe start "+ps.DoubleQuote(s)); err != nil {
 		return fmt.Errorf("failed to start service %s: %w", s, err)
 	}
 	return nil
@@ -25,7 +25,7 @@ func (c WinSCM) StartService(ctx context.Context, h exec.ContextRunner, s string
 
 // StopService stops a service.
 func (c WinSCM) StopService(ctx context.Context, h exec.ContextRunner, s string) error {
-	if err := h.ExecContext(ctx, `sc stop %s`, ps.DoubleQuote(s)); err != nil {
+	if err := h.ExecContext(ctx, "sc.exe stop "+ps.DoubleQuote(s)); err != nil {
 		return fmt.Errorf("failed to stop service %s: %w", s, err)
 	}
 	return nil
@@ -46,7 +46,7 @@ func (c WinSCM) RestartService(ctx context.Context, h exec.ContextRunner, s stri
 
 // EnableService enables a service.
 func (c WinSCM) EnableService(ctx context.Context, h exec.ContextRunner, s string) error {
-	if err := h.ExecContext(ctx, `sc.exe config %s start=enabled`, ps.DoubleQuote(s)); err != nil {
+	if err := h.ExecContext(ctx, fmt.Sprintf("sc.exe config %s start=enabled", ps.DoubleQuote(s))); err != nil {
 		return fmt.Errorf("failed to enable service %s: %w", s, err)
 	}
 
@@ -55,7 +55,8 @@ func (c WinSCM) EnableService(ctx context.Context, h exec.ContextRunner, s strin
 
 // ServiceLogs returns the logs for a service.
 func (c WinSCM) ServiceLogs(ctx context.Context, h exec.ContextRunner, s string, lines int) ([]string, error) {
-	out, err := h.ExecOutputContext(ctx, `Get-EventLog -LogName System -Source "Service Control Manager" -Newest %[1]d | Where-Object {$_.Message -like "*%s*"} | Select-Object -Property TimeGenerated, Message -First %[1]d`, lines, s, exec.PS())
+	cmd := fmt.Sprintf(`Get-EventLog -LogName System -Source "Service Control Manager" -Newest %[1]d | Where-Object {$_.Message -like "*%s*"} | Select-Object -Property TimeGenerated, Message -First %[1]d`, lines, s)
+	out, err := h.ExecOutputContext(ctx, cmd, exec.PS())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get logs for service %s: %w", s, err)
 	}
@@ -64,7 +65,7 @@ func (c WinSCM) ServiceLogs(ctx context.Context, h exec.ContextRunner, s string,
 
 // DisableService disables a service.
 func (c WinSCM) DisableService(ctx context.Context, h exec.ContextRunner, s string) error {
-	if err := h.ExecContext(ctx, `sc.exe config %s start=disabled`, ps.DoubleQuote(s)); err != nil {
+	if err := h.ExecContext(ctx, fmt.Sprintf("sc.exe config %s start=disabled", ps.DoubleQuote(s))); err != nil {
 		return fmt.Errorf("failed to disable service %s: %w", s, err)
 	}
 	return nil
@@ -72,7 +73,7 @@ func (c WinSCM) DisableService(ctx context.Context, h exec.ContextRunner, s stri
 
 // ServiceIsRunning returns true if a service is running.
 func (c WinSCM) ServiceIsRunning(ctx context.Context, h exec.ContextRunner, s string) bool {
-	return h.ExecContext(ctx, `sc.exe query %s | findstr "RUNNING"`, ps.DoubleQuote(s)) == nil
+	return h.ExecContext(ctx, fmt.Sprintf(`sc.exe query %s | findstr "RUNNING"`, ps.DoubleQuote(s))) == nil
 }
 
 // RegisterWinSCM registers the WinSCM in a repository.
