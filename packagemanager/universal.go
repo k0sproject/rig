@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/k0sproject/rig/exec"
-	"github.com/k0sproject/rig/shellescape"
+	"github.com/k0sproject/rig/sh/shellescape"
 )
 
 // almost all of the package managers in the wild work the exact same way:

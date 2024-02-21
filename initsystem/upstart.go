@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/k0sproject/rig/exec"
-	"github.com/k0sproject/rig/shellescape"
+	"github.com/k0sproject/rig/sh/shellescape"
 )
 
 // Upstart is the init system used by Ubuntu 14.04 and older.

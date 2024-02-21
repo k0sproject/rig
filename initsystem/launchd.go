@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/k0sproject/rig/exec"
-	"github.com/k0sproject/rig/shellescape"
+	"github.com/k0sproject/rig/sh/shellescape"
 )
 
 // Launchd is the init system for macOS (and darwin), the implementation is very basic and doesn't handle services in user space.

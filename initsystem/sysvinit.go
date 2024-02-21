@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/k0sproject/rig/exec"
-	"github.com/k0sproject/rig/shellescape"
+	"github.com/k0sproject/rig/sh/shellescape"
 )
 
 // SysVinit is the service manager for SysVinit.

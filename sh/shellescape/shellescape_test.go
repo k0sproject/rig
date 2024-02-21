@@ -3,7 +3,7 @@ package shellescape_test
 import (
 	"testing"
 
-	"github.com/k0sproject/rig/shellescape"
+	"github.com/k0sproject/rig/sh/shellescape"
 	"github.com/stretchr/testify/assert"
 )
 

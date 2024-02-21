@@ -2,7 +2,7 @@ package sudo
 
 import (
 	"github.com/k0sproject/rig/exec"
-	"github.com/k0sproject/rig/shellescape"
+	"github.com/k0sproject/rig/sh/shellescape"
 )
 
 // Doas is a DecorateFunc that will wrap the given command in a doas call.

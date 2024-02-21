@@ -1,7 +1,7 @@
 package exec
 
 import (
-	"github.com/k0sproject/rig/shellescape"
+	"github.com/k0sproject/rig/sh/shellescape"
 )
 
 // Quote returns a shell escaped string.
