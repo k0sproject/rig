@@ -24,7 +24,7 @@ func RegisterApt(repository *Provider) {
 		if c.IsWindows() {
 			return nil, false
 		}
-		if c.ExecContext(context.Background(), "command -v apk") != nil {
+		if c.ExecContext(context.Background(), "command -v apt-get") != nil {
 			return nil, false
 		}
 		return NewApt(c), true

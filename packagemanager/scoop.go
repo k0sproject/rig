@@ -11,7 +11,7 @@ func NewScoop(c exec.ContextRunner) PackageManager {
 	return newUniversalPackageManager(c, "scoop", "scoop.exe", "install", "uninstall", "update *")
 }
 
-// RegisterScoop registers the apk package manager to a repository.
+// RegisterScoop registers the scoop package manager to a repository.
 func RegisterScoop(repository *Provider) {
 	repository.Register(func(c exec.ContextRunner) (PackageManager, bool) {
 		if !c.IsWindows() {
