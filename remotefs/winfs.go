@@ -22,8 +22,8 @@ import (
 var (
 	_ fs.FS = (*WinFS)(nil)
 	_ FS    = (*WinFS)(nil)
-	// EWINDOWS is returned when a function is not supported on Windows.
-	EWINDOWS = errors.New("not supported on windows") //nolint:revive,stylecheck // modeled after syscall
+	// ErrNotSupported is returned when a function is not supported on Windows.
+	ErrNotSupported = errors.New("not supported on windows")
 )
 
 // WinFS is a fs.FS implemen{.
@@ -299,7 +299,7 @@ func (s *WinFS) Chmod(name string, mode fs.FileMode) error {
 
 // Chown changes the numeric uid and gid of the named file. On windows it returns an error.
 func (s *WinFS) Chown(name string, _, _ int) error {
-	return fmt.Errorf("chown %s: %w", name, EWINDOWS)
+	return fmt.Errorf("chown %s: %w", name, ErrNotSupported)
 }
 
 // Truncate changes the size of the named file.

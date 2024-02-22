@@ -124,6 +124,14 @@ func (r *HostRunner) String() string {
 
 var printfErrorRegex = regexp.MustCompile(`[^\\]%![a-zA-Z]\(.+?\)`)
 
+func isExe(cmd string) bool {
+	firstWordIdx := strings.Index(cmd, " ")
+	if firstWordIdx == -1 {
+		return strings.HasSuffix(cmd, ".exe")
+	}
+	return strings.HasSuffix(cmd[:firstWordIdx], ".exe")
+}
+
 // Start starts the command and returns a Waiter.
 func (r *HostRunner) Start(ctx context.Context, command string, opts ...Option) (Waiter, error) {
 	if ctx.Err() != nil {
@@ -139,14 +147,7 @@ func (r *HostRunner) Start(ctx context.Context, command string, opts ...Option) 
 		// we don't know if the default shell is cmd or powershell, so to make sure commands
 		// without a shell prefix go consistently go through the same shell, we default to running
 		// non-prefixed commands through cmd.exe.
-		var firstWord string
-		firstWordIdx := strings.Index(cmd, " ")
-		if firstWordIdx == -1 {
-			firstWord = cmd
-		} else {
-			firstWord = cmd[:firstWordIdx]
-		}
-		if !strings.HasSuffix(firstWord, ".exe") {
+		if !isExe(cmd) {
 			cmd = "cmd.exe /C " + cmd
 		}
 	}
@@ -187,6 +188,8 @@ func (r *HostRunner) Exec(command string, opts ...Option) error {
 // ExecOutputContext executes the command and returns the stdout output or an error.
 func (r *HostRunner) ExecOutputContext(ctx context.Context, command string, opts ...Option) (string, error) {
 	out := &bytes.Buffer{}
+	defer out.Reset()
+
 	opts = append(opts, Stdout(out))
 
 	proc, err := r.Start(ctx, command, opts...)
