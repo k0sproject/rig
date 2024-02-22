@@ -79,6 +79,7 @@ func (i OpenRC) ServiceEnvironmentPath(_ context.Context, _ exec.ContextRunner, 
 // ServiceEnvironmentContent returns a formatted string for a service environment override file.
 func (i OpenRC) ServiceEnvironmentContent(env map[string]string) string {
 	var b strings.Builder
+	b.Grow(len(env) * 24)
 	for k, v := range env {
 		_, _ = fmt.Fprintf(&b, "export %s=%s\n", k, v)
 	}

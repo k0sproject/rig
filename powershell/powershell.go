@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/base64"
-	"fmt"
 	"strings"
 )
 
@@ -74,16 +73,18 @@ func Cmd(psCmd string) string {
 // from jbrekelmans/go-winrm/util.go PowerShellSingleQuotedStringLiteral.
 func SingleQuote(v string) string {
 	var buf strings.Builder
-	_, _ = buf.WriteRune('\'')
+	buf.Grow(len(v) + 3)
+	buf.WriteRune('\'')
 	for _, rune := range v {
 		switch rune {
 		case '\n', '\r', '\t', '\v', '\f', '\a', '\b', '\'', '`', '\x00':
-			_, _ = buf.WriteString(fmt.Sprintf("`%c", rune))
+			buf.WriteString("`")
+			buf.WriteRune(rune)
 		default:
-			_, _ = buf.WriteRune(rune)
+			buf.WriteRune(rune)
 		}
 	}
-	_, _ = buf.WriteRune('\'')
+	buf.WriteRune('\'')
 	return buf.String()
 }
 
@@ -95,16 +96,17 @@ func DoubleQuote(v string) string {
 	}
 
 	var buf strings.Builder
-	_, _ = buf.WriteRune('"')
+	buf.Grow(len(v) + 4)
+	buf.WriteRune('"')
 	for _, rune := range v {
 		switch rune {
 		case '"':
-			_, _ = buf.WriteString("`\"")
+			buf.WriteString("`\"")
 		default:
-			_, _ = buf.WriteRune(rune)
+			buf.WriteRune(rune)
 		}
 	}
-	_, _ = buf.WriteRune('"')
+	buf.WriteRune('"')
 	return buf.String()
 }
 

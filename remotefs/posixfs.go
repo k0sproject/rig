@@ -34,7 +34,7 @@ const (
 
 // PosixFS implements fs.FS for a remote filesystem that uses POSIX commands for access.
 type PosixFS struct {
-	exec.SimpleRunner
+	exec.Runner
 	log.LoggerInjectable
 
 	// TODO: these should probably be in some kind of "coreutils" package
@@ -44,8 +44,8 @@ type PosixFS struct {
 }
 
 // NewPosixFS returns a fs.FS implementation for a remote filesystem that uses POSIX commands for access.
-func NewPosixFS(conn exec.SimpleRunner) *PosixFS {
-	return &PosixFS{SimpleRunner: conn, statCmd: nil, chtimesFn: nil}
+func NewPosixFS(conn exec.Runner) *PosixFS {
+	return &PosixFS{Runner: conn, statCmd: nil, chtimesFn: nil}
 }
 
 func (s *PosixFS) initStat() error {
@@ -219,13 +219,14 @@ func (s *PosixFS) parseStat(stat string) (*FileInfo, error) {
 	return res, nil
 }
 
-func (s *PosixFS) multiStat(names ...string) ([]fs.FileInfo, error) {
+func (s *PosixFS) multiStat(names ...string) ([]fs.FileInfo, error) { //nolint:cognit // TODO refactor
 	if err := s.initStat(); err != nil {
 		return nil, err
 	}
 	var idx int
 	res := make([]fs.FileInfo, 0, len(names))
 	var batch strings.Builder
+	batch.Grow(1024)
 	for idx < len(names) {
 		batch.Reset()
 		// build max 1kb batches of names to stat
@@ -239,15 +240,15 @@ func (s *PosixFS) multiStat(names ...string) ([]fs.FileInfo, error) {
 			idx++
 		}
 
-		out, err := s.ExecOutput(fmt.Sprintf(*s.statCmd, batch.String()))
+		scanner, err := s.ExecScanner(fmt.Sprintf(*s.statCmd, batch.String()))
 		if err != nil {
 			if len(names) == 1 {
 				return nil, PathError(OpStat, names[0], fs.ErrNotExist)
 			}
 			return nil, fmt.Errorf("stat %s: %w", names, err)
 		}
-		lines := strings.Split(out, "\n")
-		for _, line := range lines {
+		for scanner.Scan() {
+			line := scanner.Text()
 			if line == "" {
 				continue
 			}
@@ -256,6 +257,12 @@ func (s *PosixFS) multiStat(names ...string) ([]fs.FileInfo, error) {
 				return res, err
 			}
 			res = append(res, info)
+		}
+		if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
+			if len(names) == 1 {
+				return nil, PathError(OpStat, names[0], fs.ErrNotExist)
+			}
+			return res, fmt.Errorf("stat %s: %w", names, err)
 		}
 	}
 	return res, nil

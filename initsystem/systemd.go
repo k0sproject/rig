@@ -9,6 +9,7 @@ import (
 
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/sh"
+	"github.com/k0sproject/rig/sh/shellescape"
 )
 
 // Systemd is found by default on most linux distributions today.
@@ -93,10 +94,12 @@ func (i Systemd) ServiceEnvironmentPath(ctx context.Context, h exec.ContextRunne
 // ServiceEnvironmentContent returns a formatted string for a service environment override file.
 func (i Systemd) ServiceEnvironmentContent(env map[string]string) string {
 	var b strings.Builder
-	fmt.Fprintln(&b, "[Service]")
+	b.Grow(10 + (len(env) * 30))
+	b.WriteString("[Service]\n")
 	for k, v := range env {
-		env := fmt.Sprintf("%s=%s", k, v)
-		_, _ = fmt.Fprintf(&b, "Environment=%s\n", strconv.Quote(env))
+		b.WriteString("Environment=")
+		b.WriteString(shellescape.Quote(k + "=" + v))
+		b.WriteByte('\n')
 	}
 
 	return b.String()

@@ -56,7 +56,8 @@ func newUniversalPackageManager(runner exec.ContextRunner, name, command, add, d
 }
 
 func buildCommand(basecmd, keyword string, packages ...string) string {
-	cmd := &strings.Builder{}
+	cmd := strings.Builder{}
+	cmd.Grow(len(basecmd) + 1 + len(keyword) + (len(packages) * 8))
 	cmd.WriteString(basecmd)
 	cmd.WriteRune(' ')
 	cmd.WriteString(keyword)
