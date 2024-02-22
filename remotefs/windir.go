@@ -1,11 +1,13 @@
 package remotefs
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
+	"sync"
 
 	"github.com/k0sproject/rig/exec"
 )
@@ -60,22 +62,61 @@ if ($items -eq $null) {
 ConvertTo-Json -Compress -Depth 5 @($items)
 `
 
+var fileInfoPool = sync.Pool{
+	New: func() interface{} {
+		infos := make([]*winFileInfo, 0)
+		return &infos
+	},
+}
+
 // ReadDir reads the contents of the directory and returns
 // a slice of up to n fs.DirEntry values in directory order.
 // Subsequent calls on the same file will yield further DirEntry values.
 func (f *winDir) ReadDir(n int) ([]fs.DirEntry, error) {
 	if f.buffer == nil {
-		out, err := f.fs.ExecOutput(fmt.Sprintf(statDirTemplate, f.path), exec.PS())
+		pipeR, pipeW := io.Pipe()
+		cmd, err := f.fs.Start(context.Background(), fmt.Sprintf(statDirTemplate, f.path), exec.PS(), exec.Stdout(pipeW))
 		if err != nil {
+			pipeW.Close()
 			return nil, fmt.Errorf("readdir: %w", err)
 		}
-		var fileinfos []*winFileInfo
-		if err := json.Unmarshal([]byte(out), &fileinfos); err != nil {
-			return nil, fmt.Errorf("decode readdir output: %w", err)
+
+		fileinfosptr, ok := fileInfoPool.Get().(*[]*winFileInfo)
+		if !ok {
+			infos := make([]*winFileInfo, 0)
+			fileinfosptr = &infos
 		}
+		fileinfos := *fileinfosptr
+		fileinfos = fileinfos[:0]
+		defer fileInfoPool.Put(fileinfosptr)
+
+		var decodeErr error
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			decoder := json.NewDecoder(pipeR)
+			decodeErr = decoder.Decode(&fileinfos)
+			pipeR.Close()
+		}()
+		if err := cmd.Wait(); err != nil {
+			pipeW.Close()
+			<-done
+			return nil, fmt.Errorf("readdir: %w", err)
+		}
+		pipeW.Close()
+		<-done
+
+		if decodeErr != nil {
+			return nil, fmt.Errorf("decode readdir output: %w", decodeErr)
+		}
+
+		for _, info := range fileinfos {
+			info.fs = f.fs
+		}
+
 		entries := make([]fs.DirEntry, len(fileinfos))
 		for i, info := range fileinfos {
-			entries[i] = info
+			entries[i] = fs.DirEntry(info)
 		}
 		f.buffer = newDirEntryBuffer(entries)
 	}

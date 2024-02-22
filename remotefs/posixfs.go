@@ -1,9 +1,11 @@
 package remotefs
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -430,17 +432,53 @@ func (s *PosixFS) OpenFile(name string, flags int, perm fs.FileMode) (File, erro
 	return file, nil
 }
 
+func scanNullTerminatedStrings(data []byte, atEOF bool) (advance int, token []byte, err error) { //nolint:nonamedreturns // clarity
+	if idx := bytes.IndexByte(data, '\x00'); idx >= 0 {
+		return idx + 1, data[:idx], nil
+	}
+
+	if atEOF && len(data) > 0 {
+		return len(data), data, bufio.ErrFinalToken
+	}
+
+	return 0, nil, nil
+}
+
 // ReadDir reads the directory named by dirname and returns a list of directory entries.
 func (s *PosixFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	if name == "" {
 		name = "."
 	}
 
-	out, err := s.ExecOutput(sh.Command("find", name, "-maxdepth", "1", "-print0"))
+	pipeR, pipeW := io.Pipe()
+	defer pipeR.Close()
+
+	cmd, err := s.StartBackground(sh.Command("find", name, "-maxdepth", "1", "-print0"), exec.Stdout(pipeW))
 	if err != nil {
+		return nil, fmt.Errorf("read dir (start find) %s: %w", name, err)
+	}
+
+	var items []string
+	done := make(chan struct{})
+
+	go func() {
+		defer pipeW.Close()
+		defer close(done)
+
+		scanner := bufio.NewScanner(pipeR)
+		scanner.Split(scanNullTerminatedStrings)
+
+		for scanner.Scan() {
+			items = append(items, scanner.Text())
+		}
+	}()
+
+	if err := cmd.Wait(); err != nil {
+		<-done
 		return nil, fmt.Errorf("read dir (find) %s: %w", name, err)
 	}
-	items := strings.Split(out, "\x00")
+	<-done
+
 	if len(items) == 0 || (len(items) == 1 && items[0] == "") {
 		return nil, PathError("read dir", name, fs.ErrNotExist)
 	}

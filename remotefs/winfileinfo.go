@@ -9,6 +9,7 @@ import (
 )
 
 var _ fs.FileInfo = (*winFileInfo)(nil)
+var _ fs.DirEntry = (*winFileInfo)(nil)
 
 type windowsFileInfoTime time.Time
 
