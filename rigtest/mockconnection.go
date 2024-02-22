@@ -14,6 +14,11 @@ import (
 
 var _ protocol.Connection = (*MockConnection)(nil)
 
+type matcher struct {
+	fn       func(string) bool
+	waiterFn MockWaiterFn
+}
+
 // MockConnection is a mock client. It can be used to simulate a client in tests.
 type MockConnection struct {
 	commands []string
@@ -131,7 +136,7 @@ func (m *mockWaiter) Wait() error {
 // MockStarter is a mock process starter.
 type MockStarter struct {
 	ErrImmediately error
-	matchers       map[*regexp.Regexp]MockWaiterFn
+	matchers       []matcher
 }
 
 // StartProcess simulates a start of a process. You can add matchers to the starter to simulate different behaviors for different commands.
@@ -140,9 +145,9 @@ func (m *MockStarter) StartProcess(ctx context.Context, cmd string, stdin io.Rea
 		return nil, m.ErrImmediately
 	}
 
-	for matcher, waiter := range m.matchers {
-		if matcher.MatchString(cmd) && waiter != nil {
-			return &mockWaiter{in: stdin, out: stdout, errOut: stderr, ctx: ctx, fn: waiter}, nil
+	for _, matcher := range m.matchers {
+		if matcher.waiterFn != nil && matcher.fn(cmd) {
+			return &mockWaiter{in: stdin, out: stdout, errOut: stderr, ctx: ctx, fn: matcher.waiterFn}, nil
 		}
 	}
 
@@ -150,13 +155,11 @@ func (m *MockStarter) StartProcess(ctx context.Context, cmd string, stdin io.Rea
 }
 
 // Add adds a matcher and a function to the starter.
-func (m *MockStarter) Add(matcher *regexp.Regexp, waiterFn MockWaiterFn) {
-	m.matchers[matcher] = waiterFn
+func (m *MockStarter) Add(regex *regexp.Regexp, waiterFn MockWaiterFn) {
+	m.matchers = append(m.matchers, matcher{fn: func(cmd string) bool { return regex.MatchString(cmd) }, waiterFn: waiterFn})
 }
 
 // NewMockStarter creates a new mock starter.
 func NewMockStarter() *MockStarter {
-	return &MockStarter{
-		matchers: make(map[*regexp.Regexp]MockWaiterFn),
-	}
+	return &MockStarter{}
 }
