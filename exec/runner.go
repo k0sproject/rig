@@ -1,6 +1,7 @@
 package exec
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -44,11 +45,17 @@ type ContextRunner interface {
 	Start(ctx context.Context, command string, opts ...Option) (Waiter, error)
 }
 
+type ScannerRunner interface {
+	ExecScannerContext(ctx context.Context, command string, opts ...Option) (*bufio.Scanner, error)
+	ExecScanner(command string, opts ...Option) (*bufio.Scanner, error)
+}
+
 // Runner is a full featured command runner for clients.
 type Runner interface {
 	SimpleRunner
 	ContextRunner
 	CommandFormatter
+	ScannerRunner
 	connection
 }
 
@@ -209,6 +216,40 @@ func (r *HostRunner) ExecOutput(command string, opts ...Option) (string, error) 
 	return r.ExecOutputContext(context.Background(), command, opts...)
 }
 
+// ExecScannerContext executes the command and returns a bufio.Scanner to read the stdout output.
+// The scanner will close when the command finishes and scanner.Err() may return the command's error.
+func (r *HostRunner) ExecScannerContext(ctx context.Context, command string, opts ...Option) (*bufio.Scanner, error) {
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("runner context error: %w", ctx.Err())
+	}
+	pipeR, pipeW := io.Pipe()
+	opts = append(opts, Stdout(pipeW))
+
+	proc, err := r.Start(ctx, command, opts...)
+	if err != nil {
+		pipeW.Close()
+		pipeR.Close()
+		return nil, fmt.Errorf("start command: %w", err)
+	}
+
+	go func() {
+		if err := proc.Wait(); err != nil {
+			pipeW.CloseWithError(fmt.Errorf("command wait: %w", err))
+			return
+		}
+		pipeW.Close()
+	}()
+
+	scanner := bufio.NewScanner(pipeR)
+	return scanner, nil
+}
+
+// ExecScanner executes the command and returns a bufio.Scanner to read the stdout output.
+// The scanner will close when the command finishes and scanner.Err() may return the command's error.
+func (r *HostRunner) ExecScanner(command string, opts ...Option) (*bufio.Scanner, error) {
+	return r.ExecScannerContext(context.Background(), command, opts...)
+}
+
 // StartProcess calls the connection's StartProcess method. This is done to satisfy the
 // connection interface and thus allow chaining of runners.
 func (r *HostRunner) StartProcess(ctx context.Context, command string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (Waiter, error) {
@@ -271,5 +312,15 @@ func (n *ErrorRunner) StartBackground(_ string, _ ...Option) (Waiter, error) {
 
 // StartProcess returns the error.
 func (n *ErrorRunner) StartProcess(_ context.Context, _ string, _ io.Reader, _ io.Writer, _ io.Writer) (Waiter, error) {
+	return nil, n.err
+}
+
+// ExecScannerContext returns the error.
+func (n *ErrorRunner) ExecScannerContext(_ context.Context, _ string, _ ...Option) (*bufio.Scanner, error) {
+	return nil, n.err
+}
+
+// ExecScanner returns the error.
+func (n *ErrorRunner) ExecScanner(_ string, _ ...Option) (*bufio.Scanner, error) {
 	return nil, n.err
 }
