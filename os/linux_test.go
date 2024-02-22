@@ -1,12 +1,17 @@
-package rig
+package os
 
 import (
+	"context"
+	"io"
+	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/rigtest"
 )
 
-const (
-)
+const ()
 
 func TestParseReleaseFile(t *testing.T) {
 	osReleaseRocky := `NAME="Rocky Linux"   
@@ -27,8 +32,21 @@ ROCKY_SUPPORT_PRODUCT_VERSION="8.9"
 REDHAT_SUPPORT_PRODUCT="Rocky Linux"
 REDHAT_SUPPORT_PRODUCT_VERSION="8.9"`
 
-	osv := OSVersion{}
-	ParseOSReleaseFile(osReleaseRocky, &osv)
+	mc := rigtest.NewMockConnection()
+	runner := exec.NewHostRunner(mc)
+	mc.AddMockCommand(regexp.MustCompile("^uname"), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
+		return nil
+	})
+
+	mc.AddMockCommand(regexp.MustCompile("^cat /etc/os-release"), func(_ context.Context, _ io.Reader, stdout, _ io.Writer) error {
+		_, _ = stdout.Write([]byte(osReleaseRocky))
+		return nil
+	})
+
+	osv, ok := ResolveLinux(runner)
+	if !ok {
+		t.Fatalf("ResolveLinux returned false")
+	}
 
 	if osv.ID != "rocky" {
 		t.Errorf("ParseOSReleaseFile gave the wrong ID: '%s' != 'rocky'", osv.ID)
@@ -50,5 +68,4 @@ REDHAT_SUPPORT_PRODUCT_VERSION="8.9"`
 	} else if v != "Rocky-Linux-8" {
 		t.Errorf("ParseOSReleaseFile gave the wrong extra field value: '%s != 'Rocky-Linux-8'", v)
 	}
-	
 }
