@@ -219,7 +219,7 @@ func (s *PosixFS) parseStat(stat string) (*FileInfo, error) {
 	return res, nil
 }
 
-func (s *PosixFS) multiStat(names ...string) ([]fs.FileInfo, error) { //nolint:cognit // TODO refactor
+func (s *PosixFS) multiStat(names ...string) ([]fs.FileInfo, error) { //nolint:gocognit,cyclop // TODO refactor
 	if err := s.initStat(); err != nil {
 		return nil, err
 	}
@@ -452,7 +452,7 @@ func scanNullTerminatedStrings(data []byte, atEOF bool) (advance int, token []by
 }
 
 // ReadDir reads the directory named by dirname and returns a list of directory entries.
-func (s *PosixFS) ReadDir(name string) ([]fs.DirEntry, error) {
+func (s *PosixFS) ReadDir(name string) ([]fs.DirEntry, error) { //nolint:cyclop // TODO refactor
 	if name == "" {
 		name = "."
 	}

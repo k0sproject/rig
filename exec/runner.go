@@ -45,6 +45,7 @@ type ContextRunner interface {
 	Start(ctx context.Context, command string, opts ...Option) (Waiter, error)
 }
 
+// ScannerRunner is a command runner that can run commands and return a bufio.Scanner to read the output.
 type ScannerRunner interface {
 	ExecScannerContext(ctx context.Context, command string, opts ...Option) (*bufio.Scanner, error)
 	ExecScanner(command string, opts ...Option) (*bufio.Scanner, error)
