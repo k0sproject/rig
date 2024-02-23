@@ -41,6 +41,13 @@ type CommandHandler func(a *A) error
 // CommandMatcher is a function that checks if a command matches a certain criteria.
 type CommandMatcher func(string) bool
 
+// Not returns a CommandMatcher that negates the result of the given match function.
+func Not(matchFn CommandMatcher) CommandMatcher {
+	return func(cmd string) bool {
+		return !matchFn(cmd)
+	}
+}
+
 // HasPrefix returns a CommandMatcher that checks if a command starts with a given prefix.
 func HasPrefix(prefix string) CommandMatcher {
 	return func(cmd string) bool {
@@ -69,8 +76,8 @@ func Equal(str string) CommandMatcher {
 	}
 }
 
-// Matches returns a CommandMatcher that checks if a command matches a given regular expression.
-func Matches(pattern string) CommandMatcher {
+// Match returns a CommandMatcher that checks if a command matches a given regular expression.
+func Match(pattern string) CommandMatcher {
 	regex := regexp.MustCompile(pattern)
 	return func(cmd string) bool {
 		return regex.MatchString(cmd)
@@ -148,7 +155,7 @@ func (m *MockConnection) Reset() {
 	m.commands = []string{}
 }
 
-// Received returns true if a command matching the given regular expression was received.
+// Received returns an error unless a command matching the given matcher was received.
 func (m *MockConnection) Received(matchFn CommandMatcher) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -158,6 +165,18 @@ func (m *MockConnection) Received(matchFn CommandMatcher) error {
 		}
 	}
 	return errors.New("a matching command was not received") //nolint:goerr113
+}
+
+// NotReceived returns an error if a command matching the given regular expression was received.
+func (m *MockConnection) NotReceived(matchFn CommandMatcher) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, cmd := range m.commands {
+		if matchFn(cmd) {
+			return errors.New("a matching command was received") //nolint:goerr113
+		}
+	}
+	return nil
 }
 
 // Len returns the number of commands received.
