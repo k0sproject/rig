@@ -1,3 +1,5 @@
+//go:build !windows
+
 package homedir_test
 
 import (
@@ -10,11 +12,11 @@ import (
 func TestExpand(t *testing.T) {
 	t.Setenv("HOME", "/home/test")
 
-	home, err := homedir.Expand("~/tmp")
+	homeTmp, err := homedir.Expand("~/tmp")
 	assert.NoError(t, err)
-	assert.Equal(t, home, "/home/test/tmp")
+	assert.Equal(t, "/home/test/tmp", homeTmp)
 
-	home, err = homedir.Expand("/tmp")
+	tmp, err := homedir.Expand("/tmp/foo")
 	assert.NoError(t, err)
-	assert.Equal(t, home, "/tmp")
+	assert.Equal(t, "/tmp/foo", tmp)
 }
