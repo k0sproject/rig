@@ -1,13 +1,9 @@
 package os
 
 import (
-	"context"
-	"io"
-	"regexp"
 	"strings"
 	"testing"
 
-	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/rigtest"
 )
 
@@ -32,18 +28,11 @@ ROCKY_SUPPORT_PRODUCT_VERSION="8.9"
 REDHAT_SUPPORT_PRODUCT="Rocky Linux"
 REDHAT_SUPPORT_PRODUCT_VERSION="8.9"`
 
-	mc := rigtest.NewMockConnection()
-	runner := exec.NewHostRunner(mc)
-	mc.AddMockCommand(regexp.MustCompile("^uname"), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
-		return nil
-	})
+	mr := rigtest.NewMockRunner()
+	mr.AddCommand(rigtest.HasPrefix("uname"), func(a *rigtest.A) error { return nil })
+	mr.AddCommandOutput(rigtest.HasPrefix("cat /etc/os-release"), osReleaseRocky)
 
-	mc.AddMockCommand(regexp.MustCompile("^cat /etc/os-release"), func(_ context.Context, _ io.Reader, stdout, _ io.Writer) error {
-		_, _ = stdout.Write([]byte(osReleaseRocky))
-		return nil
-	})
-
-	osv, ok := ResolveLinux(runner)
+	osv, ok := ResolveLinux(mr)
 	if !ok {
 		t.Fatalf("ResolveLinux returned false")
 	}

@@ -3,13 +3,10 @@ package rig_test
 import (
 	"context"
 	"errors"
-	"io"
-	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/k0sproject/rig"
-	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/initsystem"
 	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/packagemanager"
@@ -20,11 +17,10 @@ import (
 )
 
 func TestGetRemoteFS(t *testing.T) {
-	mc := rigtest.NewMockConnection()
-	runner := exec.NewHostRunner(mc)
+	mr := rigtest.NewMockRunner()
 
 	t.Run("posix", func(t *testing.T) {
-		fs, err := rig.GetRemoteFS(runner)
+		fs, err := rig.GetRemoteFS(mr)
 		// the current implementation never returns an error, the result
 		// will be either posixfs or winfs.
 		require.NoError(t, err)
@@ -32,8 +28,8 @@ func TestGetRemoteFS(t *testing.T) {
 	})
 
 	t.Run("windows", func(t *testing.T) {
-		mc.Windows = true
-		fs, err := rig.GetRemoteFS(runner)
+		mr.Windows = true
+		fs, err := rig.GetRemoteFS(mr)
 		// the current implementation never returns an error, the result
 		// will be either posixfs or winfs.
 		require.NoError(t, err)
@@ -43,90 +39,66 @@ func TestGetRemoteFS(t *testing.T) {
 
 func TestGetServiceManager(t *testing.T) {
 	t.Run("systemd", func(t *testing.T) {
-		mc := rigtest.NewMockConnection()
-		runner, _ := rig.NewRunner(mc)
-		mc.AddMockCommand(regexp.MustCompile(`^stat /run/systemd/system`), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
-			return nil
-		})
-		mc.AddMockCommand(regexp.MustCompile(`^.*`), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
-			return errors.New("mock error")
-		})
+		mr := rigtest.NewMockRunner()
+		mr.ErrDefault = errors.New("mock error")
+		mr.AddCommand(rigtest.Equal("stat /run/systemd/system"), func(a *rigtest.A) error { return nil })
 
-		sm, err := rig.GetServiceManager(runner)
+		sm, err := rig.GetServiceManager(mr)
 		require.NoError(t, err)
 		require.IsType(t, initsystem.Systemd{}, sm)
 	})
 
 	t.Run("upstart", func(t *testing.T) {
-		mc := rigtest.NewMockConnection()
-		runner := exec.NewHostRunner(mc)
-		mc.AddMockCommand(regexp.MustCompile(`^command -v initctl`), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
-			return nil
-		})
-		mc.AddMockCommand(regexp.MustCompile(`^.*`), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
-			return errors.New("mock error")
-		})
+		mr := rigtest.NewMockRunner()
+		mr.ErrDefault = errors.New("mock error")
+		mr.AddCommand(rigtest.HasPrefix("command -v initctl"), func(a *rigtest.A) error { return nil })
 
-		sm, err := rig.GetServiceManager(runner)
+		sm, err := rig.GetServiceManager(mr)
 		require.NoError(t, err)
 		require.IsType(t, initsystem.Upstart{}, sm)
 	})
 
 	t.Run("error", func(t *testing.T) {
-		mc := rigtest.NewMockConnection()
-		mc.AddMockCommand(regexp.MustCompile(`^.*`), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
-			return errors.New("mock error")
-		})
-		runner := exec.NewHostRunner(mc)
-		_, err := rig.GetServiceManager(runner)
+		mr := rigtest.NewMockRunner()
+		mr.ErrDefault = errors.New("mock error")
+
+		_, err := rig.GetServiceManager(mr)
 		require.ErrorIs(t, err, initsystem.ErrNoInitSystem)
 	})
 }
 
 func TestGetPackageManager(t *testing.T) {
 	t.Run("apk", func(t *testing.T) {
-		mc := rigtest.NewMockConnection()
-		runner := exec.NewHostRunner(mc)
-		mc.AddMockCommand(regexp.MustCompile(`^command -v apk`), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
-			return nil
-		})
-		mc.AddMockCommand(regexp.MustCompile(`^.*`), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
-			return errors.New("mock error")
-		})
+		mr := rigtest.NewMockRunner()
+		mr.ErrDefault = errors.New("mock error")
+		mr.AddCommand(rigtest.Equal("command -v apk"), func(a *rigtest.A) error { return nil })
 
-		pm, err := rig.GetPackageManager(runner)
+		pm, err := rig.GetPackageManager(mr)
 		require.NoError(t, err)
 		require.NotNil(t, pm)
 
 		_ = pm.Install(context.Background(), "package")
-		require.Contains(t, mc.Commands(), "apk add package")
+		rigtest.ReceivedContains(t, mr, "apk add package")
 	})
 
 	t.Run("yum", func(t *testing.T) {
-		mc := rigtest.NewMockConnection()
-		runner := exec.NewHostRunner(mc)
-		mc.AddMockCommand(regexp.MustCompile(`^command -v yum`), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
-			return nil
-		})
-		mc.AddMockCommand(regexp.MustCompile(`^.*`), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
-			return errors.New("mock error")
-		})
+		mr := rigtest.NewMockRunner()
+		mr.ErrDefault = errors.New("mock error")
+		mr.AddCommand(rigtest.Equal("command -v yum"), func(a *rigtest.A) error { return nil })
 
-		pm, err := rig.GetPackageManager(runner)
+		pm, err := rig.GetPackageManager(mr)
 		require.NoError(t, err)
 		require.NotNil(t, pm)
 
 		_ = pm.Install(context.Background(), "package")
-		require.Contains(t, mc.Commands(), "yum install -y package")
+		rigtest.ReceivedContains(t, mr, "yum install -y package")
 	})
 
 	t.Run("error", func(t *testing.T) {
-		mc := rigtest.NewMockConnection()
-		mc.AddMockCommand(regexp.MustCompile(`^.*`), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
-			return errors.New("mock error")
-		})
-		runner := exec.NewHostRunner(mc)
-		_, err := rig.GetPackageManager(runner)
+		mr := rigtest.NewMockRunner()
+		mr.ErrDefault = errors.New("mock error")
+
+		_, err := rig.GetPackageManager(mr)
 		require.ErrorIs(t, err, packagemanager.ErrNoPackageManager)
 	})
 }
@@ -134,56 +106,36 @@ func TestGetPackageManager(t *testing.T) {
 func TestGetSudoRunner(t *testing.T) {
 
 	t.Run("sudo", func(t *testing.T) {
-		mc := rigtest.NewMockConnection()
-		runner := exec.NewHostRunner(mc)
+		mr := rigtest.NewMockRunner()
+		mr.ErrDefault = errors.New("mock error")
+		mr.AddCommand(rigtest.Match("sudo.*true"), func(a *rigtest.A) error { return nil })
 
-		mc.AddMockCommand(regexp.MustCompile(`^sudo.*true`), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
-			return nil
-		})
-		mc.AddMockCommand(regexp.MustCompile(`^.*`), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
-			return errors.New("mock error")
-		})
-
-		sudoRunner, err := rig.GetSudoRunner(runner)
+		sudoRunner, err := rig.GetSudoRunner(mr)
 		require.NoError(t, err)
 		require.NotNil(t, sudoRunner)
 
 		_ = sudoRunner.Exec("hello")
-		commands := mc.Commands()
-		lastCommand := commands[len(commands)-1]
-		require.Regexp(t, `^sudo.*hello`, lastCommand)
+		rigtest.ReceivedMatch(t, mr, "^sudo.*hello$")
 	})
 
 	t.Run("doas", func(t *testing.T) {
-		mc := rigtest.NewMockConnection()
-		runner := exec.NewHostRunner(mc)
+		mr := rigtest.NewMockRunner()
+		mr.ErrDefault = errors.New("mock error")
+		mr.AddCommand(rigtest.Match("doas.*true"), func(a *rigtest.A) error { return nil })
 
-		mc.AddMockCommand(regexp.MustCompile(`^doas.*true`), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
-			return nil
-		})
-		mc.AddMockCommand(regexp.MustCompile(`^.*`), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
-			return errors.New("mock error")
-		})
-
-		sudoRunner, err := rig.GetSudoRunner(runner)
+		sudoRunner, err := rig.GetSudoRunner(mr)
 		require.NoError(t, err)
 		require.NotNil(t, sudoRunner)
 
 		_ = sudoRunner.Exec("hello")
-		commands := mc.Commands()
-		lastCommand := commands[len(commands)-1]
-		require.Regexp(t, `^doas.*hello`, lastCommand)
+		rigtest.ReceivedMatch(t, mr, `^doas.*hello$`)
 	})
 
 	t.Run("error", func(t *testing.T) {
-		mc := rigtest.NewMockConnection()
-		runner := exec.NewHostRunner(mc)
+		mr := rigtest.NewMockRunner()
+		mr.ErrDefault = errors.New("mock error")
 
-		mc.AddMockCommand(regexp.MustCompile(`^.*`), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
-			return errors.New("mock error")
-		})
-
-		_, err := rig.GetSudoRunner(runner)
+		_, err := rig.GetSudoRunner(mr)
 		require.ErrorIs(t, err, sudo.ErrNoSudo)
 	})
 }
@@ -198,18 +150,11 @@ func TestGetOSRelease(t *testing.T) {
 		builder.WriteString("FOO=\"BAR\"\n")
 		osRelease := builder.String()
 
-		mc := rigtest.NewMockConnection()
-		runner := exec.NewHostRunner(mc)
-		mc.AddMockCommand(regexp.MustCompile("^uname"), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
-			return nil
-		})
+		mr := rigtest.NewMockRunner()
+		mr.AddCommand(rigtest.HasPrefix("uname"), func(a *rigtest.A) error { return nil })
+		mr.AddCommandOutput(rigtest.HasPrefix("cat /etc/os-release"), osRelease)
 
-		mc.AddMockCommand(regexp.MustCompile("^cat /etc/os-release"), func(_ context.Context, _ io.Reader, stdout, _ io.Writer) error {
-			_, _ = stdout.Write([]byte(osRelease))
-			return nil
-		})
-
-		os, err := rig.GetOSRelease(runner)
+		os, err := rig.GetOSRelease(mr)
 		require.NoError(t, err)
 		require.Equal(t, "Foo", os.Name)
 		require.Equal(t, "1.0", os.Version)
@@ -218,14 +163,10 @@ func TestGetOSRelease(t *testing.T) {
 	})
 
 	t.Run("error", func(t *testing.T) {
-		mc := rigtest.NewMockConnection()
-		runner := exec.NewHostRunner(mc)
-		mc.AddMockCommand(regexp.MustCompile("^.*"), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
-			return errors.New("mock error")
-		})
+		mr := rigtest.NewMockRunner()
+		mr.ErrDefault = errors.New("mock error")
 
-		_, err := rig.GetOSRelease(runner)
+		_, err := rig.GetOSRelease(mr)
 		require.ErrorIs(t, err, os.ErrNotRecognized)
 	})
-
 }

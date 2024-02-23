@@ -3,60 +3,50 @@ package packagemanager_test
 import (
 	"context"
 	"errors"
-	"io"
-	"regexp"
 	"testing"
 
-	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/packagemanager"
 	"github.com/k0sproject/rig/rigtest"
 	"github.com/stretchr/testify/require"
 )
 
 func TestPackageManagerService_SuccessfulInitialization(t *testing.T) {
-	mc := rigtest.NewMockConnection()
-	runner := exec.NewHostRunner(mc)
+	mr := rigtest.NewMockRunner()
 
-	mc.AddMockCommand(regexp.MustCompile("^command -v zypper"), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
+	mr.AddCommand(rigtest.Equal("command -v zypper"), func(a *rigtest.A) error {
 		return nil
 	})
-	mc.AddMockCommand(regexp.MustCompile("^.*"), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
-		return errors.New("mock error")
-	})
+	mr.ErrDefault = errors.New("command not found")
 
-	pms := packagemanager.NewPackageManagerService(packagemanager.DefaultProvider(), runner)
+	pms := packagemanager.NewPackageManagerService(packagemanager.DefaultProvider(), mr)
 
 	pm, err := pms.GetPackageManager()
 	require.NoError(t, err)
 	require.NotNil(t, pm)
 
 	err = pms.PackageManager().Install(context.Background(), "sample-package")
-	require.ErrorContains(t, err, "mock error")
+	require.ErrorContains(t, err, "command not found")
 
-	require.Contains(t, mc.Commands(), "command -v zypper")
-	require.Contains(t, mc.Commands(), "zypper install -y sample-package")
+	rigtest.ReceivedEqual(t, mr, "command -v zypper")
+	rigtest.ReceivedContains(t, mr, "sample-package")
 }
 
 func TestPackageManagerService_InitializationFailure(t *testing.T) {
-	mc := rigtest.NewMockConnection()
-	runner := exec.NewHostRunner(mc)
+	mr := rigtest.NewMockRunner()
+	mr.ErrDefault = errors.New("mock error")
 
-	mc.AddMockCommand(regexp.MustCompile(".*"), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
-		return errors.New("mock error")
+	pms := packagemanager.NewPackageManagerService(packagemanager.DefaultProvider(), mr)
+	t.Run("GetPackageManager", func(t *testing.T) {
+		pm, err := pms.GetPackageManager()
+		require.ErrorIs(t, err, packagemanager.ErrNoPackageManager)
+		require.Nil(t, pm)
 	})
-
-	pms := packagemanager.NewPackageManagerService(packagemanager.DefaultProvider(), runner)
-	pm, err := pms.GetPackageManager()
-	require.ErrorIs(t, err, packagemanager.ErrNoPackageManager)
-	require.Nil(t, pm)
-
-	require.NotNil(t, pms.PackageManager())
-	err = pms.PackageManager().Install(context.Background(), "sample-package")
-	require.ErrorIs(t, err, packagemanager.ErrNoPackageManager)
-	commands := mc.Commands()
-	require.Contains(t, commands, "command -v zypper")
-	require.Contains(t, commands, "command -v apk")
-	for _, c := range commands {
-		require.NotContains(t, c, "sample-package")
-	}
+	t.Run("PackageManager", func(t *testing.T) {
+		require.NotNil(t, pms.PackageManager(), "PackageManager should return a intentionally dysfunctional PackageManager if none can be found")
+		err := pms.PackageManager().Install(context.Background(), "sample-package")
+		require.ErrorIs(t, err, packagemanager.ErrNoPackageManager)
+		rigtest.ReceivedEqual(t, mr, "command -v zypper")
+		rigtest.ReceivedEqual(t, mr, "command -v apk")
+		rigtest.NotReceivedContains(t, mr, "sample-package")
+	})
 }

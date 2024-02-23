@@ -1,11 +1,9 @@
 package exec_test
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
-	"regexp"
 	"testing"
 
 	"github.com/k0sproject/rig/exec"
@@ -14,72 +12,63 @@ import (
 )
 
 func TestSimpleExec(t *testing.T) {
-	mc := rigtest.NewMockConnection()
-	runner := exec.NewHostRunner(mc)
-	mc.AddMockCommand(regexp.MustCompile("^true"), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
-		return nil
-	})
-	mc.AddMockCommand(regexp.MustCompile("^false"), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
-		return errors.New("foo")
-	})
+	mr := rigtest.NewMockRunner()
+	mr.AddCommand(rigtest.Equal("true"), func(a *rigtest.A) error { return nil })
+	mr.AddCommand(rigtest.Equal("false"), func(a *rigtest.A) error { return errors.New("foo") })
 
-	require.NoError(t, runner.Exec("true"))
-	require.Error(t, runner.Exec("false"))
+	require.NoError(t, mr.Exec("true"))
+	require.ErrorContains(t, mr.Exec("false"), "foo")
 }
 
 func TestWindowsShell(t *testing.T) {
-	mc := rigtest.NewMockConnection()
-	mc.Windows = true
-	runner := exec.NewHostRunner(mc)
-	mc.AddMockCommand(regexp.MustCompile("^cmd.exe"), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
-		return nil
-	})
-	require.NoError(t, runner.Exec("echo hello"))
-	require.True(t, mc.ReceivedString("cmd.exe /C echo hello"))
+	mr := rigtest.NewMockRunner()
+	mr.Windows = true
+	_ = mr.Exec("echo hello")
+	rigtest.ReceivedEqual(t, mr, "cmd.exe /C echo hello", "commands should by default be run through cmd.exe")
+	_ = mr.Exec("foo.exe foo")
+	rigtest.ReceivedWithPrefix(t, mr, "foo.exe", "commands starting with *.exe should be run directly")
 }
 
 func TestPrintfErrors(t *testing.T) {
-	mc := rigtest.NewMockConnection()
-	runner := exec.NewHostRunner(mc)
+	mr := rigtest.NewMockRunner()
 	args := []interface{}{"hello"}
-	err := runner.Exec(fmt.Sprintf("echo %s %d", args...)) // intentional error
-	require.ErrorIs(t, err, exec.ErrInvalidCommand)
-	require.ErrorContains(t, err, "refusing")
+	err := mr.Exec(fmt.Sprintf("echo %s %d", args...)) // intentional error
+	require.ErrorIs(t, err, exec.ErrInvalidCommand, "commands with printf errors should return ErrInvalidCommand")
+	require.ErrorContains(t, err, "refusing", "commands with printf errors should return a helpful error message")
 }
 
 func TestExecOutput(t *testing.T) {
-	mc := rigtest.NewMockConnection()
-	runner := exec.NewHostRunner(mc)
-	mc.AddMockCommand(regexp.MustCompile("^foo"), func(_ context.Context, _ io.Reader, stdout, _ io.Writer) error {
-		_, _ = stdout.Write([]byte("bar\n"))
-		return nil
-	})
-	out, err := runner.ExecOutput("foo")
+	mr := rigtest.NewMockRunner()
+	mr.AddCommandOutput(rigtest.Equal("foo"), "bar\n")
+	out, err := mr.ExecOutput("foo")
 	require.NoError(t, err)
 	require.Equal(t, "bar", out)
+	out, err = mr.ExecOutput("foo", exec.TrimOutput(false))
+	require.NoError(t, err)
+	require.Equal(t, "bar\n", out)
 }
 
 func TestStdinInput(t *testing.T) {
-	mc := rigtest.NewMockConnection()
-	runner := exec.NewHostRunner(mc)
-	mc.AddMockCommand(regexp.MustCompile("^foo"), func(_ context.Context, stdin io.Reader, stdout, _ io.Writer) error {
-		_, _ = io.Copy(stdout, stdin)
+	mr := rigtest.NewMockRunner()
+	var readN int64
+	mr.AddCommand(rigtest.Equal("foo"), func(a *rigtest.A) error {
+		readN, _ = io.Copy(a.Stdout, a.Stdin)
 		return nil
 	})
-	out, err := runner.ExecOutput("foo", exec.StdinString("barbar"))
+	out, err := mr.ExecOutput("foo", exec.StdinString("barbar"))
 	require.NoError(t, err)
 	require.Equal(t, "barbar", out)
+	require.Equal(t, 6, int(readN))
 }
 
 func TestBackground(t *testing.T) {
-	mc := rigtest.NewMockConnection()
-	runner := exec.NewHostRunner(mc)
-	mc.AddMockCommand(regexp.MustCompile("^foo"), func(_ context.Context, _ io.Reader, _, _ io.Writer) error {
-		return errors.New("error from wait")
+	mr := rigtest.NewMockRunner()
+	mr.AddCommand(rigtest.Equal("foo"), func(_ *rigtest.A) error {
+		return errors.New("error from mock wait")
 	})
-	cmd, err := runner.StartBackground("foo")
+	cmd, err := mr.StartBackground("foo")
 	require.NoError(t, err)
-	require.True(t, mc.ReceivedString("foo"))
-	require.ErrorContains(t, cmd.Wait(), "error from wait")
+	rigtest.ReceivedEqual(t, mr, "foo")
+	require.ErrorContains(t, cmd.Wait(), "error from mock wait")
 
 }

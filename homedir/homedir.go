@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	gopath "path"
+	"path/filepath"
 	"strings"
 )
 
@@ -15,30 +16,18 @@ var (
 	ErrInvalidPath = errors.New("invalid path")
 )
 
-// Home returns the home directory for the executing user.
-func Home() (string, error) {
-	if home, ok := os.LookupEnv("HOME"); ok {
-		return home, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("get user home directory: %w", err)
-	}
-	return home, nil
-}
-
 // Expand does ~/ style path expansion for files under current user home. ~user/ style paths are not supported.
 func Expand(path string) (string, error) {
 	if !strings.HasPrefix(path, "~") {
 		return path, nil
 	}
 
-	parts := strings.Split(path, "/")
+	parts := strings.Split(filepath.FromSlash(path), "/")
 	if parts[0] != "~" {
 		return "", fmt.Errorf("%w: ~user/ style paths not supported", errNotImplemented)
 	}
 
-	home, err := Home()
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("homedir expand: %w", err)
 	}
