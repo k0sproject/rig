@@ -21,11 +21,11 @@ import (
 // using different protocols for communication.
 //
 // It provides a consistent interface to the host's init system,
-// package manager, filesystem, and more, regardless of the protocol
+// package manager, file system, and more, regardless of the protocol
 // or the remote operating system. It also provides a consistent
 // interface to the host's operating system's basic functions in a
 // similar manner as the stdlib's os package does for the local system,
-// for example file operations.
+// for example chmod, stat, and so on.
 type Client struct {
 	options *ClientOptions
 
@@ -49,7 +49,7 @@ type Client struct {
 	sudoClone *Client
 }
 
-// ClientWithConfig is a Client that is especially suitable for embedding into something that is unmarshalled from YAML.
+// ClientWithConfig is a Client that is suitable for embedding into something that is unmarshalled from YAML.
 //
 // When embedded into a "host" object like this:
 //
@@ -72,7 +72,7 @@ type Client struct {
 //	}
 //	out, err := host.ExecOutput("ls")
 //
-// The available protocols and defined in the CompositeConfig struct.
+// The available protocols are defined in the CompositeConfig struct.
 type ClientWithConfig struct {
 	mu               sync.Mutex
 	ConnectionConfig CompositeConfig `yaml:",inline"`
