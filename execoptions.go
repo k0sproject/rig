@@ -1,4 +1,4 @@
-package exec
+package rig
 
 import (
 	"bytes"
@@ -15,10 +15,10 @@ import (
 )
 
 // RedactMask is the string that will be used to replace redacted text in the logs.
-const RedactMask = "[REDACTED]"
+const DefaultRedactMask = "[REDACTED]"
 
 // Option is a functional option for the exec package.
-type Option func(*Options)
+type ExecOption func(*ExecOptions)
 
 // RedactFunc is a function that takes a string and returns a redacted string.
 type RedactFunc func(string) string
@@ -27,7 +27,7 @@ type RedactFunc func(string) string
 type DecorateFunc func(string) string
 
 // Options is a collection of exec options.
-type Options struct {
+type ExecOptions struct {
 	log.LoggerInjectable
 
 	in     io.Reader
@@ -70,25 +70,20 @@ func decodeEncoded(cmd string) string {
 }
 
 // Command returns the command string with all decorators applied.
-func (o *Options) Command(cmd string) string {
+func (o *ExecOptions) Command(cmd string) string {
 	for _, decorator := range o.decorateFuncs {
 		cmd = decorator(cmd)
 	}
 	return cmd
 }
 
-// Commandf returns the sprintf formatted command string with all decorators applied.
-func (o *Options) Commandf(format string, args ...any) string {
-	return o.Command(fmt.Sprintf(format, args...))
-}
-
 // AllowWinStderr returns the allowWinStderr option.
-func (o *Options) AllowWinStderr() bool {
+func (o *ExecOptions) AllowWinStderr() bool {
 	return o.allowWinStderr
 }
 
 // LogCmd is for logging the command to be executed.
-func (o *Options) LogCmd(cmd string) {
+func (o *ExecOptions) LogCmd(cmd string) {
 	if o.logCommand {
 		o.Log().Debugf("executing `%s`", o.Redact(decodeEncoded(cmd)))
 	} else {
@@ -122,7 +117,7 @@ func getReaderSize(reader io.Reader) (int64, error) {
 }
 
 // Stdin returns the Stdin reader. If input logging is enabled, it will be a TeeReader that writes to the log.
-func (o *Options) Stdin() io.Reader {
+func (o *ExecOptions) Stdin() io.Reader {
 	if o.in == nil {
 		return nil
 	}
@@ -142,7 +137,7 @@ func (o *Options) Stdin() io.Reader {
 }
 
 // Stdout returns the Stdout writer. If output logging is enabled, it will be a MultiWriter that writes to the log.
-func (o *Options) Stdout() io.Writer {
+func (o *ExecOptions) Stdout() io.Writer {
 	var writers []io.Writer
 	switch {
 	case o.streamOutput:
@@ -157,7 +152,7 @@ func (o *Options) Stdout() io.Writer {
 }
 
 // Stderr returns the Stderr writer. If error logging is enabled, it will be a MultiWriter that writes to the log.
-func (o *Options) Stderr() io.Writer {
+func (o *ExecOptions) Stderr() io.Writer {
 	var writers []io.Writer
 	switch {
 	case o.streamOutput:
@@ -174,19 +169,19 @@ func (o *Options) Stderr() io.Writer {
 }
 
 // WroteErr returns true if the command wrote to stderr.
-func (o *Options) WroteErr() bool {
+func (o *ExecOptions) WroteErr() bool {
 	return o.wroteErr
 }
 
 // AllowWinStderr exec option allows command to output to stderr without failing.
-func AllowWinStderr() Option {
-	return func(o *Options) {
+func AllowWinStderr() ExecOption {
+	return func(o *ExecOptions) {
 		o.allowWinStderr = true
 	}
 }
 
 // Redact is for filtering out sensitive text using a regexp.
-func (o *Options) Redact(s string) string {
+func (o *ExecOptions) Redact(s string) string {
 	if DisableRedact || len(o.redactFuncs) == 0 {
 		return s
 	}
@@ -197,7 +192,7 @@ func (o *Options) Redact(s string) string {
 }
 
 // FormatOutput is for trimming whitespace from the command output if TrimOutput is enabled.
-func (o *Options) FormatOutput(s string) string {
+func (o *ExecOptions) FormatOutput(s string) string {
 	if o.trimOutput {
 		return strings.TrimSpace(s)
 	}
@@ -205,65 +200,65 @@ func (o *Options) FormatOutput(s string) string {
 }
 
 // Stdin exec option for sending data to the command through stdin.
-func Stdin(r io.Reader) Option {
-	return func(o *Options) {
+func Stdin(r io.Reader) ExecOption {
+	return func(o *ExecOptions) {
 		o.in = r
 	}
 }
 
 // StdinString exec option for sending string data to the command through stdin.
-func StdinString(s string) Option {
-	return func(o *Options) {
+func StdinString(s string) ExecOption {
+	return func(o *ExecOptions) {
 		o.in = strings.NewReader(s)
 	}
 }
 
 // Stdout exec option for sending command stdout to an io.Writer.
-func Stdout(w io.Writer) Option {
-	return func(o *Options) {
+func Stdout(w io.Writer) ExecOption {
+	return func(o *ExecOptions) {
 		o.out = w
 	}
 }
 
 // Stderr exec option for sending command stderr to an io.Writer.
-func Stderr(w io.Writer) Option {
-	return func(o *Options) {
+func Stderr(w io.Writer) ExecOption {
+	return func(o *ExecOptions) {
 		o.errOut = w
 	}
 }
 
 // StreamOutput exec option for sending the command output to info log.
-func StreamOutput() Option {
-	return func(o *Options) {
+func StreamOutput() ExecOption {
+	return func(o *ExecOptions) {
 		o.streamOutput = true
 	}
 }
 
 // LogError exec option for enabling or disabling live error logging during exec.
-func LogError(v bool) Option {
-	return func(o *Options) {
+func LogError(v bool) ExecOption {
+	return func(o *ExecOptions) {
 		o.logError = v
 	}
 }
 
 // HideCommand exec option for hiding the command-string and stdin contents from the logs.
-func HideCommand() Option {
-	return func(o *Options) {
+func HideCommand() ExecOption {
+	return func(o *ExecOptions) {
 		o.logCommand = false
 	}
 }
 
 // HideOutput exec option for hiding the command output from logs.
-func HideOutput() Option {
-	return func(o *Options) {
+func HideOutput() ExecOption {
+	return func(o *ExecOptions) {
 		o.logOutput = false
 		o.logError = false
 	}
 }
 
 // Sensitive exec option for disabling all logging of the command.
-func Sensitive() Option {
-	return func(o *Options) {
+func Sensitive() ExecOption {
+	return func(o *ExecOptions) {
 		o.logDebug = false
 		o.logInfo = false
 		o.logError = false
@@ -272,8 +267,8 @@ func Sensitive() Option {
 }
 
 // Redact exec option for defining a redact regexp pattern that will be replaced with [REDACTED] in the logs.
-func Redact(rexp string) Option {
-	return func(o *Options) {
+func Redact(rexp string) ExecOption {
+	return func(o *ExecOptions) {
 		re := regexp.MustCompile(rexp)
 		o.redactFuncs = append(o.redactFuncs, func(s string) string {
 			return re.ReplaceAllString(s, RedactMask)
@@ -282,7 +277,7 @@ func Redact(rexp string) Option {
 }
 
 // RedactString exec option for defining one or more strings to replace with [REDACTED] in the log output.
-func RedactString(s ...string) Option {
+func RedactString(s ...string) ExecOption {
 	var newS []string
 	for _, str := range s {
 		if str != "" {
@@ -290,7 +285,7 @@ func RedactString(s ...string) Option {
 		}
 	}
 
-	return func(o *Options) {
+	return func(o *ExecOptions) {
 		o.redactFuncs = append(o.redactFuncs, func(s2 string) string {
 			newstr := s2
 			for _, r := range newS {
@@ -302,22 +297,22 @@ func RedactString(s ...string) Option {
 }
 
 // LogInput exec option for enabling or disabling live input logging during exec.
-func LogInput(v bool) Option {
-	return func(o *Options) {
+func LogInput(v bool) ExecOption {
+	return func(o *ExecOptions) {
 		o.logInput = v
 	}
 }
 
 // TrimOutput exec option for controlling if the output of the command will be trimmed of whitespace.
-func TrimOutput(v bool) Option {
-	return func(o *Options) {
+func TrimOutput(v bool) ExecOption {
+	return func(o *ExecOptions) {
 		o.trimOutput = v
 	}
 }
 
 // PS exec option for using powershell to execute the command on windows.
-func PS() Option {
-	return func(o *Options) {
+func PS() ExecOption {
+	return func(o *ExecOptions) {
 		o.decorateFuncs = append(o.decorateFuncs, powershell.Cmd)
 	}
 }
@@ -325,22 +320,22 @@ func PS() Option {
 // PSCompressed is like PS but for long command scriptlets. The script will be gzipped
 // and base64 encoded and includes a small decompression script at the beginning of the command.
 // This can allow running longer scripts than the 8191 characters that powershell.exe allows.
-func PSCompressed() Option {
-	return func(o *Options) {
+func PSCompressed() ExecOption {
+	return func(o *ExecOptions) {
 		o.decorateFuncs = append(o.decorateFuncs, powershell.CompressedCmd)
 	}
 }
 
 // Decorate exec option for applying a custom decorator to the command string.
-func Decorate(decorator DecorateFunc) Option {
-	return func(o *Options) {
+func Decorate(decorator DecorateFunc) ExecOption {
+	return func(o *ExecOptions) {
 		o.decorateFuncs = append(o.decorateFuncs, decorator)
 	}
 }
 
 // Build returns an instance of Options.
-func Build(opts ...Option) *Options {
-	options := &Options{
+func Build(opts ...ExecOption) *ExecOptions {
+	options := &ExecOptions{
 		logInfo:      false,
 		logCommand:   true,
 		logDebug:     true,
@@ -357,8 +352,34 @@ func Build(opts ...Option) *Options {
 }
 
 // Apply the supplied options to the Options.
-func (o *Options) Apply(opts ...Option) {
+func (o *ExecOptions) Apply(opts ...ExecOption) {
 	for _, opt := range opts {
 		opt(o)
 	}
 }
+
+// a writer that calls a logging function for each line written.
+type logWriter struct {
+	fn func(...any)
+}
+
+// Write writes the given bytes to the log function.
+func (l logWriter) Write(p []byte) (int, error) {
+	s := string(p)
+	l.fn(s)
+	return len(p), nil
+}
+
+// flaggingWriter is a discarding writer that sets a flag when it writes something, used
+// to check if a command has output to stderr.
+type flaggingWriter struct {
+	b *bool
+}
+
+func (f *flaggingWriter) Write(p []byte) (int, error) {
+	if !*f.b && len(p) > 0 {
+		*f.b = true
+	}
+	return len(p), nil
+}
+
