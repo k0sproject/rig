@@ -18,7 +18,7 @@ func classify(s string) (bool, bool, bool) {
 		switch r {
 		case '\'':
 			singleQ = true
-		case ' ', '\t', '\n', '\r', '\f', '\v', '$', '&', '"', '|', ';', '<', '>', '(', ')', '*', '?', '[', ']', '#', '~', '%', '!':
+		case ' ', '\t', '\n', '\r', '\f', '\v', '$', '&', '"', '|', ';', '<', '>', '(', ')', '*', '?', '[', ']', '#', '~', '%', '!', '{', '}', '\\':
 			special = true
 		}
 		if singleQ && special {
@@ -42,12 +42,9 @@ func escapeTo(str string, builder *strings.Builder) {
 	builder.Grow(len(str) + 3) // there will be at least 1 extra char and 2 quotes
 	builder.WriteByte('\'')
 	for _, c := range str {
-		switch c {
-		case '\'':
+		if c == '\'' {
 			builder.WriteString(`'"'"'`)
 			continue
-		case '\\':
-			builder.WriteByte('\\')
 		}
 		builder.WriteRune(c)
 	}
@@ -64,11 +61,17 @@ func Quote(str string) string {
 		return str
 	}
 
-	b := strings.Builder{}
+	b, ok := builderPool.Get().(*strings.Builder)
+	if !ok {
+		b = &strings.Builder{}
+	}
+	defer builderPool.Put(b)
+	defer b.Reset()
+
 	if special && !singleQ {
-		wrapTo(str, &b)
+		wrapTo(str, b)
 	} else {
-		escapeTo(str, &b)
+		escapeTo(str, b)
 	}
 	return b.String()
 }
@@ -82,7 +85,13 @@ func Join(args ...string) string {
 		return Quote(args[0])
 	}
 
-	builder := strings.Builder{}
+	builder, ok := builderPool.Get().(*strings.Builder)
+	if !ok {
+		builder = &strings.Builder{}
+	}
+	defer builderPool.Put(builder)
+	defer builder.Reset()
+
 	var size int
 	for _, arg := range args {
 		size += len(arg)
@@ -97,9 +106,9 @@ func Join(args ...string) string {
 		case !singleQ && !special:
 			builder.WriteString(arg)
 		case special && !singleQ:
-			escapeTo(arg, &builder)
+			escapeTo(arg, builder)
 		default:
-			wrapTo(arg, &builder)
+			wrapTo(arg, builder)
 		}
 		if i < len(args)-1 {
 			builder.WriteByte(' ')
