@@ -12,6 +12,7 @@ run:
 linters:
   enable-all: true
   disable:
+    - nonamedreturns
     - exhaustivestruct
     - exhaustruct
     - forbidigo
@@ -57,6 +58,9 @@ linters-settings:
       - h Host
       - fs FS
       - fs remotefs.FS
+      - sb strings.Builder
+      - sb *strings.Builder
+      - s string
   cyclop:
     max-complexity: 12
 
