@@ -126,17 +126,21 @@ func (o *ClientOptions) Clone() *ClientOptions {
 
 // GetConnection returns the connection to use for the rig client. If no connection is set, it will use the ConnectionConfigurer to create one.
 func (o *ClientOptions) GetConnection() (protocol.Connection, error) {
+	var conn protocol.Connection
 	if o.connection != nil {
-		return o.connection, nil
+		conn = o.connection
+	} else {
+		if o.connectionConfigurer == nil {
+			return nil, fmt.Errorf("%w: no connection or connection configurer provided", protocol.ErrAbort)
+		}
+		c, err := o.connectionConfigurer.Connection()
+		if err != nil {
+			return nil, fmt.Errorf("create connection: %w", err)
+		}
+		conn = c
 	}
-	if o.connectionConfigurer == nil {
-		return nil, fmt.Errorf("%w: no connection or connection configurer provided", protocol.ErrAbort)
-	}
-	conn, err := o.connectionConfigurer.Connection()
-	if err != nil {
-		return nil, fmt.Errorf("create connection: %w", err)
-	}
-	log.InjectLogger(log.WithAttrs(o.Log(), log.HostAttr(conn)), log.KeyProtocol, conn.Protocol())
+
+	log.InjectLogger(log.WithAttrs(o.Log(), log.HostAttr(conn), log.KeyProtocol, conn.Protocol()), conn)
 	return conn, nil
 }
 
