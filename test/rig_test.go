@@ -244,6 +244,13 @@ func (h *TestLogHandler) Handle(_ context.Context, r slog.Record) error {
 	buf.WriteString(r.Level.String())
 	buf.WriteByte(' ')
 	buf.WriteString(r.Message)
+	r.Attrs(func(a slog.Attr) bool {
+		buf.WriteByte(' ')
+		buf.WriteString(a.Key)
+		buf.WriteByte('=')
+		buf.WriteString(fmt.Sprintf("%v", a.Value))
+		return true
+	})
 	h.T.Log(buf.String())
 	return nil
 }
