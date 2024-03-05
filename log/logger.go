@@ -154,7 +154,7 @@ func (li *LoggerInjectable) SetLogger(logger Logger) {
 
 // HasLogger returns true if a logger has been set.
 func (li *LoggerInjectable) HasLogger() bool {
-	return li.logger != nil
+	return li.logger != nil && li.logger != Null
 }
 
 // Log returns the logger for the embedding object.

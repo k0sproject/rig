@@ -136,7 +136,7 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 		return nil, fmt.Errorf("validate client options: %w", err)
 	}
 	conn := &Client{options: options}
-	if err := conn.setup(opts...); err != nil {
+	if err := conn.setup(); err != nil {
 		return nil, err
 	}
 	return conn, nil
@@ -153,21 +153,25 @@ func (c *Client) setupConnection() error {
 
 func (c *Client) setup(opts ...ClientOption) error {
 	c.once.Do(func() {
-		c.options.Apply(opts...)
+		if len(opts) > 0 {
+			c.options.Apply(opts...)
+		}
 		c.initErr = c.setupConnection()
 		if c.initErr != nil {
 			return
 		}
+
+		logger := log.GetLogger(c.connection)
+		log.InjectLogger(logger, c)
+
 		c.Runner = c.options.GetRunner(c.connection)
+		log.InjectLogger(logger, c.Runner)
+
 		c.SudoService = c.options.GetSudoService(c.Runner)
 		c.InitSystemService = c.options.GetInitSystemService(c.Runner)
 		c.RemoteFSService = c.options.GetRemoteFSService(c.Runner)
 		c.PackageManagerService = c.options.GetPackageManagerService(c.Runner)
 
-		// Inject the logger from connection to Client and Runner
-		logger := log.GetLogger(c.connection)
-		log.InjectLogger(logger, c)
-		log.InjectLogger(logger, c.Runner)
 	})
 	return c.initErr
 }

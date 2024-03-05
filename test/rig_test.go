@@ -222,9 +222,9 @@ func GetHost(t *testing.T, options ...rig.ClientOption) *Host {
 	}
 	opts := []rig.ClientOption{rig.WithConnection(client), rig.WithLogger(slog.New(NewTestLogHandler(t)))}
 	opts = append(opts, options...)
-	conn, err := rig.NewClient(opts...)
+	c, err := rig.NewClient(opts...)
 	require.NoError(t, err)
-	return &Host{Client: conn}
+	return &Host{Client: c}
 }
 
 type SuiteLogger struct {
@@ -433,17 +433,14 @@ type FSSuite struct {
 }
 
 func (s *FSSuite) TestMkdir() {
-	s.T().Log("testmkdir")
 	testPath := s.TempPath("test", "subdir")
 	defer func() {
 		_ = s.fs.RemoveAll(testPath)
 	}()
 	s.Run("Create directory", func() {
-		s.T().Log("mkdirall")
 		s.Require().NoError(s.fs.MkdirAll(testPath, 0755))
 	})
 	s.Run("Verify directory exists", func() {
-		s.T().Log("stat")
 		stat, err := s.fs.Stat(testPath)
 		s.Require().NoError(err)
 		s.Run("Check permissions", func() {

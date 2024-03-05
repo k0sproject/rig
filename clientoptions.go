@@ -128,15 +128,18 @@ func (o *ClientOptions) Clone() *ClientOptions {
 func (o *ClientOptions) GetConnection() (protocol.Connection, error) {
 	var conn protocol.Connection
 	if o.connection != nil {
+		o.Log().Debug("using provided connection", log.HostAttr(o.connection), log.KeyComponent, "clientoptions")
 		conn = o.connection
 	} else {
 		if o.connectionConfigurer == nil {
 			return nil, fmt.Errorf("%w: no connection or connection configurer provided", protocol.ErrAbort)
 		}
+		o.Log().Debug("using client configurer to setup a connection", log.HostAttr(o.connectionConfigurer), log.KeyComponent, "clientoptions")
 		c, err := o.connectionConfigurer.Connection()
 		if err != nil {
 			return nil, fmt.Errorf("create connection: %w", err)
 		}
+		o.Log().Debug("using connection received from client configurer", log.HostAttr(c), log.KeyComponent, "clientoptions")
 		conn = c
 	}
 
