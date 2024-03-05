@@ -17,15 +17,16 @@ var (
 )
 
 const (
-	KeyHost     = "host"
-	KeyExitCode = "exitCode"
-	KeyError    = "error"
-	KeyBytes    = "bytes"
-	KeyDuration = "duration"
-	KeyCommand  = "command"
-	KeyFile     = "file"
-	KeySudo     = "sudo"
-	KeyProtocol = "protocol"
+	KeyHost      = "host"
+	KeyExitCode  = "exitCode"
+	KeyError     = "error"
+	KeyBytes     = "bytes"
+	KeyDuration  = "duration"
+	KeyCommand   = "command"
+	KeyFile      = "file"
+	KeySudo      = "sudo"
+	KeyProtocol  = "protocol"
+	KeyComponent = "component"
 )
 
 func HostAttr(conn fmt.Stringer) slog.Attr {
@@ -122,6 +123,22 @@ func InjectLogger(l Logger, obj any, attrs ...any) {
 			o.SetLogger(l)
 		}
 	}
+}
+
+// HasLogger returns true if the object implements the Log interface and has a logger set.
+func HasLogger(obj any) bool {
+	if o, ok := obj.(Log); ok {
+		return o.Log() != nil && o.Log() != Null
+	}
+	return false
+}
+
+// GetLogger returns the logger for the given object if it implements the Log interface or a Null logger.
+func GetLogger(obj any) Logger {
+	if o, ok := obj.(Log); ok {
+		return o.Log()
+	}
+	return Null
 }
 
 func (li *LoggerInjectable) InjectLoggerTo(obj any, attrs ...any) {

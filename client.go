@@ -159,10 +159,15 @@ func (c *Client) setup(opts ...ClientOption) error {
 			return
 		}
 		c.Runner = c.options.GetRunner(c.connection)
-		c.SudoService = c.options.GetSudoService(c)
-		c.InitSystemService = c.options.GetInitSystemService(c)
-		c.RemoteFSService = c.options.GetRemoteFSService(c)
-		c.PackageManagerService = c.options.GetPackageManagerService(c)
+		c.SudoService = c.options.GetSudoService(c.Runner)
+		c.InitSystemService = c.options.GetInitSystemService(c.Runner)
+		c.RemoteFSService = c.options.GetRemoteFSService(c.Runner)
+		c.PackageManagerService = c.options.GetPackageManagerService(c.Runner)
+
+		// Inject the logger from connection to Client and Runner
+		logger := log.GetLogger(c.connection)
+		log.InjectLogger(logger, c)
+		log.InjectLogger(logger, c.Runner)
 	})
 	return c.initErr
 }

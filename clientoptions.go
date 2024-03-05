@@ -136,18 +136,16 @@ func (o *ClientOptions) GetConnection() (protocol.Connection, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create connection: %w", err)
 	}
+	log.InjectLogger(log.WithAttrs(o.Log(), log.HostAttr(conn)), log.KeyProtocol, conn.Protocol())
 	return conn, nil
 }
 
 // GetRunner returns the runner to use for the rig client.
 func (o *ClientOptions) GetRunner(conn protocol.Connection) cmd.Runner {
 	if o.runner != nil {
-		logger := o.LogWithAttrs(log.HostAttr(conn))
-		log.InjectLogger(logger, o.runner)
 		return o.runner
 	}
 	runner := cmd.NewExecutor(conn)
-	runner.SetLogger(o.LogWithAttrs(log.HostAttr(conn)))
 	return runner
 }
 
