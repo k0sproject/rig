@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 	"github.com/k0sproject/rig/log"
 	ps "github.com/k0sproject/rig/powershell"
 )
@@ -28,12 +28,12 @@ var (
 
 // WinFS is a fs.FS implemen{.
 type WinFS struct {
-	exec.Runner
+	cmd.Runner
 	log.LoggerInjectable
 }
 
 // NewWindowsFS returns a new fs.FS implementing filesystem for Windows targets.
-func NewWindowsFS(conn exec.Runner) *WinFS {
+func NewWindowsFS(conn cmd.Runner) *WinFS {
 	return &WinFS{Runner: conn}
 }
 
@@ -49,7 +49,7 @@ var statCmdTemplate = `if (Test-Path -LiteralPath %[1]s) {
 
 // Stat returns fs.FileInfo for the remote file.
 func (s *WinFS) Stat(name string) (fs.FileInfo, error) {
-	out, err := s.ExecOutput(fmt.Sprintf(statCmdTemplate, ps.DoubleQuotePath(name)), exec.PS())
+	out, err := s.ExecOutput(fmt.Sprintf(statCmdTemplate, ps.DoubleQuotePath(name)), cmd.PS())
 	if err != nil {
 		return nil, PathErrorf(OpStat, name, "%w: %w", err, fs.ErrNotExist)
 	}
@@ -69,7 +69,7 @@ func (s *WinFS) Stat(name string) (fs.FileInfo, error) {
 
 // Sha256 returns the SHA256 hash of the remote file.
 func (s *WinFS) Sha256(name string) (string, error) {
-	sum, err := s.ExecOutput(fmt.Sprintf("(Get-FileHash %s -Algorithm SHA256).Hash.ToLower()", ps.DoubleQuotePath(name)), exec.PS())
+	sum, err := s.ExecOutput(fmt.Sprintf("(Get-FileHash %s -Algorithm SHA256).Hash.ToLower()", ps.DoubleQuotePath(name)), cmd.PS())
 	if err != nil {
 		return "", PathErrorf("sum", name, "sha256sum: %w", err)
 	}
@@ -130,7 +130,7 @@ func (s *WinFS) removeDirAll(name string) error {
 
 // MkdirAll creates a directory named path, along with any necessary parents. The permission bits are ignored on Windows.
 func (s *WinFS) MkdirAll(name string, _ fs.FileMode) error {
-	if err := s.Exec("New-Item -ItemType Directory -Force -Path "+ps.DoubleQuotePath(name), exec.PS()); err != nil {
+	if err := s.Exec("New-Item -ItemType Directory -Force -Path "+ps.DoubleQuotePath(name), cmd.PS()); err != nil {
 		return fmt.Errorf("mkdir %s: %w", name, err)
 	}
 
@@ -247,12 +247,12 @@ func (s *WinFS) WriteFile(name string, data []byte, mode fs.FileMode) error {
 //		if _, err := fs.Stat(name); os.IsNotExist(err) { ... }
 //	 if !fs.FileExist(name) { ... }
 func (s *WinFS) FileExist(name string) bool {
-	return s.Exec(fmt.Sprintf("if (Test-Path -LiteralPath %s) { exit 0 } else { exit 1 }", ps.DoubleQuotePath(name)), exec.PS()) == nil
+	return s.Exec(fmt.Sprintf("if (Test-Path -LiteralPath %s) { exit 0 } else { exit 1 }", ps.DoubleQuotePath(name)), cmd.PS()) == nil
 }
 
 // LookPath checks if a command exists on the host.
 func (s *WinFS) LookPath(name string) (string, error) {
-	path, err := s.ExecOutput(fmt.Sprintf("Get-Command %s -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source", ps.DoubleQuotePath(name)), exec.PS())
+	path, err := s.ExecOutput(fmt.Sprintf("Get-Command %s -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source", ps.DoubleQuotePath(name)), cmd.PS())
 	if err != nil {
 		return "", fmt.Errorf("lookpath %s: %w", name, err)
 	}
@@ -267,7 +267,7 @@ func (s *WinFS) Join(elem ...string) string {
 // Touch creates a new file with the given name if it does not exist.
 // If the file exists, the access and modification times are set to the current time.
 func (s *WinFS) Touch(name string) error {
-	if err := s.Exec(fmt.Sprintf("Get-Item %[1]s -ErrorAction SilentlyContinue | Set-ItemProperty -Name LastWriteTime -Value (Get-Date); if (!$?) { New-Item %[1]s -ItemType File }", name), exec.PS()); err != nil {
+	if err := s.Exec(fmt.Sprintf("Get-Item %[1]s -ErrorAction SilentlyContinue | Set-ItemProperty -Name LastWriteTime -Value (Get-Date); if (!$?) { New-Item %[1]s -ItemType File }", name), cmd.PS()); err != nil {
 		return fmt.Errorf("touch %s: %w", name, err)
 	}
 	return nil
@@ -277,7 +277,7 @@ func (s *WinFS) Touch(name string) error {
 func (s *WinFS) Chtimes(name string, atime, mtime int64) error {
 	atimeMs := time.Unix(0, atime).UTC().Format("2006-01-02T15:04:05.999")
 	mtimeMs := time.Unix(0, mtime).UTC().Format("2006-01-02T15:04:05.999")
-	if err := s.Exec(fmt.Sprintf("$file = Get-Item %s; $file.LastWriteTime = %s; $file.LastAccessTime = %s", ps.DoubleQuotePath(name), ps.SingleQuote(mtimeMs), ps.SingleQuote(atimeMs)), exec.PS()); err != nil {
+	if err := s.Exec(fmt.Sprintf("$file = Get-Item %s; $file.LastWriteTime = %s; $file.LastAccessTime = %s", ps.DoubleQuotePath(name), ps.SingleQuote(mtimeMs), ps.SingleQuote(atimeMs)), cmd.PS()); err != nil {
 		return fmt.Errorf("chtimes %s: %w", name, err)
 	}
 	return nil
@@ -304,7 +304,7 @@ func (s *WinFS) Chown(name string, _, _ int) error {
 
 // Truncate changes the size of the named file.
 func (s *WinFS) Truncate(name string, size int64) error {
-	if err := s.Exec(fmt.Sprintf("Set-Content -Path %s -Value $null -Encoding Byte -Force -NoNewline -Stream '::$DATA' -Offset %d", ps.DoubleQuotePath(name), size), exec.PS()); err != nil {
+	if err := s.Exec(fmt.Sprintf("Set-Content -Path %s -Value $null -Encoding Byte -Force -NoNewline -Stream '::$DATA' -Offset %d", ps.DoubleQuotePath(name), size), cmd.PS()); err != nil {
 		return fmt.Errorf("truncate %s: %w", name, err)
 	}
 	return nil
@@ -312,7 +312,7 @@ func (s *WinFS) Truncate(name string, size int64) error {
 
 // Getenv retrieves the value of the environment variable named by the key.
 func (s *WinFS) Getenv(key string) string {
-	out, err := s.ExecOutput(fmt.Sprintf("[System.Environment]::GetEnvironmentVariable(%s)", ps.SingleQuote(key)), exec.PS(), exec.TrimOutput(true))
+	out, err := s.ExecOutput(fmt.Sprintf("[System.Environment]::GetEnvironmentVariable(%s)", ps.SingleQuote(key)), cmd.PS(), cmd.TrimOutput(true))
 	if err != nil {
 		return ""
 	}
@@ -321,7 +321,7 @@ func (s *WinFS) Getenv(key string) string {
 
 // Hostname returns the hostname of the remote host.
 func (s *WinFS) Hostname() (string, error) {
-	out, err := s.ExecOutput("$env:COMPUTERNAME", exec.PS())
+	out, err := s.ExecOutput("$env:COMPUTERNAME", cmd.PS())
 	if err != nil {
 		return "", fmt.Errorf("hostname: %w", err)
 	}
@@ -330,7 +330,7 @@ func (s *WinFS) Hostname() (string, error) {
 
 // LongHostname resolves the FQDN (long) hostname.
 func (s *WinFS) LongHostname() (string, error) {
-	out, err := s.ExecOutput("([System.Net.Dns]::GetHostByName(($env:COMPUTERNAME))).Hostname", exec.PS())
+	out, err := s.ExecOutput("([System.Net.Dns]::GetHostByName(($env:COMPUTERNAME))).Hostname", cmd.PS())
 	if err != nil {
 		return "", fmt.Errorf("hostname (long): %w", err)
 	}
@@ -339,7 +339,7 @@ func (s *WinFS) LongHostname() (string, error) {
 
 // Rename renames (moves) oldpath to newpath.
 func (s *WinFS) Rename(oldpath, newpath string) error {
-	if err := s.Exec(fmt.Sprintf("Move-Item -Path %s -Destination %s", ps.DoubleQuotePath(oldpath), ps.DoubleQuotePath(newpath)), exec.PS()); err != nil {
+	if err := s.Exec(fmt.Sprintf("Move-Item -Path %s -Destination %s", ps.DoubleQuotePath(oldpath), ps.DoubleQuotePath(newpath)), cmd.PS()); err != nil {
 		return fmt.Errorf("rename %s: %w", oldpath, err)
 	}
 	return nil

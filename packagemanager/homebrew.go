@@ -3,17 +3,17 @@ package packagemanager
 import (
 	"context"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 )
 
 // NewHomebrew creates a new homebrew package manager.
-func NewHomebrew(c exec.ContextRunner) PackageManager {
+func NewHomebrew(c cmd.ContextRunner) PackageManager {
 	return newUniversalPackageManager(c, "homebrew", "brew", "install", "uninstall", "update")
 }
 
 // RegisterHomebrew registers the homebrew package manager to a repository.
 func RegisterHomebrew(repository *Provider) {
-	repository.Register(func(c exec.ContextRunner) (PackageManager, bool) {
+	repository.Register(func(c cmd.ContextRunner) (PackageManager, bool) {
 		if c.IsWindows() {
 			return nil, false
 		}

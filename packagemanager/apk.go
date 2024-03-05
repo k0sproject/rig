@@ -3,17 +3,17 @@ package packagemanager
 import (
 	"context"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 )
 
 // NewApk creates a new apk package manager.
-func NewApk(c exec.ContextRunner) PackageManager {
+func NewApk(c cmd.ContextRunner) PackageManager {
 	return newUniversalPackageManager(c, "apk", "apk", "add", "del", "update")
 }
 
 // RegisterApk registers the apk package manager to a repository.
 func RegisterApk(repository *Provider) {
-	repository.Register(func(c exec.ContextRunner) (PackageManager, bool) {
+	repository.Register(func(c cmd.ContextRunner) (PackageManager, bool) {
 		if c.IsWindows() {
 			return nil, false
 		}

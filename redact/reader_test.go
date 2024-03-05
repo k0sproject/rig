@@ -14,17 +14,18 @@ func TestRedactReader(t *testing.T) {
 	testCases := []struct {
 		name        string
 		buffer      []byte
-		match       []byte
-		mask        []byte
+		match       []string
+		mask        string
 		expectedOut []byte
 	}{
-		{"no matches", []byte("Hello, World"), []byte("ZZZ"), []byte("*"), []byte("Hello, World")},
-		{"single full match", []byte("Hello, World"), []byte("ll"), []byte("??"), []byte("He??o, World")},
-		{"two full matches", []byte("Hello, World"), []byte("l"), []byte("."), []byte("He..o, Wor.d")},
-		{"two full matches, long mask", []byte("Hello, World"), []byte("l"), []byte("REDACTED"), []byte("HeREDACTEDREDACTEDo, WorREDACTEDd")},
-		{"non-completing partial match", []byte("Hello, World"), []byte("World!"), []byte("*"), []byte("Hello, World")},
-		{"completing partial match", []byte("Hello, World!"), []byte("World"), []byte("[REDACTED]"), []byte("Hello, [REDACTED]!")},
-		{"match is a subset of the mask", []byte("Hello, World!"), []byte(","), []byte(",,"), []byte("Hello,, World!")},
+		{"no matches", []byte("Hello, World"), []string{"ZZZ"}, "*", []byte("Hello, World")},
+		{"single full match", []byte("Hello, World"), []string{"ll"}, "??", []byte("He??o, World")},
+		{"two full matches", []byte("Hello, World"), []string{"l"}, ".", []byte("He..o, Wor.d")},
+		{"two full matches, long mask", []byte("Hello, World"), []string{"l"}, "REDACTED", []byte("HeREDACTEDREDACTEDo, WorREDACTEDd")},
+		{"non-completing partial match", []byte("Hello, World"), []string{"World!"}, "*", []byte("Hello, World")},
+		{"completing partial match", []byte("Hello, World!"), []string{"World"}, "[REDACTED]", []byte("Hello, [REDACTED]!")},
+		{"match is a subset of the mask", []byte("Hello, World!"), []string{","}, ",,", []byte("Hello,, World!")},
+		{"nothing but match", []byte("Hello, World!"), []string{"Hello, World!"}, ".", []byte(".")},
 	}
 
 	for _, tc := range testCases {
@@ -32,7 +33,7 @@ func TestRedactReader(t *testing.T) {
 			t.Run(fmt.Sprintf("%s bufsize %d", tc.name, bufSize), func(t *testing.T) {
 				out := &bytes.Buffer{}
 				buf := make([]byte, bufSize)
-				redactReader := redact.Reader(bytes.NewReader(tc.buffer), tc.match, tc.mask)
+				redactReader := redact.Reader(bytes.NewReader(tc.buffer), tc.mask, tc.match...)
 				for {
 					n, err := redactReader.Read(buf)
 					if n > bufSize {

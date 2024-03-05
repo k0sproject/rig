@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	osexec "os/exec"
+	"os/exec"
 	"runtime"
 
-	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/protocol"
 	"github.com/mattn/go-shellwords"
 )
@@ -51,7 +50,7 @@ func (c *Connection) IsWindows() bool {
 
 // StartProcess executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
-func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) (exec.Waiter, error) {
+func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) (protocol.Waiter, error) {
 	command := c.command(ctx, cmd)
 
 	command.Stdin = stdin
@@ -65,12 +64,12 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 	return command, nil
 }
 
-func (c *Connection) command(ctx context.Context, cmd string) *osexec.Cmd {
+func (c *Connection) command(ctx context.Context, cmd string) *exec.Cmd {
 	if c.IsWindows() {
-		return osexec.CommandContext(ctx, "cmd.exe", "/c", cmd)
+		return exec.CommandContext(ctx, "cmd.exe", "/c", cmd)
 	}
 
-	return osexec.CommandContext(ctx, "sh", "-c", "--", cmd)
+	return exec.CommandContext(ctx, "sh", "-c", "--", cmd)
 }
 
 // ExecInteractive executes a command on the host and passes stdin/stdout/stderr as-is to the session.
@@ -135,6 +134,7 @@ func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr
 		Dir:   cwd,
 	}
 
+	// TODO shellwords local implementation (sh/shellescape.Split)
 	parts, err := shellwords.Parse(cmd)
 	if err != nil {
 		return fmt.Errorf("failed to parse command: %w", err)

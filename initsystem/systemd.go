@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 	"github.com/k0sproject/rig/sh"
 	"github.com/k0sproject/rig/sh/shellescape"
 )
@@ -20,7 +20,7 @@ const systemctl = sh.CommandBuilder("systemctl")
 var systemctlCmd = systemctl.Args
 
 // StartService starts a service.
-func (i Systemd) StartService(ctx context.Context, h exec.ContextRunner, s string) error {
+func (i Systemd) StartService(ctx context.Context, h cmd.ContextRunner, s string) error {
 	if err := h.ExecContext(ctx, systemctlCmd("start", s).String()); err != nil {
 		return fmt.Errorf("failed to start service %s: %w", s, err)
 	}
@@ -28,7 +28,7 @@ func (i Systemd) StartService(ctx context.Context, h exec.ContextRunner, s strin
 }
 
 // EnableService enables a service.
-func (i Systemd) EnableService(ctx context.Context, h exec.ContextRunner, s string) error {
+func (i Systemd) EnableService(ctx context.Context, h cmd.ContextRunner, s string) error {
 	if err := h.ExecContext(ctx, systemctlCmd("enable", s).String()); err != nil {
 		return fmt.Errorf("failed to enable service %s: %w", s, err)
 	}
@@ -36,7 +36,7 @@ func (i Systemd) EnableService(ctx context.Context, h exec.ContextRunner, s stri
 }
 
 // DisableService disables a service.
-func (i Systemd) DisableService(ctx context.Context, h exec.ContextRunner, s string) error {
+func (i Systemd) DisableService(ctx context.Context, h cmd.ContextRunner, s string) error {
 	if err := h.ExecContext(ctx, systemctlCmd("disable", s).String()); err != nil {
 		return fmt.Errorf("failed to disable service %s: %w", s, err)
 	}
@@ -44,7 +44,7 @@ func (i Systemd) DisableService(ctx context.Context, h exec.ContextRunner, s str
 }
 
 // StopService stops a service.
-func (i Systemd) StopService(ctx context.Context, h exec.ContextRunner, s string) error {
+func (i Systemd) StopService(ctx context.Context, h cmd.ContextRunner, s string) error {
 	if err := h.ExecContext(ctx, systemctlCmd("stop", s).String()); err != nil {
 		return fmt.Errorf("failed to stop service %s: %w", s, err)
 	}
@@ -52,7 +52,7 @@ func (i Systemd) StopService(ctx context.Context, h exec.ContextRunner, s string
 }
 
 // RestartService restarts a service.
-func (i Systemd) RestartService(ctx context.Context, h exec.ContextRunner, s string) error {
+func (i Systemd) RestartService(ctx context.Context, h cmd.ContextRunner, s string) error {
 	if err := h.ExecContext(ctx, systemctlCmd("restart", s).String()); err != nil {
 		return fmt.Errorf("failed to restart service %s: %w", s, err)
 	}
@@ -60,7 +60,7 @@ func (i Systemd) RestartService(ctx context.Context, h exec.ContextRunner, s str
 }
 
 // DaemonReload reloads init system configuration.
-func (i Systemd) DaemonReload(ctx context.Context, h exec.ContextRunner) error {
+func (i Systemd) DaemonReload(ctx context.Context, h cmd.ContextRunner) error {
 	if err := h.ExecContext(ctx, systemctlCmd("daemon-reload").String()); err != nil {
 		return fmt.Errorf("failed to daemon-reload: %w", err)
 	}
@@ -68,12 +68,12 @@ func (i Systemd) DaemonReload(ctx context.Context, h exec.ContextRunner) error {
 }
 
 // ServiceIsRunning returns true if a service is running.
-func (i Systemd) ServiceIsRunning(ctx context.Context, h exec.ContextRunner, s string) bool {
+func (i Systemd) ServiceIsRunning(ctx context.Context, h cmd.ContextRunner, s string) bool {
 	return h.ExecContext(ctx, systemctlCmd("status", s).Pipe("grep", "-q", "(running)").String()) == nil
 }
 
 // ServiceScriptPath returns the path to a service configuration file.
-func (i Systemd) ServiceScriptPath(ctx context.Context, h exec.ContextRunner, s string) (string, error) {
+func (i Systemd) ServiceScriptPath(ctx context.Context, h cmd.ContextRunner, s string) (string, error) {
 	out, err := h.ExecOutputContext(ctx, systemctlCmd("show", "-p", "FragmentPath", s+".service").Pipe("cut", `-d"="`, "-f2").String())
 	if err != nil {
 		return "", fmt.Errorf("failed to get service %s script path: %w", s, err)
@@ -82,7 +82,7 @@ func (i Systemd) ServiceScriptPath(ctx context.Context, h exec.ContextRunner, s 
 }
 
 // ServiceEnvironmentPath returns a path to an environment override file path.
-func (i Systemd) ServiceEnvironmentPath(ctx context.Context, h exec.ContextRunner, s string) (string, error) {
+func (i Systemd) ServiceEnvironmentPath(ctx context.Context, h cmd.ContextRunner, s string) (string, error) {
 	sp, err := i.ServiceScriptPath(ctx, h, s)
 	if err != nil {
 		return "", err
@@ -106,7 +106,7 @@ func (i Systemd) ServiceEnvironmentContent(env map[string]string) string {
 }
 
 // ServiceLogs returns the last n lines of a service log.
-func (i Systemd) ServiceLogs(ctx context.Context, h exec.ContextRunner, s string, lines int) ([]string, error) {
+func (i Systemd) ServiceLogs(ctx context.Context, h cmd.ContextRunner, s string, lines int) ([]string, error) {
 	out, err := h.ExecOutputContext(ctx, sh.Command("journalctl", "-n", strconv.Itoa(lines), "-u", s))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get logs for service %s: %w", s, err)
@@ -117,7 +117,7 @@ func (i Systemd) ServiceLogs(ctx context.Context, h exec.ContextRunner, s string
 
 // RegisterSystemd registers systemd into a repository.
 func RegisterSystemd(repo *Provider) {
-	repo.Register(func(c exec.ContextRunner) (ServiceManager, bool) {
+	repo.Register(func(c cmd.ContextRunner) (ServiceManager, bool) {
 		if c.IsWindows() {
 			return nil, false
 		}

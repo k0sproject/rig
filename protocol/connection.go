@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-
-	"github.com/k0sproject/rig/exec"
 )
 
 var (
@@ -19,9 +17,14 @@ var (
 	ErrAbort = errors.New("operation can not be completed")
 )
 
+// Waiter is a process that can be waited to finish.
+type Waiter interface {
+	Wait() error
+}
+
 // ProcessStarter can start processes.
 type ProcessStarter interface {
-	StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (exec.Waiter, error)
+	StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (Waiter, error)
 }
 
 // Connector is a connection that can be established.

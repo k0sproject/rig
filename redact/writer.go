@@ -17,11 +17,15 @@ type redactWriter struct {
 	closed  bool
 }
 
-func Writer(w io.Writer, mask []byte, matches ...[]byte) io.WriteCloser {
+func Writer(w io.Writer, mask string, matches ...string) io.WriteCloser {
+	matchBytes := make([][]byte, len(matches))
+	for i, match := range matches {
+		matchBytes[i] = []byte(match)
+	}
 	return &redactWriter{
 		w:       w,
-		matches: matches,
-		mask:    mask,
+		matches: matchBytes,
+		mask:    []byte(mask),
 		buf:     &bytes.Buffer{},
 		out:     &bytes.Buffer{},
 	}

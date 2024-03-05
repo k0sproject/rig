@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 	"github.com/k0sproject/rig/protocol"
 )
 
@@ -86,7 +86,7 @@ func Match(pattern string) CommandMatcher {
 
 // MockRunner runs commands on a mock connection.
 type MockRunner struct {
-	exec.Runner
+	cmd.Runner
 	*MockConnection
 	*MockStarter
 }
@@ -95,7 +95,7 @@ type MockRunner struct {
 func NewMockRunner() *MockRunner {
 	connection := NewMockConnection()
 	return &MockRunner{
-		Runner:         exec.NewHostRunner(connection),
+		Runner:         cmd.NewExecutor(connection),
 		MockConnection: connection,
 		MockStarter:    connection.MockStarter,
 	}
@@ -126,7 +126,7 @@ func (m *MockRunner) String() string {
 	return "[MockRunner] " + m.MockConnection.String()
 }
 
-func (m *MockRunner) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (exec.Waiter, error) {
+func (m *MockRunner) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (protocol.Waiter, error) {
 	return m.MockConnection.StartProcess(ctx, cmd, stdin, stdout, stderr)
 }
 
@@ -143,7 +143,7 @@ func (m *MockConnection) Protocol() string { return "mock" }
 func (m *MockConnection) IPAddress() string { return "mock" }
 
 // StartProcess simulates a start of a process on the client.
-func (m *MockConnection) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (exec.Waiter, error) {
+func (m *MockConnection) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (protocol.Waiter, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.commands = append(m.commands, cmd)
@@ -228,7 +228,7 @@ type MockStarter struct {
 }
 
 // StartProcess simulates a start of a process. You can add matchers to the starter to simulate different behaviors for different commands.
-func (m *MockStarter) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (exec.Waiter, error) {
+func (m *MockStarter) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (protocol.Waiter, error) {
 	if m.ErrImmediate && m.ErrDefault != nil {
 		return nil, m.ErrDefault
 	}

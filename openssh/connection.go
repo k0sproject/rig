@@ -7,14 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	goexec "os/exec"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
+	"github.com/k0sproject/rig/protocol"
 )
 
 var (
@@ -70,7 +70,7 @@ func (c *Connection) IsWindows() bool {
 	isWin = err == nil && isWinProc.Wait() == nil
 
 	c.isWindows = &isWin
-	c.Log().Debugf("%s: host is windows: %t", c, *c.isWindows)
+	log.Trace(context.Background(), fmt.Sprintf("host is windows: %t", *c.isWindows), log.KeyHost, c)
 
 	return *c.isWindows
 }
@@ -165,7 +165,7 @@ func (c *Connection) Connect() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	cmd := goexec.CommandContext(ctx, "ssh", args...)
+	cmd := exec.CommandContext(ctx, "ssh", args...)
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return fmt.Errorf("create stderr pipe: %w", err)
@@ -176,14 +176,14 @@ func (c *Connection) Connect() error {
 		_, _ = io.Copy(errBuf, stderr)
 	}()
 
-	c.Log().Debugf("%s: starting ssh control master using 'ssh %s'", c, strings.Join(args, " "))
+	log.Trace(context.Background(), "starting ssh control master", log.KeyHost, c, log.KeyCommand, strings.Join(args, " "))
 	if err := cmd.Run(); err != nil {
 		c.isConnected = false
 		return fmt.Errorf("failed to start ssh multiplexing control master: %w (%s)", err, errBuf.String())
 	}
 
 	c.isConnected = true
-	c.Log().Debugf("%s: started ssh multipliexing control master", c)
+	log.Trace(context.Background(), "started ssh multipliexing control master", log.KeyHost, c)
 
 	return nil
 }
@@ -205,18 +205,18 @@ func (c *Connection) closeControl() error {
 	args = append(args, c.args()...)
 	args = append(args, c.userhost())
 
-	c.Log().Debugf("%s: closing ssh multiplexing control master", c)
-	cmd := goexec.Command("ssh", args...)
+	log.Trace(context.Background(), "closing ssh multiplexing control master", log.KeyHost, c)
+	cmd := exec.Command("ssh", args...)
 	err := cmd.Run()
 	if err != nil {
-		return fmt.Errorf("failed to close control master: %w", err)
+		return fmt.Errorf("failed to close ssh control master: %w", err)
 	}
 	c.isConnected = false
 	return nil
 }
 
 // StartProcess executes a command on the remote host, streaming stdin, stdout and stderr.
-func (c *Connection) StartProcess(ctx context.Context, cmdStr string, stdin io.Reader, stdout, stderr io.Writer) (exec.Waiter, error) {
+func (c *Connection) StartProcess(ctx context.Context, cmdStr string, stdin io.Reader, stdout, stderr io.Writer) (protocol.Waiter, error) {
 	if !c.DisableMultiplexing && !c.isConnected {
 		return nil, errNotConnected
 	}
@@ -225,7 +225,7 @@ func (c *Connection) StartProcess(ctx context.Context, cmdStr string, stdin io.R
 	args = append(args, "-o", "BatchMode=yes")
 	args = append(args, c.args()...)
 	args = append(args, "--", cmdStr)
-	cmd := goexec.CommandContext(ctx, "ssh", args...)
+	cmd := exec.CommandContext(ctx, "ssh", args...)
 
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
@@ -277,6 +277,6 @@ func (c *Connection) Disconnect() {
 	}
 
 	if err := c.closeControl(); err != nil {
-		c.Log().Warnf("%s: failed to close control master: %v", c, err)
+		log.Trace(context.Background(), "failed to close control master", log.KeyHost, c, log.KeyError, err)
 	}
 }

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 	"github.com/k0sproject/rig/initsystem"
 )
 
@@ -20,7 +20,7 @@ const (
 
 // Service running on a host.
 type Service struct {
-	runner  exec.ContextRunner
+	runner  cmd.ContextRunner
 	name    string
 	initsys initsystem.ServiceManager
 }
@@ -137,7 +137,7 @@ func (m *Service) Logs(ctx context.Context, lines int) ([]string, error) {
 }
 
 // GetService returns a manager for a single service using an auto-detected service manager implementation from the default providers.
-func GetService(runner exec.ContextRunner, name string) (*Service, error) {
+func GetService(runner cmd.ContextRunner, name string) (*Service, error) {
 	initsys, err := GetServiceManager(runner)
 	if err != nil {
 		return nil, fmt.Errorf("get init system service manager: %w", err)

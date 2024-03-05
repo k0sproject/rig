@@ -14,19 +14,19 @@ func TestRedactWriter(t *testing.T) {
 	testCases := []struct {
 		name        string
 		buffer      []byte
-		match       [][]byte
-		mask        []byte
+		match       []string
+		mask        string
 		expectedOut []byte
 	}{
-		{"no matches", []byte("Hello, World"), [][]byte{[]byte("ZZZ")}, []byte("*"), []byte("Hello, World")},
-		{"single full match", []byte("Hello, World"), [][]byte{[]byte("ll")}, []byte("??"), []byte("He??o, World")},
-		{"two full matches", []byte("Hello, World"), [][]byte{[]byte("l")}, []byte("."), []byte("He..o, Wor.d")},
-		{"two full matches, long mask", []byte("Hello, World"), [][]byte{[]byte("l")}, []byte("REDACTED"), []byte("HeREDACTEDREDACTEDo, WorREDACTEDd")},
-		{"non-completing partial match", []byte("Hello, World"), [][]byte{[]byte("World!")}, []byte("*"), []byte("Hello, World")},
-		{"completing partial match", []byte("Hello, World!"), [][]byte{[]byte("World")}, []byte("[REDACTED]"), []byte("Hello, [REDACTED]!")},
-		{"match is a subset of the mask", []byte("Hello, World!"), [][]byte{[]byte(",")}, []byte(",,"), []byte("Hello,, World!")},
-		{"multiple matchers", []byte("Hello, World!"), [][]byte{[]byte("l"), []byte("o")}, []byte("*"), []byte("He***, W*r*d!")},
-		{"multiple matchers, long mask, partial hit", []byte("Hello, World"), [][]byte{[]byte("lo"), []byte("World!")}, []byte("***"), []byte("Hel***, World")},
+		{"no matches", []byte("Hello, World"), []string{"ZZZ"}, "*", []byte("Hello, World")},
+		{"single full match", []byte("Hello, World"), []string{"ll"}, "??", []byte("He??o, World")},
+		{"two full matches", []byte("Hello, World"), []string{"l"}, ".", []byte("He..o, Wor.d")},
+		{"two full matches, long mask", []byte("Hello, World"), []string{"l"}, "REDACTED", []byte("HeREDACTEDREDACTEDo, WorREDACTEDd")},
+		{"non-completing partial match", []byte("Hello, World"), []string{"World!"}, "*", []byte("Hello, World")},
+		{"completing partial match", []byte("Hello, World!"), []string{"World"}, "[REDACTED]", []byte("Hello, [REDACTED]!")},
+		{"match is a subset of the mask", []byte("Hello, World!"), []string{","}, ",,", []byte("Hello,, World!")},
+		{"multiple matchers", []byte("Hello, World!"), []string{"l", "o"}, "*", []byte("He***, W*r*d!")},
+		{"multiple matchers, long mask, partial hit", []byte("Hello, World"), []string{"lo", "World!"}, "***", []byte("Hel***, World")},
 	}
 
 	for _, tc := range testCases {

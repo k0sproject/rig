@@ -3,11 +3,11 @@ package packagemanager
 import (
 	"context"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 )
 
 // NewApt creates a new apt package manager.
-func NewApt(c exec.ContextRunner) PackageManager {
+func NewApt(c cmd.ContextRunner) PackageManager {
 	return newUniversalPackageManager(
 		c,
 		"apt",
@@ -20,7 +20,7 @@ func NewApt(c exec.ContextRunner) PackageManager {
 
 // RegisterApt registers the apt package manager to a repository.
 func RegisterApt(repository *Provider) {
-	repository.Register(func(c exec.ContextRunner) (PackageManager, bool) {
+	repository.Register(func(c cmd.ContextRunner) (PackageManager, bool) {
 		if c.IsWindows() {
 			return nil, false
 		}

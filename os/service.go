@@ -3,7 +3,7 @@ package os
 import (
 	"fmt"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 	"github.com/k0sproject/rig/plumbing"
 )
 
@@ -11,7 +11,7 @@ import (
 // release information using the specified Provider. The result is lazily
 // initialized and memoized.
 type Service struct {
-	lazy *plumbing.LazyService[exec.SimpleRunner, *Release]
+	lazy *plumbing.LazyService[cmd.SimpleRunner, *Release]
 }
 
 // GetOSRelease returns remote host operating system version and release information.
@@ -25,6 +25,6 @@ func (p *Service) GetOSRelease() (*Release, error) {
 
 // NewOSReleaseService creates a new instance of Service with the provided
 // provider and runner.
-func NewOSReleaseService(provider OSReleaseProvider, runner exec.SimpleRunner) *Service {
-	return &Service{plumbing.NewLazyService[exec.SimpleRunner, *Release](provider, runner)}
+func NewOSReleaseService(provider OSReleaseProvider, runner cmd.SimpleRunner) *Service {
+	return &Service{plumbing.NewLazyService[cmd.SimpleRunner, *Release](provider, runner)}
 }

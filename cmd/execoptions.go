@@ -1,17 +1,18 @@
-package rig
+package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"strings"
 
 	"github.com/k0sproject/rig/log"
 	"github.com/k0sproject/rig/powershell"
+	"github.com/k0sproject/rig/redact"
 )
 
 // RedactMask is the string that will be used to replace redacted text in the logs.
@@ -19,12 +20,6 @@ const DefaultRedactMask = "[REDACTED]"
 
 // Option is a functional option for the exec package.
 type ExecOption func(*ExecOptions)
-
-// RedactFunc is a function that takes a string and returns a redacted string.
-type RedactFunc func(string) string
-
-// DecorateFunc is a function that takes a string and returns a decorated string.
-type DecorateFunc func(string) string
 
 // Options is a collection of exec options.
 type ExecOptions struct {
@@ -48,7 +43,7 @@ type ExecOptions struct {
 
 	wroteErr bool
 
-	redactFuncs   []RedactFunc
+	redactStrings []string
 	decorateFuncs []DecorateFunc
 }
 
@@ -82,13 +77,9 @@ func (o *ExecOptions) AllowWinStderr() bool {
 	return o.allowWinStderr
 }
 
-// LogCmd is for logging the command to be executed.
-func (o *ExecOptions) LogCmd(cmd string) {
-	if o.logCommand {
-		o.Log().Debugf("executing `%s`", o.Redact(decodeEncoded(cmd)))
-	} else {
-		o.Log().Debugf("executing command")
-	}
+// LogCommand returns true if the command should be logged, false if not.
+func (o *ExecOptions) LogCommand() bool {
+	return o.logCommand
 }
 
 var (
@@ -116,6 +107,22 @@ func getReaderSize(reader io.Reader) (int64, error) {
 	}
 }
 
+func (o *ExecOptions) RedactReader(r io.Reader) io.Reader {
+	return redact.Reader(r, DefaultRedactMask, o.redactStrings...)
+}
+
+func (o *ExecOptions) RedactWriter(w io.Writer) io.Writer {
+	return redact.Writer(w, DefaultRedactMask, o.redactStrings...)
+}
+
+func (o *ExecOptions) Redacter() redact.Redacter {
+	return redact.StringRedacter(DefaultRedactMask, o.redactStrings...)
+}
+
+func (o *ExecOptions) Redact(s string) string {
+	return o.Redacter().Redact(s)
+}
+
 // Stdin returns the Stdin reader. If input logging is enabled, it will be a TeeReader that writes to the log.
 func (o *ExecOptions) Stdin() io.Reader {
 	if o.in == nil {
@@ -124,13 +131,13 @@ func (o *ExecOptions) Stdin() io.Reader {
 
 	size, err := getReaderSize(o.in)
 	if err == nil && size > 0 {
-		o.Log().Debugf("using %d bytes of data from reader as command input", size)
+		log.Trace(context.Background(), "using data from reader as command input", log.KeyBytes, size)
 	} else {
-		o.Log().Debugf("using data from reader as command input")
+		log.Trace(context.Background(), "using data from reader as command input")
 	}
 
 	if o.logInput {
-		return io.TeeReader(o.in, redactingWriter{w: logWriter{fn: o.Log().Debugf}, fn: o.Redact})
+		return io.TeeReader(o.in, redact.Writer(logWriter{fn: o.Log().Debug}, DefaultRedactMask, o.redactStrings...))
 	}
 
 	return o.in
@@ -141,9 +148,9 @@ func (o *ExecOptions) Stdout() io.Writer {
 	var writers []io.Writer
 	switch {
 	case o.streamOutput:
-		writers = append(writers, redactingWriter{w: logWriter{fn: o.Log().Infof}, fn: o.Redact})
+		writers = append(writers, redact.Writer(logWriter{fn: o.Log().Info}, DefaultRedactMask, o.redactStrings...))
 	case o.logOutput:
-		writers = append(writers, redactingWriter{w: logWriter{fn: o.Log().Debugf}, fn: o.Redact})
+		writers = append(writers, redact.Writer(logWriter{fn: o.Log().Debug}, DefaultRedactMask, o.redactStrings...))
 	}
 	if o.out != nil {
 		writers = append(writers, o.out)
@@ -156,9 +163,9 @@ func (o *ExecOptions) Stderr() io.Writer {
 	var writers []io.Writer
 	switch {
 	case o.streamOutput:
-		writers = append(writers, redactingWriter{w: logWriter{fn: o.Log().Errorf}, fn: o.Redact})
+		writers = append(writers, redact.Writer(logWriter{fn: o.Log().Error}, DefaultRedactMask, o.redactStrings...))
 	case o.logError:
-		writers = append(writers, redactingWriter{w: logWriter{fn: o.Log().Debugf}, fn: o.Redact})
+		writers = append(writers, redact.Writer(logWriter{fn: o.Log().Debug}, DefaultRedactMask, o.redactStrings...))
 	}
 	writers = append(writers, &flaggingWriter{b: &o.wroteErr})
 	if o.errOut != nil {
@@ -181,12 +188,12 @@ func AllowWinStderr() ExecOption {
 }
 
 // Redact is for filtering out sensitive text using a regexp.
-func (o *ExecOptions) Redact(s string) string {
-	if DisableRedact || len(o.redactFuncs) == 0 {
+func (o *ExecOptions) RedactString(s string) string {
+	if DisableRedact || len(o.redactStrings) == 0 {
 		return s
 	}
-	for _, fn := range o.redactFuncs {
-		s = fn(s)
+	for _, rs := range o.redactStrings {
+		s = strings.ReplaceAll(s, rs, DefaultRedactMask)
 	}
 	return s
 }
@@ -267,32 +274,9 @@ func Sensitive() ExecOption {
 }
 
 // Redact exec option for defining a redact regexp pattern that will be replaced with [REDACTED] in the logs.
-func Redact(rexp string) ExecOption {
+func Redact(match string) ExecOption {
 	return func(o *ExecOptions) {
-		re := regexp.MustCompile(rexp)
-		o.redactFuncs = append(o.redactFuncs, func(s string) string {
-			return re.ReplaceAllString(s, RedactMask)
-		})
-	}
-}
-
-// RedactString exec option for defining one or more strings to replace with [REDACTED] in the log output.
-func RedactString(s ...string) ExecOption {
-	var newS []string
-	for _, str := range s {
-		if str != "" {
-			newS = append(newS, str)
-		}
-	}
-
-	return func(o *ExecOptions) {
-		o.redactFuncs = append(o.redactFuncs, func(s2 string) string {
-			newstr := s2
-			for _, r := range newS {
-				newstr = strings.ReplaceAll(newstr, r, RedactMask)
-			}
-			return newstr
-		})
+		o.redactStrings = append(o.redactStrings, match)
 	}
 }
 
@@ -333,6 +317,12 @@ func Decorate(decorator DecorateFunc) ExecOption {
 	}
 }
 
+func Logger(l log.Logger) ExecOption {
+	return func(o *ExecOptions) {
+		o.SetLogger(l)
+	}
+}
+
 // Build returns an instance of Options.
 func Build(opts ...ExecOption) *ExecOptions {
 	options := &ExecOptions{
@@ -360,7 +350,7 @@ func (o *ExecOptions) Apply(opts ...ExecOption) {
 
 // a writer that calls a logging function for each line written.
 type logWriter struct {
-	fn func(...any)
+	fn func(string, ...any)
 }
 
 // Write writes the given bytes to the log function.
@@ -382,4 +372,3 @@ func (f *flaggingWriter) Write(p []byte) (int, error) {
 	}
 	return len(p), nil
 }
-

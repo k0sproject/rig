@@ -3,11 +3,11 @@ package os
 
 // Release describes host operating system version information.
 type Release struct {
-	ID          string
-	IDLike      string
-	Name        string
-	Version     string
-	ExtraFields map[string]string
+	ID          string            `kv:"ID"`
+	IDLike      string            `kv:"ID_LIKE"`
+	Name        string            `kv:"NAME"`
+	Version     string            `kv:"VERSION_ID"`
+	ExtraFields map[string]string `kv:"*"`
 }
 
 // String returns a human readable representation of the release information.

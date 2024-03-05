@@ -9,10 +9,13 @@ import (
 	"github.com/k0sproject/rig/log"
 )
 
+var _ log.Logger = (*MockLogger)(nil)
+
 // MockLogMessage is a mock log message.
 type MockLogMessage struct {
-	level   int
-	message string
+	level         int
+	message       string
+	keysAndValues []any
 }
 
 // Level returns the log level of the message.
@@ -25,22 +28,13 @@ func (m MockLogMessage) Message() string {
 	return m.message
 }
 
+func (m MockLogMessage) KeysAndValues() []any {
+	return m.keysAndValues
+}
+
 // String returns the log message as a string.
 func (m MockLogMessage) String() string {
-	switch m.level {
-	case log.LevelTrace:
-		return "TRACE " + m.message
-	case log.LevelDebug:
-		return "DEBUG " + m.message
-	case log.LevelInfo:
-		return "INFO  " + m.message
-	case log.LevelWarn:
-		return "WARN  " + m.message
-	case log.LevelError:
-		return "ERROR " + m.message
-	default:
-		return "???   " + m.message
-	}
+	return m.message + " (" + fmt.Sprint(m.keysAndValues...) + ")"
 }
 
 // MockLogger is a mock logger.
@@ -52,7 +46,7 @@ type MockLogger struct {
 func (l *MockLogger) log(level int, t string, args ...any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.messages = append(l.messages, MockLogMessage{level: level, message: fmt.Sprintf(t, args...)})
+	l.messages = append(l.messages, MockLogMessage{level: level, message: t, keysAndValues: args})
 }
 
 // Reset clears the log messages.
@@ -79,11 +73,11 @@ func (l *MockLogger) Messages() []MockLogMessage {
 }
 
 // Received returns true if a log message with the given level and message was received.
-func (l *MockLogger) Received(level int, regex regexp.Regexp) bool {
+func (l *MockLogger) Received(regex regexp.Regexp) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for _, msg := range l.messages {
-		if msg.level == level && regex.MatchString(msg.message) {
+		if regex.MatchString(msg.message) {
 			return true
 		}
 	}
@@ -91,11 +85,11 @@ func (l *MockLogger) Received(level int, regex regexp.Regexp) bool {
 }
 
 // ReceivedSubstring returns true if a log message with the given level and message was received.
-func (l *MockLogger) ReceivedSubstring(level int, substring string) bool {
+func (l *MockLogger) ReceivedSubstring(substring string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for _, msg := range l.messages {
-		if msg.level == level && strings.Contains(msg.message, substring) {
+		if strings.Contains(msg.message, substring) {
 			return true
 		}
 	}
@@ -103,11 +97,11 @@ func (l *MockLogger) ReceivedSubstring(level int, substring string) bool {
 }
 
 // ReceivedString returns true if a log message with the given level and message was received.
-func (l *MockLogger) ReceivedString(level int, message string) bool {
+func (l *MockLogger) ReceivedString(message string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for _, msg := range l.messages {
-		if msg.level == level && msg.message == message {
+		if msg.message == message {
 			return true
 		}
 	}
@@ -115,16 +109,16 @@ func (l *MockLogger) ReceivedString(level int, message string) bool {
 }
 
 // Tracef log message.
-func (l *MockLogger) Tracef(t string, args ...any) { l.log(log.LevelTrace, t, args...) }
+func (l *MockLogger) Trace(t string, args ...any) { l.log(-8, t, args...) }
 
 // Debugf log message.
-func (l *MockLogger) Debugf(t string, args ...any) { l.log(log.LevelDebug, t, args...) }
+func (l *MockLogger) Debug(t string, args ...any) { l.log(-4, t, args...) }
 
 // Infof log message.
-func (l *MockLogger) Infof(t string, args ...any) { l.log(log.LevelInfo, t, args...) }
+func (l *MockLogger) Info(t string, args ...any) { l.log(0, t, args...) }
 
 // Warnf log message.
-func (l *MockLogger) Warnf(t string, args ...any) { l.log(log.LevelWarn, t, args...) }
+func (l *MockLogger) Warn(t string, args ...any) { l.log(2, t, args...) }
 
 // Errorf log message.
-func (l *MockLogger) Errorf(t string, args ...any) { l.log(log.LevelError, t, args...) }
+func (l *MockLogger) Error(t string, args ...any) { l.log(4, t, args...) }

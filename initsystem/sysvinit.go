@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 	"github.com/k0sproject/rig/sh"
 )
 
@@ -14,7 +14,7 @@ const initd = "/etc/init.d/"
 type SysVinit struct{}
 
 // StartService starts a service.
-func (i SysVinit) StartService(ctx context.Context, h exec.ContextRunner, s string) error {
+func (i SysVinit) StartService(ctx context.Context, h cmd.ContextRunner, s string) error {
 	if err := h.ExecContext(ctx, sh.Command(initd+s, "start")); err != nil {
 		return fmt.Errorf("failed to start service %s: %w", s, err)
 	}
@@ -22,7 +22,7 @@ func (i SysVinit) StartService(ctx context.Context, h exec.ContextRunner, s stri
 }
 
 // StopService stops a service.
-func (i SysVinit) StopService(ctx context.Context, h exec.ContextRunner, s string) error {
+func (i SysVinit) StopService(ctx context.Context, h cmd.ContextRunner, s string) error {
 	if err := h.ExecContext(ctx, sh.Command(initd+s, "stop")); err != nil {
 		return fmt.Errorf("failed to stop service %s: %w", s, err)
 	}
@@ -30,7 +30,7 @@ func (i SysVinit) StopService(ctx context.Context, h exec.ContextRunner, s strin
 }
 
 // RestartService restarts a service.
-func (i SysVinit) RestartService(ctx context.Context, h exec.ContextRunner, s string) error {
+func (i SysVinit) RestartService(ctx context.Context, h cmd.ContextRunner, s string) error {
 	if err := h.ExecContext(ctx, sh.Command(initd+s, "restart")); err != nil {
 		return fmt.Errorf("failed to restart service %s: %w", s, err)
 	}
@@ -38,17 +38,17 @@ func (i SysVinit) RestartService(ctx context.Context, h exec.ContextRunner, s st
 }
 
 // ServiceIsRunning checks if a service is running.
-func (i SysVinit) ServiceIsRunning(ctx context.Context, h exec.ContextRunner, s string) bool {
+func (i SysVinit) ServiceIsRunning(ctx context.Context, h cmd.ContextRunner, s string) bool {
 	return h.ExecContext(ctx, sh.Command(initd+s, "status")) == nil
 }
 
 // ServiceScriptPath returns the path to a SysVinit service script.
-func (i SysVinit) ServiceScriptPath(_ context.Context, _ exec.ContextRunner, s string) (string, error) {
+func (i SysVinit) ServiceScriptPath(_ context.Context, _ cmd.ContextRunner, s string) (string, error) {
 	return initd + s, nil
 }
 
 // EnableService for SysVinit tries to create symlinks in the appropriate runlevel directories.
-func (i SysVinit) EnableService(ctx context.Context, h exec.ContextRunner, service string) error {
+func (i SysVinit) EnableService(ctx context.Context, h cmd.ContextRunner, service string) error {
 	if h.ExecContext(ctx, "command -v chkconfig") == nil {
 		if err := h.ExecContext(ctx, sh.Command("chkconfig", "--add", service)); err != nil {
 			return fmt.Errorf("failed to add service %s to chkconfig: %w", service, err)
@@ -66,7 +66,7 @@ func (i SysVinit) EnableService(ctx context.Context, h exec.ContextRunner, servi
 }
 
 // DisableService for SysVinit tries to remove symlinks in the appropriate runlevel directories.
-func (i SysVinit) DisableService(ctx context.Context, h exec.ContextRunner, s string) error {
+func (i SysVinit) DisableService(ctx context.Context, h cmd.ContextRunner, s string) error {
 	if h.ExecContext(ctx, "command -v chkconfig") == nil {
 		if err := h.ExecContext(ctx, sh.Command("chkconfig", "--del", s)); err != nil {
 			return fmt.Errorf("failed to remove service %s from chkconfig: %w", s, err)
@@ -84,7 +84,7 @@ func (i SysVinit) DisableService(ctx context.Context, h exec.ContextRunner, s st
 
 // RegisterSysVinit registers SysVinit in a repository.
 func RegisterSysVinit(repo *Provider) {
-	repo.Register(func(c exec.ContextRunner) (ServiceManager, bool) {
+	repo.Register(func(c cmd.ContextRunner) (ServiceManager, bool) {
 		if c.IsWindows() {
 			return nil, false
 		}

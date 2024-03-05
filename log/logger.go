@@ -2,33 +2,99 @@
 package log
 
 import (
+	"context"
 	"fmt"
-	"io"
-	"os"
+	"log/slog"
+	"sync"
 )
 
-// Logger interface should be implemented by the logging library you wish to use.
-type Logger interface {
-	Tracef(msg string, args ...any)
-	Debugf(msg string, args ...any)
-	Infof(msg string, args ...any)
-	Warnf(msg string, args ...any)
-	Errorf(msg string, args ...any)
-}
+var (
+	Null = slog.New(Discard)
+
+	trace = sync.OnceValue(func() TraceLogger {
+		return Null
+	})
+)
 
 const (
-	keyTrace = "TRACE" // Trace log level title
-	keyDebug = "DEBUG" // Debug log level title
-	keyInfo  = "INFO " // Info log level title
-	keyWarn  = "WARN " // Warn log level title
-	keyError = "ERROR" // Error log level title
-
-	LevelTrace = iota // LevelTrace log level
-	LevelDebug        // LevelDebug log level
-	LevelInfo         // LevelInfo log level
-	LevelWarn         // LevelWarn log level
-	LevelError        // LevelError log level
+	KeyHost     = "host"
+	KeyExitCode = "exitCode"
+	KeyError    = "error"
+	KeyBytes    = "bytes"
+	KeyDuration = "duration"
+	KeyCommand  = "command"
+	KeyFile     = "file"
+	KeySudo     = "sudo"
+	KeyProtocol = "protocol"
 )
+
+func HostAttr(conn fmt.Stringer) slog.Attr {
+	return slog.String(KeyHost, conn.String())
+}
+
+func ErrorAttr(err error) slog.Attr {
+	if err == nil {
+		return slog.Attr{Key: KeyError, Value: slog.StringValue("")}
+	}
+	return slog.Attr{Key: KeyError, Value: slog.StringValue(err.Error())}
+}
+
+func FileAttr(file string) slog.Attr {
+	return slog.String(KeyFile, file)
+}
+
+func SetTraceLogger(l TraceLogger) {
+	trace = sync.OnceValue(func() TraceLogger { return l })
+}
+
+// Trace is for rig's internal trace logging that must be separately enabled by
+// providing a [TraceLogger] logger, which is implemented by slog.Logger.
+func Trace(ctx context.Context, msg string, keysAndValues ...any) {
+	trace().Log(ctx, slog.LevelDebug, msg, keysAndValues...)
+}
+
+type TraceLogger interface {
+	Log(ctx context.Context, level slog.Level, msg string, keysAndValues ...any)
+}
+
+// Logger interface is implemented by slog.Logger and some other logging packages
+// and can be easily used via a wrapper with any other logging system.
+// The functions are not sprintf-style. Keys and values are key-value pairs.
+type Logger interface {
+	Debug(msg string, keysAndValues ...any)
+	Info(msg string, keysAndValues ...any)
+	Warn(msg string, keysAndValues ...any)
+	Error(msg string, keysAndValues ...any)
+}
+
+type withAttrs struct {
+	logger Logger
+	attrs  []any
+}
+
+func (w *withAttrs) kv(kv []any) []any {
+	return append(w.attrs, kv...)
+}
+
+func (w *withAttrs) Debug(msg string, keysAndValues ...any) {
+	w.logger.Debug(msg, w.kv(keysAndValues)...)
+}
+
+func (w *withAttrs) Info(msg string, keysAndValues ...any) {
+	w.logger.Info(msg, w.kv(keysAndValues)...)
+}
+
+func (w *withAttrs) Warn(msg string, keysAndValues ...any) {
+	w.logger.Warn(msg, w.kv(keysAndValues)...)
+}
+
+func (w *withAttrs) Error(msg string, keysAndValues ...any) {
+	w.logger.Error(msg, w.kv(keysAndValues)...)
+}
+
+func WithAttrs(logger Logger, attrs ...any) Logger {
+	return &withAttrs{logger, attrs}
+}
 
 // LoggerInjectable is a struct that can be embedded in other structs to provide a logger and a log setter.
 type LoggerInjectable struct {
@@ -41,14 +107,26 @@ type Log interface {
 }
 
 type injectable interface {
+	LogWithAttrs(attrs ...any) Logger
+	InjectLogger(obj any)
 	SetLogger(logger Logger)
 	Log() Logger
 }
 
-// InjectLogger sets the logger for the given object if it implements the LoggerInjectable interface.
-func InjectLogger(l Logger, obj any) {
+// InjectLogger sets the logger for the given object if it implements the injectable interface.
+func InjectLogger(l Logger, obj any, attrs ...any) {
 	if o, ok := obj.(injectable); ok {
-		o.SetLogger(l)
+		if len(attrs) > 0 {
+			o.SetLogger(WithAttrs(l, attrs...))
+		} else {
+			o.SetLogger(l)
+		}
+	}
+}
+
+func (li *LoggerInjectable) InjectLoggerTo(obj any, attrs ...any) {
+	if li.HasLogger() {
+		InjectLogger(li.logger, obj, attrs...)
 	}
 }
 
@@ -65,102 +143,11 @@ func (li *LoggerInjectable) HasLogger() bool {
 // Log returns the logger for the embedding object.
 func (li *LoggerInjectable) Log() Logger {
 	if li.logger == nil {
-		return &NullLog{}
+		return Null
 	}
 	return li.logger
 }
 
-// NewStdLog creates a new StdLog instance.
-func NewStdLog(out io.Writer) *StdLog {
-	if out == nil {
-		out = os.Stderr
-	}
-	return &StdLog{out: out}
+func (li *LoggerInjectable) LogWithAttrs(attrs ...any) Logger {
+	return WithAttrs(li.Log(), attrs...)
 }
-
-// StdLog is a simplistic logger for rig.
-type StdLog struct {
-	out io.Writer
-}
-
-// Tracef prints a debug level log message.
-func (l *StdLog) Tracef(t string, args ...any) {
-	fmt.Fprintln(l.out, keyTrace, fmt.Sprintf(t, args...))
-}
-
-// Debugf prints a debug level log message.
-func (l *StdLog) Debugf(t string, args ...any) {
-	fmt.Fprintln(l.out, keyDebug, fmt.Sprintf(t, args...))
-}
-
-// Infof prints an info level log message.
-func (l *StdLog) Infof(t string, args ...any) {
-	fmt.Fprintln(l.out, keyInfo, fmt.Sprintf(t, args...))
-}
-
-// Warnf prints a warn level log message.
-func (l *StdLog) Warnf(t string, args ...any) {
-	fmt.Fprintln(l.out, keyWarn, fmt.Sprintf(t, args...))
-}
-
-// Errorf prints an error level log message.
-func (l *StdLog) Errorf(t string, args ...any) {
-	fmt.Fprintln(l.out, keyError, fmt.Sprintf(t, args...))
-}
-
-// NewPrefixLog creates a new PrefixLog instance.
-func NewPrefixLog(log Logger, prefix string) *PrefixLog {
-	if log == nil {
-		log = NewStdLog(nil)
-	}
-	return &PrefixLog{log: log, prefix: prefix}
-}
-
-// PrefixLog is a logger that prefixes all log messages with a string.
-type PrefixLog struct {
-	log    Logger
-	prefix string
-}
-
-// Tracef prints a debug level log message.
-func (l *PrefixLog) Tracef(t string, args ...any) {
-	l.log.Tracef(l.prefix+t, args...)
-}
-
-// Debugf prints a debug level log message.
-func (l *PrefixLog) Debugf(t string, args ...any) {
-	l.log.Debugf(l.prefix+t, args...)
-}
-
-// Infof prints an info level log message.
-func (l *PrefixLog) Infof(t string, args ...any) {
-	l.log.Infof(l.prefix+t, args...)
-}
-
-// Warnf prints a warn level log message.
-func (l *PrefixLog) Warnf(t string, args ...any) {
-	l.log.Warnf(l.prefix+t, args...)
-}
-
-// Errorf prints an error level log message.
-func (l *PrefixLog) Errorf(t string, args ...any) {
-	l.log.Errorf(l.prefix+t, args...)
-}
-
-// NullLog is a logger that does nothing.
-type NullLog struct{}
-
-// Tracef does nothing.
-func (l *NullLog) Tracef(_ string, _ ...any) {}
-
-// Debugf does nothing.
-func (l *NullLog) Debugf(_ string, _ ...any) {}
-
-// Infof does nothing.
-func (l *NullLog) Infof(_ string, _ ...any) {}
-
-// Warnf does nothing.
-func (l *NullLog) Warnf(_ string, _ ...any) {}
-
-// Errorf does nothing.
-func (l *NullLog) Errorf(_ string, _ ...any) {}

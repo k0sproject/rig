@@ -2,6 +2,7 @@ package test
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path"
 	"strings"
@@ -17,7 +19,6 @@ import (
 
 	"github.com/k0sproject/rig"
 	"github.com/k0sproject/rig/localhost"
-	"github.com/k0sproject/rig/log"
 	"github.com/k0sproject/rig/openssh"
 	"github.com/k0sproject/rig/protocol"
 	"github.com/k0sproject/rig/remotefs"
@@ -219,11 +220,7 @@ func GetHost(t *testing.T, options ...rig.ClientOption) *Host {
 	default:
 		panic("unknown protocol")
 	}
-	opts := []rig.ClientOption{rig.WithConnection(client), rig.WithLoggerFactory(
-		func(client protocol.Connection) log.Logger {
-			return log.NewPrefixLog(&SuiteLogger{t}, client.String()+": ")
-		}),
-	}
+	opts := []rig.ClientOption{rig.WithConnection(client), rig.WithLogger(slog.New(NewTestLogHandler(t)))}
 	opts = append(opts, options...)
 	conn, err := rig.NewClient(opts...)
 	require.NoError(t, err)
@@ -234,25 +231,25 @@ type SuiteLogger struct {
 	t *testing.T
 }
 
-func (s *SuiteLogger) Tracef(msg string, args ...interface{}) {
-	s.t.Helper()
-	s.t.Logf("%s TRACE %s", time.Now(), fmt.Sprintf(msg, args...))
+type TestLogHandler struct {
+	T *testing.T
 }
-func (s *SuiteLogger) Debugf(msg string, args ...interface{}) {
-	s.t.Helper()
-	s.t.Logf("%s DEBUG %s", time.Now(), fmt.Sprintf(msg, args...))
+
+func (h *TestLogHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
+func (h *TestLogHandler) WithAttrs(_ []slog.Attr) slog.Handler         { return h }
+func (h *TestLogHandler) WithGroup(_ string) slog.Handler              { return h }
+func (h *TestLogHandler) Handle(_ context.Context, r slog.Record) error {
+	h.T.Helper()
+	buf := &strings.Builder{}
+	buf.WriteString(r.Level.String())
+	buf.WriteByte(' ')
+	buf.WriteString(r.Message)
+	h.T.Log(buf.String())
+	return nil
 }
-func (s *SuiteLogger) Infof(msg string, args ...interface{}) {
-	s.t.Helper()
-	s.t.Logf("%s INFO %s", time.Now(), fmt.Sprintf(msg, args...))
-}
-func (s *SuiteLogger) Warnf(msg string, args ...interface{}) {
-	s.t.Helper()
-	s.t.Logf("%s WARN %s", time.Now(), fmt.Sprintf(msg, args...))
-}
-func (s *SuiteLogger) Errorf(msg string, args ...interface{}) {
-	s.t.Helper()
-	s.t.Logf("%s ERROR %s", time.Now(), fmt.Sprintf(msg, args...))
+
+func NewTestLogHandler(t *testing.T) *TestLogHandler {
+	return &TestLogHandler{T: t}
 }
 
 type ConnectedSuite struct {

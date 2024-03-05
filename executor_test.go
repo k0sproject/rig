@@ -1,4 +1,4 @@
-package exec_test
+package rig_test
 
 import (
 	"errors"
@@ -6,13 +6,14 @@ import (
 	"io"
 	"testing"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 	"github.com/k0sproject/rig/rigtest"
 	"github.com/stretchr/testify/require"
 )
 
 func TestSimpleExec(t *testing.T) {
 	mr := rigtest.NewMockRunner()
+
 	mr.AddCommand(rigtest.Equal("true"), func(a *rigtest.A) error { return nil })
 	mr.AddCommand(rigtest.Equal("false"), func(a *rigtest.A) error { return errors.New("foo") })
 
@@ -33,7 +34,7 @@ func TestPrintfErrors(t *testing.T) {
 	mr := rigtest.NewMockRunner()
 	args := []interface{}{"hello"}
 	err := mr.Exec(fmt.Sprintf("echo %s %d", args...)) // intentional error
-	require.ErrorIs(t, err, exec.ErrInvalidCommand, "commands with printf errors should return ErrInvalidCommand")
+	require.ErrorIs(t, err, cmd.ErrInvalidCommand, "commands with printf errors should return ErrInvalidCommand")
 	require.ErrorContains(t, err, "refusing", "commands with printf errors should return a helpful error message")
 }
 
@@ -43,7 +44,7 @@ func TestExecOutput(t *testing.T) {
 	out, err := mr.ExecOutput("foo")
 	require.NoError(t, err)
 	require.Equal(t, "bar", out)
-	out, err = mr.ExecOutput("foo", exec.TrimOutput(false))
+	out, err = mr.ExecOutput("foo", cmd.TrimOutput(false))
 	require.NoError(t, err)
 	require.Equal(t, "bar\n", out)
 }
@@ -55,7 +56,7 @@ func TestStdinInput(t *testing.T) {
 		readN, _ = io.Copy(a.Stdout, a.Stdin)
 		return nil
 	})
-	out, err := mr.ExecOutput("foo", exec.StdinString("barbar"))
+	out, err := mr.ExecOutput("foo", cmd.StdinString("barbar"))
 	require.NoError(t, err)
 	require.Equal(t, "barbar", out)
 	require.Equal(t, 6, int(readN))

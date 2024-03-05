@@ -3,7 +3,7 @@ package remotefs
 import (
 	"fmt"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 	"github.com/k0sproject/rig/plumbing"
 )
 
@@ -12,7 +12,7 @@ import (
 // lazily initialized and made available for filesystem operations. It
 // supports operations like opening files and implements io/fs.FS.
 type Service struct {
-	lazy *plumbing.LazyService[exec.Runner, FS]
+	lazy *plumbing.LazyService[cmd.Runner, FS]
 }
 
 // GetFS returns a FS or an error if a filesystem client could not be initialized.
@@ -31,7 +31,7 @@ func (p *Service) GetFS() (FS, error) {
 func (p *Service) FS() FS {
 	fs, err := p.lazy.Get()
 	if err != nil {
-		errRunner := exec.NewErrorRunner(err)
+		errRunner := cmd.NewErrorExecutor(err)
 		return NewPosixFS(errRunner)
 	}
 	return fs
@@ -39,6 +39,6 @@ func (p *Service) FS() FS {
 
 // NewRemoteFSService creates a new instance of Service with the
 // provided remotefs Provider and runner.
-func NewRemoteFSService(provider RemoteFSProvider, runner exec.Runner) *Service {
-	return &Service{plumbing.NewLazyService[exec.Runner, FS](provider, runner)}
+func NewRemoteFSService(provider RemoteFSProvider, runner cmd.Runner) *Service {
+	return &Service{plumbing.NewLazyService[cmd.Runner, FS](provider, runner)}
 }

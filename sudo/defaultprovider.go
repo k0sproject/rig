@@ -5,7 +5,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 	"github.com/k0sproject/rig/plumbing"
 )
 
@@ -23,19 +23,19 @@ var (
 	})
 )
 
-// SudoProvider returns a new exec.Runner with elevated privileges based on the
+// SudoProvider returns a new cmd.Runner with elevated privileges based on the
 // given runner.
 type SudoProvider interface { //nolint:revive // stutter
-	Get(runner exec.Runner) (exec.Runner, error)
+	Get(runner cmd.Runner) (cmd.Runner, error)
 }
 
 // Factory is a factory for sudo runners.
-type Factory = plumbing.Factory[exec.Runner, exec.Runner]
+type Factory = plumbing.Factory[cmd.Runner, cmd.Runner]
 
 // Provider is a repository for sudo runner factories.
-type Provider = plumbing.Provider[exec.Runner, exec.Runner]
+type Provider = plumbing.Provider[cmd.Runner, cmd.Runner]
 
 // NewProvider returns a new sudo repository.
 func NewProvider() *Provider {
-	return plumbing.NewProvider[exec.Runner, exec.Runner](ErrNoSudo)
+	return plumbing.NewProvider[cmd.Runner, cmd.Runner](ErrNoSudo)
 }

@@ -9,7 +9,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 )
 
 var (
@@ -75,7 +75,7 @@ var fileInfoPool = sync.Pool{
 func (f *winDir) ReadDir(n int) ([]fs.DirEntry, error) {
 	if f.buffer == nil {
 		pipeR, pipeW := io.Pipe()
-		cmd, err := f.fs.Start(context.Background(), fmt.Sprintf(statDirTemplate, f.path), exec.PS(), exec.Stdout(pipeW))
+		cmd, err := f.fs.Start(context.Background(), fmt.Sprintf(statDirTemplate, f.path), cmd.PS(), cmd.Stdout(pipeW))
 		if err != nil {
 			pipeW.Close()
 			return nil, fmt.Errorf("readdir: %w", err)

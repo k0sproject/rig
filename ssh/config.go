@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/k0sproject/rig/homedir"
+	"github.com/k0sproject/rig/log"
 	"github.com/k0sproject/rig/protocol"
 	ssh "golang.org/x/crypto/ssh"
 )
@@ -15,12 +16,13 @@ type PasswordCallback func() (secret string, err error)
 
 // Config describes an SSH connection's configuration.
 type Config struct {
-	Address          string           `yaml:"address" validate:"required,hostname_rfc1123|ip"`
-	User             string           `yaml:"user" validate:"required" default:"root"`
-	Port             int              `yaml:"port" default:"22" validate:"gt=0,lte=65535"`
-	KeyPath          *string          `yaml:"keyPath" validate:"omitempty"`
-	Bastion          *Config          `yaml:"bastion,omitempty"`
-	PasswordCallback PasswordCallback `yaml:"-"`
+	log.LoggerInjectable `yaml:"-"`
+	Address              string           `yaml:"address" validate:"required,hostname_rfc1123|ip"`
+	User                 string           `yaml:"user" validate:"required" default:"root"`
+	Port                 int              `yaml:"port" default:"22" validate:"gt=0,lte=65535"`
+	KeyPath              *string          `yaml:"keyPath" validate:"omitempty"`
+	Bastion              *Config          `yaml:"bastion,omitempty"`
+	PasswordCallback     PasswordCallback `yaml:"-"`
 
 	// AuthMethods can be used to pass in a list of crypto/ssh.AuthMethod objects
 	// for example to use a private key from memory:
@@ -32,7 +34,8 @@ type Config struct {
 
 // Connection returns a new Connection object based on the configuration.
 func (c *Config) Connection() (protocol.Connection, error) {
-	return NewConnection(*c)
+	conn, err := NewConnection(*c, WithLogger(c.Log()))
+	return conn, err
 }
 
 // String returns a string representation of the configuration.

@@ -8,10 +8,10 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
 	"github.com/k0sproject/rig/protocol"
 	"github.com/k0sproject/rig/ssh"
@@ -42,9 +42,15 @@ type Connection struct {
 type dialFunc func(network, addr string) (net.Conn, error)
 
 // NewConnection creates a new WinRM connection. Error is currently always nil.
-func NewConnection(cfg Config) (*Connection, error) {
+func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
+	options := NewOptions(opts...)
+	options.InjectLoggerTo(cfg, log.KeyProtocol, "winrm-config")
 	cfg.SetDefaults()
-	return &Connection{Config: cfg}, nil
+
+	c := &Connection{Config: cfg}
+	options.InjectLoggerTo(c, log.KeyProtocol, "winrm")
+
+	return c, nil
 }
 
 // Protocol returns the protocol name, "WinRM".
@@ -111,7 +117,7 @@ func (c *Connection) bastionDialer() (dialFunc, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: bastion connection is not an SSH connection", protocol.ErrAbort)
 	}
-	c.Log().Debugf("connecting to bastion %s", c)
+	log.Trace(context.Background(), "connecting to bastion", log.KeyHost, c)
 	if err := bastionSSH.Connect(); err != nil {
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
 			return nil, fmt.Errorf("%w: bastion connect: %w", protocol.ErrAbort, err)
@@ -190,13 +196,23 @@ type command struct {
 
 // Wait blocks until the command finishes.
 func (c *command) Wait() error {
+	defer func() {
+		if r := recover(); r != nil {
+			if strings.Contains(fmt.Sprint(r), "close of closed channel") {
+				c.log.Debug("recovered from a panic in command.Wait", "reason", r)
+			} else {
+				panic(r)
+			}
+		}
+	}()
+
 	defer c.sh.Close()
 	defer c.cmd.Close()
 
 	c.wg.Wait()
-	c.log.Tracef("waitgroup finished")
+	log.Trace(context.Background(), "waitgroup finished")
 	c.cmd.Wait()
-	c.log.Tracef("command finished with exit code: %d", c.cmd.ExitCode())
+	log.Trace(context.Background(), "command finished", log.KeyExitCode, c.cmd.ExitCode())
 
 	if c.cmd.ExitCode() != 0 {
 		return fmt.Errorf("%w: exit code %d", errExitCode, c.cmd.ExitCode())
@@ -215,7 +231,7 @@ func (c *command) Close() error {
 
 // StartProcess executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
-func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) (exec.Waiter, error) {
+func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) (protocol.Waiter, error) {
 	if c.client == nil {
 		return nil, errNotConnected
 	}
@@ -239,13 +255,13 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 		res.wg.Add(1)
 		go func() {
 			defer res.wg.Done()
-			c.Log().Tracef("copying data to command stdin")
+			log.Trace(ctx, "copying data to command stdin")
 			n, err := io.Copy(proc.Stdin, stdin)
 			if err != nil {
-				c.Log().Debugf("copying data to command stdin failed: %v", err)
+				log.Trace(ctx, "copying data to command stdin failed", log.KeyError, err)
 				return
 			}
-			c.Log().Tracef("finished copying %d bytes to stdin", n)
+			log.Trace(ctx, "finished copying data to command stdin", log.KeyBytes, n)
 		}()
 	}
 	if stdout == nil {
@@ -257,23 +273,21 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 	res.wg.Add(2)
 	go func() {
 		defer res.wg.Done()
-		c.Log().Tracef("copying data from command stdout")
 		n, err := io.Copy(stdout, proc.Stdout)
 		if err != nil {
-			c.Log().Debugf("copying data from command stdout failed after %s: %v", time.Since(started), err)
+			log.Trace(ctx, "copying data from command stdout failed", log.KeyDuration, time.Since(started), log.KeyError, err)
 			return
 		}
-		c.Log().Tracef("finished copying %d bytes from stdout", n)
+		log.Trace(ctx, "finished copying data from stdout", log.KeyBytes, n)
 	}()
 	go func() {
 		defer res.wg.Done()
-		c.Log().Tracef("copying data from command stderr")
 		n, err := io.Copy(stderr, proc.Stderr)
 		if err != nil {
-			c.Log().Debugf("copying data from command stderr failed after %s: %v", time.Since(started), err)
+			log.Trace(ctx, "copying data from command stderr failed", log.KeyDuration, time.Since(started), log.KeyError, err)
 			return
 		}
-		c.Log().Tracef("finished copying %d bytes from stderr", n)
+		log.Trace(ctx, "finished copying data from stderr", log.KeyBytes, n)
 	}()
 	return res, nil
 }
@@ -285,7 +299,7 @@ func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr
 	}
 	_, err := c.client.RunWithContextWithInput(context.Background(), cmd, stdout, stderr, stdin)
 	if err != nil {
-		return fmt.Errorf("execute command interactive: %w", err)
+		return fmt.Errorf("execute command in interactive mode: %w", err)
 	}
 	return nil
 }

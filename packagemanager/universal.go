@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 	"github.com/k0sproject/rig/sh/shellescape"
 )
 
@@ -14,7 +14,7 @@ import (
 // with this "universal package manager" we can tackle most of them
 // without implementing a new package manager for each one.
 type universalPackageManager struct {
-	exec.ContextRunner
+	cmd.ContextRunner
 	name    string
 	command string
 	add     string
@@ -44,7 +44,7 @@ func (u universalPackageManager) Update(ctx context.Context) error {
 	return u.buildAndExec(ctx, u.update)
 }
 
-func newUniversalPackageManager(runner exec.ContextRunner, name, command, add, del, update string) *universalPackageManager {
+func newUniversalPackageManager(runner cmd.ContextRunner, name, command, add, del, update string) *universalPackageManager {
 	return &universalPackageManager{
 		ContextRunner: runner,
 		name:          name,

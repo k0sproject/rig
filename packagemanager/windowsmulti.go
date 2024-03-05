@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 )
 
 // WindowsMultiManager combines all found windows package managers and tries to manage packaes through all of them.
 // This is done because there is no single one package manager to rule them all for windows.
 type WindowsMultiManager struct {
-	exec.ContextRunner
+	cmd.ContextRunner
 	managers []PackageManager
 }
 
@@ -82,7 +82,7 @@ func (w *WindowsMultiManager) Update(ctx context.Context) error {
 }
 
 // NewWindowsMultiManager creates a new windows multi package manager.
-func NewWindowsMultiManager(c exec.ContextRunner) PackageManager {
+func NewWindowsMultiManager(c cmd.ContextRunner) PackageManager {
 	winRepo := NewProvider()
 	RegisterWinget(winRepo)
 	RegisterChocolatey(winRepo)
@@ -93,7 +93,7 @@ func NewWindowsMultiManager(c exec.ContextRunner) PackageManager {
 
 // RegisterWindowsMultiManager registers the windows multi package manager to a repository.
 func RegisterWindowsMultiManager(repository *Provider) {
-	repository.Register(func(c exec.ContextRunner) (PackageManager, bool) {
+	repository.Register(func(c cmd.ContextRunner) (PackageManager, bool) {
 		if !c.IsWindows() {
 			return nil, false
 		}

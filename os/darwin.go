@@ -3,11 +3,11 @@ package os
 import (
 	"fmt"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 )
 
 // ResolveDarwin resolves the OS release information for a darwin host.
-func ResolveDarwin(conn exec.SimpleRunner) (*Release, bool) {
+func ResolveDarwin(conn cmd.SimpleRunner) (*Release, bool) {
 	if conn.IsWindows() {
 		return nil, false
 	}

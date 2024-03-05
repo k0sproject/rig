@@ -3,12 +3,12 @@ package sudo
 import (
 	"strings"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 )
 
 // RegisterWindowsNoop registers a noop DecorateFunc with the given repository if the user is root.
 func RegisterWindowsNoop(repository *Provider) {
-	repository.Register(func(runner exec.Runner) (exec.Runner, bool) {
+	repository.Register(func(runner cmd.Runner) (cmd.Runner, bool) {
 		if !runner.IsWindows() {
 			return nil, false
 		}

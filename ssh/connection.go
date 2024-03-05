@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/homedir"
 	"github.com/k0sproject/rig/log"
 	"github.com/k0sproject/rig/protocol"
@@ -47,9 +46,15 @@ type Connection struct {
 }
 
 // NewConnection creates a new SSH connection. Error is currently always nil.
-func NewConnection(cfg Config) (*Connection, error) {
+func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
+	options := NewOptions(opts...)
+	options.InjectLoggerTo(cfg, log.KeyProtocol, "ssh-config")
 	cfg.SetDefaults()
-	return &Connection{Config: cfg}, nil
+
+	c := &Connection{Config: cfg}
+	options.InjectLoggerTo(c, log.KeyProtocol, "ssh")
+
+	return c, nil
 }
 
 var (
@@ -75,7 +80,7 @@ func (c *Connection) Dial(network, address string) (net.Conn, error) {
 }
 
 func (c *Connection) keypathsFromConfig() []string {
-	c.Log().Tracef("trying to get a keyfile path from ssh config")
+	log.Trace(context.Background(), "trying to get a keyfile path from ssh config", log.KeyHost, c)
 	idf := c.getConfigAll("IdentityFile")
 	// https://github.com/kevinburke/ssh_config/blob/master/config.go#L254 says:
 	// TODO: IdentityFile has multiple default values that we should return
@@ -85,15 +90,14 @@ func (c *Connection) keypathsFromConfig() []string {
 	idf = slices.Compact(idf)
 
 	if len(idf) > 0 {
-		c.Log().Tracef("detected %d identity file paths from ssh config: %v", len(idf), idf)
+		log.Trace(context.Background(), fmt.Sprintf("detected %d identity file paths from ssh config", len(idf)), log.KeyFile, idf)
 		return idf
 	}
-	c.Log().Tracef("no identity file paths found in ssh config")
+	log.Trace(context.Background(), "no identity file paths found in ssh config")
 	return []string{}
 }
 
 func (c *Connection) initGlobalDefaults() {
-	c.Log().Tracef("discovering global default keypaths")
 	dummyHostIdentityFiles := SSHConfigGetAll(hopefullyNonexistentHost, "IdentityFile")
 	// https://github.com/kevinburke/ssh_config/blob/master/config.go#L254 says:
 	// TODO: IdentityFile has multiple default values that we should return
@@ -158,10 +162,10 @@ func (c *Connection) SetDefaults() {
 		for _, p := range paths {
 			expanded, err := homedir.ExpandFile(p)
 			if err != nil {
-				c.Log().Tracef("expand and validate %s: %v", p, err)
+				log.Trace(context.Background(), "expand and validate", log.KeyFile, p, log.KeyError, err)
 				continue
 			}
-			c.Log().Debugf("using identity file %s", expanded)
+			c.Log().Debug("using identity file", log.KeyFile, expanded)
 			c.keyPaths = append(c.keyPaths, expanded)
 		}
 
@@ -235,7 +239,7 @@ func (c *Connection) IsWindows() bool {
 	isWin = err == nil && isWinProc.Wait() == nil
 
 	c.isWindows = &isWin
-	c.Log().Debugf("host is windows: %t", *c.isWindows)
+	log.Trace(context.Background(), fmt.Sprintf("host is windows: %t", *c.isWindows), log.KeyHost, c)
 
 	return *c.isWindows
 }
@@ -250,7 +254,7 @@ func knownhostsCallback(path string, permissive, hash bool) (ssh.HostKeyCallback
 
 func isPermissive(c *Connection) bool {
 	if strict := c.getConfigAll("StrictHostkeyChecking"); len(strict) > 0 && strict[0] == "no" {
-		c.Log().Debugf("StrictHostkeyChecking is set to 'no'")
+		log.Trace(context.Background(), "config StrictHostkeyChecking is set to 'no'", log.KeyHost, c)
 		return true
 	}
 
@@ -262,7 +266,7 @@ func shouldHash(c *Connection) bool {
 	if hashKnownHosts := c.getConfigAll("HashKnownHosts"); len(hashKnownHosts) == 1 {
 		hash := hashKnownHosts[0] == "yes"
 		if hash {
-			c.Log().Debugf("HashKnownHosts is set to %q, known hosts file keys will be hashed", hashKnownHosts[0])
+			log.Trace(context.Background(), "config HashKnownHosts is set", log.KeyHost, c)
 		}
 	}
 	return hash
@@ -279,7 +283,7 @@ func (c *Connection) hostkeyCallback() (ssh.HostKeyCallback, error) {
 		if path == "" {
 			return hostkey.InsecureIgnoreHostKeyCallback, nil
 		}
-		c.Log().Debugf("%s: using known_hosts file from SSH_KNOWN_HOSTS: %s", path)
+		c.Log().Debug("using known_hosts file from SSH_KNOWN_HOSTS", log.KeyHost, c, log.KeyFile, path)
 		return knownhostsCallback(path, permissive, hash)
 	}
 
@@ -291,7 +295,7 @@ func (c *Connection) hostkeyCallback() (ssh.HostKeyCallback, error) {
 	// return a single string containing space separated paths
 	if files, err := shellwords.Parse(strings.Join(kfs, " ")); err == nil {
 		for _, f := range files {
-			c.Log().Tracef("trying known_hosts file from ssh config %s", f)
+			log.Trace(context.Background(), "trying known_hosts file from ssh config", log.KeyHost, c, log.KeyFile, f)
 			exp, err := homedir.Expand(f)
 			if err == nil {
 				khPath = exp
@@ -301,11 +305,11 @@ func (c *Connection) hostkeyCallback() (ssh.HostKeyCallback, error) {
 	}
 
 	if khPath != "" {
-		c.Log().Tracef("using known_hosts file from ssh config %s", khPath)
+		log.Trace(context.Background(), "using known_hosts file from ssh config", log.KeyHost, c, log.KeyFile, khPath)
 		return knownhostsCallback(khPath, permissive, hash)
 	}
 
-	c.Log().Tracef("using default known_hosts file %s", hostkey.DefaultKnownHostsPath)
+	log.Trace(context.Background(), "using default known_hosts file", log.KeyHost, c, log.KeyFile, hostkey.DefaultKnownHostsPath)
 	defaultPath, err := homedir.Expand(hostkey.DefaultKnownHostsPath)
 	if err != nil {
 		return nil, fmt.Errorf("expand known_hosts file path: %w", err)
@@ -328,44 +332,44 @@ func (c *Connection) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
 	var signers []ssh.Signer
 	agent, err := agent.NewClient()
 	if err != nil {
-		c.Log().Tracef("failed to get ssh agent client: %v", err)
+		log.Trace(context.Background(), "failed to get ssh agent client", log.ErrorAttr(err))
 	} else {
-		c.Log().Debugf("using ssh agent")
+		c.Log().Debug("using ssh agent")
 		signers, err = agent.Signers()
 		if err != nil {
-			c.Log().Debugf("failed to list signers from ssh agent: %v", c, err)
+			log.Trace(context.Background(), "failed to list signers from ssh agent", log.ErrorAttr(err))
 		}
 	}
 
 	if len(c.AuthMethods) > 0 {
-		c.Log().Tracef("using %d passed-in auth methods", len(c.AuthMethods))
+		log.Trace(context.Background(), "using passed-in auth methods", "count", len(c.AuthMethods))
 		config.Auth = c.AuthMethods
 	} else if len(signers) > 0 {
-		c.Log().Debugf("%s: using all keys (%d) from ssh agent because a keypath was not explicitly given", c, len(signers))
+		c.Log().Debug("using all keys from ssh agent because a keypath was not explicitly given", "count", len(signers))
 		config.Auth = append(config.Auth, ssh.PublicKeys(signers...))
 	}
 
 	for _, keyPath := range c.keyPaths {
 		keyPath, err := homedir.Expand(keyPath)
 		if err != nil {
-			c.Log().Tracef("expand keypath %s: %v", keyPath, err)
+			log.Trace(context.Background(), "expand keypath", log.FileAttr(keyPath), log.ErrorAttr(err))
 			continue
 		}
 		if am, ok := authMethodCache.Load(keyPath); ok {
 			switch authM := am.(type) {
 			case ssh.AuthMethod:
-				c.Log().Tracef("using cached auth method for %s", keyPath)
+				log.Trace(context.Background(), "using cached auth method", log.FileAttr(keyPath))
 				config.Auth = append(config.Auth, authM)
 			case error:
-				c.Log().Tracef("already discarded key %s: %v", keyPath, authM)
+				log.Trace(context.Background(), "already discarded key", log.FileAttr(keyPath), log.ErrorAttr(authM))
 			default:
-				c.Log().Tracef("unexpected type %T for cached auth method for %s", am, keyPath)
+				log.Trace(context.Background(), fmt.Sprintf("unexpected type %T for cached auth method for %s", am, keyPath))
 			}
 			continue
 		}
 		privateKeyAuth, err := c.pkeySigner(signers, keyPath)
 		if err != nil {
-			c.Log().Debugf("failed to obtain a signer for identity %s: %v", keyPath, err)
+			c.Log().Debug("failed to obtain a signer for identity", log.KeyFile, keyPath, log.ErrorAttr(err))
 			// store the error so this key won't be loaded again
 			authMethodCache.Store(keyPath, err)
 		} else {
@@ -390,7 +394,7 @@ func (c *Connection) connectViaBastion(dst string, config *ssh.ClientConfig) err
 	if !ok {
 		return fmt.Errorf("%w: bastion connection is not an SSH connection", protocol.ErrAbort)
 	}
-	c.Log().Debugf("connecting to bastion %s", c)
+	c.Log().Debug("connecting to bastion", log.HostAttr(c), "bastion", bastionSSH)
 	if err := bastionSSH.Connect(); err != nil {
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
 			return fmt.Errorf("%w: bastion connect: %w", protocol.ErrAbort, err)
@@ -446,7 +450,7 @@ func (c *Connection) pubkeySigner(signers []ssh.Signer, key ssh.PublicKey) (ssh.
 
 	for _, s := range signers {
 		if bytes.Equal(key.Marshal(), s.PublicKey().Marshal()) {
-			c.Log().Debugf("signer for public key available in ssh agent")
+			c.Log().Debug("signer for public key available in ssh agent")
 			return ssh.PublicKeys(s), nil
 		}
 	}
@@ -459,7 +463,7 @@ func (c *Connection) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMeth
 	if err != nil {
 		return nil, fmt.Errorf("expand keyfile path: %w", err)
 	}
-	c.Log().Tracef("checking identity file %s", path)
+	log.Trace(context.Background(), "checking identity file", log.KeyFile, path)
 	key, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("%w: read identity file %s: %w", protocol.ErrAbort, path, err)
@@ -467,19 +471,19 @@ func (c *Connection) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMeth
 
 	pubKey, _, _, _, err := ssh.ParseAuthorizedKey(key)
 	if err == nil {
-		c.Log().Debugf("file %s is a public key", path)
+		log.Trace(context.Background(), "file is a public key", log.KeyFile, path)
 		return c.pubkeySigner(signers, pubKey)
 	}
 
 	signer, err := ssh.ParsePrivateKey(key)
 	if err == nil {
-		c.Log().Debugf("using an unencrypted private key from %s", path)
+		c.Log().Debug("using an unencrypted private key", log.KeyFile, path)
 		return ssh.PublicKeys(signer), nil
 	}
 
 	var ppErr *ssh.PassphraseMissingError
 	if errors.As(err, &ppErr) { //nolint:nestif
-		c.Log().Debugf("key %s is encrypted", path)
+		c.Log().Debug("key is encrypted", log.KeyFile, path)
 
 		if len(signers) > 0 {
 			if signer, err := c.pkeySigner(signers, path+".pub"); err == nil {
@@ -488,14 +492,14 @@ func (c *Connection) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMeth
 		}
 
 		if c.PasswordCallback != nil {
-			c.Log().Tracef("%s: asking for a password to decrypt %s", c, path)
+			log.Trace(context.Background(), "asking for a password to decrypt key", log.HostAttr(c), log.KeyFile, path)
 			pass, err := c.PasswordCallback()
 			if err != nil {
-				return nil, fmt.Errorf("%w: password provider failed: %w", protocol.ErrAbort, err)
+				return nil, fmt.Errorf("%w: failed to get password: %w", protocol.ErrAbort, err)
 			}
 			signer, err := ssh.ParsePrivateKeyWithPassphrase(key, []byte(pass))
 			if err != nil {
-				return nil, fmt.Errorf("%w: protected key %s decoding failed: %w", protocol.ErrAbort, path, err)
+				return nil, fmt.Errorf("%w: encrypted key %s decoding failed: %w", protocol.ErrAbort, path, err)
 			}
 			return ssh.PublicKeys(signer), nil
 		}
@@ -506,7 +510,7 @@ func (c *Connection) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMeth
 
 // StartProcess executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
-func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) (exec.Waiter, error) {
+func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) (protocol.Waiter, error) {
 	if c.client == nil {
 		return nil, errNotConnected
 	}

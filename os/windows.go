@@ -3,7 +3,7 @@ package os
 import (
 	"encoding/json"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 	ps "github.com/k0sproject/rig/powershell"
 )
 
@@ -13,7 +13,7 @@ type windowsVersion struct {
 }
 
 // ResolveWindows resolves the OS release information for a windows host.
-func ResolveWindows(conn exec.SimpleRunner) (*Release, bool) {
+func ResolveWindows(conn cmd.SimpleRunner) (*Release, bool) {
 	if !conn.IsWindows() {
 		return nil, false
 	}

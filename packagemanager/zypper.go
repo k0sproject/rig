@@ -3,17 +3,17 @@ package packagemanager
 import (
 	"context"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 )
 
 // NewZypper creates a new zypper package manager.
-func NewZypper(c exec.ContextRunner) PackageManager {
+func NewZypper(c cmd.ContextRunner) PackageManager {
 	return newUniversalPackageManager(c, "zypper", "zypper", "install -y", "remove -y", "refresh")
 }
 
 // RegisterZypper registers the zypper package manager to a repository.
 func RegisterZypper(repository *Provider) {
-	repository.Register(func(c exec.ContextRunner) (PackageManager, bool) {
+	repository.Register(func(c cmd.ContextRunner) (PackageManager, bool) {
 		if c.IsWindows() {
 			return nil, false
 		}

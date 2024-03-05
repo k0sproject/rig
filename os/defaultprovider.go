@@ -4,7 +4,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 	"github.com/k0sproject/rig/plumbing"
 )
 
@@ -23,17 +23,17 @@ var (
 )
 
 // Factory is a function that returns an OS release based on the provided runner.
-type Factory = plumbing.Factory[exec.SimpleRunner, *Release]
+type Factory = plumbing.Factory[cmd.SimpleRunner, *Release]
 
 // Provider is a type that can determine the host OS given a runner.
-type Provider = plumbing.Provider[exec.SimpleRunner, *Release]
+type Provider = plumbing.Provider[cmd.SimpleRunner, *Release]
 
 // OSReleaseProvider is a factory for OS release information.
 type OSReleaseProvider interface { //nolint:revive // stutter
-	Get(runner exec.SimpleRunner) (*Release, error)
+	Get(runner cmd.SimpleRunner) (*Release, error)
 }
 
 // NewProvider creates a new OS release provider.
 func NewProvider() *Provider {
-	return plumbing.NewProvider[exec.SimpleRunner, *Release](ErrNotRecognized)
+	return plumbing.NewProvider[cmd.SimpleRunner, *Release](ErrNotRecognized)
 }

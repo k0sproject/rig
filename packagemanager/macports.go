@@ -3,17 +3,17 @@ package packagemanager
 import (
 	"context"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 )
 
 // NewMacports creates a new macports package manager.
-func NewMacports(c exec.ContextRunner) PackageManager {
+func NewMacports(c cmd.ContextRunner) PackageManager {
 	return newUniversalPackageManager(c, "macports", "port", "install", "uninstall", "selfupdate")
 }
 
 // RegisterMacports registers the macports package manager to a repository.
 func RegisterMacports(repository *Provider) {
-	repository.Register(func(c exec.ContextRunner) (PackageManager, bool) {
+	repository.Register(func(c cmd.ContextRunner) (PackageManager, bool) {
 		if c.IsWindows() {
 			return nil, false
 		}

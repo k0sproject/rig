@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 	"github.com/k0sproject/rig/log"
 	"github.com/k0sproject/rig/sh"
 	"github.com/k0sproject/rig/sh/shellescape"
@@ -34,7 +34,7 @@ const (
 
 // PosixFS implements fs.FS for a remote filesystem that uses POSIX commands for access.
 type PosixFS struct {
-	exec.Runner
+	cmd.Runner
 	log.LoggerInjectable
 
 	// TODO: these should probably be in some kind of "coreutils" package
@@ -44,7 +44,7 @@ type PosixFS struct {
 }
 
 // NewPosixFS returns a fs.FS implementation for a remote filesystem that uses POSIX commands for access.
-func NewPosixFS(conn exec.Runner) *PosixFS {
+func NewPosixFS(conn cmd.Runner) *PosixFS {
 	return &PosixFS{Runner: conn, statCmd: nil, chtimesFn: nil}
 }
 
@@ -52,7 +52,7 @@ func (s *PosixFS) initStat() error {
 	if s.statCmd != nil {
 		return nil
 	}
-	out, err := s.ExecOutput("stat --help 2>&1", exec.HideOutput())
+	out, err := s.ExecOutput("stat --help 2>&1", cmd.HideOutput())
 	if err != nil {
 		return fmt.Errorf("can't access stat command: %w", err)
 	}
@@ -106,7 +106,7 @@ func (s *PosixFS) initTouch() error {
 	if s.chtimesFn != nil {
 		return nil
 	}
-	out, err := s.ExecOutput("touch --help 2>&1", exec.HideOutput())
+	out, err := s.ExecOutput("touch --help 2>&1", cmd.HideOutput())
 	if err != nil {
 		return fmt.Errorf("can't access touch command: %w", err)
 	}
@@ -240,13 +240,7 @@ func (s *PosixFS) multiStat(names ...string) ([]fs.FileInfo, error) { //nolint:g
 			idx++
 		}
 
-		scanner, err := s.ExecScanner(fmt.Sprintf(*s.statCmd, batch.String()))
-		if err != nil {
-			if len(names) == 1 {
-				return nil, PathError(OpStat, names[0], fs.ErrNotExist)
-			}
-			return nil, fmt.Errorf("stat %s: %w", names, err)
-		}
+		scanner := s.ExecScanner(fmt.Sprintf(*s.statCmd, batch.String()))
 		for scanner.Scan() {
 			line := scanner.Text()
 			if line == "" {
@@ -457,10 +451,7 @@ func (s *PosixFS) ReadDir(name string) ([]fs.DirEntry, error) { //nolint:cyclop 
 		name = "."
 	}
 
-	scanner, err := s.ExecScanner(sh.Command("find", name, "-maxdepth", "1", "-print0"))
-	if err != nil {
-		return nil, fmt.Errorf("read dir (start find) %s: %w", name, err)
-	}
+	scanner := s.ExecScanner(sh.Command("find", name, "-maxdepth", "1", "-print0"))
 	scanner.Split(scanNullTerminatedStrings)
 
 	var items []string
@@ -558,7 +549,7 @@ func (s *PosixFS) Mkdir(name string, perm fs.FileMode) error {
 
 // WriteFile writes data to a file named by filename.
 func (s *PosixFS) WriteFile(filename string, data []byte, perm fs.FileMode) error {
-	if err := s.Exec(fmt.Sprintf("install -D -m %#o /dev/stdin %s", perm, shellescape.Quote(filename)), exec.Stdin(bytes.NewReader(data))); err != nil {
+	if err := s.Exec(fmt.Sprintf("install -D -m %#o /dev/stdin %s", perm, shellescape.Quote(filename)), cmd.Stdin(bytes.NewReader(data))); err != nil {
 		return fmt.Errorf("write file %s: %w", filename, err)
 	}
 	return nil
@@ -566,7 +557,7 @@ func (s *PosixFS) WriteFile(filename string, data []byte, perm fs.FileMode) erro
 
 // ReadFile reads the file named by filename and returns the contents.
 func (s *PosixFS) ReadFile(filename string) ([]byte, error) {
-	out, err := s.ExecOutput(sh.Command("cat", "--", filename), exec.HideOutput(), exec.TrimOutput(false))
+	out, err := s.ExecOutput(sh.Command("cat", "--", filename), cmd.HideOutput(), cmd.TrimOutput(false))
 	if err != nil {
 		return nil, fmt.Errorf("read file %s: %w", filename, err)
 	}
@@ -587,12 +578,12 @@ func (s *PosixFS) MkdirTemp(dir, prefix string) (string, error) {
 
 // FileExist checks if a file exists on the host.
 func (s *PosixFS) FileExist(name string) bool {
-	return s.Exec(sh.Command("test", "-f", name), exec.HideOutput()) == nil
+	return s.Exec(sh.Command("test", "-f", name), cmd.HideOutput()) == nil
 }
 
 // LookPath checks if a command exists on the host.
 func (s *PosixFS) LookPath(name string) (string, error) {
-	path, err := s.ExecOutput(sh.Command("command", "-v", name), exec.HideOutput())
+	path, err := s.ExecOutput(sh.Command("command", "-v", name), cmd.HideOutput())
 	if err != nil {
 		return "", fmt.Errorf("lookpath %s: %w", name, err)
 	}
@@ -606,7 +597,7 @@ func (s *PosixFS) Join(elem ...string) string {
 
 // Getenv returns the value of the environment variable named by the key.
 func (s *PosixFS) Getenv(key string) string {
-	out, err := s.ExecOutput(fmt.Sprintf("echo ${%s}", key), exec.HideOutput())
+	out, err := s.ExecOutput(fmt.Sprintf("echo ${%s}", key), cmd.HideOutput())
 	if err != nil {
 		return ""
 	}

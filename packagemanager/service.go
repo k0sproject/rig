@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 	"github.com/k0sproject/rig/plumbing"
 )
 
@@ -14,7 +14,7 @@ import (
 // and made available for package operations. It supports operations like installation,
 // removal, and updating of packages via the PackageManager interface.
 type Service struct {
-	lazy *plumbing.LazyService[exec.ContextRunner, PackageManager]
+	lazy *plumbing.LazyService[cmd.ContextRunner, PackageManager]
 }
 
 // GetPackageManager returns a PackageManager or an error if the package manager
@@ -41,8 +41,8 @@ func (p *Service) PackageManager() PackageManager {
 
 // NewPackageManagerService creates a new instance of PackageManagerService
 // with the provided PackageManagerProvider.
-func NewPackageManagerService(provider PackageManagerProvider, runner exec.ContextRunner) *Service {
-	return &Service{plumbing.NewLazyService[exec.ContextRunner, PackageManager](provider, runner)}
+func NewPackageManagerService(provider PackageManagerProvider, runner cmd.ContextRunner) *Service {
+	return &Service{plumbing.NewLazyService[cmd.ContextRunner, PackageManager](provider, runner)}
 }
 
 // NullPackageManager is a package manager that always returns an error on

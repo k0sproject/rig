@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 	"github.com/k0sproject/rig/sh"
 )
 
@@ -19,7 +19,7 @@ const launchctl = sh.CommandBuilder("launchctl")
 var launchctlCmd = launchctl.Args
 
 // StartService starts a launchd service.
-func (i Launchd) StartService(ctx context.Context, h exec.ContextRunner, s string) error {
+func (i Launchd) StartService(ctx context.Context, h cmd.ContextRunner, s string) error {
 	if err := h.ExecContext(ctx, launchctlCmd("kickstart", s).String()); err != nil {
 		return fmt.Errorf("failed to start service %s: %w", s, err)
 	}
@@ -27,7 +27,7 @@ func (i Launchd) StartService(ctx context.Context, h exec.ContextRunner, s strin
 }
 
 // StopService stops a launchd service.
-func (i Launchd) StopService(ctx context.Context, h exec.ContextRunner, s string) error {
+func (i Launchd) StopService(ctx context.Context, h cmd.ContextRunner, s string) error {
 	if err := h.ExecContext(ctx, launchctlCmd("kill", s).String()); err != nil {
 		return fmt.Errorf("failed to stop service %s: %w", s, err)
 	}
@@ -35,20 +35,20 @@ func (i Launchd) StopService(ctx context.Context, h exec.ContextRunner, s string
 }
 
 // ServiceIsRunning checks if a launchd service is running.
-func (i Launchd) ServiceIsRunning(ctx context.Context, h exec.ContextRunner, s string) bool {
+func (i Launchd) ServiceIsRunning(ctx context.Context, h cmd.ContextRunner, s string) bool {
 	// This might need more sophisticated parsing
 	return h.ExecContext(ctx, launchctlCmd("list").Pipe("grep", "-q", s).String()) == nil
 }
 
 // ServiceScriptPath returns the path to a launchd service plist file.
-func (i Launchd) ServiceScriptPath(_ context.Context, _ exec.ContextRunner, s string) (string, error) {
+func (i Launchd) ServiceScriptPath(_ context.Context, _ cmd.ContextRunner, s string) (string, error) {
 	// Assumes plist files are located in /Library/LaunchDaemons - TODO: could be under user
 	plistPath := path.Join("/Library/LaunchDaemons", s+".plist")
 	return plistPath, nil
 }
 
 // EnableService enables a launchd service (not very elegant).
-func (i Launchd) EnableService(ctx context.Context, h exec.ContextRunner, s string) error {
+func (i Launchd) EnableService(ctx context.Context, h cmd.ContextRunner, s string) error {
 	if err := h.ExecContext(ctx, launchctlCmd("enable", s).String()); err != nil {
 		return fmt.Errorf("failed to enable service: %w", err)
 	}
@@ -56,7 +56,7 @@ func (i Launchd) EnableService(ctx context.Context, h exec.ContextRunner, s stri
 }
 
 // DisableService disables a launchd service by renaming the plist file (not very elegant).
-func (i Launchd) DisableService(ctx context.Context, h exec.ContextRunner, s string) error {
+func (i Launchd) DisableService(ctx context.Context, h cmd.ContextRunner, s string) error {
 	if err := h.ExecContext(ctx, launchctlCmd("disable", s).String()); err != nil {
 		return fmt.Errorf("failed to disable service: %w", err)
 	}
@@ -64,7 +64,7 @@ func (i Launchd) DisableService(ctx context.Context, h exec.ContextRunner, s str
 }
 
 // ServiceLogs returns the logs for a launchd service.
-func (i Launchd) ServiceLogs(ctx context.Context, h exec.ContextRunner, s string, lines int) ([]string, error) {
+func (i Launchd) ServiceLogs(ctx context.Context, h cmd.ContextRunner, s string, lines int) ([]string, error) {
 	out, err := h.ExecOutputContext(ctx, fmt.Sprintf("log show --predicate 'subsystem contains %s' --debug --info --last 10m --style syslog", strconv.QuoteToASCII(s)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get logs for service %s: %w", s, err)
@@ -78,7 +78,7 @@ func (i Launchd) ServiceLogs(ctx context.Context, h exec.ContextRunner, s string
 
 // RegisterLaunchd registers the launchd init system to a init system repository.
 func RegisterLaunchd(repo *Provider) {
-	repo.Register(func(c exec.ContextRunner) (ServiceManager, bool) {
+	repo.Register(func(c cmd.ContextRunner) (ServiceManager, bool) {
 		if c.IsWindows() {
 			return nil, false
 		}

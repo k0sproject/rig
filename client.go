@@ -8,7 +8,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 	"github.com/k0sproject/rig/log"
 	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/packagemanager"
@@ -35,7 +35,7 @@ type Client struct {
 	mu                   sync.Mutex
 	initErr              error
 
-	exec.Runner
+	cmd.Runner
 
 	log.LoggerInjectable
 
@@ -210,6 +210,7 @@ func (c *Client) Sudo() *Client {
 		c.sudoClone = c.Clone(
 			WithRunner(c.SudoService.SudoRunner()),
 			WithConnection(c.connection),
+			WithLogger(log.WithAttrs(c.Log(), log.KeySudo, true)),
 		)
 	})
 	return c.sudoClone

@@ -12,7 +12,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
+	"github.com/k0sproject/rig/log"
 	ps "github.com/k0sproject/rig/powershell"
 )
 
@@ -91,7 +92,6 @@ func (f *winFile) Write(p []byte) (int, error) {
 	if err != nil {
 		return n, err //nolint:wrapcheck
 	}
-	f.fs.Log().Tracef("wrote %d bytes", n)
 	return n, nil
 }
 
@@ -115,7 +115,6 @@ func (f *winFile) Read(p []byte) (int, error) {
 		}
 		total += n
 	}
-	f.fs.Log().Tracef("read %d bytes", total)
 	return total, nil
 }
 
@@ -192,7 +191,7 @@ func (f *winFile) open(flags int) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	f.cancel = cancel
-	cmd, err := f.fs.Start(ctx, rigRcp, exec.Stdin(stdinR), exec.Stdout(stdoutW), exec.Stderr(stderrW), exec.LogInput(false), exec.HideOutput())
+	cmd, err := f.fs.Start(ctx, rigRcp, cmd.Stdin(stdinR), cmd.Stdout(stdoutW), cmd.Stderr(stderrW), cmd.LogInput(false), cmd.HideOutput())
 	if err != nil {
 		return f.pathErr(OpOpen, fmt.Errorf("start file daemon: %w", err))
 	}
@@ -200,13 +199,10 @@ func (f *winFile) open(flags int) error {
 		_, _ = io.Copy(io.Discard, stderrR)
 	}()
 	go func() {
-		f.fs.Log().Debugf("rigrcp started, waiting for exit")
+		log.Trace(ctx, "rigrcp started")
 		err := cmd.Wait()
+		log.Trace(ctx, "rigrcp exited", log.KeyError, err)
 		close(f.done)
-		f.fs.Log().Debugf("rigrcp ended")
-		if err != nil {
-			f.fs.Log().Errorf("rigrcp exited with error: %v", err)
-		}
 		f.closed = true
 		_ = stdinR.Close()
 		_ = stdinW.Close()
@@ -238,17 +234,17 @@ func (f *winFile) command(cmd string) (*rcpResponse, error) { //nolint:cyclop
 		go func() {
 			b, err := f.stdout.ReadBytes(0)
 			if err != nil {
-				f.fs.Log().Errorf("failed to read response: %v", err)
+				log.Trace(context.Background(), "failed to read response to rcp quit command", log.KeyError, err)
 				close(resp)
 				return
 			}
 			resp <- b[:len(b)-1] // drop the zero byte
 		}()
 	}
-	f.fs.Log().Debugf("rigrcp command: %s", cmd)
+	log.Trace(context.Background(), "rigrcp command", log.KeyCommand, cmd)
 	_, err := fmt.Fprintf(f.stdin, "%s\n", cmd)
 	if err != nil {
-		return nil, f.pathErr(OpOpen, fmt.Errorf("write command: %w", err))
+		return nil, f.pathErr(OpOpen, fmt.Errorf("write rcp command: %w", err))
 	}
 	if cmd == "q" {
 		return &rcpResponse{}, nil
@@ -258,11 +254,14 @@ func (f *winFile) command(cmd string) (*rcpResponse, error) { //nolint:cyclop
 		return nil, errEnded
 	case data, ok := <-resp:
 		out := &rcpResponse{}
-		if !ok || data == nil || len(data) == 0 {
-			return out, nil
+		if !ok {
+			return out, nil // likely just a regular quit
+		}
+		if data == nil || len(data) == 0 {
+			return out, fmt.Errorf("%w: invalid empty response to rcp command", errRemote)
 		}
 		if err := json.Unmarshal(data, out); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+			return nil, fmt.Errorf("failed to unmarshal rcp response: %w", err)
 		}
 		if e := out.Err; e != "" {
 			if strings.HasPrefix(e, "eof") {
@@ -290,7 +289,7 @@ func (f *winFile) Close() error {
 		return f.pathErr(OpClose, fmt.Errorf("%w: failed to close file", errRemote))
 	}
 	_, err = f.command("q")
-	f.fs.Log().Tracef("rigrcp quit: %v", err)
+	log.Trace(context.Background(), "rigrcp quit", log.ErrorAttr(err))
 	f.stdin.Close()
 	f.closed = true
 

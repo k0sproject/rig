@@ -6,7 +6,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 	"github.com/k0sproject/rig/sh"
 )
 
@@ -18,7 +18,7 @@ const rcservice = sh.CommandBuilder("rc-service")
 var rcserviceCmd = rcservice.Args
 
 // StartService starts a service.
-func (i OpenRC) StartService(ctx context.Context, h exec.ContextRunner, s string) error {
+func (i OpenRC) StartService(ctx context.Context, h cmd.ContextRunner, s string) error {
 	if err := h.ExecContext(ctx, rcserviceCmd(s, "start").String()); err != nil {
 		return fmt.Errorf("failed to start service %s: %w", s, err)
 	}
@@ -26,7 +26,7 @@ func (i OpenRC) StartService(ctx context.Context, h exec.ContextRunner, s string
 }
 
 // StopService stops a service.
-func (i OpenRC) StopService(ctx context.Context, h exec.ContextRunner, s string) error {
+func (i OpenRC) StopService(ctx context.Context, h cmd.ContextRunner, s string) error {
 	if err := h.ExecContext(ctx, rcserviceCmd(s, "stop").String()); err != nil {
 		return fmt.Errorf("failed to stop service %s: %w", s, err)
 	}
@@ -34,7 +34,7 @@ func (i OpenRC) StopService(ctx context.Context, h exec.ContextRunner, s string)
 }
 
 // ServiceScriptPath returns the path to a service configuration file.
-func (i OpenRC) ServiceScriptPath(ctx context.Context, h exec.ContextRunner, s string) (string, error) {
+func (i OpenRC) ServiceScriptPath(ctx context.Context, h cmd.ContextRunner, s string) (string, error) {
 	out, err := h.ExecOutputContext(ctx, rcserviceCmd("-r", s).String())
 	if err != nil {
 		return "", fmt.Errorf("failed to get service script path for %s: %w", s, err)
@@ -43,7 +43,7 @@ func (i OpenRC) ServiceScriptPath(ctx context.Context, h exec.ContextRunner, s s
 }
 
 // RestartService restarts a service.
-func (i OpenRC) RestartService(ctx context.Context, h exec.ContextRunner, s string) error {
+func (i OpenRC) RestartService(ctx context.Context, h cmd.ContextRunner, s string) error {
 	if err := h.ExecContext(ctx, rcserviceCmd(s, "restart").String()); err != nil {
 		return fmt.Errorf("failed to restart service %s: %w", s, err)
 	}
@@ -51,7 +51,7 @@ func (i OpenRC) RestartService(ctx context.Context, h exec.ContextRunner, s stri
 }
 
 // EnableService enables a service.
-func (i OpenRC) EnableService(ctx context.Context, h exec.ContextRunner, s string) error {
+func (i OpenRC) EnableService(ctx context.Context, h cmd.ContextRunner, s string) error {
 	if err := h.ExecContext(ctx, sh.Command("rc-update", "add", s)); err != nil {
 		return fmt.Errorf("failed to enable service %s: %w", s, err)
 	}
@@ -59,7 +59,7 @@ func (i OpenRC) EnableService(ctx context.Context, h exec.ContextRunner, s strin
 }
 
 // DisableService disables a service.
-func (i OpenRC) DisableService(ctx context.Context, h exec.ContextRunner, s string) error {
+func (i OpenRC) DisableService(ctx context.Context, h cmd.ContextRunner, s string) error {
 	if err := h.ExecContext(ctx, sh.Command("rc-update", "del", s)); err != nil {
 		return fmt.Errorf("failed to disable service %s: %w", s, err)
 	}
@@ -67,12 +67,12 @@ func (i OpenRC) DisableService(ctx context.Context, h exec.ContextRunner, s stri
 }
 
 // ServiceIsRunning returns true if a service is running.
-func (i OpenRC) ServiceIsRunning(ctx context.Context, h exec.ContextRunner, s string) bool {
+func (i OpenRC) ServiceIsRunning(ctx context.Context, h cmd.ContextRunner, s string) bool {
 	return h.ExecContext(ctx, rcserviceCmd(s, "status").Pipe("grep", "-q", "status: started").String()) == nil
 }
 
 // ServiceEnvironmentPath returns a path to an environment override file path.
-func (i OpenRC) ServiceEnvironmentPath(_ context.Context, _ exec.ContextRunner, s string) (string, error) {
+func (i OpenRC) ServiceEnvironmentPath(_ context.Context, _ cmd.ContextRunner, s string) (string, error) {
 	return path.Join("/etc/conf.d", s), nil
 }
 
@@ -89,7 +89,7 @@ func (i OpenRC) ServiceEnvironmentContent(env map[string]string) string {
 
 // RegisterOpenRC registers OpenRC to a repository.
 func RegisterOpenRC(repo *Provider) {
-	repo.Register(func(c exec.ContextRunner) (ServiceManager, bool) {
+	repo.Register(func(c cmd.ContextRunner) (ServiceManager, bool) {
 		if c.IsWindows() {
 			return nil, false
 		}

@@ -6,7 +6,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 	"github.com/k0sproject/rig/plumbing"
 )
 
@@ -19,7 +19,7 @@ type PackageManager interface {
 
 // PackageManagerProvider returns a package manager implementation from a provider when given a runner.
 type PackageManagerProvider interface { //nolint:revive // TODO stutter
-	Get(runner exec.ContextRunner) (PackageManager, error)
+	Get(runner cmd.ContextRunner) (PackageManager, error)
 }
 
 var (
@@ -42,12 +42,12 @@ var (
 )
 
 // Factory is an alias for plumbing.Factory specialized for PackageManager.
-type Factory = plumbing.Factory[exec.ContextRunner, PackageManager]
+type Factory = plumbing.Factory[cmd.ContextRunner, PackageManager]
 
 // Provider is an alias for plumbing.Provider specialized for PackageManager.
-type Provider = plumbing.Provider[exec.ContextRunner, PackageManager]
+type Provider = plumbing.Provider[cmd.ContextRunner, PackageManager]
 
 // NewProvider creates a new instance of the specialized Provider.
 func NewProvider() *Provider {
-	return plumbing.NewProvider[exec.ContextRunner, PackageManager](ErrNoPackageManager)
+	return plumbing.NewProvider[cmd.ContextRunner, PackageManager](ErrNoPackageManager)
 }

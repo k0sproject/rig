@@ -3,7 +3,7 @@ package rig
 import (
 	"fmt"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 	"github.com/k0sproject/rig/initsystem"
 	"github.com/k0sproject/rig/log"
 	"github.com/k0sproject/rig/os"
@@ -16,11 +16,9 @@ import (
 // LoggerFactory is a function that creates a logger.
 type LoggerFactory func(protocol.Connection) log.Logger
 
-var nullLogger = &log.NullLog{}
-
 // defaultLoggerFactory returns a logger factory that returns a null logger.
 func defaultLoggerFactory(_ protocol.Connection) log.Logger {
-	return nullLogger
+	return log.Null
 }
 
 // ConnectionConfigurer can create connections. When a connection is not given, the configurer is used
@@ -36,10 +34,10 @@ func defaultConnectionConfigurer() ConnectionConfigurer {
 
 // ClientOptions is a struct that holds the variadic options for the rig package.
 type ClientOptions struct {
+	log.LoggerInjectable
 	connection           protocol.Connection
 	connectionConfigurer ConnectionConfigurer
-	loggerFactory        LoggerFactory
-	runner               exec.Runner
+	runner               cmd.Runner
 	providersContainer
 }
 
@@ -55,7 +53,7 @@ type packageManagerProvider struct {
 	provider packagemanager.PackageManagerProvider
 }
 
-func (p *packageManagerProvider) GetPackageManagerService(runner exec.Runner) *packagemanager.Service {
+func (p *packageManagerProvider) GetPackageManagerService(runner cmd.Runner) *packagemanager.Service {
 	return packagemanager.NewPackageManagerService(p.provider, runner)
 }
 
@@ -63,7 +61,7 @@ type initSystemProvider struct {
 	provider initsystem.InitSystemProvider
 }
 
-func (p *initSystemProvider) GetInitSystemService(runner exec.Runner) *initsystem.Service {
+func (p *initSystemProvider) GetInitSystemService(runner cmd.Runner) *initsystem.Service {
 	return initsystem.NewInitSystemService(p.provider, runner)
 }
 
@@ -71,7 +69,7 @@ type remoteFSProvider struct {
 	provider remotefs.RemoteFSProvider
 }
 
-func (p *remoteFSProvider) GetRemoteFSService(runner exec.Runner) *remotefs.Service {
+func (p *remoteFSProvider) GetRemoteFSService(runner cmd.Runner) *remotefs.Service {
 	return remotefs.NewRemoteFSService(p.provider, runner)
 }
 
@@ -79,7 +77,7 @@ type osReleaseProvider struct {
 	provider os.OSReleaseProvider
 }
 
-func (p *osReleaseProvider) GetOSReleaseService(runner exec.Runner) *os.Service {
+func (p *osReleaseProvider) GetOSReleaseService(runner cmd.Runner) *os.Service {
 	return os.NewOSReleaseService(p.provider, runner)
 }
 
@@ -87,7 +85,7 @@ type sudoProvider struct {
 	provider sudo.SudoProvider
 }
 
-func (p *sudoProvider) GetSudoService(runner exec.Runner) *sudo.Service {
+func (p *sudoProvider) GetSudoService(runner cmd.Runner) *sudo.Service {
 	return sudo.NewSudoService(p.provider, runner)
 }
 
@@ -121,7 +119,6 @@ func (o *ClientOptions) Clone() *ClientOptions {
 	return &ClientOptions{
 		connection:           o.connection,
 		connectionConfigurer: o.connectionConfigurer,
-		loggerFactory:        o.loggerFactory,
 		runner:               o.runner,
 		providersContainer:   o.providersContainer,
 	}
@@ -143,15 +140,26 @@ func (o *ClientOptions) GetConnection() (protocol.Connection, error) {
 }
 
 // GetRunner returns the runner to use for the rig client.
-func (o *ClientOptions) GetRunner(conn protocol.Connection) exec.Runner {
+func (o *ClientOptions) GetRunner(conn protocol.Connection) cmd.Runner {
 	if o.runner != nil {
+		logger := o.LogWithAttrs(log.HostAttr(conn))
+		log.InjectLogger(logger, o.runner)
 		return o.runner
 	}
-	return exec.NewHostRunner(conn)
+	runner := cmd.NewExecutor(conn)
+	runner.SetLogger(o.LogWithAttrs(log.HostAttr(conn)))
+	return runner
 }
 
 // ClientOption is a functional option type for the Options struct.
 type ClientOption func(*ClientOptions)
+
+// WithLogger is a functional option that sets the logger to use for the connection and its child components.
+func WithLogger(logger log.Logger) ClientOption {
+	return func(o *ClientOptions) {
+		o.SetLogger(logger)
+	}
+}
 
 // WithConnection is a functional option that sets the client to use for connecting instead of getting it from the ConnectionConfigurer.
 func WithConnection(conn protocol.Connection) ClientOption {
@@ -161,7 +169,7 @@ func WithConnection(conn protocol.Connection) ClientOption {
 }
 
 // WithRunner is a functional option that sets the runner to use for executing commands.
-func WithRunner(runner exec.Runner) ClientOption {
+func WithRunner(runner cmd.Runner) ClientOption {
 	return func(o *ClientOptions) {
 		o.runner = runner
 	}
@@ -209,18 +217,10 @@ func WithSudoProvider(provider sudo.SudoProvider) ClientOption {
 	}
 }
 
-// WithLoggerFactory is a functional option that sets the logger factory to use for creating a logger for the connection.
-func WithLoggerFactory(loggerFactory LoggerFactory) ClientOption {
-	return func(o *ClientOptions) {
-		o.loggerFactory = loggerFactory
-	}
-}
-
 // DefaultClientOptions returns a new Options struct with the default options applied.
 func DefaultClientOptions() *ClientOptions {
 	return &ClientOptions{
 		connectionConfigurer: defaultConnectionConfigurer(),
-		loggerFactory:        defaultLoggerFactory,
 		providersContainer:   defaultProviders(),
 	}
 }

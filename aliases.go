@@ -3,7 +3,7 @@ package rig
 import (
 	"fmt"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 	"github.com/k0sproject/rig/initsystem"
 	"github.com/k0sproject/rig/os"
 	"github.com/k0sproject/rig/packagemanager"
@@ -39,7 +39,7 @@ type OSReleaseService = os.Service
 type SudoService = sudo.Service
 
 // GetRemoteFS returns a new remote FS instance from the default remote.FS provider.
-func GetRemoteFS(runner exec.Runner) (remotefs.FS, error) {
+func GetRemoteFS(runner cmd.Runner) (remotefs.FS, error) {
 	fs, err := remotefs.DefaultProvider().Get(runner)
 	if err != nil {
 		return nil, fmt.Errorf("get FS: %w", err)
@@ -48,7 +48,7 @@ func GetRemoteFS(runner exec.Runner) (remotefs.FS, error) {
 }
 
 // GetServiceManager returns a ServiceManager for the current system from the default init system providers.
-func GetServiceManager(runner exec.ContextRunner) (initsystem.ServiceManager, error) {
+func GetServiceManager(runner cmd.ContextRunner) (initsystem.ServiceManager, error) {
 	mgr, err := initsystem.DefaultProvider().Get(runner)
 	if err != nil {
 		return nil, fmt.Errorf("get service manager: %w", err)
@@ -57,7 +57,7 @@ func GetServiceManager(runner exec.ContextRunner) (initsystem.ServiceManager, er
 }
 
 // GetPackageManager returns a package manager from the default provider.
-func GetPackageManager(runner exec.ContextRunner) (packagemanager.PackageManager, error) {
+func GetPackageManager(runner cmd.ContextRunner) (packagemanager.PackageManager, error) {
 	pm, err := packagemanager.DefaultProvider().Get(runner)
 	if err != nil {
 		return nil, fmt.Errorf("get package manager: %w", err)
@@ -66,7 +66,7 @@ func GetPackageManager(runner exec.ContextRunner) (packagemanager.PackageManager
 }
 
 // GetSudoRunner returns a new runner that uses sudo to execute commands.
-func GetSudoRunner(runner exec.Runner) (exec.Runner, error) {
+func GetSudoRunner(runner cmd.Runner) (cmd.Runner, error) {
 	sudoR, err := sudo.DefaultProvider().Get(runner)
 	if err != nil {
 		return nil, fmt.Errorf("get sudo runner: %w", err)
@@ -75,7 +75,7 @@ func GetSudoRunner(runner exec.Runner) (exec.Runner, error) {
 }
 
 // GetOSRelease returns the remote host's operating system information from the default provider.
-func GetOSRelease(runner exec.SimpleRunner) (*os.Release, error) {
+func GetOSRelease(runner cmd.SimpleRunner) (*os.Release, error) {
 	os, err := os.DefaultProvider().Get(runner)
 	if err != nil {
 		return nil, fmt.Errorf("get os release: %w", err)
@@ -83,8 +83,8 @@ func GetOSRelease(runner exec.SimpleRunner) (*os.Release, error) {
 	return os, nil
 }
 
-// NewRunner returns a new exec.Runner for the connection.
+// NewRunner returns a new cmd.Runner for the connection.
 // Currently the error is always nil.
-func NewRunner(conn protocol.Connection) (exec.Runner, error) {
-	return exec.NewHostRunner(conn), nil
+func NewRunner(conn protocol.Connection) (cmd.Runner, error) {
+	return cmd.NewExecutor(conn), nil
 }

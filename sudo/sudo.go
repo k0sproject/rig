@@ -1,7 +1,7 @@
 package sudo
 
 import (
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 	"github.com/k0sproject/rig/sh/shellescape"
 )
 
@@ -12,13 +12,13 @@ func Sudo(cmd string) string {
 
 // RegisterSudo registers a sudo DecorateFunc with the given repository.
 func RegisterSudo(repository *Provider) {
-	repository.Register(func(c exec.Runner) (exec.Runner, bool) {
+	repository.Register(func(c cmd.Runner) (cmd.Runner, bool) {
 		if c.IsWindows() {
 			return nil, false
 		}
 		if c.Exec(Sudo("true")) != nil {
 			return nil, false
 		}
-		return exec.NewHostRunner(c, Sudo), true
+		return cmd.NewExecutor(c, Sudo), true
 	})
 }

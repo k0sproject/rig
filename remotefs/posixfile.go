@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/k0sproject/rig/exec"
+	"github.com/k0sproject/rig/cmd"
 	"github.com/k0sproject/rig/sh/shellescape"
 )
 
@@ -89,7 +89,7 @@ func (f *PosixFile) Read(p []byte) (int, error) {
 
 	bs, skip, count := f.ddParams(f.pos, len(p))
 
-	if err := f.fs.Exec(fmt.Sprintf("dd if=%s bs=%d skip=%d count=%d", shellescape.Quote(f.path), bs, skip, count), exec.Stdout(buf), exec.HideOutput()); err != nil {
+	if err := f.fs.Exec(fmt.Sprintf("dd if=%s bs=%d skip=%d count=%d", shellescape.Quote(f.path), bs, skip, count), cmd.Stdout(buf), cmd.HideOutput()); err != nil {
 		return 0, fmt.Errorf("failed to execute dd: %w", err)
 	}
 
@@ -124,7 +124,7 @@ func (f *PosixFile) Write(p []byte) (int, error) {
 
 		err := f.fs.Exec(
 			fmt.Sprintf("dd if=/dev/stdin of=%s bs=%d count=%d seek=%d conv=notrunc", f.path, bs, count, skip),
-			exec.Stdin(limitedReader),
+			cmd.Stdin(limitedReader),
 		)
 		if err != nil {
 			return 0, fmt.Errorf("write (dd): %w", err)
@@ -158,8 +158,8 @@ func (f *PosixFile) CopyTo(dst io.Writer) (int64, error) {
 	writer := io.MultiWriter(dst, counter)
 	err := f.fs.Exec(
 		fmt.Sprintf("dd if=%s bs=%d skip=%d count=%d", shellescape.Quote(f.path), bs, skip, count),
-		exec.Stdout(writer),
-		exec.HideOutput(),
+		cmd.Stdout(writer),
+		cmd.HideOutput(),
 	)
 	if err != nil {
 		return 0, f.pathErr(OpCopyTo, fmt.Errorf("failed to execute dd: %w", err))
@@ -182,7 +182,7 @@ func (f *PosixFile) CopyFrom(src io.Reader) (int64, error) {
 
 	err := f.fs.Exec(
 		fmt.Sprintf("dd if=/dev/stdin of=%s bs=%d seek=%d conv=notrunc", shellescape.Quote(f.path), f.fsBlockSize(), f.pos),
-		exec.Stdin(io.TeeReader(src, counter)),
+		cmd.Stdin(io.TeeReader(src, counter)),
 	)
 	if err != nil {
 		return 0, f.pathErr(OpCopyFrom, fmt.Errorf("exec dd: %w", err))

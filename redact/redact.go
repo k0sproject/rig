@@ -11,27 +11,60 @@ type Redacter interface {
 	Reader(src io.Reader) io.Reader
 }
 
+type noopWriteCloser struct {
+	io.Writer
+}
+
+func (noopWriteCloser) Close() error {
+	return nil
+}
+
 type noopRedacter struct{}
 
 func (r noopRedacter) Redact(s string) string         { return s }
 func (r noopRedacter) Reader(src io.Reader) io.Reader { return src }
+func (r noopRedacter) Writer(dst io.Writer) io.WriteCloser {
+	if w, ok := dst.(io.WriteCloser); ok {
+		return w
+	}
+	return noopWriteCloser{dst}
+}
 
-func StringRedacter(match string, mask string) Redacter {
-	if len(match) == 0 {
+func StringRedacter(mask string, matches ...string) Redacter {
+	if len(matches) == 0 {
 		return noopRedacter{}
 	}
-	return &stringRedacter{match, mask}
+	var newMatches []string //nolint:prealloc
+	for _, match := range matches {
+		if match == "" {
+			continue
+		}
+		for _, m := range matches {
+			if m == match {
+				continue
+			}
+		}
+		newMatches = append(newMatches, match)
+	}
+	return &stringRedacter{newMatches, mask}
 }
 
 type stringRedacter struct {
-	match string
-	mask  string
+	matches []string
+	mask    string
 }
 
 func (r *stringRedacter) Redact(s string) string {
-	return strings.ReplaceAll(s, r.match, r.mask)
+	for _, match := range r.matches {
+		s = strings.ReplaceAll(s, match, r.mask)
+	}
+	return s
 }
 
 func (r *stringRedacter) Reader(src io.Reader) io.Reader {
-	return Reader(src, []byte(r.match), []byte(r.mask))
+	return Reader(src, r.mask, r.matches...)
+}
+
+func (r *stringRedacter) Writer(src io.Writer) io.WriteCloser {
+	return Writer(src, r.mask, r.matches...)
 }
