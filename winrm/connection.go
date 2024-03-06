@@ -255,7 +255,6 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 		res.wg.Add(1)
 		go func() {
 			defer res.wg.Done()
-			log.Trace(ctx, "copying data to command stdin")
 			n, err := io.Copy(proc.Stdin, stdin)
 			if err != nil {
 				log.Trace(ctx, "copying data to command stdin failed", log.KeyError, err)

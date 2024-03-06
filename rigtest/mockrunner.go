@@ -147,9 +147,7 @@ func (m *MockConnection) IPAddress() string { return "mock" }
 
 // StartProcess simulates a start of a process on the client.
 func (m *MockConnection) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (protocol.Waiter, error) {
-	log.Trace(ctx, "wait for lock", log.KeyCommand, cmd)
 	m.mu.Lock()
-	log.Trace(ctx, "acquired lock", log.KeyCommand, cmd)
 	defer m.mu.Unlock()
 	m.commands = append(m.commands, cmd)
 	return m.MockStarter.StartProcess(ctx, cmd, stdin, stdout, stderr)

@@ -2,8 +2,6 @@ package os
 
 import (
 	"context"
-	"encoding/json"
-	"log/slog"
 
 	"github.com/k0sproject/rig/cmd"
 	"github.com/k0sproject/rig/kv"
@@ -29,9 +27,6 @@ func ResolveLinux(conn cmd.SimpleRunner) (*Release, bool) {
 		log.Trace(context.Background(), "linux os resolver: execreader returned an error", log.HostAttr(conn), log.ErrorAttr(err))
 		return nil, false
 	}
-
-	str, _ := json.Marshal(version)
-	log.Trace(context.Background(), "linux os resolver: resolved os release", log.HostAttr(conn), slog.String("data", string(str)))
 
 	return version, true
 }

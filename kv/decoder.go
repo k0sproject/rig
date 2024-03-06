@@ -2,17 +2,13 @@ package kv
 
 import (
 	"bufio"
-	"context"
 	"encoding"
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"reflect"
 	"strconv"
 	"strings"
-
-	"github.com/k0sproject/rig/log"
 )
 
 type assigner interface {
@@ -24,7 +20,6 @@ type mapAssigner struct {
 }
 
 func (ma *mapAssigner) assign(key, value string) error {
-	log.Trace(context.Background(), "kv decoder: assigning to map", slog.String("key", key), slog.String("value", value))
 	ma.m[key] = value
 	return nil
 }
@@ -201,7 +196,6 @@ func (ra *reflectAssigner) assignPtr(info fieldInfo, value string) error {
 }
 
 func (ra *reflectAssigner) assignSlice(info fieldInfo, value string) error {
-	log.Trace(context.Background(), "kv decoder: assigning to slice", slog.String("field", info.name), slog.String("value", value))
 	delim := ","
 	if info.delim != 0 {
 		delim = string(info.delim)
@@ -230,9 +224,7 @@ func (ra *reflectAssigner) assignSlice(info fieldInfo, value string) error {
 }
 
 func (ra *reflectAssigner) assignField(info fieldInfo, value string) error {
-	log.Trace(context.Background(), "kv decoder: assigning field", slog.String("field", info.name), slog.String("value", value))
 	if info.ignore {
-		log.Trace(context.Background(), "kv decoder: field is ignored", slog.String("field", info.name))
 		return nil
 	}
 	if info.err != nil {
@@ -243,7 +235,6 @@ func (ra *reflectAssigner) assignField(info fieldInfo, value string) error {
 
 	if field.CanInterface() {
 		if f, ok := field.Interface().(encoding.TextUnmarshaler); ok {
-			log.Trace(context.Background(), "kv decoder: field is a text unmarshaler", slog.String("field", info.name))
 			return f.UnmarshalText([]byte(value))
 		}
 	}
@@ -311,7 +302,6 @@ func (ra *reflectAssigner) assign(key, value string) error {
 	info, ok := ra.getInfo(key)
 	if !ok {
 		if ra.catchAll != nil {
-			log.Trace(context.Background(), "kv decoder: assigning to catch all", slog.String("key", key), slog.String("value", value))
 			return ra.catchAll.assign(key, value)
 		}
 		if ra.strict {
@@ -400,7 +390,6 @@ func (d *Decoder) Decode(obj any) (err error) {
 	for {
 		line, readErr := reader.ReadString(d.rdelim)
 		if readErr != nil {
-			log.Trace(context.Background(), "kv decoder: readstring returned an error", log.ErrorAttr(readErr))
 			if errors.Is(readErr, io.EOF) {
 				return nil
 			}

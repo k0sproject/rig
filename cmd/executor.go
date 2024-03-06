@@ -79,7 +79,6 @@ func (r *Executor) String() string {
 }
 
 func getPrintfErrorAt(s string, idx int) error {
-	log.Trace(context.Background(), "checking for printf error at index", log.KeyCommand, s, "index", idx)
 	if idx > len(s)-6 {
 		// can't fit %!a()
 		return nil
@@ -106,7 +105,6 @@ func getPrintfErrorAt(s string, idx int) error {
 }
 
 func findPrintfError(s string) error {
-	log.Trace(context.Background(), "checking for printf errors", log.KeyCommand, s)
 	var err error
 	for idx, c := range s {
 		if c == '%' && idx < len(s)-1 {
@@ -165,24 +163,26 @@ func (r *Executor) Start(ctx context.Context, command string, opts ...ExecOption
 			cmd = "cmd.exe /C " + cmd
 		}
 	}
-	log.Trace(ctx, "formatted command", log.HostAttr(r), log.KeyCommand, cmd)
+
 	if execOpts.LogCommand() {
 		r.Log().Debug("executing command", log.HostAttr(r), log.KeyCommand, execOpts.Redact(cmd))
 	}
-	log.Trace(ctx, "starting process", log.HostAttr(r), log.KeyCommand, cmd)
-	waiter, err := r.connection.StartProcess(ctx, cmd, execOpts.Stdin(), execOpts.Stdout(), execOpts.Stderr())
+	
+	waiter, err := r.connection.StartProcess(ctx, cmd, execOpts.Stdin(), execOpts.Stdout(), execOpts.Stderr()) //nolint:contextcheck // Stdin() uses trace logger which takes context
 	if err != nil {
 		log.Trace(ctx, "start process failed", log.HostAttr(r), log.KeyCommand, cmd, log.KeyError, err)
 		return nil, fmt.Errorf("runner start command: %w", err)
 	}
+
 	if waiter == nil {
 		log.Trace(ctx, "start process returned nil waiter", log.HostAttr(r), log.KeyCommand, cmd, log.KeyError, err)
 		return nil, fmt.Errorf("%w: connection returned no error but a nil waiter", errInternal)
 	}
+
 	if !execOpts.AllowWinStderr() && r.IsWindows() {
 		return &windowsWaiter{waiter, execOpts.WroteErr}, nil
 	}
-	log.Trace(ctx, "returning waiter", log.HostAttr(r), log.KeyCommand, cmd)
+
 	return waiter, nil
 }
 
@@ -193,18 +193,13 @@ func (r *Executor) StartBackground(command string, opts ...ExecOption) (protocol
 
 // ExecContext executes the command and returns an error if unsuccessful.
 func (r *Executor) ExecContext(ctx context.Context, command string, opts ...ExecOption) error {
-	log.Trace(ctx, "execcontext", log.HostAttr(r), log.KeyCommand, command)
 	proc, err := r.Start(ctx, command, opts...)
 	if err != nil {
-		log.Trace(ctx, "execcontext start command failed", log.HostAttr(r), log.KeyCommand, command, log.KeyError, err)
 		return fmt.Errorf("start command: %w", err)
 	}
-	log.Trace(ctx, "execcontext wait for process", log.HostAttr(r), log.KeyCommand, command)
 	if err := proc.Wait(); err != nil {
-		log.Trace(ctx, "execcontext process finished", log.HostAttr(r), log.KeyCommand, command, log.KeyError, err)
 		return fmt.Errorf("command result: %w", err)
 	}
-	log.Trace(ctx, "execcontext process finished", log.HostAttr(r), log.KeyCommand, command)
 
 	return nil
 }
@@ -245,7 +240,6 @@ func (r *Executor) ExecOutput(command string, opts ...ExecOption) (string, error
 func (r *Executor) ExecReaderContext(ctx context.Context, command string, opts ...ExecOption) io.Reader {
 	pipeR, pipeW := io.Pipe()
 	if ctx.Err() != nil {
-		log.Trace(ctx, "execreader: returning context error", log.HostAttr(r), log.KeyCommand, command, log.KeyError, ctx.Err())
 		pipeW.CloseWithError(fmt.Errorf("context error: %w", ctx.Err()))
 		return pipeR
 	}
@@ -255,7 +249,7 @@ func (r *Executor) ExecReaderContext(ctx context.Context, command string, opts .
 			log.Trace(ctx, "execreader: execcontext returned an error", log.HostAttr(r), log.KeyCommand, command, log.KeyError, err)
 			pipeW.CloseWithError(fmt.Errorf("exec reader: %w", err))
 		} else {
-			pipeW.CloseWithError(io.EOF)
+			pipeW.Close()
 		}
 		log.Trace(ctx, "execreader: execcontext finished", log.HostAttr(r), log.KeyCommand, command)
 	}()
