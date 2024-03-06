@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/k0sproject/rig"
-	"github.com/k0sproject/rig/localhost"
+	"github.com/k0sproject/rig/rigtest"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v2"
 )
@@ -27,17 +27,32 @@ func TestClientWithConfigurer(t *testing.T) {
 }
 
 func TestClient(t *testing.T) {
-	conn, err := localhost.NewConnection()
-	require.NoError(t, err)
+	conn := rigtest.NewMockConnection()
+	conn.AddCommandOutput(rigtest.Match("echo hello"), "hello")
+
 	client, err := rig.NewClient(rig.WithConnection(conn))
 	require.NoError(t, err)
-	require.NotNil(t, conn)
 
 	require.NoError(t, client.Connect())
 
 	out, err := client.ExecOutput("echo hello")
 	require.NoError(t, err)
 	require.Equal(t, "hello", out)
+}
+
+func TestClientLogging(t *testing.T) {
+	conn := rigtest.NewMockConnection()
+	conn.AddCommandOutput(rigtest.Match("echo hello"), "hello")
+
+	logger := &rigtest.MockLogger{}
+	client, err := rig.NewClient(rig.WithConnection(conn), rig.WithLogger(logger))
+	require.NoError(t, err)
+
+	require.NoError(t, client.Connect())
+
+	_, _ = client.ExecOutput("echo hello")
+
+	t.Log(logger.Messages())
 }
 
 type testConfig struct {

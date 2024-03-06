@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/k0sproject/rig/cmd"
+	"github.com/k0sproject/rig/log"
 	"github.com/k0sproject/rig/protocol"
 )
 
@@ -86,6 +87,7 @@ func Match(pattern string) CommandMatcher {
 
 // MockRunner runs commands on a mock connection.
 type MockRunner struct {
+	log.LoggerInjectable
 	cmd.Runner
 	*MockConnection
 	*MockStarter
@@ -103,6 +105,7 @@ func NewMockRunner() *MockRunner {
 
 // MockConnection is a mock client. It can be used to simulate a client in tests.
 type MockConnection struct {
+	log.LoggerInjectable
 	commands []string
 	*MockStarter
 	Windows bool
@@ -144,7 +147,9 @@ func (m *MockConnection) IPAddress() string { return "mock" }
 
 // StartProcess simulates a start of a process on the client.
 func (m *MockConnection) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (protocol.Waiter, error) {
+	log.Trace(ctx, "wait for lock", log.KeyCommand, cmd)
 	m.mu.Lock()
+	log.Trace(ctx, "acquired lock", log.KeyCommand, cmd)
 	defer m.mu.Unlock()
 	m.commands = append(m.commands, cmd)
 	return m.MockStarter.StartProcess(ctx, cmd, stdin, stdout, stderr)
@@ -215,9 +220,31 @@ type MockWaiter struct {
 	fn     CommandHandler
 }
 
+func (m *MockWaiter) Close() error {
+	log.Trace(m.ctx, "closing waiter streams", log.KeyCommand, m.cmd)
+	if in, ok := m.in.(io.Closer); ok {
+		log.Trace(m.ctx, "closing stdin", log.KeyCommand, m.cmd)
+		_ = in.Close()
+	}
+
+	if out, ok := m.out.(io.Closer); ok {
+		log.Trace(m.ctx, "closing stdout", log.KeyCommand, m.cmd)
+		_ = out.Close()
+	}
+	if errOut, ok := m.errOut.(io.Closer); ok {
+		log.Trace(m.ctx, "closing stderr", log.KeyCommand, m.cmd)
+		_ = errOut.Close()
+	}
+	return nil
+}
+
 // Wait simulates a process wait.
 func (m *MockWaiter) Wait() error {
-	return m.fn(&A{Ctx: m.ctx, Stdin: m.in, Stdout: m.out, Stderr: m.errOut, Command: m.cmd})
+	defer m.Close()
+	log.Trace(m.ctx, "running suplied function", log.KeyCommand, m.cmd)
+	defer log.Trace(m.ctx, "function returned", log.KeyCommand, m.cmd)
+	a := &A{Ctx: m.ctx, Stdin: m.in, Stdout: m.out, Stderr: m.errOut, Command: m.cmd}
+	return m.fn(a)
 }
 
 // MockStarter is a mock process starter.
@@ -229,17 +256,22 @@ type MockStarter struct {
 
 // StartProcess simulates a start of a process. You can add matchers to the starter to simulate different behaviors for different commands.
 func (m *MockStarter) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (protocol.Waiter, error) {
+	log.Trace(ctx, "start process", log.KeyCommand, cmd)
 	if m.ErrImmediate && m.ErrDefault != nil {
+		log.Trace(ctx, "returning immediately", log.KeyCommand, cmd, log.KeyError, m.ErrDefault)
 		return nil, m.ErrDefault
 	}
 
 	for _, matcher := range m.matchers {
 		if matcher.waiterFn != nil && matcher.fn(cmd) {
-			return &MockWaiter{in: stdin, out: stdout, errOut: stderr, ctx: ctx, fn: matcher.waiterFn}, nil
+			log.Trace(ctx, "matched command using matcher", log.KeyCommand, cmd)
+			return &MockWaiter{in: stdin, out: stdout, errOut: stderr, ctx: ctx, fn: matcher.waiterFn, cmd: cmd}, nil
 		}
 	}
 
-	return &MockWaiter{fn: func(_ *A) error { return m.ErrDefault }}, nil
+	log.Trace(ctx, "no match found for command", log.KeyCommand, cmd)
+	w := &MockWaiter{in: stdin, out: stdout, errOut: stderr, ctx: ctx, cmd: cmd, fn: func(_ *A) error { return m.ErrDefault }}
+	return w, nil
 }
 
 // AddCommand adds a mocked command handler which is called when the matcher matches the command line.
@@ -250,11 +282,29 @@ func (m *MockStarter) AddCommand(matchFn CommandMatcher, waitFn CommandHandler) 
 // AddCommandOutput adds a matcher and a function to the starter that writes the given output to the stdout of the process.
 func (m *MockStarter) AddCommandOutput(matchFn CommandMatcher, output string) {
 	m.matchers = append(m.matchers, matcher{fn: matchFn, waiterFn: func(a *A) error {
-		_, err := a.Stdout.Write([]byte(output))
+		log.Trace(a.Ctx, "writing output to stdout", log.KeyCommand, a.Command, "output", output)
+		_, err := fmt.Fprint(a.Stdout, output)
 		if err != nil {
 			return fmt.Errorf("command stdout write: %w", err)
 		}
+		log.Trace(a.Ctx, "output written to stdout", log.KeyCommand, a.Command)
 		return nil
+	}})
+}
+
+// AddCommandOutput adds a matcher and a function to the starter that writes the given output to the stdout of the process.
+func (m *MockStarter) AddCommandSuccess(matchFn CommandMatcher) {
+	m.matchers = append(m.matchers, matcher{fn: matchFn, waiterFn: func(a *A) error {
+		log.Trace(a.Ctx, "returning nil from command", log.KeyCommand, a.Command)
+		return nil
+	}})
+}
+
+// AddCommandOutput adds a matcher and a function to the starter that writes the given output to the stdout of the process.
+func (m *MockStarter) AddCommandFailure(matchFn CommandMatcher, err error) {
+	m.matchers = append(m.matchers, matcher{fn: matchFn, waiterFn: func(a *A) error {
+		log.Trace(a.Ctx, "returning error from command", log.KeyCommand, a.Command, log.KeyError, err)
+		return err
 	}})
 }
 

@@ -34,7 +34,7 @@ func (m MockLogMessage) KeysAndValues() []any {
 
 // String returns the log message as a string.
 func (m MockLogMessage) String() string {
-	return m.message + " (" + fmt.Sprint(m.keysAndValues...) + ")"
+	return m.message + " " + fmt.Sprint(m.keysAndValues...)
 }
 
 // MockLogger is a mock logger.

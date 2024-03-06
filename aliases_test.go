@@ -3,6 +3,7 @@ package rig_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -139,27 +140,34 @@ func TestGetSudoRunner(t *testing.T) {
 		require.ErrorIs(t, err, sudo.ErrNoSudo)
 	})
 }
-
 func TestGetOSRelease(t *testing.T) {
 	t.Run("linux", func(t *testing.T) {
 		builder := strings.Builder{}
 		// this is easier than trying to keep format when gofmt will mess it up
-		builder.WriteString("PRETTY_NAME=\"Foo\"\n")
-		builder.WriteString("ID=\"foo\"\n")
-		builder.WriteString("VERSION_ID=\"1.0\"\n")
-		builder.WriteString("FOO=\"BAR\"\n")
+		fmt.Fprintln(&builder, `PRETTY_NAME="Foo 1.2.3"`)
+		fmt.Fprintln(&builder, `NAME="Foo"`)
+		fmt.Fprintln(&builder, `ID="foo"`)
+		fmt.Fprintln(&builder, `VERSION_ID="1.0"`)
+		fmt.Fprintln(&builder, `FOO="BAR"`)
 		osRelease := builder.String()
 
 		mr := rigtest.NewMockRunner()
-		mr.AddCommand(rigtest.HasPrefix("uname"), func(a *rigtest.A) error { return nil })
-		mr.AddCommandOutput(rigtest.HasPrefix("cat /etc/os-release"), osRelease)
+		mr.ErrDefault = errors.New("mock error")
+		mr.AddCommandSuccess(rigtest.Match("uname.*Linux"))
+		mr.AddCommand(rigtest.HasPrefix("cat /etc/os-release"), func(a *rigtest.A) error {
+			t.Log("executing", a.Command)
+			_, _ = fmt.Fprint(a.Stdout, osRelease)
+			return nil
+		})
 
+		t.Log("getting release")
 		os, err := rig.GetOSRelease(mr)
 		require.NoError(t, err)
 		require.Equal(t, "Foo", os.Name)
 		require.Equal(t, "1.0", os.Version)
 		require.Equal(t, "foo", os.ID)
 		require.Equal(t, "BAR", os.ExtraFields["FOO"])
+		require.Equal(t, "Foo 1.2.3", os.ExtraFields["PRETTY_NAME"])
 	})
 
 	t.Run("error", func(t *testing.T) {

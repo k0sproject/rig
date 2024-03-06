@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 )
 
@@ -29,6 +30,10 @@ const (
 	KeyComponent = "component"
 )
 
+func TraceToStderr() {
+	SetTraceLogger(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+}
+
 func HostAttr(conn fmt.Stringer) slog.Attr {
 	return slog.String(KeyHost, conn.String())
 }
@@ -51,7 +56,7 @@ func SetTraceLogger(l TraceLogger) {
 // Trace is for rig's internal trace logging that must be separately enabled by
 // providing a [TraceLogger] logger, which is implemented by slog.Logger.
 func Trace(ctx context.Context, msg string, keysAndValues ...any) {
-	trace().Log(ctx, slog.LevelDebug, msg, keysAndValues...)
+	trace().Log(ctx, slog.LevelInfo, msg, keysAndValues...)
 }
 
 type TraceLogger interface {

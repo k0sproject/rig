@@ -2,13 +2,17 @@ package kv
 
 import (
 	"bufio"
+	"context"
 	"encoding"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"reflect"
 	"strconv"
 	"strings"
+
+	"github.com/k0sproject/rig/log"
 )
 
 type assigner interface {
@@ -20,6 +24,7 @@ type mapAssigner struct {
 }
 
 func (ma *mapAssigner) assign(key, value string) error {
+	log.Trace(context.Background(), "kv decoder: assigning to map", slog.String("key", key), slog.String("value", value))
 	ma.m[key] = value
 	return nil
 }
@@ -196,6 +201,7 @@ func (ra *reflectAssigner) assignPtr(info fieldInfo, value string) error {
 }
 
 func (ra *reflectAssigner) assignSlice(info fieldInfo, value string) error {
+	log.Trace(context.Background(), "kv decoder: assigning to slice", slog.String("field", info.name), slog.String("value", value))
 	delim := ","
 	if info.delim != 0 {
 		delim = string(info.delim)
@@ -224,7 +230,9 @@ func (ra *reflectAssigner) assignSlice(info fieldInfo, value string) error {
 }
 
 func (ra *reflectAssigner) assignField(info fieldInfo, value string) error {
+	log.Trace(context.Background(), "kv decoder: assigning field", slog.String("field", info.name), slog.String("value", value))
 	if info.ignore {
+		log.Trace(context.Background(), "kv decoder: field is ignored", slog.String("field", info.name))
 		return nil
 	}
 	if info.err != nil {
@@ -235,6 +243,7 @@ func (ra *reflectAssigner) assignField(info fieldInfo, value string) error {
 
 	if field.CanInterface() {
 		if f, ok := field.Interface().(encoding.TextUnmarshaler); ok {
+			log.Trace(context.Background(), "kv decoder: field is a text unmarshaler", slog.String("field", info.name))
 			return f.UnmarshalText([]byte(value))
 		}
 	}
@@ -302,6 +311,7 @@ func (ra *reflectAssigner) assign(key, value string) error {
 	info, ok := ra.getInfo(key)
 	if !ok {
 		if ra.catchAll != nil {
+			log.Trace(context.Background(), "kv decoder: assigning to catch all", slog.String("key", key), slog.String("value", value))
 			return ra.catchAll.assign(key, value)
 		}
 		if ra.strict {
@@ -333,11 +343,28 @@ type Decoder struct {
 	fdelim       rune
 	commentstart string
 	assigner     assigner
+	strict       bool
 }
 
 // NewDecoder returns a new decoder that reads from r.
 func NewDecoder(r io.Reader) *Decoder {
 	return &Decoder{r: r, rdelim: '\n', fdelim: '=', commentstart: "#"}
+}
+
+func (d *Decoder) FieldDelimiter(delim rune) {
+	d.fdelim = delim
+}
+
+func (d *Decoder) RowDelimiter(delim byte) {
+	d.rdelim = delim
+}
+
+func (d *Decoder) CommentStart(comment string) {
+	d.commentstart = comment
+}
+
+func (d *Decoder) Strict() {
+	d.strict = true
 }
 
 func (d *Decoder) setAssigner(obj any) error {
@@ -348,7 +375,7 @@ func (d *Decoder) setAssigner(obj any) error {
 		}
 		d.assigner = &mapAssigner{m: v}
 	default:
-		ra := &reflectAssigner{obj: obj}
+		ra := &reflectAssigner{obj: obj, strict: d.strict}
 		if err := ra.setup(); err != nil {
 			return err
 		}
@@ -372,7 +399,11 @@ func (d *Decoder) Decode(obj any) (err error) {
 	reader := bufio.NewReader(d.r)
 	for {
 		line, readErr := reader.ReadString(d.rdelim)
-		if readErr != nil && !errors.Is(readErr, io.EOF) {
+		if readErr != nil {
+			log.Trace(context.Background(), "kv decoder: readstring returned an error", log.ErrorAttr(readErr))
+			if errors.Is(readErr, io.EOF) {
+				return nil
+			}
 			return fmt.Errorf("read: %w", readErr)
 		}
 
@@ -391,11 +422,9 @@ func (d *Decoder) Decode(obj any) (err error) {
 			return fmt.Errorf("split: %w", err)
 		}
 		if err := d.assigner.assign(k, v); err != nil {
-			return fmt.Errorf("assign: %w", err)
-		}
-
-		if errors.Is(readErr, io.EOF) {
-			return nil
+			if d.strict {
+				return fmt.Errorf("assign: %w", err)
+			}
 		}
 	}
 }
