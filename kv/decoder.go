@@ -395,7 +395,7 @@ func (d *Decoder) setAssigner(obj any) error {
 }
 
 // Decode reads all of the key-value pairs from the input and stores them in the map or struct pointed to by obj.
-func (d *Decoder) Decode(obj any) (err error) {
+func (d *Decoder) Decode(obj any) (err error) { //nolint:cyclop
 	defer func() {
 		if r := recover(); r != nil {
 			// Capture the panic, optionally log it
@@ -409,10 +409,7 @@ func (d *Decoder) Decode(obj any) (err error) {
 	reader := bufio.NewReader(d.r)
 	for {
 		line, readErr := reader.ReadString(d.rdelim)
-		if readErr != nil {
-			if errors.Is(readErr, io.EOF) {
-				return nil
-			}
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
 			return fmt.Errorf("read: %w", readErr)
 		}
 
@@ -434,6 +431,10 @@ func (d *Decoder) Decode(obj any) (err error) {
 			if d.strict {
 				return fmt.Errorf("assign: %w", err)
 			}
+		}
+
+		if errors.Is(readErr, io.EOF) {
+			return nil
 		}
 	}
 }
