@@ -171,7 +171,7 @@ func (r *Executor) Start(ctx context.Context, command string, opts ...ExecOption
 	}
 
 	execOpts := Build(opts...)
-	r.InjectLoggerTo(execOpts)
+	r.InjectLoggerTo(execOpts) //nolint:contextcheck // uses trace logger which takes context
 
 	cmd := r.Command(execOpts.Command(command))
 	if r.IsWindows() {
@@ -184,7 +184,7 @@ func (r *Executor) Start(ctx context.Context, command string, opts ...ExecOption
 	}
 
 	if execOpts.LogCommand() {
-		r.Log().Debug("executing command", log.HostAttr(r), log.KeyCommand, execOpts.Redact(decodeEncoded(cmd)))
+		r.Log().Debug("executing command", log.KeyCommand, execOpts.Redact(decodeEncoded(cmd)))
 	}
 
 	waiter, err := r.connection.StartProcess(ctx, cmd, execOpts.Stdin(), execOpts.Stdout(), execOpts.Stderr()) //nolint:contextcheck // Stdin() uses trace logger which takes context
