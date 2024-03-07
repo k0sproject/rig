@@ -18,6 +18,18 @@ func TraceToStderr() {
 	log.SetTraceLogger(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 }
 
+// TraceOff sets the trace logger to null.
+func TraceOff() {
+	log.SetTraceLogger(log.Null)
+}
+
+// Trace allows running a function with trace logging enabled.
+func Trace(fn func()) {
+	TraceToStderr()
+	fn()
+	defer TraceOff()
+}
+
 // MockLogMessage is a mock log message.
 type MockLogMessage struct {
 	level         int

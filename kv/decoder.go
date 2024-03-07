@@ -409,7 +409,10 @@ func (d *Decoder) Decode(obj any) (err error) { //nolint:cyclop
 	reader := bufio.NewReader(d.r)
 	for {
 		line, readErr := reader.ReadString(d.rdelim)
-		if readErr != nil && !errors.Is(readErr, io.EOF) {
+		if line == "" && readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				return nil
+			}
 			return fmt.Errorf("read: %w", readErr)
 		}
 
@@ -433,8 +436,14 @@ func (d *Decoder) Decode(obj any) (err error) { //nolint:cyclop
 			}
 		}
 
-		if errors.Is(readErr, io.EOF) {
-			return nil
+		// TODO Something somewhere returns non-empty string and io.EOF in the same call
+		// so the error has to be handled twice per loop. It may be a bug in the ExecScanner
+		// implementation or in the mock runner.
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				return nil
+			}
+			return fmt.Errorf("read: %w", readErr)
 		}
 	}
 }

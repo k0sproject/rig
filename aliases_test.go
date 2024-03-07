@@ -160,7 +160,6 @@ func TestGetOSRelease(t *testing.T) {
 			return nil
 		})
 
-		t.Log("getting release")
 		os, err := rig.GetOSRelease(mr)
 		require.NoError(t, err)
 		require.Equal(t, "Foo", os.Name)
