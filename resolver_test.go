@@ -5,9 +5,6 @@ import (
 	"testing"
 )
 
-const (
-)
-
 func TestParseReleaseFile(t *testing.T) {
 	osReleaseRocky := `NAME="Rocky Linux"   
 VERSION="8.9 (Green Obsidian)"
