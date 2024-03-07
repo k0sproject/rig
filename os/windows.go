@@ -28,7 +28,6 @@ func ResolveWindows(conn cmd.SimpleRunner) (*Release, bool) {
 	}
 	return &Release{
 		ID:      "windows",
-		IDLike:  "windows",
 		Name:    winver.Caption,
 		Version: winver.Version,
 	}, true

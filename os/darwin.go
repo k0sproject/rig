@@ -28,7 +28,6 @@ func ResolveDarwin(conn cmd.SimpleRunner) (*Release, bool) {
 
 	return &Release{
 		ID:      "darwin",
-		IDLike:  "darwin",
 		Version: version,
 		Name:    name,
 	}, true

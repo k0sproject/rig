@@ -1,7 +1,7 @@
 package os
 
 import (
-	"strings"
+	"slices"
 	"testing"
 
 	"github.com/k0sproject/rig/rigtest"
@@ -40,14 +40,17 @@ REDHAT_SUPPORT_PRODUCT_VERSION="8.9"`
 	if osv.ID != "rocky" {
 		t.Errorf("ParseOSReleaseFile gave the wrong ID: '%s' != 'rocky'", osv.ID)
 	}
-	if !strings.Contains(osv.IDLike, "fedora") {
-		t.Errorf("ParseOSReleaseFile gave the wrong ID_LIKE: contains('%s', 'fedora')", osv.IDLike)
+
+	for _, like := range []string{"rhel", "centos", "fedora"} {
+		if !slices.Contains(osv.IDLike, like) {
+			t.Errorf("ParseOSReleaseFile gave the wrong ID_LIKE: contains('%s', '%s')", osv.IDLike, like)
+		}
 	}
 	if osv.Version != "8.9" {
 		t.Errorf("ParseOSReleaseFile gave the wrong VERSION: `%s` != `8.9`", osv.Version)
 	}
-	if osv.Name != "Rocky Linux 8.9 (Green Obsidian)" {
-		t.Errorf("ParseOSReleaseFile gave the wrong ID: `%s ~= 'Rocky Linux 8.9 (Green Obsidian)'", osv.Name)
+	if osv.Name != "Rocky Linux" {
+		t.Errorf("ParseOSReleaseFile gave the wrong ID: `%s != 'Rocky Linux'", osv.Name)
 	}
 
 	if osv.ExtraFields == nil {
