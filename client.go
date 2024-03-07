@@ -3,6 +3,7 @@
 package rig
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -86,7 +87,8 @@ func (c *ClientWithConfig) Setup(opts ...ClientOption) error {
 	if c.Client != nil {
 		return nil
 	}
-	client, err := NewClientWithConnectionConfigurer(&c.ConnectionConfig, opts...)
+	opts = append(opts, WithConnectionConfigurer(&c.ConnectionConfig))
+	client, err := NewClient(opts...)
 	if err != nil {
 		return fmt.Errorf("new client: %w", err)
 	}
@@ -110,16 +112,6 @@ func (c *ClientWithConfig) UnmarshalYAML(unmarshal func(interface{}) error) erro
 		return fmt.Errorf("unmarshal client config: %w", err)
 	}
 	return c.Setup()
-}
-
-// NewClientWithConnection returns a new Client with the given connection and options.
-func NewClientWithConnection(conn protocol.Connection, opts ...ClientOption) (*Client, error) {
-	return NewClient(append(opts, WithConnection(conn))...)
-}
-
-// NewClientWithConnectionConfigurer returns a new Client with the given connection configurer and options.
-func NewClientWithConnectionConfigurer(cc ConnectionConfigurer, opts ...ClientOption) (*Client, error) {
-	return NewClient(append(opts, WithConnectionConfigurer(cc))...)
 }
 
 // NewClient returns a new Connection object with the given options.
@@ -147,6 +139,7 @@ func (c *Client) setupConnection() error {
 	if err != nil {
 		return fmt.Errorf("get connection: %w", err)
 	}
+	log.Trace(context.Background(), "connection from configurer", log.HostAttr(conn))
 	c.connection = conn
 	return nil
 }
@@ -161,7 +154,9 @@ func (c *Client) setup(opts ...ClientOption) error {
 			return
 		}
 
+		log.Trace(context.Background(), "client setup", log.HostAttr(c.connection))
 		logger := log.GetLogger(c.connection)
+		log.Trace(context.Background(), "logger from connection", "is_nil", logger == nil, "is_null", logger == log.Null)
 		log.InjectLogger(logger, c)
 
 		c.Runner = c.options.GetRunner(c.connection)

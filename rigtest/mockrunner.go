@@ -129,6 +129,7 @@ func (m *MockRunner) String() string {
 	return "[MockRunner] " + m.MockConnection.String()
 }
 
+// StartProcess simulates a start of a process on the client.
 func (m *MockRunner) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (protocol.Waiter, error) {
 	return m.MockConnection.StartProcess(ctx, cmd, stdin, stdout, stderr)
 }

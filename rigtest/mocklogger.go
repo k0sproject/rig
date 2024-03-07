@@ -1,7 +1,7 @@
 package rigtest
 
 import (
-	"fmt"
+	"context"
 	"log/slog"
 	"os"
 	"regexp"
@@ -54,7 +54,12 @@ func (m MockLogMessage) KeysAndValues() []any {
 
 // String returns the log message as a string.
 func (m MockLogMessage) String() string {
-	return m.message + " " + fmt.Sprint(m.keysAndValues...)
+	sb := strings.Builder{}
+	logger := slog.New(slog.NewTextHandler(&sb, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
+	logger.Log(context.Background(), slog.Level(m.level), m.message, m.keysAndValues...)
+	return sb.String()
 }
 
 // MockLogger is a mock logger.
@@ -66,6 +71,7 @@ type MockLogger struct {
 func (l *MockLogger) log(level int, t string, args ...any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+
 	l.messages = append(l.messages, MockLogMessage{level: level, message: t, keysAndValues: args})
 }
 

@@ -140,7 +140,7 @@ type Log interface {
 
 type injectable interface {
 	LogWithAttrs(attrs ...any) Logger
-	InjectLogger(obj any)
+	InjectLoggerTo(obj any, attrs ...any)
 	SetLogger(logger Logger)
 	Log() Logger
 }
@@ -153,6 +153,8 @@ func InjectLogger(l Logger, obj any, attrs ...any) {
 		} else {
 			o.SetLogger(l)
 		}
+	} else {
+		Trace(context.Background(), "logger is not injectable", slog.String("object", fmt.Sprintf("%T", obj)))
 	}
 }
 
