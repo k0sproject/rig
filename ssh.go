@@ -406,9 +406,6 @@ func (c *SSH) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
 	if len(c.AuthMethods) > 0 {
 		log.Tracef("%s: using %d passed-in auth methods", c, len(c.AuthMethods))
 		config.Auth = c.AuthMethods
-	} else if len(signers) > 0 {
-		log.Debugf("%s: using all keys (%d) from ssh agent because a keypath was not explicitly given", c, len(signers))
-		config.Auth = append(config.Auth, ssh.PublicKeys(signers...))
 	}
 
 	for _, keyPath := range c.keyPaths {
@@ -433,6 +430,11 @@ func (c *SSH) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
 			authMethodCache.Store(keyPath, privateKeyAuth)
 			config.Auth = append(config.Auth, privateKeyAuth)
 		}
+	}
+
+	if len(config.Auth) == 0 && len(signers) > 0 {
+		log.Debugf("%s: using all keys (%d) from ssh agent because a keypath was not explicitly given", c, len(signers))
+		config.Auth = append(config.Auth, ssh.PublicKeys(signers...))
 	}
 
 	if len(config.Auth) == 0 {
