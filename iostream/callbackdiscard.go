@@ -5,7 +5,7 @@ import (
 	"sync"
 )
 
-// CallbackDiscard is an io.Writer that calls a callback function once when or if
+// CallbackDiscard is an io.Writer that calls a callback function once if or when
 // non-whitespace data is written to it. This can be used in conjunction with
 // io.MultiWriter to help detect if any data was written to a stream. All data
 // written to the writer is discarded.

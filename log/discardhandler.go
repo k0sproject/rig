@@ -5,6 +5,7 @@ import (
 	"log/slog"
 )
 
+// Discard is a slog handler that discards all log records.
 var Discard slog.Handler = discardHandler{}
 
 type discardHandler struct{}

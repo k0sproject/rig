@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -66,6 +67,7 @@ func (r *Executor) Command(cmd string) string {
 	return cmd
 }
 
+// IsWindows returns true if the host is running Windows.
 func (r *Executor) IsWindows() bool {
 	return r.isWin()
 }
@@ -141,6 +143,23 @@ func isExe(cmd string) bool {
 	return strings.HasSuffix(cmd[:firstWordIdx], ".exe")
 }
 
+func decodeEncoded(cmd string) string {
+	if !strings.Contains(cmd, "powershell") {
+		return cmd
+	}
+
+	parts := strings.Split(cmd, " ")
+	for i, p := range parts {
+		if p == "-E" || p == "-EncodedCommand" && len(parts) > i+1 {
+			decoded, err := base64.StdEncoding.DecodeString(parts[i+1])
+			if err == nil {
+				parts[i+1] = strings.ReplaceAll(string(decoded), "\x00", "")
+			}
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
 // Start starts the command and returns a Waiter.
 func (r *Executor) Start(ctx context.Context, command string, opts ...ExecOption) (protocol.Waiter, error) {
 	log.Trace(ctx, "starting command", log.HostAttr(r), log.KeyCommand, command)
@@ -165,9 +184,9 @@ func (r *Executor) Start(ctx context.Context, command string, opts ...ExecOption
 	}
 
 	if execOpts.LogCommand() {
-		r.Log().Debug("executing command", log.HostAttr(r), log.KeyCommand, execOpts.Redact(cmd))
+		r.Log().Debug("executing command", log.HostAttr(r), log.KeyCommand, execOpts.Redact(decodeEncoded(cmd)))
 	}
-	
+
 	waiter, err := r.connection.StartProcess(ctx, cmd, execOpts.Stdin(), execOpts.Stdout(), execOpts.Stderr()) //nolint:contextcheck // Stdin() uses trace logger which takes context
 	if err != nil {
 		log.Trace(ctx, "start process failed", log.HostAttr(r), log.KeyCommand, cmd, log.KeyError, err)
@@ -237,6 +256,8 @@ func (r *Executor) ExecOutput(command string, opts ...ExecOption) (string, error
 	return r.ExecOutputContext(context.Background(), command, opts...)
 }
 
+// ExecReaderContext executes the command and returns a reader for the stdout output. Reads from the
+// reader will return any error that occurred during the command's execution.
 func (r *Executor) ExecReaderContext(ctx context.Context, command string, opts ...ExecOption) io.Reader {
 	pipeR, pipeW := io.Pipe()
 	if ctx.Err() != nil {
@@ -256,14 +277,20 @@ func (r *Executor) ExecReaderContext(ctx context.Context, command string, opts .
 	return pipeR
 }
 
+// ExecScannerContext executes the command and returns a bufio.Scanner for the stdout output. Reads from the
+// scanner will return any error that occurred during the command's execution.
 func (r *Executor) ExecScannerContext(ctx context.Context, command string, opts ...ExecOption) *bufio.Scanner {
 	return bufio.NewScanner(r.ExecReaderContext(ctx, command, opts...))
 }
 
+// ExecReader executes the command and returns a reader for the stdout output. Reads from the Reader will
+// return any error that occurred during the command's execution.
 func (r *Executor) ExecReader(command string, opts ...ExecOption) io.Reader {
 	return r.ExecReaderContext(context.Background(), command, opts...)
 }
 
+// ExecScanner executes the command and returns a bufio.Scanner for the stdout output. Reads from the
+// scanner will return any error that occurred during the command's execution.
 func (r *Executor) ExecScanner(command string, opts ...ExecOption) *bufio.Scanner {
 	return r.ExecScannerContext(context.Background(), command, opts...)
 }

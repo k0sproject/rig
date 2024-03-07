@@ -14,12 +14,13 @@ var (
 		},
 	}
 
+	// ErrMismatchedQuotes is returned when the input string has mismatched quotes.
 	ErrMismatchedQuotes = errors.New("mismatched quotes")
 )
 
 // Unquote is a mostly POSIX compliant implementation of unquoting a string the same way a shell would.
 // Variables and command substitutions are not handled.
-func Unquote(input string) (string, error) {
+func Unquote(input string) (string, error) { //nolint:cyclop
 	sb, ok := builderPool.Get().(*strings.Builder)
 	if !ok {
 		sb = &strings.Builder{}

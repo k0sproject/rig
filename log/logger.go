@@ -5,11 +5,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"sync"
 )
 
 var (
+	// Null logger is a no-op logger that does nothing.
 	Null = slog.New(Discard)
 
 	trace = sync.OnceValue(func() TraceLogger {
@@ -18,26 +18,57 @@ var (
 )
 
 const (
-	KeyHost      = "host"
-	KeyExitCode  = "exitCode"
-	KeyError     = "error"
-	KeyBytes     = "bytes"
-	KeyDuration  = "duration"
-	KeyCommand   = "command"
-	KeyFile      = "file"
-	KeySudo      = "sudo"
-	KeyProtocol  = "protocol"
+	// Keys for log attributes.
+
+	// KeyHost is the host name or address.
+	KeyHost = "host"
+
+	// KeyExitCode is the exit code of a command.
+	KeyExitCode = "exitCode"
+
+	// KeyError is an error.
+	KeyError = "error"
+
+	// KeyBytes is the number of bytes.
+	KeyBytes = "bytes"
+
+	// KeyDuration is the duration of an operation.
+	KeyDuration = "duration"
+
+	// KeyCommand is a command-line.
+	KeyCommand = "command"
+
+	// KeyFile is a file name.
+	KeyFile = "file"
+
+	// KeySudo is a boolean indicating whether a command is run with sudo.
+	KeySudo = "sudo"
+
+	// KeyProtocol is a network protocol.
+	KeyProtocol = "protocol"
+
+	// KeyComponent is a component name.
 	KeyComponent = "component"
 )
 
-func TraceToStderr() {
-	SetTraceLogger(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+// SetTraceLogger sets a trace logger. Some of the rig's internal logging is sent to a separate trace logger. It should be
+// quite rare to use this function outside of rig development. It, and all the log.Trace calls will likely be removed
+// once the code is confirmed to be working as expected.
+func SetTraceLogger(l TraceLogger) {
+	trace = sync.OnceValue(func() TraceLogger { return l })
 }
 
+// TraceLogger is a logger for rig's internal trace logging.
+type TraceLogger interface {
+	Log(ctx context.Context, level slog.Level, msg string, keysAndValues ...any)
+}
+
+// HostAttr returns a host log attribute.
 func HostAttr(conn fmt.Stringer) slog.Attr {
 	return slog.String(KeyHost, conn.String())
 }
 
+// ErrorAttr returns an error log attribute.
 func ErrorAttr(err error) slog.Attr {
 	if err == nil {
 		return slog.Attr{Key: KeyError, Value: slog.StringValue("")}
@@ -45,22 +76,15 @@ func ErrorAttr(err error) slog.Attr {
 	return slog.Attr{Key: KeyError, Value: slog.StringValue(err.Error())}
 }
 
+// FileAttr returns a file/path log attribute.
 func FileAttr(file string) slog.Attr {
 	return slog.String(KeyFile, file)
-}
-
-func SetTraceLogger(l TraceLogger) {
-	trace = sync.OnceValue(func() TraceLogger { return l })
 }
 
 // Trace is for rig's internal trace logging that must be separately enabled by
 // providing a [TraceLogger] logger, which is implemented by slog.Logger.
 func Trace(ctx context.Context, msg string, keysAndValues ...any) {
 	trace().Log(ctx, slog.LevelInfo, msg, keysAndValues...)
-}
-
-type TraceLogger interface {
-	Log(ctx context.Context, level slog.Level, msg string, keysAndValues ...any)
 }
 
 // Logger interface is implemented by slog.Logger and some other logging packages
@@ -98,7 +122,9 @@ func (w *withAttrs) Error(msg string, keysAndValues ...any) {
 	w.logger.Error(msg, w.kv(keysAndValues)...)
 }
 
+// WithAttrs returns a logger that prepends the given attributes to all log messages.
 func WithAttrs(logger Logger, attrs ...any) Logger {
+	// TODO inspect the popular loggers if they share some common interface and use it instead.
 	return &withAttrs{logger, attrs}
 }
 
@@ -146,6 +172,7 @@ func GetLogger(obj any) Logger {
 	return Null
 }
 
+// InjectLoggerTo sets the logger for the given object if it implements the injectable interface based on the logger of the current object, optionally with extra attributes.
 func (li *LoggerInjectable) InjectLoggerTo(obj any, attrs ...any) {
 	if li.HasLogger() {
 		InjectLogger(li.logger, obj, attrs...)
@@ -170,6 +197,7 @@ func (li *LoggerInjectable) Log() Logger {
 	return li.logger
 }
 
+// LogWithAttrs returns an instance of the logger with the given attributes applied.
 func (li *LoggerInjectable) LogWithAttrs(attrs ...any) Logger {
 	return WithAttrs(li.Log(), attrs...)
 }

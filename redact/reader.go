@@ -19,7 +19,8 @@ type redactReader struct {
 	maxLen  int64
 }
 
-func Reader(r io.Reader, mask string, matches ...string) *redactReader {
+// Reader returns a new io.Reader that will redact any matches of the provided strings with the provided mask.
+func Reader(r io.Reader, mask string, matches ...string) io.Reader {
 	matchBytes := make([][]byte, len(matches))
 	var maxLen int
 	for i, match := range matches {
@@ -36,6 +37,7 @@ func Reader(r io.Reader, mask string, matches ...string) *redactReader {
 	}
 }
 
+// Read implements the io.Reader interface.
 func (rr *redactReader) Read(p []byte) (int, error) {
 	if rr.isEOF && rr.out.Len() == 0 {
 		return 0, io.EOF
@@ -50,7 +52,7 @@ func (rr *redactReader) resolve(p []byte) (int, error) {
 			// There's data in the output buffer, so let them have it all
 			n, err := rr.out.Read(p)
 			if err != nil && !errors.Is(err, io.EOF) {
-				return n, err
+				return n, err //nolint:wrapcheck
 			}
 			return n, nil
 		}
@@ -60,13 +62,13 @@ func (rr *redactReader) resolve(p []byte) (int, error) {
 		_, err := io.CopyN(rr.buf, rr.r, max(int64(len(p)), 2*rr.maxLen))
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
-				return 0, err
+				return 0, err //nolint:wrapcheck
 			}
 
 			rr.isEOF = true
 		}
 
-		if err := rr.redactToBuffer(p); err != nil {
+		if err := rr.redactToBuffer(); err != nil {
 			return 0, err
 		}
 
@@ -83,7 +85,7 @@ func (rr *redactReader) resolve(p []byte) (int, error) {
 	}
 }
 
-func (rr *redactReader) redactToBuffer(p []byte) error {
+func (rr *redactReader) redactToBuffer() error { //nolint:cyclop
 	if rr.isEOF && rr.buf.Len() == 0 {
 		return nil
 	}
@@ -111,7 +113,7 @@ func (rr *redactReader) redactToBuffer(p []byte) error {
 			// Leave partial match in buffer
 			_, err = io.CopyN(rr.out, rr.buf, int64(firstPartial))
 		}
-		return err
+		return err //nolint:wrapcheck
 	}
 
 	// Sort matches by start index
@@ -149,5 +151,5 @@ func (rr *redactReader) redactToBuffer(p []byte) error {
 		_, err = io.Copy(rr.out, rr.buf)
 	}
 
-	return err
+	return err //nolint:wrapcheck
 }

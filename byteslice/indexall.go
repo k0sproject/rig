@@ -2,6 +2,7 @@ package byteslice
 
 import "bytes"
 
+// IndexAll returns a list of all indexes of occurrences of the given sub-slice in the parent byte slice.
 func IndexAll(p, sub []byte) []int {
 	if len(sub) == 0 || len(p) < len(sub) {
 		return nil
@@ -22,7 +23,7 @@ func IndexAll(p, sub []byte) []int {
 	return indexes
 }
 
-// IndexALlPartial is a helper function that returns results of both IndexAll and PartialIndex in one call.
+// IndexAllPartial is a helper function that returns results of both IndexAll and PartialIndex in one call.
 func IndexAllPartial(p, sub []byte) ([]int, int) {
 	indexes := IndexAll(p, sub)
 	partial := PartialIndex(p, sub)

@@ -257,7 +257,7 @@ func (f *winFile) command(cmd string) (*rcpResponse, error) { //nolint:cyclop
 		if !ok {
 			return out, nil // likely just a regular quit
 		}
-		if data == nil || len(data) == 0 {
+		if len(data) == 0 {
 			return out, fmt.Errorf("%w: invalid empty response to rcp command", errRemote)
 		}
 		if err := json.Unmarshal(data, out); err != nil {

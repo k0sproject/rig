@@ -171,7 +171,6 @@ func (c *Client) setup(opts ...ClientOption) error {
 		c.InitSystemService = c.options.GetInitSystemService(c.Runner)
 		c.RemoteFSService = c.options.GetRemoteFSService(c.Runner)
 		c.PackageManagerService = c.options.GetPackageManagerService(c.Runner)
-
 	})
 	return c.initErr
 }

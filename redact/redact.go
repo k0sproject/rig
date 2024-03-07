@@ -1,3 +1,4 @@
+// Package redact provides redaction of sensitive information from strings or streams.
 package redact
 
 import (
@@ -8,7 +9,6 @@ import (
 // Redacter is implemented by types that can redact sensitive information from a string.
 type Redacter interface {
 	Redact(input string) string
-	Reader(src io.Reader) io.Reader
 }
 
 type noopWriteCloser struct {
@@ -30,6 +30,7 @@ func (r noopRedacter) Writer(dst io.Writer) io.WriteCloser {
 	return noopWriteCloser{dst}
 }
 
+// StringRedacter returns a Redacter that will redact any matches of the provided strings with the provided mask.
 func StringRedacter(mask string, matches ...string) Redacter {
 	if len(matches) == 0 {
 		return noopRedacter{}
@@ -59,12 +60,4 @@ func (r *stringRedacter) Redact(s string) string {
 		s = strings.ReplaceAll(s, match, r.mask)
 	}
 	return s
-}
-
-func (r *stringRedacter) Reader(src io.Reader) io.Reader {
-	return Reader(src, r.mask, r.matches...)
-}
-
-func (r *stringRedacter) Writer(src io.Writer) io.WriteCloser {
-	return Writer(src, r.mask, r.matches...)
 }

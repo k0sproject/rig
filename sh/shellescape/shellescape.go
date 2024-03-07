@@ -61,23 +61,23 @@ func Quote(str string) string {
 		return str
 	}
 
-	b, ok := builderPool.Get().(*strings.Builder)
+	builder, ok := builderPool.Get().(*strings.Builder)
 	if !ok {
-		b = &strings.Builder{}
+		builder = &strings.Builder{}
 	}
-	defer builderPool.Put(b)
-	defer b.Reset()
+	defer builderPool.Put(builder)
+	defer builder.Reset()
 
 	if special && !singleQ {
-		wrapTo(str, b)
+		wrapTo(str, builder)
 	} else {
-		escapeTo(str, b)
+		escapeTo(str, builder)
 	}
-	return b.String()
+	return builder.String()
 }
 
 // Join safely quotes and joins a list of strings for shell usage.
-func Join(args ...string) string {
+func Join(args ...string) string { //nolint:cyclop
 	switch len(args) {
 	case 0:
 		return ""

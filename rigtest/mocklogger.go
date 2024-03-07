@@ -2,6 +2,8 @@ package rigtest
 
 import (
 	"fmt"
+	"log/slog"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -10,6 +12,11 @@ import (
 )
 
 var _ log.Logger = (*MockLogger)(nil)
+
+// TraceToStderr sets the trace logger to log to stderr.
+func TraceToStderr() {
+	log.SetTraceLogger(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+}
 
 // MockLogMessage is a mock log message.
 type MockLogMessage struct {
@@ -28,6 +35,7 @@ func (m MockLogMessage) Message() string {
 	return m.message
 }
 
+// KeysAndValues returns the log message's keys and values.
 func (m MockLogMessage) KeysAndValues() []any {
 	return m.keysAndValues
 }
@@ -108,17 +116,17 @@ func (l *MockLogger) ReceivedString(message string) bool {
 	return false
 }
 
-// Tracef log message.
+// Trace level log message.
 func (l *MockLogger) Trace(t string, args ...any) { l.log(-8, t, args...) }
 
-// Debugf log message.
+// Debug level log message.
 func (l *MockLogger) Debug(t string, args ...any) { l.log(-4, t, args...) }
 
-// Infof log message.
+// Info level log message.
 func (l *MockLogger) Info(t string, args ...any) { l.log(0, t, args...) }
 
-// Warnf log message.
+// Warn level log message.
 func (l *MockLogger) Warn(t string, args ...any) { l.log(2, t, args...) }
 
-// Errorf log message.
+// Error level log message.
 func (l *MockLogger) Error(t string, args ...any) { l.log(4, t, args...) }

@@ -17,6 +17,7 @@ type redactWriter struct {
 	closed  bool
 }
 
+// Writer returns an io.WriteCloser that writes to w, redacting any matches of the given patterns with the given mask.
 func Writer(w io.Writer, mask string, matches ...string) io.WriteCloser {
 	matchBytes := make([][]byte, len(matches))
 	for i, match := range matches {
@@ -39,7 +40,7 @@ func (rw *redactWriter) Write(p []byte) (int, error) {
 	// Write the input data directly to the buffer.
 	_, err := rw.buf.Write(p)
 	if err != nil {
-		return 0, err
+		return 0, err //nolint:wrapcheck // it's better to return the original errors from io functions.
 	}
 
 	// Redact data from the buffer into the output buffer.
@@ -57,7 +58,7 @@ func (rw *redactWriter) Write(p []byte) (int, error) {
 
 func (rw *redactWriter) Flush() error {
 	_, err := io.Copy(rw.w, rw.out)
-	return err
+	return err //nolint:wrapcheck
 }
 
 func (rw *redactWriter) Close() error {
@@ -70,7 +71,7 @@ func (rw *redactWriter) Close() error {
 	// Copy any remaining data from the buffer to the underlying writer.
 	// (should be just a partial match that didn't get to complete)
 	_, err := io.Copy(rw.w, rw.buf)
-	return err
+	return err //nolint:wrapcheck
 }
 
 type matchInfo struct {
@@ -78,7 +79,7 @@ type matchInfo struct {
 	end   int
 }
 
-func (rw *redactWriter) redactToBuffer() error {
+func (rw *redactWriter) redactToBuffer() error { //nolint:cyclop
 	var err error
 
 	// Find all matches
@@ -102,7 +103,7 @@ func (rw *redactWriter) redactToBuffer() error {
 			// Leave partial match in buffer
 			_, err = io.CopyN(rw.out, rw.buf, int64(firstPartial))
 		}
-		return err
+		return err //nolint:wrapcheck
 	}
 
 	// Sort matches by start index
@@ -139,5 +140,5 @@ func (rw *redactWriter) redactToBuffer() error {
 		_, err = io.Copy(rw.out, rw.buf)
 	}
 
-	return err
+	return err //nolint:wrapcheck
 }

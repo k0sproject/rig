@@ -13,14 +13,6 @@ import (
 	"github.com/k0sproject/rig/sudo"
 )
 
-// LoggerFactory is a function that creates a logger.
-type LoggerFactory func(protocol.Connection) log.Logger
-
-// defaultLoggerFactory returns a logger factory that returns a null logger.
-func defaultLoggerFactory(_ protocol.Connection) log.Logger {
-	return log.Null
-}
-
 // ConnectionConfigurer can create connections. When a connection is not given, the configurer is used
 // to build a connection.
 type ConnectionConfigurer interface {

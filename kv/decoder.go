@@ -11,6 +11,17 @@ import (
 	"strings"
 )
 
+var (
+	// ErrInvalidTags is returned when the struct tags are invalid for kv.
+	ErrInvalidTags = errors.New("invalid tags")
+
+	// ErrInvalidObject is returned when the object is invalid to be a kv decoding target.
+	ErrInvalidObject = errors.New("invalid object")
+
+	// ErrStrict is returned when the decoder is in strict mode and an unknown key is encountered.
+	ErrStrict = errors.New("strict mode")
+)
+
 type assigner interface {
 	assign(key, value string) error
 }
@@ -92,7 +103,7 @@ type reflectAssigner struct {
 
 func checkField(field reflect.Value) error {
 	if !field.CanSet() {
-		return errors.New("field is unexported")
+		return fmt.Errorf("%w: field s unexported", ErrInvalidTags)
 	}
 
 	for _, kind := range getSupportedKinds() {
@@ -101,7 +112,7 @@ func checkField(field reflect.Value) error {
 		}
 	}
 
-	return fmt.Errorf("unsupported type %v", field.Kind())
+	return fmt.Errorf("%w: unsupported type %v", ErrInvalidTags, field.Kind())
 }
 
 func getSupportedKinds() []reflect.Kind {
@@ -119,12 +130,12 @@ func getSupportedKinds() []reflect.Kind {
 func (ra *reflectAssigner) setup() error {
 	val := reflect.ValueOf(ra.obj)
 	if val.Kind() != reflect.Ptr || val.IsNil() {
-		return errors.New("object must be a non-nil pointer")
+		return fmt.Errorf("%w: object must be a non-nil pointer", ErrInvalidObject)
 	}
 
 	elem := val.Elem()
 	if elem.Kind() != reflect.Struct {
-		return errors.New("object must be a pointer to a struct")
+		return fmt.Errorf("%w: object must be a pointer to a struct", ErrInvalidObject)
 	}
 
 	typ := elem.Type()
@@ -138,14 +149,14 @@ func (ra *reflectAssigner) setup() error {
 		switch {
 		case info.catchAll:
 			if ra.catchAll != nil {
-				return errors.New("multiple fields with kv tag *")
+				return fmt.Errorf("%w: multiple fields with kv tag *", ErrInvalidTags)
 			}
 			if err := ra.setupCatchAll(info.value); err != nil {
-				return fmt.Errorf("field %s: %v", info.name, err)
+				return fmt.Errorf("setup catch all field %s: %w", info.name, err)
 			}
 		case info.key != "":
 			if err := checkField(info.value); err != nil {
-				return fmt.Errorf("field %s: %v", info.name, err)
+				return fmt.Errorf("field %s: %w", info.name, err)
 			}
 		}
 	}
@@ -155,14 +166,14 @@ func (ra *reflectAssigner) setup() error {
 
 func (ra *reflectAssigner) setupCatchAll(field reflect.Value) error {
 	if field.Kind() != reflect.Map {
-		return errors.New("field with kv tag * must be a map")
+		return fmt.Errorf("%w: field with kv tag * must be a map", ErrInvalidTags)
 	}
 	if field.IsNil() {
 		field.Set(reflect.MakeMap(field.Type()))
 	}
 	mapObj, ok := field.Interface().(map[string]string)
 	if !ok {
-		return errors.New("field with kv tag * must be a map of string to string")
+		return fmt.Errorf("%w: field with kv tag * must be a map of string to string", ErrInvalidTags)
 	}
 	ra.catchAll = &mapAssigner{m: mapObj}
 	return nil
@@ -223,7 +234,7 @@ func (ra *reflectAssigner) assignSlice(info fieldInfo, value string) error {
 	return nil
 }
 
-func (ra *reflectAssigner) assignField(info fieldInfo, value string) error {
+func (ra *reflectAssigner) assignField(info fieldInfo, value string) error { //nolint:cyclop
 	if info.ignore {
 		return nil
 	}
@@ -235,11 +246,14 @@ func (ra *reflectAssigner) assignField(info fieldInfo, value string) error {
 
 	if field.CanInterface() {
 		if f, ok := field.Interface().(encoding.TextUnmarshaler); ok {
-			return f.UnmarshalText([]byte(value))
+			if err := f.UnmarshalText([]byte(value)); err != nil {
+				return fmt.Errorf("unmarshal text: %w", err)
+			}
+			return nil
 		}
 	}
 
-	switch field.Kind() {
+	switch field.Kind() { //nolint:exhaustive
 	case reflect.String:
 		field.SetString(value)
 	case reflect.Bool:
@@ -271,7 +285,7 @@ func (ra *reflectAssigner) assignField(info fieldInfo, value string) error {
 			return fmt.Errorf("assign to slice: %w", err)
 		}
 	default:
-		return fmt.Errorf("unsupported field type %v", field.Kind())
+		return fmt.Errorf("%w: unsupported field type %v", ErrInvalidObject, field.Kind())
 	}
 
 	return nil
@@ -302,15 +316,17 @@ func (ra *reflectAssigner) assign(key, value string) error {
 	info, ok := ra.getInfo(key)
 	if !ok {
 		if ra.catchAll != nil {
-			return ra.catchAll.assign(key, value)
+			if err := ra.catchAll.assign(key, value); err != nil {
+				return fmt.Errorf("assign to catch all: %w", err)
+			}
 		}
 		if ra.strict {
-			return fmt.Errorf("unknown field for key %q", key)
+			return fmt.Errorf("%w: unknown field for key %q", ErrStrict, key)
 		}
 		return nil
 	}
 	if err := ra.assignField(info, value); err != nil {
-		return fmt.Errorf("assign field %q: %v", key, err)
+		return fmt.Errorf("assign field %q: %w", key, err)
 	}
 	return nil
 }
@@ -326,7 +342,7 @@ func (ra *reflectAssigner) assign(key, value string) error {
 //
 // The options are:
 // - ignorecase: the key is matched case-insensitively
-// - delim: when the field is a slice, the value is split by the specified delimiter
+// - delim: when the field is a slice, the value is split by the specified delimiter.
 type Decoder struct {
 	r            io.Reader
 	rdelim       byte
@@ -341,18 +357,22 @@ func NewDecoder(r io.Reader) *Decoder {
 	return &Decoder{r: r, rdelim: '\n', fdelim: '=', commentstart: "#"}
 }
 
+// FieldDelimiter sets the field delimiter. The default is '='.
 func (d *Decoder) FieldDelimiter(delim rune) {
 	d.fdelim = delim
 }
 
+// RowDelimiter sets the row delimiter. The default is '\n'.
 func (d *Decoder) RowDelimiter(delim byte) {
 	d.rdelim = delim
 }
 
+// CommentStart sets the comment start string. If a line starts with the comment start string, it is ignored.
 func (d *Decoder) CommentStart(comment string) {
 	d.commentstart = comment
 }
 
+// Strict makes the decoder return an error when an unknown key or an assign error is encountered.
 func (d *Decoder) Strict() {
 	d.strict = true
 }
@@ -361,7 +381,7 @@ func (d *Decoder) setAssigner(obj any) error {
 	switch v := obj.(type) {
 	case map[string]string:
 		if v == nil {
-			return errors.New("map must be non-nil")
+			return fmt.Errorf("%w: map must be non-nil", ErrInvalidObject)
 		}
 		d.assigner = &mapAssigner{m: v}
 	default:
@@ -379,7 +399,7 @@ func (d *Decoder) Decode(obj any) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			// Capture the panic, optionally log it
-			err = fmt.Errorf("panic in Decode: %v", r)
+			err = fmt.Errorf("panic in Decode: %v", r) //nolint:goerr113
 		}
 	}()
 

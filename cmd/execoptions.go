@@ -3,7 +3,6 @@ package cmd
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -15,13 +14,13 @@ import (
 	"github.com/k0sproject/rig/redact"
 )
 
-// RedactMask is the string that will be used to replace redacted text in the logs.
+// DefaultRedactMask is the string that will be used to replace redacted text in the logs.
 const DefaultRedactMask = "[REDACTED]"
 
-// Option is a functional option for the exec package.
+// ExecOption is a functional option for the exec package.
 type ExecOption func(*ExecOptions)
 
-// Options is a collection of exec options.
+// ExecOptions is a collection of exec options.
 type ExecOptions struct {
 	log.LoggerInjectable
 
@@ -45,23 +44,7 @@ type ExecOptions struct {
 
 	redactStrings []string
 	decorateFuncs []DecorateFunc
-}
-
-func decodeEncoded(cmd string) string {
-	if !strings.Contains(cmd, "powershell") {
-		return cmd
-	}
-
-	parts := strings.Split(cmd, " ")
-	for i, p := range parts {
-		if p == "-E" || p == "-EncodedCommand" && len(parts) > i+1 {
-			decoded, err := base64.StdEncoding.DecodeString(parts[i+1])
-			if err == nil {
-				parts[i+1] = strings.ReplaceAll(string(decoded), "\x00", "")
-			}
-		}
-	}
-	return strings.Join(parts, " ")
+	redactMask    string
 }
 
 // Command returns the command string with all decorators applied.
@@ -107,18 +90,22 @@ func getReaderSize(reader io.Reader) (int64, error) {
 	}
 }
 
+// RedactReader returns a reader that will redact sensitive content from the input.
 func (o *ExecOptions) RedactReader(r io.Reader) io.Reader {
-	return redact.Reader(r, DefaultRedactMask, o.redactStrings...)
+	return redact.Reader(r, o.redactMask, o.redactStrings...)
 }
 
+// RedactWriter returns a writer that will redact sensitive content from the output.
 func (o *ExecOptions) RedactWriter(w io.Writer) io.Writer {
-	return redact.Writer(w, DefaultRedactMask, o.redactStrings...)
+	return redact.Writer(w, o.redactMask, o.redactStrings...)
 }
 
+// Redacter returns a [redact.Rredacter] prepared with the redact mask and string matchers set via the options.
 func (o *ExecOptions) Redacter() redact.Redacter {
-	return redact.StringRedacter(DefaultRedactMask, o.redactStrings...)
+	return redact.StringRedacter(o.redactMask, o.redactStrings...)
 }
 
+// Redact returns a redacted version of the given string.
 func (o *ExecOptions) Redact(s string) string {
 	return o.Redacter().Redact(s)
 }
@@ -148,9 +135,9 @@ func (o *ExecOptions) Stdout() io.Writer {
 	var writers []io.Writer
 	switch {
 	case o.streamOutput:
-		writers = append(writers, redact.Writer(logWriter{fn: o.Log().Info}, DefaultRedactMask, o.redactStrings...))
+		writers = append(writers, redact.Writer(logWriter{fn: o.Log().Info}, o.redactMask, o.redactStrings...))
 	case o.logOutput:
-		writers = append(writers, redact.Writer(logWriter{fn: o.Log().Debug}, DefaultRedactMask, o.redactStrings...))
+		writers = append(writers, redact.Writer(logWriter{fn: o.Log().Debug}, o.redactMask, o.redactStrings...))
 	}
 	if o.out != nil {
 		writers = append(writers, o.out)
@@ -163,9 +150,9 @@ func (o *ExecOptions) Stderr() io.Writer {
 	var writers []io.Writer
 	switch {
 	case o.streamOutput:
-		writers = append(writers, redact.Writer(logWriter{fn: o.Log().Error}, DefaultRedactMask, o.redactStrings...))
+		writers = append(writers, redact.Writer(logWriter{fn: o.Log().Error}, o.redactMask, o.redactStrings...))
 	case o.logError:
-		writers = append(writers, redact.Writer(logWriter{fn: o.Log().Debug}, DefaultRedactMask, o.redactStrings...))
+		writers = append(writers, redact.Writer(logWriter{fn: o.Log().Debug}, o.redactMask, o.redactStrings...))
 	}
 	writers = append(writers, &flaggingWriter{b: &o.wroteErr})
 	if o.errOut != nil {
@@ -187,13 +174,13 @@ func AllowWinStderr() ExecOption {
 	}
 }
 
-// Redact is for filtering out sensitive text using a regexp.
+// RedactString filters out sensitive content from strings.
 func (o *ExecOptions) RedactString(s string) string {
 	if DisableRedact || len(o.redactStrings) == 0 {
 		return s
 	}
 	for _, rs := range o.redactStrings {
-		s = strings.ReplaceAll(s, rs, DefaultRedactMask)
+		s = strings.ReplaceAll(s, rs, o.redactMask)
 	}
 	return s
 }
@@ -317,6 +304,7 @@ func Decorate(decorator DecorateFunc) ExecOption {
 	}
 }
 
+// Logger exec option for setting a custom logger.
 func Logger(l log.Logger) ExecOption {
 	return func(o *ExecOptions) {
 		o.SetLogger(l)
@@ -334,6 +322,7 @@ func Build(opts ...ExecOption) *ExecOptions {
 		logInput:     false,
 		streamOutput: false,
 		trimOutput:   true,
+		redactMask:   DefaultRedactMask,
 	}
 
 	options.Apply(opts...)

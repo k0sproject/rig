@@ -1,3 +1,4 @@
+// Package iostream contains various io.Reader and io.Writer implementations.
 package iostream
 
 import (
@@ -5,7 +6,9 @@ import (
 	"io"
 )
 
-// ScanWriterMaxBufferSize is the maximum size of the ScanWriter buffer
+// ScanWriterMaxBufferSize is the maximum size of the ScanWriter buffer. If the buffer
+// is full before the delimiter is encountered, the buffer contents are flushed like
+// the delimiter was encountered.
 var ScanWriterMaxBufferSize = 1024 * 1024
 
 type scannerWriter struct {
@@ -15,6 +18,7 @@ type scannerWriter struct {
 	closed bool
 }
 
+// CallbackFn is a function that takes a string as an argument and returns nothing.
 type CallbackFn func(string)
 
 // ScanWriter returns an io.WriteCloser that calls the given callback function with the
@@ -25,6 +29,8 @@ func ScanWriter(delim byte, fn CallbackFn) io.WriteCloser {
 	return &scannerWriter{fn: fn, delim: delim}
 }
 
+// Write writes the given bytes to the internal buffer and calls the callback function when
+// delimiters are encountered.
 func (w *scannerWriter) Write(p []byte) (int, error) {
 	if w.closed {
 		return 0, io.ErrUnexpectedEOF
@@ -40,7 +46,7 @@ func (w *scannerWriter) Write(p []byte) (int, error) {
 
 	w.scan()
 
-	return writeN, writeErr
+	return writeN, writeErr //nolint:wrapcheck
 }
 
 func (w *scannerWriter) scan() {
@@ -50,7 +56,7 @@ func (w *scannerWriter) scan() {
 			w.buf.Write([]byte(line))
 			break
 		}
-		w.fn(line)
+		w.fn(line[:len(line)-1])
 	}
 }
 
