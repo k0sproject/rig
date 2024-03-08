@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -118,19 +119,41 @@ func findPrintfError(s string) error {
 	return err
 }
 
-// windowsWaiter is a Waiter that checks for errors written to stderr.
-type windowsWaiter struct {
-	waiter  protocol.Waiter
-	wroteFn func() bool
+type waiterWrapper struct {
+	waiter    protocol.Waiter
+	opts      *ExecOptions
+	isWindows bool
+}
+
+var xmlTagRe = regexp.MustCompile(`<.+?>`)
+
+func formatStderr(stderr string, isWindows bool) string {
+	if stderr != "" {
+		stderr = strings.TrimSpace(strings.ReplaceAll(stderr, "\n", " "))
+		if isWindows {
+			stderr = strings.ReplaceAll(stderr, "\r", "")
+			stderr = strings.TrimPrefix(stderr, "#<CLIXML")
+			stderr = xmlTagRe.ReplaceAllString(stderr, "")
+		}
+		if len(stderr) > 100 {
+			stderr = stderr[:97] + "..."
+		}
+	}
+	return stderr
 }
 
 // Wait waits for the command to finish and returns an error if it fails or if it wrote to stderr.
-func (w *windowsWaiter) Wait() error {
-	if err := w.waiter.Wait(); err != nil {
-		return err //nolint:wrapcheck
+func (w *waiterWrapper) Wait() error {
+	waitErr := w.waiter.Wait()
+	stderr := formatStderr(w.opts.ErrString(), w.isWindows)
+	if waitErr == nil && w.isWindows && !w.opts.AllowWinStderr() && len(stderr) > 0 {
+		waitErr = ErrWroteStderr
 	}
-	if w.wroteFn() {
-		return ErrWroteStderr
+	if waitErr != nil {
+		if len(stderr) > 0 {
+			return fmt.Errorf("process finished with error: %w (%s)", waitErr, stderr)
+		}
+		return fmt.Errorf("process finished with error: %w", waitErr)
 	}
 	return nil
 }
@@ -198,11 +221,11 @@ func (r *Executor) Start(ctx context.Context, command string, opts ...ExecOption
 		return nil, fmt.Errorf("%w: connection returned no error but a nil waiter", errInternal)
 	}
 
-	if !execOpts.AllowWinStderr() && r.IsWindows() {
-		return &windowsWaiter{waiter, execOpts.WroteErr}, nil
-	}
-
-	return waiter, nil
+	return &waiterWrapper{
+		waiter:    waiter,
+		opts:      execOpts,
+		isWindows: r.IsWindows(),
+	}, nil
 }
 
 // StartBackground starts the command and returns a Waiter.

@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"strings"
-	"sync/atomic"
 
 	"github.com/k0sproject/rig/v2/iostream"
 	"github.com/k0sproject/rig/v2/log"
@@ -30,6 +29,8 @@ type ExecOptions struct {
 	out    io.Writer
 	errOut io.Writer
 
+	errBuf *bytes.Buffer
+
 	allowWinStderr bool
 
 	logInfo    bool
@@ -41,8 +42,6 @@ type ExecOptions struct {
 
 	streamOutput bool
 	trimOutput   bool
-
-	wroteErr atomic.Bool
 
 	redactStrings []string
 	decorateFuncs []DecorateFunc
@@ -160,7 +159,7 @@ func (o *ExecOptions) Stderr() io.Writer {
 	case o.logError:
 		writers = append(writers, o.logWriter("stderr", o.Log().Debug))
 	}
-	writers = append(writers, iostream.CallbackDiscard(func() { o.wroteErr.Store(true) }))
+	writers = append(writers, o.errBuf)
 	if o.errOut != nil {
 		writers = append(writers, o.errOut)
 	}
@@ -168,9 +167,9 @@ func (o *ExecOptions) Stderr() io.Writer {
 	return io.MultiWriter(writers...)
 }
 
-// WroteErr returns true if the command wrote to stderr.
-func (o *ExecOptions) WroteErr() bool {
-	return o.wroteErr.Load()
+// ErrString returns the contents of stderr after exec.
+func (o *ExecOptions) ErrString() string {
+	return o.errBuf.String()
 }
 
 // AllowWinStderr exec option allows command to output to stderr without failing.
@@ -329,6 +328,7 @@ func Build(opts ...ExecOption) *ExecOptions {
 		streamOutput: false,
 		trimOutput:   true,
 		redactMask:   DefaultRedactMask,
+		errBuf:       bytes.NewBuffer(nil),
 	}
 
 	options.Apply(opts...)

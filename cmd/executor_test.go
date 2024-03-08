@@ -49,6 +49,44 @@ func TestExecOutput(t *testing.T) {
 	require.Equal(t, "bar\n", out)
 }
 
+func TestStderrError(t *testing.T) {
+	mr := rigtest.NewMockRunner()
+	mr.AddCommand(rigtest.HasSuffix("foo"), func(a *rigtest.A) error {
+		fmt.Fprintln(a.Stderr, "baz")
+		return errors.New("foo")
+	})
+	err := mr.Exec("foo")
+	require.Error(t, err)
+	require.Equal(t, "command result: process finished with error: foo (baz)", err.Error())
+}
+
+func TestStderrErrorWindows(t *testing.T) {
+	rigtest.TraceToStderr()
+	defer rigtest.TraceOff()
+	conn := rigtest.NewMockConnection()
+	conn.Windows = true
+	conn.AddCommand(rigtest.HasSuffix("foo"), func(a *rigtest.A) error {
+		fmt.Fprintln(a.Stderr, "baz")
+		return nil
+	})
+	runner := cmd.NewExecutor(conn)
+	err := runner.Exec("foo")
+	require.Error(t, err)
+	require.Equal(t, "command result: process finished with error: command wrote output to stderr (baz)", err.Error())
+}
+
+func TestStderrErrorWindowsAllow(t *testing.T) {
+	conn := rigtest.NewMockConnection()
+	conn.Windows = true
+	conn.AddCommand(rigtest.Equal("foo"), func(a *rigtest.A) error {
+		fmt.Fprintln(a.Stderr, "baz")
+		return nil
+	})
+	runner := cmd.NewExecutor(conn)
+	err := runner.Exec("foo", cmd.AllowWinStderr())
+	require.NoError(t, err)
+}
+
 func TestStdinInput(t *testing.T) {
 	mr := rigtest.NewMockRunner()
 	var readN int64
