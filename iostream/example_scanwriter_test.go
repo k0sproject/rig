@@ -11,7 +11,7 @@ import (
 func ExampleScanWriter() {
 	contentReader := strings.NewReader("Hello, World!\nHow are you today?\nNice to meet you.\n")
 	i := 1
-	sw := iostream.ScanWriter('\n', func(row string) {
+	sw := iostream.NewScanWriter(func(row string) {
 		fmt.Println(i, row)
 		i++
 	})

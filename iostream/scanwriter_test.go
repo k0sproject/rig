@@ -17,7 +17,7 @@ func (c *collector) fn(token string) {
 
 const lf byte = '\n'
 
-func TestScannerWriter(t *testing.T) {
+func TestScanWriter(t *testing.T) {
 	testCases := []struct {
 		name        string
 		buffer      []byte
@@ -53,7 +53,7 @@ func TestScannerWriter(t *testing.T) {
 				col := &collector{}
 				reader := bytes.NewReader(tc.buffer)
 				buf := make([]byte, bufSize)
-				sw := ScanWriter(lf, col.fn)
+				sw := NewScanWriter(col.fn)
 				for {
 					n, err := reader.Read(buf)
 					if err != nil && err != io.EOF {
