@@ -8,7 +8,9 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync/atomic"
 
+	"github.com/k0sproject/rig/iostream"
 	"github.com/k0sproject/rig/log"
 	"github.com/k0sproject/rig/powershell"
 	"github.com/k0sproject/rig/redact"
@@ -40,7 +42,7 @@ type ExecOptions struct {
 	streamOutput bool
 	trimOutput   bool
 
-	wroteErr bool
+	wroteErr atomic.Bool
 
 	redactStrings []string
 	decorateFuncs []DecorateFunc
@@ -130,14 +132,18 @@ func (o *ExecOptions) Stdin() io.Reader {
 	return o.in
 }
 
+func (o *ExecOptions) logWriter(stream string, logFn func(msg string, keysAndValues ...any)) io.WriteCloser {
+	return redact.Writer(iostream.NewScanWriter(func(s string) { logFn(s, "stream", stream) }), o.redactMask, o.redactStrings...)
+}
+
 // Stdout returns the Stdout writer. If output logging is enabled, it will be a MultiWriter that writes to the log.
 func (o *ExecOptions) Stdout() io.Writer {
 	var writers []io.Writer
 	switch {
 	case o.streamOutput:
-		writers = append(writers, redact.Writer(logWriter{fn: o.Log().Info}, o.redactMask, o.redactStrings...))
+		writers = append(writers, o.logWriter("stdout", o.Log().Info))
 	case o.logOutput:
-		writers = append(writers, redact.Writer(logWriter{fn: o.Log().Debug}, o.redactMask, o.redactStrings...))
+		writers = append(writers, o.logWriter("stdout", o.Log().Debug))
 	}
 	if o.out != nil {
 		writers = append(writers, o.out)
@@ -150,11 +156,11 @@ func (o *ExecOptions) Stderr() io.Writer {
 	var writers []io.Writer
 	switch {
 	case o.streamOutput:
-		writers = append(writers, redact.Writer(logWriter{fn: o.Log().Error}, o.redactMask, o.redactStrings...))
+		writers = append(writers, o.logWriter("stderr", o.Log().Error))
 	case o.logError:
-		writers = append(writers, redact.Writer(logWriter{fn: o.Log().Debug}, o.redactMask, o.redactStrings...))
+		writers = append(writers, o.logWriter("stderr", o.Log().Debug))
 	}
-	writers = append(writers, &flaggingWriter{b: &o.wroteErr})
+	writers = append(writers, iostream.CallbackDiscard(func() { o.wroteErr.Store(true) }))
 	if o.errOut != nil {
 		writers = append(writers, o.errOut)
 	}
@@ -164,7 +170,7 @@ func (o *ExecOptions) Stderr() io.Writer {
 
 // WroteErr returns true if the command wrote to stderr.
 func (o *ExecOptions) WroteErr() bool {
-	return o.wroteErr
+	return o.wroteErr.Load()
 }
 
 // AllowWinStderr exec option allows command to output to stderr without failing.
@@ -346,18 +352,5 @@ type logWriter struct {
 func (l logWriter) Write(p []byte) (int, error) {
 	s := string(p)
 	l.fn(s)
-	return len(p), nil
-}
-
-// flaggingWriter is a discarding writer that sets a flag when it writes something, used
-// to check if a command has output to stderr.
-type flaggingWriter struct {
-	b *bool
-}
-
-func (f *flaggingWriter) Write(p []byte) (int, error) {
-	if !*f.b && len(p) > 0 {
-		*f.b = true
-	}
 	return len(p), nil
 }
