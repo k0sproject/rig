@@ -201,7 +201,7 @@ func (c *Connection) getConfigAll(key string) []string {
 // String returns the connection's printable name.
 func (c *Connection) String() string {
 	if c.name == "" {
-		c.name = "[ssh] " + net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
+		c.name = net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
 	}
 
 	return c.name

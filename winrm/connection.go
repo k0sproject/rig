@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -66,7 +67,7 @@ func (c *Connection) IPAddress() string {
 // String returns the connection's printable name.
 func (c *Connection) String() string {
 	if c.name == "" {
-		c.name = fmt.Sprintf("[winrm] %s:%d", c.Address, c.Port)
+		c.name = net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
 	}
 
 	return c.name

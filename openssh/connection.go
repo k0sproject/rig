@@ -255,9 +255,10 @@ func (c *Connection) String() string {
 		return c.name
 	}
 
-	c.name = "[OpenSSH] " + c.userhost()
-	if c.Port != nil {
-		c.name = fmt.Sprintf("%s:%d", c.name, *c.Port)
+	if c.Port == nil {
+		c.name = c.userhost()
+	} else {
+		c.name = fmt.Sprintf("%s:%d", c.userhost(), *c.Port)
 	}
 
 	return c.name

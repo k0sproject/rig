@@ -13,8 +13,6 @@ import (
 	"github.com/mattn/go-shellwords"
 )
 
-const name = "[local] localhost"
-
 // Connection is a direct localhost connection.
 type Connection struct{}
 
@@ -40,7 +38,7 @@ func (c *Connection) IPAddress() string {
 
 // String returns the connection's printable name.
 func (c *Connection) String() string {
-	return name
+	return "localhost"
 }
 
 // IsWindows is true when running on a windows host.
