@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/k0sproject/rig/protocol"
+	"github.com/k0sproject/rig/v2/protocol"
 )
 
 var (

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/k0sproject/rig/cmd"
-	"github.com/k0sproject/rig/initsystem"
+	"github.com/k0sproject/rig/v2/cmd"
+	"github.com/k0sproject/rig/v2/initsystem"
 )
 
 type serviceState int

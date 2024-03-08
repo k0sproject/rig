@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/k0sproject/rig/rigtest"
+	"github.com/k0sproject/rig/v2/rigtest"
 )
 
 const ()

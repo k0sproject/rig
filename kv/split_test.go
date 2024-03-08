@@ -3,7 +3,7 @@ package kv_test
 import (
 	"testing"
 
-	"github.com/k0sproject/rig/kv"
+	"github.com/k0sproject/rig/v2/kv"
 	"github.com/stretchr/testify/assert"
 )
 

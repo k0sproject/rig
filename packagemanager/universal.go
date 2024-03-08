@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/k0sproject/rig/cmd"
-	"github.com/k0sproject/rig/sh/shellescape"
+	"github.com/k0sproject/rig/v2/cmd"
+	"github.com/k0sproject/rig/v2/sh/shellescape"
 )
 
 // almost all of the package managers in the wild work the exact same way:

@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"runtime"
 
-	"github.com/k0sproject/rig/protocol"
+	"github.com/k0sproject/rig/v2/protocol"
 	"github.com/mattn/go-shellwords"
 )
 

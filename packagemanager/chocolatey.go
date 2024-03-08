@@ -3,7 +3,7 @@ package packagemanager
 import (
 	"context"
 
-	"github.com/k0sproject/rig/cmd"
+	"github.com/k0sproject/rig/v2/cmd"
 )
 
 // NewChocolatey creates a new chocolatey package manager.

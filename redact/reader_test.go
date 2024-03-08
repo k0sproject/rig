@@ -7,7 +7,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/k0sproject/rig/redact"
+	"github.com/k0sproject/rig/v2/redact"
 )
 
 func TestRedactReader(t *testing.T) {

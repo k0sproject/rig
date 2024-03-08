@@ -3,7 +3,7 @@ package iostream_test
 import (
 	"testing"
 
-	"github.com/k0sproject/rig/iostream"
+	"github.com/k0sproject/rig/v2/iostream"
 )
 
 func TestFlaggingDiscardWriter(t *testing.T) {

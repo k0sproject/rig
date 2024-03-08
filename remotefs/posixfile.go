@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/k0sproject/rig/cmd"
-	"github.com/k0sproject/rig/iostream"
-	"github.com/k0sproject/rig/sh/shellescape"
+	"github.com/k0sproject/rig/v2/cmd"
+	"github.com/k0sproject/rig/v2/iostream"
+	"github.com/k0sproject/rig/v2/sh/shellescape"
 )
 
 var (

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/k0sproject/rig/cmd"
-	ps "github.com/k0sproject/rig/powershell"
+	"github.com/k0sproject/rig/v2/cmd"
+	ps "github.com/k0sproject/rig/v2/powershell"
 )
 
 var errNotSupported = errors.New("not supported on windows")

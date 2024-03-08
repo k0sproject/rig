@@ -4,8 +4,8 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/k0sproject/rig/cmd"
-	"github.com/k0sproject/rig/plumbing"
+	"github.com/k0sproject/rig/v2/cmd"
+	"github.com/k0sproject/rig/v2/plumbing"
 )
 
 var (

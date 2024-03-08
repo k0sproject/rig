@@ -4,7 +4,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/k0sproject/rig/sh/shellescape"
+	"github.com/k0sproject/rig/v2/sh/shellescape"
 	"github.com/stretchr/testify/assert"
 )
 

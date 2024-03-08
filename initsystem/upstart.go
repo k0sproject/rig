@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/k0sproject/rig/cmd"
-	"github.com/k0sproject/rig/sh"
-	"github.com/k0sproject/rig/sh/shellescape"
+	"github.com/k0sproject/rig/v2/cmd"
+	"github.com/k0sproject/rig/v2/sh"
+	"github.com/k0sproject/rig/v2/sh/shellescape"
 )
 
 // Upstart is the init system used by Ubuntu 14.04 and older.

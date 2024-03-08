@@ -6,8 +6,8 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/k0sproject/rig/cmd"
-	"github.com/k0sproject/rig/plumbing"
+	"github.com/k0sproject/rig/v2/cmd"
+	"github.com/k0sproject/rig/v2/plumbing"
 )
 
 // ServiceManager defines the methods for interacting with an init system like OpenRC.

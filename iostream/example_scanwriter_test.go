@@ -5,7 +5,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/k0sproject/rig/iostream"
+	"github.com/k0sproject/rig/v2/iostream"
 )
 
 func ExampleScanWriter() {

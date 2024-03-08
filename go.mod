@@ -1,4 +1,4 @@
-module github.com/k0sproject/rig
+module github.com/k0sproject/rig/v2
 
 go 1.21
 

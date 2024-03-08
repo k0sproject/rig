@@ -5,9 +5,9 @@ import (
 	"net"
 	"strconv"
 
-	"github.com/k0sproject/rig/homedir"
-	"github.com/k0sproject/rig/log"
-	"github.com/k0sproject/rig/protocol"
+	"github.com/k0sproject/rig/v2/homedir"
+	"github.com/k0sproject/rig/v2/log"
+	"github.com/k0sproject/rig/v2/protocol"
 	ssh "golang.org/x/crypto/ssh"
 )
 

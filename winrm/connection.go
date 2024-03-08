@@ -13,10 +13,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/k0sproject/rig/log"
-	"github.com/k0sproject/rig/protocol"
-	"github.com/k0sproject/rig/ssh"
-	"github.com/k0sproject/rig/ssh/hostkey"
+	"github.com/k0sproject/rig/v2/log"
+	"github.com/k0sproject/rig/v2/protocol"
+	"github.com/k0sproject/rig/v2/ssh"
+	"github.com/k0sproject/rig/v2/ssh/hostkey"
 	"github.com/masterzen/winrm"
 )
 

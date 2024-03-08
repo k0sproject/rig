@@ -5,7 +5,7 @@ package homedir_test
 import (
 	"testing"
 
-	"github.com/k0sproject/rig/homedir"
+	"github.com/k0sproject/rig/v2/homedir"
 	"github.com/stretchr/testify/assert"
 )
 

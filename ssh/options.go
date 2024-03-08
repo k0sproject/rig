@@ -1,6 +1,6 @@
 package ssh
 
-import "github.com/k0sproject/rig/log"
+import "github.com/k0sproject/rig/v2/log"
 
 // Options for the SSH client.
 type Options struct {

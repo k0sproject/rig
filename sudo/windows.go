@@ -3,7 +3,7 @@ package sudo
 import (
 	"strings"
 
-	"github.com/k0sproject/rig/cmd"
+	"github.com/k0sproject/rig/v2/cmd"
 )
 
 // RegisterWindowsNoop registers a noop DecorateFunc with the given repository if the user is root.

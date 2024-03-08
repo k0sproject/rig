@@ -3,8 +3,8 @@ package rig_test
 import (
 	"testing"
 
-	"github.com/k0sproject/rig"
-	"github.com/k0sproject/rig/rigtest"
+	"github.com/k0sproject/rig/v2"
+	"github.com/k0sproject/rig/v2/rigtest"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v2"
 )

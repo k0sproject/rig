@@ -5,7 +5,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/k0sproject/rig/protocol"
+	"github.com/k0sproject/rig/v2/protocol"
 )
 
 var _ Runner = (*ErrorExecutor)(nil)

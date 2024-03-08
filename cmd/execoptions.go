@@ -10,10 +10,10 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/k0sproject/rig/iostream"
-	"github.com/k0sproject/rig/log"
-	"github.com/k0sproject/rig/powershell"
-	"github.com/k0sproject/rig/redact"
+	"github.com/k0sproject/rig/v2/iostream"
+	"github.com/k0sproject/rig/v2/log"
+	"github.com/k0sproject/rig/v2/powershell"
+	"github.com/k0sproject/rig/v2/redact"
 )
 
 // DefaultRedactMask is the string that will be used to replace redacted text in the logs.

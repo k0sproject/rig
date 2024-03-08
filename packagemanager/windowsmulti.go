@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/k0sproject/rig/cmd"
+	"github.com/k0sproject/rig/v2/cmd"
 )
 
 // WindowsMultiManager combines all found windows package managers and tries to manage packaes through all of them.

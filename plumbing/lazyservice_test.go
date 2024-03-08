@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/k0sproject/rig/plumbing"
+	"github.com/k0sproject/rig/v2/plumbing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -7,13 +7,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/k0sproject/rig"
-	"github.com/k0sproject/rig/initsystem"
-	"github.com/k0sproject/rig/os"
-	"github.com/k0sproject/rig/packagemanager"
-	"github.com/k0sproject/rig/remotefs"
-	"github.com/k0sproject/rig/rigtest"
-	"github.com/k0sproject/rig/sudo"
+	"github.com/k0sproject/rig/v2"
+	"github.com/k0sproject/rig/v2/initsystem"
+	"github.com/k0sproject/rig/v2/os"
+	"github.com/k0sproject/rig/v2/packagemanager"
+	"github.com/k0sproject/rig/v2/remotefs"
+	"github.com/k0sproject/rig/v2/rigtest"
+	"github.com/k0sproject/rig/v2/sudo"
 	"github.com/stretchr/testify/require"
 )
 

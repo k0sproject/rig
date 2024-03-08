@@ -6,7 +6,7 @@ import (
 	"io"
 	"sort"
 
-	"github.com/k0sproject/rig/byteslice"
+	"github.com/k0sproject/rig/v2/byteslice"
 )
 
 type redactReader struct {

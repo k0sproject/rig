@@ -10,9 +10,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/k0sproject/rig/cmd"
-	"github.com/k0sproject/rig/log"
-	"github.com/k0sproject/rig/protocol"
+	"github.com/k0sproject/rig/v2/cmd"
+	"github.com/k0sproject/rig/v2/log"
+	"github.com/k0sproject/rig/v2/protocol"
 )
 
 var _ protocol.Connection = (*MockConnection)(nil)

@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/k0sproject/rig/cmd"
-	"github.com/k0sproject/rig/log"
-	ps "github.com/k0sproject/rig/powershell"
+	"github.com/k0sproject/rig/v2/cmd"
+	"github.com/k0sproject/rig/v2/log"
+	ps "github.com/k0sproject/rig/v2/powershell"
 )
 
 var (

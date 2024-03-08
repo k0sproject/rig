@@ -3,7 +3,7 @@ package os
 import (
 	"fmt"
 
-	"github.com/k0sproject/rig/cmd"
+	"github.com/k0sproject/rig/v2/cmd"
 )
 
 // ResolveDarwin resolves the OS release information for a darwin host.

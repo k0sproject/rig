@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/k0sproject/rig/log"
+	"github.com/k0sproject/rig/v2/log"
 )
 
 var _ log.Logger = (*MockLogger)(nil)

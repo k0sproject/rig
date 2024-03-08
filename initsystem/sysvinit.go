@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/k0sproject/rig/cmd"
-	"github.com/k0sproject/rig/sh"
+	"github.com/k0sproject/rig/v2/cmd"
+	"github.com/k0sproject/rig/v2/sh"
 )
 
 const initd = "/etc/init.d/"

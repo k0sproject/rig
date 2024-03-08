@@ -3,7 +3,7 @@ package sh_test
 import (
 	"testing"
 
-	"github.com/k0sproject/rig/sh"
+	"github.com/k0sproject/rig/v2/sh"
 	"github.com/stretchr/testify/assert"
 )
 

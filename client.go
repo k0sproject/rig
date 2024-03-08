@@ -9,12 +9,12 @@ import (
 	"io"
 	"sync"
 
-	"github.com/k0sproject/rig/cmd"
-	"github.com/k0sproject/rig/log"
-	"github.com/k0sproject/rig/os"
-	"github.com/k0sproject/rig/packagemanager"
-	"github.com/k0sproject/rig/protocol"
-	"github.com/k0sproject/rig/remotefs"
+	"github.com/k0sproject/rig/v2/cmd"
+	"github.com/k0sproject/rig/v2/log"
+	"github.com/k0sproject/rig/v2/os"
+	"github.com/k0sproject/rig/v2/packagemanager"
+	"github.com/k0sproject/rig/v2/protocol"
+	"github.com/k0sproject/rig/v2/remotefs"
 )
 
 // Client is a swiss army knife client that can perform actions and run

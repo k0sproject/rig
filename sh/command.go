@@ -2,7 +2,7 @@
 package sh
 
 import (
-	"github.com/k0sproject/rig/sh/shellescape"
+	"github.com/k0sproject/rig/v2/sh/shellescape"
 )
 
 // CommandBuilder is a builder for shell commands.

@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/k0sproject/rig/cmd"
-	"github.com/k0sproject/rig/sh"
+	"github.com/k0sproject/rig/v2/cmd"
+	"github.com/k0sproject/rig/v2/sh"
 )
 
 // Launchd is the init system for macOS (and darwin), the implementation is very basic and doesn't handle services in user space.

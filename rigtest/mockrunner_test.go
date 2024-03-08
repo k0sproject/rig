@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/k0sproject/rig/rigtest"
+	"github.com/k0sproject/rig/v2/rigtest"
 	"github.com/stretchr/testify/require"
 )
 

@@ -3,11 +3,11 @@ package rig
 import (
 	"fmt"
 
-	"github.com/k0sproject/rig/localhost"
-	"github.com/k0sproject/rig/openssh"
-	"github.com/k0sproject/rig/protocol"
-	"github.com/k0sproject/rig/ssh"
-	"github.com/k0sproject/rig/winrm"
+	"github.com/k0sproject/rig/v2/localhost"
+	"github.com/k0sproject/rig/v2/openssh"
+	"github.com/k0sproject/rig/v2/protocol"
+	"github.com/k0sproject/rig/v2/ssh"
+	"github.com/k0sproject/rig/v2/winrm"
 )
 
 var _ ConnectionConfigurer = (*CompositeConfig)(nil)

@@ -3,9 +3,9 @@ package os
 import (
 	"context"
 
-	"github.com/k0sproject/rig/cmd"
-	"github.com/k0sproject/rig/kv"
-	"github.com/k0sproject/rig/log"
+	"github.com/k0sproject/rig/v2/cmd"
+	"github.com/k0sproject/rig/v2/kv"
+	"github.com/k0sproject/rig/v2/log"
 )
 
 // ResolveLinux resolves the OS release information for a linux host.

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/k0sproject/rig/cmd"
-	"github.com/k0sproject/rig/plumbing"
+	"github.com/k0sproject/rig/v2/cmd"
+	"github.com/k0sproject/rig/v2/plumbing"
 )
 
 // Service provides a unified interface to interact with different

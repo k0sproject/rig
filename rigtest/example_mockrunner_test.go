@@ -3,7 +3,7 @@ package rigtest_test
 import (
 	"fmt"
 
-	"github.com/k0sproject/rig/rigtest"
+	"github.com/k0sproject/rig/v2/rigtest"
 )
 
 // ExampleMockRunner demonstrates how to mock a connection to match the "ls" command and return a list of fake filenames.

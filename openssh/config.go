@@ -5,8 +5,8 @@ import (
 	"net"
 	"strconv"
 
-	"github.com/k0sproject/rig/homedir"
-	"github.com/k0sproject/rig/protocol"
+	"github.com/k0sproject/rig/v2/homedir"
+	"github.com/k0sproject/rig/v2/protocol"
 )
 
 // Config describes the configuration options for an OpenSSH connection.

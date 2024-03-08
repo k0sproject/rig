@@ -1,6 +1,6 @@
 package winrm
 
-import "github.com/k0sproject/rig/log"
+import "github.com/k0sproject/rig/v2/log"
 
 // Options for WinRM connetion.
 type Options struct {

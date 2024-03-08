@@ -6,8 +6,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/k0sproject/rig/cmd"
-	"github.com/k0sproject/rig/sh"
+	"github.com/k0sproject/rig/v2/cmd"
+	"github.com/k0sproject/rig/v2/sh"
 )
 
 // OpenRC is found on some linux systems, often installed on Alpine for example.

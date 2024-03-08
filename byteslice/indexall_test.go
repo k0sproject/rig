@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/k0sproject/rig/byteslice"
+	"github.com/k0sproject/rig/v2/byteslice"
 	"github.com/stretchr/testify/assert"
 )
 

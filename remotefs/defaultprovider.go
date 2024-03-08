@@ -3,7 +3,7 @@ package remotefs
 import (
 	"sync"
 
-	"github.com/k0sproject/rig/cmd"
+	"github.com/k0sproject/rig/v2/cmd"
 )
 
 // DefaultProvider is the default Repository for remote filesystem implementations.

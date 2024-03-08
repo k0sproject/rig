@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/k0sproject/rig/redact"
+	"github.com/k0sproject/rig/v2/redact"
 	"github.com/stretchr/testify/assert"
 )
 

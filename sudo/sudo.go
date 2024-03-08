@@ -1,8 +1,8 @@
 package sudo
 
 import (
-	"github.com/k0sproject/rig/cmd"
-	"github.com/k0sproject/rig/sh/shellescape"
+	"github.com/k0sproject/rig/v2/cmd"
+	"github.com/k0sproject/rig/v2/sh/shellescape"
 )
 
 // Sudo is a DecorateFunc that will wrap the given command in a sudo call.

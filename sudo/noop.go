@@ -1,7 +1,7 @@
 package sudo
 
 import (
-	"github.com/k0sproject/rig/cmd"
+	"github.com/k0sproject/rig/v2/cmd"
 )
 
 // Noop is a DecorateFunc that will return the given command unmodified.
