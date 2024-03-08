@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/k0sproject/rig/cmd"
+	"github.com/k0sproject/rig/iostream"
 	"github.com/k0sproject/rig/sh/shellescape"
 )
 
@@ -154,7 +155,7 @@ func (f *PosixFile) CopyTo(dst io.Writer) (int64, error) {
 		return 0, f.pathErr(OpCopyTo, fmt.Errorf("%w: file %s is not open for reading", fs.ErrClosed, f.path))
 	}
 	bs, skip, count := f.ddParams(f.pos, int(f.size-f.pos))
-	counter := &ByteCounter{}
+	counter := &iostream.ByteCounter{}
 	writer := io.MultiWriter(dst, counter)
 	err := f.fs.Exec(
 		fmt.Sprintf("dd if=%s bs=%d skip=%d count=%d", shellescape.Quote(f.path), bs, skip, count),
@@ -178,7 +179,7 @@ func (f *PosixFile) CopyFrom(src io.Reader) (int64, error) {
 	if err := f.fs.Truncate(f.Name(), f.pos); err != nil {
 		return 0, f.pathErr(OpCopyFrom, fmt.Errorf("truncate: %w", err))
 	}
-	counter := &ByteCounter{}
+	counter := &iostream.ByteCounter{}
 
 	err := f.fs.Exec(
 		fmt.Sprintf("dd if=/dev/stdin of=%s bs=%d seek=%d conv=notrunc", shellescape.Quote(f.path), f.fsBlockSize(), f.pos),
