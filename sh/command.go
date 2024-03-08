@@ -1,4 +1,4 @@
-// Package sh provides tools to build shell commands.
+// Package sh provides tools to build and manipulate shell commands.
 package sh
 
 import (

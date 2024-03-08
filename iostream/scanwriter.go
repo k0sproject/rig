@@ -82,7 +82,7 @@ func (w *ScanWriter) Err() error {
 	return w.scanner.Err() //nolint:wrapcheck
 }
 
-// Split sets the split function for the scanner. see [bufio.Scanner](https://pkg.go.dev/bufio#Scanner)
+// Split sets the split function for the scanner. see bufio.Scanner https://pkg.go.dev/bufio#Scanner
 func (w *ScanWriter) Split(split bufio.SplitFunc) {
 	w.scanner.Split(split)
 }

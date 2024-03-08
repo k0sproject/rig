@@ -1,4 +1,4 @@
-// Package log provides a simple logging interface for rig
+// Package log contains rig's logging related types, constants and functions.
 package log
 
 import (
