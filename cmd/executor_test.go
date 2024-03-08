@@ -1,4 +1,4 @@
-package rig_test
+package cmd_test
 
 import (
 	"errors"
