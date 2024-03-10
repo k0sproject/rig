@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/k0sproject/rig/v2/cmd"
 	"github.com/k0sproject/rig/v2/log"
@@ -15,6 +16,7 @@ import (
 	"github.com/k0sproject/rig/v2/packagemanager"
 	"github.com/k0sproject/rig/v2/protocol"
 	"github.com/k0sproject/rig/v2/remotefs"
+	"github.com/k0sproject/rig/v2/retry"
 )
 
 // Client is a swiss army knife client that can perform actions and run
@@ -68,7 +70,7 @@ type Client struct {
 //
 // You can unmarshal the configuration and start using the clients on the host objects:
 //
-//	if err := host.Connect(); err != nil {
+//	if err := host.Connect(context.Background()); err != nil {
 //	    log.Fatal(err)
 //	}
 //	out, err := host.ExecOutput("ls")
@@ -97,11 +99,11 @@ func (c *ClientWithConfig) Setup(opts ...ClientOption) error {
 }
 
 // Connect to the host.
-func (c *ClientWithConfig) Connect(opts ...ClientOption) error {
+func (c *ClientWithConfig) Connect(ctx context.Context, opts ...ClientOption) error {
 	if err := c.Setup(opts...); err != nil {
 		return err
 	}
-	return c.Client.Connect()
+	return c.Client.Connect(ctx)
 }
 
 // UnmarshalYAML unmarshals and setups a connection from a YAML configuration.
@@ -219,18 +221,37 @@ func (c *Client) Sudo() *Client {
 	return c.sudoClone
 }
 
-// Connect to the host.
-func (c *Client) Connect() error {
+// Connect to the host. The connection is attempted until the context is done or the
+// protocol implementation returns an error indicating that the connection can't be
+// established by retrying. If a context without a deadline is used, a 10 second
+// timeout is used.
+func (c *Client) Connect(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.connection == nil {
 		return fmt.Errorf("%w: connection not properly intialized", protocol.ErrAbort)
 	}
-	if conn, ok := c.connection.(protocol.Connector); ok {
-		if err := conn.Connect(); err != nil {
-			return fmt.Errorf("client connect: %w", err)
+
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+	}
+
+	err := retry.DoWithContext(ctx, func(ctx context.Context) error {
+		if conn, ok := c.connection.(protocol.ConnectorWithContext); ok {
+			return conn.Connect(ctx) //nolint:wrapcheck // done below
 		}
+		if conn, ok := c.connection.(protocol.Connector); ok {
+			return conn.Connect() //nolint:wrapcheck // done below
+		}
+		return nil
+	}, retry.If(
+		func(err error) bool { return !errors.Is(err, protocol.ErrAbort) },
+	))
+	if err != nil {
+		return fmt.Errorf("client connect: %w", err)
 	}
 
 	return nil

@@ -32,6 +32,11 @@ type Connector interface {
 	Connect() error
 }
 
+// ConnectorWithContext is a connection that can be established in a context aware fashion.
+type ConnectorWithContext interface {
+	Connect(ctx context.Context) error
+}
+
 // Disconnector is a connection that can be closed.
 type Disconnector interface {
 	Disconnect()

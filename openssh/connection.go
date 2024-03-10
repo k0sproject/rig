@@ -134,15 +134,13 @@ func (c *Connection) args() []string {
 }
 
 // Connect connects to the remote host. If multiplexing is enabled, this will start a control master. If multiplexing is disabled, this will just run a noop command to check connectivity.
-func (c *Connection) Connect() error {
+func (c *Connection) Connect(ctx context.Context) error {
 	if c.isConnected {
 		return nil
 	}
 
 	if c.DisableMultiplexing {
 		// just run a noop command to check connectivity
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
 		if _, err := c.StartProcess(ctx, "exit 0", nil, nil, nil); err != nil {
 			return fmt.Errorf("failed to connect: %w", err)
 		}
@@ -162,9 +160,6 @@ func (c *Connection) Connect() error {
 	args = append(args, opts.ToArgs()...)
 	args = append(args, c.args()...)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
 	cmd := exec.CommandContext(ctx, "ssh", args...)
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
@@ -176,14 +171,14 @@ func (c *Connection) Connect() error {
 		_, _ = io.Copy(errBuf, stderr)
 	}()
 
-	log.Trace(context.Background(), "starting ssh control master", log.KeyHost, c, log.KeyCommand, strings.Join(args, " "))
+	log.Trace(ctx, "starting ssh control master", log.KeyHost, c, log.KeyCommand, strings.Join(args, " "))
 	if err := cmd.Run(); err != nil {
 		c.isConnected = false
 		return fmt.Errorf("failed to start ssh multiplexing control master: %w (%s)", err, errBuf.String())
 	}
 
 	c.isConnected = true
-	log.Trace(context.Background(), "started ssh multipliexing control master", log.KeyHost, c)
+	log.Trace(ctx, "started ssh multipliexing control master", log.KeyHost, c)
 
 	return nil
 }

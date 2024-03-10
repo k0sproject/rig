@@ -112,7 +112,9 @@ func TestConnect(t *testing.T) {
 	}
 
 	h := GetHost(t)
-	err := retry(func() error { return h.Connect() })
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	err := h.Connect(ctx)
 	require.NoError(t, err)
 	h.Disconnect()
 }
@@ -144,18 +146,6 @@ func TestFSSuite(t *testing.T) {
 // Host is a host that utilizes rig for connections
 type Host struct {
 	*rig.Client
-}
-
-func retry(fn func() error) error {
-	var err error
-	for i := 0; i < 3; i++ {
-		err = fn()
-		if err == nil {
-			return nil
-		}
-		time.Sleep(2 * time.Second)
-	}
-	return err
 }
 
 func GetHost(t *testing.T, options ...rig.ClientOption) *Host {
@@ -269,7 +259,9 @@ type ConnectedSuite struct {
 }
 
 func (s *ConnectedSuite) SetupSuite() {
-	err := retry(func() error { return s.Host.Connect() })
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	err := s.Host.Connect(ctx)
 	s.Require().NoError(err)
 	if s.sudo {
 		s.fs = s.Host.Sudo().FS()

@@ -1,6 +1,7 @@
 package rig_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/k0sproject/rig/v2"
@@ -19,7 +20,7 @@ func TestClientWithConfigurer(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 
-	require.NoError(t, conn.Connect())
+	require.NoError(t, conn.Connect(context.Background()))
 
 	out, err := conn.ExecOutput("echo hello")
 	require.NoError(t, err)
@@ -33,7 +34,7 @@ func TestClient(t *testing.T) {
 	client, err := rig.NewClient(rig.WithConnection(conn))
 	require.NoError(t, err)
 
-	require.NoError(t, client.Connect())
+	require.NoError(t, client.Connect(context.Background()))
 
 	out, err := client.ExecOutput("echo hello")
 	require.NoError(t, err)
@@ -48,7 +49,7 @@ func TestClientLogging(t *testing.T) {
 	client, err := rig.NewClient(rig.WithConnection(conn), rig.WithLogger(logger))
 	require.NoError(t, err)
 
-	require.NoError(t, client.Connect())
+	require.NoError(t, client.Connect(context.Background()))
 
 	_, _ = client.ExecOutput("echo hello")
 
@@ -93,11 +94,11 @@ func TestConnectionUnmarshal(t *testing.T) {
 	require.Len(t, testConfig.Hosts, 1)
 	conn := testConfig.Hosts[0]
 
-	require.NoError(t, conn.Connect())
+	require.NoError(t, conn.Connect(context.Background()))
 
 	require.Equal(t, "Local", conn.Protocol())
 
-	require.NoError(t, conn.Connect())
+	require.NoError(t, conn.Connect(context.Background()))
 
 	out, err := conn.ExecOutput("echo hello")
 	require.NoError(t, err)
@@ -127,11 +128,11 @@ func TestConfiguredConnectionUnmarshal(t *testing.T) {
 	require.Len(t, testConfig.Hosts, 1)
 	conn := testConfig.Hosts[0]
 
-	require.NoError(t, conn.Connect())
+	require.NoError(t, conn.Connect(context.Background()))
 
 	require.Equal(t, "Local", conn.Protocol())
 
-	require.NoError(t, conn.Connect())
+	require.NoError(t, conn.Connect(context.Background()))
 
 	out, err := conn.ExecOutput("echo hello")
 	require.NoError(t, err)
