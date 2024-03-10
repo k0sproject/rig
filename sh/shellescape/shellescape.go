@@ -2,14 +2,13 @@
 //
 // It is a drop-in replacement for gopkg.in/alessio/shellescape.v1.
 //
-// There are no regular expressions and it avoids allocations by using a strings.Builder.
-//
-// Additionally an Unquote function is provider.
+// Additionally an Unquote function is provided.
 package shellescape
 
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // classify returns whether the string is empty, contains single quotes, or contains special characters.
@@ -43,14 +42,22 @@ func wrapTo(str string, builder *strings.Builder) {
 
 // wrap in single quotes and escape single quotes and backslashes.
 func escapeTo(str string, builder *strings.Builder) {
-	builder.Grow(len(str) + 3) // there will be at least 1 extra char and 2 quotes
+	builder.Grow(len(str) + 10)
 	builder.WriteByte('\'')
-	for _, c := range str {
+	for _, c := range str { //nolint:varnamelen
 		if c == '\'' {
+			// quoting single quotes requires 4 extra chars, assume there's a closing quote too
+			builder.Grow(10)
 			builder.WriteString(`'"'"'`)
 			continue
 		}
-		builder.WriteRune(c)
+		// According to strings.Map source code, this is faster than
+		// always using WriteRune.
+		if c < utf8.RuneSelf {
+			builder.WriteByte(byte(c))
+		} else {
+			builder.WriteRune(c)
+		}
 	}
 	builder.WriteByte('\'')
 }
@@ -101,7 +108,7 @@ func Join(args ...string) string { //nolint:cyclop
 		size += len(arg)
 	}
 	size += len(args) - 1 // for spaces
-	builder.Grow(size)
+	builder.Grow(size*2) // reserve space for escapes.
 	for i, arg := range args {
 		empty, singleQ, special := classify(arg)
 		switch {
@@ -126,18 +133,21 @@ func QuoteCommand(args []string) string {
 	return Join(args...)
 }
 
+func isPrint(r rune) rune {
+	if unicode.IsPrint(r) {
+		return r
+	}
+
+	return -1
+}
+
 // StripUnsafe removes non-printable runes from a string.
 func StripUnsafe(s string) string {
-	builder, ok := builderPool.Get().(*strings.Builder)
-	if !ok {
-		builder = &strings.Builder{}
-	}
-	defer builderPool.Put(builder)
-	defer builder.Reset()
 	for _, r := range s {
-		if unicode.IsPrint(r) {
-			builder.WriteRune(r)
+		if isPrint(r) == -1 {
+			// Avoid allocations by only stripping when the string contains non-printable runes.
+			return strings.Map(isPrint, s)
 		}
 	}
-	return builder.String()
+	return s
 }
