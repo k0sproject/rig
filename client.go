@@ -221,6 +221,16 @@ func (c *Client) Sudo() *Client {
 	return c.sudoClone
 }
 
+func (c *Client) connect(ctx context.Context) error {
+	if conn, ok := c.connection.(protocol.ConnectorWithContext); ok {
+		return conn.Connect(ctx) //nolint:wrapcheck // done below
+	}
+	if conn, ok := c.connection.(protocol.Connector); ok {
+		return conn.Connect() //nolint:wrapcheck // done below
+	}
+	return nil
+}
+
 // Connect to the host. The connection is attempted until the context is done or the
 // protocol implementation returns an error indicating that the connection can't be
 // established by retrying. If a context without a deadline is used, a 10 second
@@ -239,14 +249,15 @@ func (c *Client) Connect(ctx context.Context) error {
 		defer cancel()
 	}
 
-	err := retry.DoWithContext(ctx, func(ctx context.Context) error {
-		if conn, ok := c.connection.(protocol.ConnectorWithContext); ok {
-			return conn.Connect(ctx) //nolint:wrapcheck // done below
-		}
-		if conn, ok := c.connection.(protocol.Connector); ok {
-			return conn.Connect() //nolint:wrapcheck // done below
+	if !c.options.ShouldRetry() {
+		if err := c.connect(ctx); err != nil {
+			return fmt.Errorf("client connect: %w", err)
 		}
 		return nil
+	}
+
+	err := retry.DoWithContext(ctx, func(ctx context.Context) error {
+		return c.connect(ctx)
 	}, retry.If(
 		func(err error) bool { return !errors.Is(err, protocol.ErrAbort) },
 	))

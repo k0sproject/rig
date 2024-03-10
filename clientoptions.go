@@ -30,6 +30,7 @@ type ClientOptions struct {
 	connection           protocol.Connection
 	connectionConfigurer ConnectionConfigurer
 	runner               cmd.Runner
+	retryConnection      bool
 	providersContainer
 }
 
@@ -114,6 +115,11 @@ func (o *ClientOptions) Clone() *ClientOptions {
 		runner:               o.runner,
 		providersContainer:   o.providersContainer,
 	}
+}
+
+// ShouldRetry returns whether the connection should be retried.
+func (o *ClientOptions) ShouldRetry() bool {
+	return o.retryConnection
 }
 
 // GetConnection returns the connection to use for the rig client. If no connection is set, it will use the ConnectionConfigurer to create one.
@@ -214,11 +220,19 @@ func WithSudoProvider(provider sudo.SudoProvider) ClientOption {
 	}
 }
 
+// WithRetry is a functional option that toggles the connection retry feature. Default is true.
+func WithRetry(retry bool) ClientOption {
+	return func(o *ClientOptions) {
+		o.retryConnection = retry
+	}
+}
+
 // DefaultClientOptions returns a new Options struct with the default options applied.
 func DefaultClientOptions() *ClientOptions {
 	return &ClientOptions{
 		connectionConfigurer: defaultConnectionConfigurer(),
 		providersContainer:   defaultProviders(),
+		retryConnection:      true,
 	}
 }
 
