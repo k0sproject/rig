@@ -100,7 +100,7 @@ func (c *ClientWithConfig) Setup(opts ...ClientOption) error {
 
 // Connect to the host.
 func (c *ClientWithConfig) Connect(ctx context.Context, opts ...ClientOption) error {
-	if err := c.Setup(opts...); err != nil {
+	if err := c.Setup(opts...); err != nil { //nolint:contextcheck // it's the trace logger
 		return err
 	}
 	return c.Client.Connect(ctx)

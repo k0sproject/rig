@@ -8,7 +8,7 @@ import (
 	"github.com/k0sproject/rig/v2/homedir"
 	"github.com/k0sproject/rig/v2/log"
 	"github.com/k0sproject/rig/v2/protocol"
-	"github.com/k0sproject/rig/v2/ssh"
+	"github.com/k0sproject/rig/v2/protocol/ssh"
 )
 
 // Config describes the configuration options for a WinRM connection.

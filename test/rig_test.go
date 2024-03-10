@@ -18,13 +18,13 @@ import (
 	"time"
 
 	"github.com/k0sproject/rig/v2"
-	"github.com/k0sproject/rig/v2/localhost"
-	"github.com/k0sproject/rig/v2/openssh"
 	"github.com/k0sproject/rig/v2/protocol"
+	"github.com/k0sproject/rig/v2/protocol/localhost"
+	"github.com/k0sproject/rig/v2/protocol/openssh"
+	"github.com/k0sproject/rig/v2/protocol/ssh"
+	"github.com/k0sproject/rig/v2/protocol/winrm"
 	"github.com/k0sproject/rig/v2/remotefs"
-	"github.com/k0sproject/rig/v2/ssh"
 	"github.com/k0sproject/rig/v2/stattime"
-	"github.com/k0sproject/rig/v2/winrm"
 	"github.com/kevinburke/ssh_config"
 
 	"github.com/stretchr/testify/require"
