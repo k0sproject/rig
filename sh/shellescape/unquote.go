@@ -14,7 +14,7 @@ var (
 		},
 	}
 
-	// ErrMismatchedQuotes is returned when the input string has mismatched quotes.
+	// ErrMismatchedQuotes is returned when the input string has mismatched quotes when unquoting.
 	ErrMismatchedQuotes = errors.New("mismatched quotes")
 )
 

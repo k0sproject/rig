@@ -1,6 +1,7 @@
 package kv_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/k0sproject/rig/v2/kv"
@@ -84,4 +85,13 @@ func TestSplitS(t *testing.T) {
 			}
 		})
 	}
+}
+
+func ExampleSplitRune() {
+	key, value, _ := kv.SplitRune(`key="value in quotes"`, '=')
+	fmt.Println("key:", key)
+	fmt.Println("value:", value)
+	// Output:
+	// key: key
+	// value: value in quotes
 }

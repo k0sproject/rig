@@ -5,7 +5,8 @@ import (
 	"github.com/k0sproject/rig/v2/sh/shellescape"
 )
 
-// CommandBuilder is a builder for shell commands.
+// CommandBuilder is a builder for shell commands. It is based on string and can be
+// converted to one using string(CommandBuilder("foo")) or calling the String method.
 type CommandBuilder string
 
 // String returns the command as a string.
@@ -66,7 +67,8 @@ func (c CommandBuilder) AppendErrToFile(file string) CommandBuilder {
 	return CommandBuilder(c.String() + " 2>>" + shellescape.Quote(file))
 }
 
-// Raw adds a raw string to the command without shell escaping.
+// Raw adds a raw string to the command without shell escaping. This
+// is needed when you want to use shell operators, globbing or variables.
 func (c CommandBuilder) Raw(arg string) CommandBuilder {
 	return CommandBuilder(c.String() + " " + arg)
 }
@@ -74,10 +76,6 @@ func (c CommandBuilder) Raw(arg string) CommandBuilder {
 // Quote returns a shell escaped string.
 // This is a wrapper around shellescape.Quote and
 // it is here to avoid importing shellescape separately.
-//
-// Example:
-//
-//	c.Exec(fmt.Sprintf("echo %s", sh.Quote("hello world"))
 func Quote(s string) string {
 	return shellescape.Quote(s)
 }

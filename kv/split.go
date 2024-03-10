@@ -1,4 +1,5 @@
-// Package kv is for working with key-value pairs often found in configuration files.
+// Package kv is for working with key-value pair files and strings often found in configuration files,
+// environment variables, and other sources.
 package kv
 
 import (

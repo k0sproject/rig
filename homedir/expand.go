@@ -1,6 +1,5 @@
 //go:build !windows
 
-// Package homedir provides functions for getting the user's home directory in Go.
 package homedir
 
 import (

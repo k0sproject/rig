@@ -17,9 +17,11 @@ import (
 
 var (
 	// ErrAbort is returned when retrying an action will not yield a different outcome.
+	// An alias of protocol.ErrAbort for easier access without importing subpackages.
 	ErrAbort = protocol.ErrAbort
 
 	// ErrValidationFailed is returned when a validation check fails.
+	// An alias of protocol.ErrValidationFailed for easier access without importing subpackages.
 	ErrValidationFailed = protocol.ErrValidationFailed
 )
 

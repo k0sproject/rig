@@ -21,28 +21,80 @@ type CompositeConfig struct {
 	Localhost bool            `yaml:"localhost,omitempty"`
 }
 
+type oldLocalhost struct {
+	Enabled bool `yaml:"enabled"`
+}
+
+// intermediary structure for handling both the old v0.x and the new format
+// for localhost.
+type compositeConfigIntermediary struct {
+	SSH       *ssh.Config     `yaml:"ssh,omitempty"`
+	WinRM     *winrm.Config   `yaml:"winRM,omitempty"`
+	OpenSSH   *openssh.Config `yaml:"openSSH,omitempty"`
+	Localhost any             `yaml:"localhost,omitempty"`
+}
+
+// UnmarshalYAML implements the yaml.Unmarshaler interface.
+func (c *CompositeConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	var intermediary compositeConfigIntermediary
+	if err := unmarshal(&intermediary); err != nil {
+		return err
+	}
+
+	c.SSH = intermediary.SSH
+	c.WinRM = intermediary.WinRM
+	c.OpenSSH = intermediary.OpenSSH
+
+	if intermediary.Localhost != nil {
+		switch v := intermediary.Localhost.(type) {
+		case bool:
+			c.Localhost = v
+		case oldLocalhost:
+			c.Localhost = v.Enabled
+		default:
+			return fmt.Errorf("unmarshal localhost - invalid type %T: %w", v, protocol.ErrValidationFailed)
+		}
+	}
+
+	return nil
+}
+
 func (c *CompositeConfig) configuredConfig() (ConnectionConfigurer, error) {
+	var configurer ConnectionConfigurer
+	count := 0
+
 	if c.WinRM != nil {
-		return c.WinRM, nil
+		configurer = c.WinRM
+		count++
 	}
 
 	if c.SSH != nil {
-		return c.SSH, nil
+		configurer = c.SSH
+		count++
 	}
 
 	if c.OpenSSH != nil {
-		return c.OpenSSH, nil
+		configurer = c.OpenSSH
+		count++
 	}
 
 	if c.Localhost {
+		count++
 		conn, err := localhost.NewConnection()
 		if err != nil {
 			return nil, fmt.Errorf("create localhost connection: %w", err)
 		}
-		return conn, nil
+		configurer = conn
 	}
 
-	return nil, fmt.Errorf("%w: no protocol configuration", protocol.ErrValidationFailed)
+	switch count {
+	case 0:
+		return nil, fmt.Errorf("%w: no protocol configuration", protocol.ErrValidationFailed)
+	case 1:
+		return configurer, nil
+	default:
+		return nil, fmt.Errorf("%w: multiple protocols configured for a single client", protocol.ErrValidationFailed)
+	}
 }
 
 type validatable interface {

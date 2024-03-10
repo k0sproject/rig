@@ -1,4 +1,4 @@
-// Package homedir provides functions for getting the user's home directory in Go.
+// Package homedir provides functions for expanding paths like ~/.ssh.
 package homedir
 
 import (

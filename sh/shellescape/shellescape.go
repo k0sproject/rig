@@ -1,11 +1,15 @@
 // Package shellescape provides functions to escape strings for use in posix shell commands.
 //
-// It is a drop-in replacement for gopkg.in/alessio/shellescape.v1 except for StripUnsafe.
+// It is a drop-in replacement for gopkg.in/alessio/shellescape.v1.
+//
 // There are no regular expressions and it avoids allocations by using a strings.Builder.
+//
+// Additionally an Unquote function is provider.
 package shellescape
 
 import (
 	"strings"
+	"unicode"
 )
 
 // classify returns whether the string is empty, contains single quotes, or contains special characters.
@@ -120,4 +124,20 @@ func Join(args ...string) string { //nolint:cyclop
 // QuoteCommand safely quotes and joins a list of strings for use as a shell command.
 func QuoteCommand(args []string) string {
 	return Join(args...)
+}
+
+// StripUnsafe removes non-printable runes from a string.
+func StripUnsafe(s string) string {
+	builder, ok := builderPool.Get().(*strings.Builder)
+	if !ok {
+		builder = &strings.Builder{}
+	}
+	defer builderPool.Put(builder)
+	defer builder.Reset()
+	for _, r := range s {
+		if unicode.IsPrint(r) {
+			builder.WriteRune(r)
+		}
+	}
+	return builder.String()
 }

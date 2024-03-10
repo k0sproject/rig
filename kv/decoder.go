@@ -179,6 +179,7 @@ func (ra *reflectAssigner) setupCatchAll(field reflect.Value) error {
 	return nil
 }
 
+// TODO There could be a "true" option in the tag that would set which value means true.
 func parseBool(str string) bool {
 	switch str {
 	case "1", "true", "TRUE", "True", "on", "ON", "On", "yes", "YES", "Yes", "y", "Y":
@@ -334,15 +335,47 @@ func (ra *reflectAssigner) assign(key, value string) error {
 // Decoder is a decoder for key-value pairs, similar to the encoding/json package.
 // You can use struct tags to customize the decoding process.
 //
-// The tag format is `kv:"key,option1,option2"`.
+// The tag format is:
 //
-// The key is the key in the key-value pair. If the key is empty, the field name is used.
-// If the key is "-", the field is ignored.
-// If the key is "*", the field is a map of string to string and will catch all keys that are not explicitly defined.
+//	Field type `kv:"key_name,option1,option2"`.
+//
+// The key_name is the key in the key-value pair.
+//
+//   - If the key is empty, the field name is used.
+//   - If the key is '-', the field is ignored.
+//   - If the key is '*' and the field is a map[string]string, it will catch all the keys that are not matched by the other tags.
 //
 // The options are:
-// - ignorecase: the key is matched case-insensitively
-// - delim: when the field is a slice, the value is split by the specified delimiter.
+//
+//   - ignorecase: the key is matched case-insensitively
+//   - delim: when the field is a slice, the value is split by the specified delimiter. Default is ','.
+//
+// Given a struct like this:
+//
+//	type Config struct {
+//	  Host string `kv:"host"`
+//	  Port  int `kv:"port"`
+//	  Enabled bool `kv:"enabled"`
+//	  Options []string `kv:"options,delim=|"`
+//	  Extra map[string]string `kv:"*"`
+//	}
+//
+// And having data like this in config.txt:
+//
+//	host=10.0.0.1
+//	port=8080
+//	enabled=true
+//	options=opt1|opt2|opt3
+//	hostname=example.com
+//
+// Once decoded, you will get the Config fields set like this:
+//
+//   - Host: "10.0.0.1" (string)
+//   - Port: 8080 (int)
+//   - Enabled: true (bool). The values parsed as "true" for booleans are:
+//     "1", "true", "TRUE", "True", "on", "ON", "On", "yes", "YES", "Yes", "y" and "Y"
+//   - Options: []string{"opt1", "opt2", "opt3"}
+//   - Extra: map[string]string{"hostname": "example.com"}
 type Decoder struct {
 	r            io.Reader
 	rdelim       byte

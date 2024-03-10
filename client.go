@@ -1,5 +1,20 @@
 // Package rig provides an easy way to add multi-protocol connectivity and
-// multi-os operation support to your application's Host objects
+// multi-os operation support to your application's Host objects by
+// embedding or directly using the Client or Connection objects.
+//
+// Rig's core functionality revolves around providing a unified interface
+// for interacting with remote systems. This includes managing services,
+// file systems, package managers, and getting OS release information,
+// abstracting away the intricacies of different operating systems and
+// communication protocols.
+//
+// The protocol implementations aim to provide out-of-the-box default
+// behavior similar to what you would expect when using the official
+// clients like openssh "ssh" command instead of having to deal with
+// implementing ssh config parsing, key managemnt, agent forwarding
+// and so on yourself.
+//
+// To get started, see [Client]
 package rig
 
 import (
@@ -29,6 +44,11 @@ import (
 // interface to the host's operating system's basic functions in a
 // similar manner as the stdlib's os package does for the local system,
 // for example chmod, stat, and so on.
+//
+// The easiest way to set up a client instance is through a protocol
+// config struct, like [protocol/ssh.Config]
+// or the unified [CompositeConfig] and then use the [NewClient]
+// function to create a new client.
 type Client struct {
 	options *ClientOptions
 
@@ -52,7 +72,8 @@ type Client struct {
 	sudoClone *Client
 }
 
-// ClientWithConfig is a Client that is suitable for embedding into something that is unmarshalled from YAML.
+// ClientWithConfig is a [Client] that is suitable for embedding into
+// a host object that is unmarshalled from YAML configuration.
 //
 // When embedded into a "host" object like this:
 //
@@ -61,7 +82,7 @@ type Client struct {
 //	  // ...
 //	}
 //
-// And a configuration YAML like this:
+// And having a configuration YAML like this:
 //
 //	hosts:
 //	- ssh:
@@ -75,7 +96,7 @@ type Client struct {
 //	}
 //	out, err := host.ExecOutput("ls")
 //
-// The available protocols are defined in the CompositeConfig struct.
+// The available protocols are defined in the [CompositeConfig] struct.
 type ClientWithConfig struct {
 	mu               sync.Mutex
 	ConnectionConfig CompositeConfig `yaml:",inline"`
@@ -98,7 +119,11 @@ func (c *ClientWithConfig) Setup(opts ...ClientOption) error {
 	return nil
 }
 
-// Connect to the host.
+// Connect to the host. Unlike in [Client.Connect], the Connect method here
+// accepts a variadic list of options similar to [NewClient]. This is to
+// allow configuring the connection before connecting, since you won't
+// be calling [NewClient] to create the [ClientWithConfig] instance when
+// unmarshalling from a configuration file.
 func (c *ClientWithConfig) Connect(ctx context.Context, opts ...ClientOption) error {
 	if err := c.Setup(opts...); err != nil { //nolint:contextcheck // it's the trace logger
 		return err
@@ -106,7 +131,8 @@ func (c *ClientWithConfig) Connect(ctx context.Context, opts ...ClientOption) er
 	return c.Client.Connect(ctx)
 }
 
-// UnmarshalYAML unmarshals and setups a connection from a YAML configuration.
+// UnmarshalYAML implements the yaml.Unmarshaler interface, it unmarshals and
+// sets up a connection from a YAML configuration.
 func (c *ClientWithConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	type configuredConnection ClientWithConfig
 	conn := (*configuredConnection)(c)
@@ -118,12 +144,31 @@ func (c *ClientWithConfig) UnmarshalYAML(unmarshal func(interface{}) error) erro
 
 // NewClient returns a new Connection object with the given options.
 //
-// You must use either WithConnection or WithConnectionConfigurer to provide a connection or
-// a way to configure a connection for the client.
+// You must use either WithConnection to provide a pre-configured connection
+// or WithConnectionConfigurer to provide a connection configurer.
 //
-// An example SSH connection:
+// An example SSH connection via ssh.Config::
 //
 //	client, err := rig.NewClient(WithConnectionConfigurer(&ssh.Config{Address: "10.0.0.1"}))
+//
+// Using the [CompositeConfig] struct:
+//
+//	client, err := rig.NewClient(WithConnectionConfigurer(&rig.CompositeConfig{SSH: &ssh.Config{...}}))
+//
+// If you want to use a pre-configured connection, you can use WithConnection:
+//
+//	conn, err := ssh.NewConnection(ssh.Config{...})
+//	client, err := rig.NewClient(WithConnection(conn))
+//
+// Once you have a client, you can use it to interact with the remote host.
+//
+//	err := client.Connect(context.Background())
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	out, err := client.ExecOutput("ls")
+//
+// To see all of the available ways to run commands, see [cmd.Executor].
 func NewClient(opts ...ClientOption) (*Client, error) {
 	options := NewClientOptions(opts...)
 	if err := options.Validate(); err != nil {
@@ -187,8 +232,8 @@ func (c *Client) Service(name string) (*Service, error) {
 	return &Service{runner: c.Runner, initsys: is, name: name}, nil
 }
 
-// String returns a printable representation of the connection, which will look
-// like: `[ssh] address:port`
+// String returns a printable representation of the connection, which will usually look
+// something like: `address:port` or `user@address:port`.
 func (c *Client) String() string {
 	if c.connection == nil {
 		if c.connectionConfigurer == nil {
@@ -294,7 +339,10 @@ func (c *Client) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.
 	return errInteractiveNotSupported
 }
 
-// FS returns a fs.FS compatible filesystem interface for accessing files on the host.
+// The service Getters would be available and working via the embedding alrady, but the
+// accessors are provided here directly on the Client mainly for discoverability in docs.
+
+// FS returns an fs.FS compatible filesystem interface for accessing files on the host.
 //
 // If the filesystem can't be accessed, a filesystem that returns an error for all operations is returned
 // instead. If you need to handle the error, you can use c.RemoteFSService.GetFS() directly.

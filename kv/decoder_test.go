@@ -1,6 +1,7 @@
 package kv_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -122,4 +123,39 @@ func TestDecoderWithStruct(t *testing.T) {
 			assert.False(t, target.Key3)
 		})
 	})
+}
+
+func ExampleDecoder() {
+	type testStruct struct {
+		Key1     string            `kv:"key1"`
+		Key2     int               `kv:"key2"`
+		Key3     []string          `kv:"key3,delim:/"`
+		CatchAll map[string]string `kv:"*"`
+	}
+	target := testStruct{}
+	data := "key1=value1\nkey2=42\nkey3=foo/bar\nexample=example-catch-all"
+	decoder := kv.NewDecoder(strings.NewReader(data))
+	err := decoder.Decode(&target)
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println("* Input data:")
+	fmt.Println(data)
+	fmt.Println()
+	fmt.Println("String value:", target.Key1)
+	fmt.Println("Int value:", target.Key2)
+	fmt.Println("Slice of strings:", target.Key3)
+	fmt.Println("Catch all:", target.CatchAll["example"])
+
+	// Output:
+	// * Input data:
+	// key1=value1
+	// key2=42
+	// key3=foo/bar
+	// example=example-catch-all
+	//
+	// String value: value1
+	// Int value: 42
+	// Slice of strings: [foo bar]
+	// Catch all: example-catch-all
 }
