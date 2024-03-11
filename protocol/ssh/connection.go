@@ -34,6 +34,8 @@ type Connection struct {
 	log.LoggerInjectable `yaml:"-"`
 	Config               `yaml:",inline"`
 
+	options *Options
+
 	alias string
 	name  string
 
@@ -41,6 +43,8 @@ type Connection struct {
 	once      sync.Once
 
 	client *ssh.Client
+
+	done chan struct{}
 
 	keyPaths []string
 }
@@ -51,7 +55,7 @@ func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
 	options.InjectLoggerTo(cfg, log.KeyProtocol, "ssh-config")
 	cfg.SetDefaults()
 
-	c := &Connection{Config: cfg}
+	c := &Connection{Config: cfg, options: options}
 	options.InjectLoggerTo(c, log.KeyProtocol, "ssh")
 
 	return c, nil
@@ -187,6 +191,15 @@ func (c *Connection) IPAddress() string {
 	return c.Address
 }
 
+// IsConnected returns true if the connection is open.
+func (c *Connection) IsConnected() bool {
+	if c.client == nil || c.client.Conn == nil {
+		return false
+	}
+	_, _, err := c.client.Conn.SendRequest("keepalive@rig", true, nil)
+	return err == nil
+}
+
 // SSHConfigGetAll by default points to ssh_config package's GetAll() function
 // you can override it with your own implementation for testing purposes.
 var SSHConfigGetAll = ssh_config.GetAll
@@ -211,6 +224,9 @@ func (c *Connection) String() string {
 func (c *Connection) Disconnect() {
 	if c.client == nil {
 		return
+	}
+	if c.options.KeepAliveInterval != nil {
+		close(c.done)
 	}
 	c.client.Close()
 }
@@ -414,7 +430,32 @@ func (c *Connection) connectViaBastion(dst string, config *ssh.ClientConfig) err
 	}
 	c.client = ssh.NewClient(client, chans, reqs)
 
+	c.startKeepalive()
+
 	return nil
+}
+
+func (c *Connection) startKeepalive() {
+	if c.options.KeepAliveInterval == nil {
+		return
+	}
+
+	c.done = make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(*c.options.KeepAliveInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if !c.IsConnected() {
+					close(c.done)
+					return
+				}
+			case <-c.done:
+				return
+			}
+		}
+	}()
 }
 
 // Connect opens the SSH connection.
@@ -440,6 +481,9 @@ func (c *Connection) Connect() error {
 		return fmt.Errorf("ssh dial: %w", err)
 	}
 	c.client = clientDirect
+
+	c.startKeepalive()
+
 	return nil
 }
 
