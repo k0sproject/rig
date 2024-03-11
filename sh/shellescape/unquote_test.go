@@ -34,6 +34,12 @@ func TestUnquote(t *testing.T) {
 			wantErr:    false,
 		},
 		{
+			name:       "Double quotes inside single quotes",
+			input:      `'value "with" quotes'`,
+			wantOutput: `value "with" quotes`,
+			wantErr:    false,
+		},
+		{
 			name:       "Single Quoted And Non-Quoted",
 			input:      `'value 'with' quotes'`,
 			wantOutput: `value with quotes`,

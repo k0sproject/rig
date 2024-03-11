@@ -10,7 +10,7 @@ import (
 	"runtime"
 
 	"github.com/k0sproject/rig/v2/protocol"
-	"github.com/mattn/go-shellwords"
+	"github.com/k0sproject/rig/v2/sh/shellescape"
 )
 
 // Connection is a direct localhost connection.
@@ -132,8 +132,7 @@ func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr
 		Dir:   cwd,
 	}
 
-	// TODO shellwords local implementation (sh/shellescape.Split)
-	parts, err := shellwords.Parse(cmd)
+	parts, err := shellescape.Split(cmd)
 	if err != nil {
 		return fmt.Errorf("failed to parse command: %w", err)
 	}

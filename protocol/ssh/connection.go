@@ -21,8 +21,8 @@ import (
 	"github.com/k0sproject/rig/v2/protocol"
 	"github.com/k0sproject/rig/v2/protocol/ssh/agent"
 	"github.com/k0sproject/rig/v2/protocol/ssh/hostkey"
+	"github.com/k0sproject/rig/v2/sh/shellescape"
 	"github.com/kevinburke/ssh_config"
-	"github.com/mattn/go-shellwords"
 	ssh "golang.org/x/crypto/ssh"
 	"golang.org/x/term"
 )
@@ -315,7 +315,7 @@ func (c *Connection) hostkeyCallback() (ssh.HostKeyCallback, error) {
 	kfs := c.getConfigAll("UserKnownHostsFile")
 	// splitting the result as for some reason ssh_config sometimes seems to
 	// return a single string containing space separated paths
-	if files, err := shellwords.Parse(strings.Join(kfs, " ")); err == nil {
+	if files, err := shellescape.Split(strings.Join(kfs, " ")); err == nil {
 		for _, f := range files {
 			log.Trace(context.Background(), "trying known_hosts file from ssh config", log.KeyHost, c, log.KeyFile, f)
 			exp, err := homedir.Expand(f)
