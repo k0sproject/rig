@@ -16,6 +16,9 @@ var (
 
 	// ErrMismatchedQuotes is returned when the input string has mismatched quotes when unquoting.
 	ErrMismatchedQuotes = errors.New("mismatched quotes")
+
+	// ErrTrailingBackslash is returned when the input string ends with a trailing backslash.
+	ErrTrailingBackslash = errors.New("trailing backslash")
 )
 
 // Unquote is a mostly POSIX compliant implementation of unquoting a string the same way a shell would.
@@ -65,6 +68,10 @@ func Unquote(input string) (string, error) { //nolint:cyclop
 
 	if inDoubleQuotes || inSingleQuotes {
 		return "", fmt.Errorf("unquote `%q`: %w", input, ErrMismatchedQuotes)
+	}
+
+	if isEscaped {
+		return "", fmt.Errorf("unquote `%q`: %w", input, ErrTrailingBackslash)
 	}
 
 	return sb.String(), nil
