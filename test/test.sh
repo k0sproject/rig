@@ -271,6 +271,8 @@ rig_test_openssh_client() {
   echo "  Port $(ssh_port node0)" >> .ssh/config
   echo "  User root" >> .ssh/config
   echo "  IdentityFile $(pwd)/.ssh/identity" >> .ssh/config
+  echo "  UserKnownHostsFile /dev/null" >> .ssh/config
+  echo "  StrictHostKeyChecking no" >> .ssh/config
   cat .ssh/config
   set +e
   go test -v ./ -args -ssh-configpath .ssh/config -host testhost -protocol openssh -user ""
@@ -287,6 +289,8 @@ rig_test_openssh_client_no_multiplex() {
   echo "  Port $(ssh_port node0)" >> .ssh/config
   echo "  User root" >> .ssh/config
   echo "  IdentityFile $(pwd)/.ssh/identity" >> .ssh/config
+  echo "  UserKnownHostsFile /dev/null" >> .ssh/config
+  echo "  StrictHostKeyChecking no" >> .ssh/config
   cat .ssh/config
   set +e
   go test -v ./ -args -ssh-configpath .ssh/config -host testhost -protocol openssh -user "" -openssh-multiplex=false

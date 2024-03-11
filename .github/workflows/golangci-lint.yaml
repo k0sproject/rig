@@ -32,18 +32,6 @@ jobs:
           go-version-file: go.mod
           check-latest: true
 
-      - name: Go modules cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-            ~/Library/Caches/go-build
-            %LocalAppData%\go-build
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-
       - name: Check go.mod/go.sum to be consistent
         run: go mod tidy -v && git diff --exit-code
 

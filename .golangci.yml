@@ -12,12 +12,12 @@ run:
 linters:
   enable-all: true
   disable:
+    - nonamedreturns
     - exhaustivestruct
     - exhaustruct
     - forbidigo
-    - gochecknoglobals
     - gochecknoinits
-    - godot
+    - gochecknoglobals
     - godox
     - golint
     - interfacer
@@ -56,6 +56,11 @@ linters-settings:
       - mu sync.Mutex
       - wg sync.WaitGroup
       - h Host
+      - fs FS
+      - fs remotefs.FS
+      - sb strings.Builder
+      - sb *strings.Builder
+      - s string
   cyclop:
     max-complexity: 12
 

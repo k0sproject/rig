@@ -1,20 +1,17 @@
-module github.com/k0sproject/rig
+module github.com/k0sproject/rig/v2
 
 go 1.21
 
 require (
 	github.com/Microsoft/go-winio v0.6.1
-	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d
-	github.com/alessio/shellescape v1.4.2
-	github.com/creasty/defaults v1.7.0
 	github.com/davidmz/go-pageant v1.0.2
 	github.com/kevinburke/ssh_config v1.2.0
 	github.com/masterzen/winrm v0.0.0-20231128182143-52a9e15d5730
 	github.com/mattn/go-shellwords v1.0.12
-	github.com/mitchellh/go-homedir v1.1.0
 	github.com/stretchr/testify v1.9.0
 	golang.org/x/crypto v0.21.0
 	golang.org/x/term v0.18.0
+	gopkg.in/yaml.v2 v2.2.2
 )
 
 require (

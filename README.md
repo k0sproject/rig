@@ -1,4 +1,13 @@
+**Note:** The main branch contains a work in progress for rig v2. If you are looking for the stable version, please browse the tags of v0.x releases.
+
 ### Rig
+
+[![GoDoc](https://godoc.org/github.com/k0sproject/rig?status.svg)](https://godoc.org/github.com/k0sproject/rig)
+[![Go Report Card](https://goreportcard.com/badge/github.com/k0sproject/rig)](https://goreportcard.com/report/github.com/k0sproject/rig)
+[![Build Status](https://travis-ci.com/k0sproject/rig.svg?branch=main)](https://travis-ci.com/k0sproject/rig)
+[![codecov](https://codecov.io/gh/k0sproject/rig/branch/main/graph/badge.svg)](https://codecov.io/gh/k0sproject/rig)
+
+<img src=".github/logo.webp" alt="Rig" width="200" align="left"/>
 
 A golang package for adding multi-protocol connectivity and multi-os operation functionality to your application's Host objects.
 
@@ -6,74 +15,20 @@ A golang package for adding multi-protocol connectivity and multi-os operation f
 
 Rig's intention is to be easy to use and extend.
 
-It should be easy to add support for new operating systems and to add new commands to the multi-os support mechanism without breaking go's type checking.
-
-All of the relevant structs have YAML tags and default values to make unmarshaling from YAML configurations as easy as possible.
+It should be easy to add support for new operating systems and to add new components to the multi-os support mechanism without breaking type safety and testability.
 
 #### Protocols
 
 Currently rig comes with the most common ways to connect to hosts:
 
-- SSH for connecting to hosts that accept SSH connections. **Pageant**
-or [**openssh agent**](https://docs.microsoft.com/en-us/windows-server/administration/openssh/openssh_install_firstuse)
+- SSH for connecting to hosts that accept SSH connections. With ssh agent and config support and sane familiar defaults. Pageant
+or [openssh agent](https://docs.microsoft.com/en-us/windows-server/administration/openssh/openssh_install_firstuse)
 can be used on Windows.
+- OpenSSH for connecting to hosts using the system's own openssh "ssh" executable and utilizing session multiplexing for performance.
 - WinRM as an alternative to SSH for windows hosts (SSH works too)
-- Local for treating the localhost as it was one of the remote hosts
+- Localhost for treating the local host as it was a remote host using go's os/exec.
 
 #### Usage
 
-The intended way to use rig is to embed the `rig.Connection` struct into your own.
+TBD - for now see godoc, tests and sources.
 
-Example:
-
-```go
-package main
-
-import "github.com/k0sproject/rig"
-
-type host struct {
-  rig.Connection
-}
-
-func main() {
-  h := host{
-    connection: rig.Connection{
-      SSH: &rig.SSH{
-        Address: 10.0.0.1
-      }
-    }
-  }
-
-  if err := h.Connect(); err != nil {
-    panic(err)
-  }
-
-  output, err := h.ExecOutput("ls -al")
-  if err != nil {
-    panic(err)
-  }
-  println(output)
-}
-```
-
-But of course you can use it directly on its own too:
-
-```go
-package main
-
-import "github.com/k0sproject/rig"
-
-func main() {
-  h := rig.Connection{
-    SSH: &rig.SSH{
-      Address: 10.0.0.1
-    }
-  }
-
-  if err := h.Connect(); err != nil {
-    panic(err)
-  }
-}
-```
-
-See more usage examples in the [examples/](examples/) directory.
