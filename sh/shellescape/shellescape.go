@@ -107,8 +107,10 @@ func Join(args ...string) string { //nolint:cyclop
 	for _, arg := range args {
 		size += len(arg)
 	}
-	size += len(args) - 1 // for spaces
-	builder.Grow(size*2) // reserve space for escapes.
+
+	size += len(args) - 1  // for spaces
+	builder.Grow(size * 2) // reserve space for escapes.
+
 	for i, arg := range args {
 		empty, singleQ, special := classify(arg)
 		switch {
