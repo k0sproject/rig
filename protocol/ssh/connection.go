@@ -231,6 +231,10 @@ func (c *Connection) Disconnect() {
 	c.client.Close()
 }
 
+func boolptr(b bool) *bool {
+	return &b
+}
+
 // IsWindows is true when the host is running windows.
 func (c *Connection) IsWindows() bool {
 	if c.isWindows != nil {
@@ -241,21 +245,23 @@ func (c *Connection) IsWindows() bool {
 		return false
 	}
 
-	var isWin bool
-	if strings.Contains(string(c.client.ServerVersion()), "Windows") {
-		isWin = true
-		c.isWindows = &isWin
-		return true
+	serverVersion := strings.ToLower(string(c.client.ServerVersion()))
+	log.Trace(context.Background(), "checking if host is windows", "server_version", serverVersion)
+
+	switch {
+	case strings.Contains(serverVersion, "windows"):
+		c.isWindows = boolptr(true)
+	case isKnownPosix(serverVersion):
+		c.isWindows = boolptr(false)
+	default:
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		isWinProc, err := c.StartProcess(ctx, "ver.exe", nil, nil, nil)
+		c.isWindows = boolptr(err == nil && isWinProc.Wait() == nil)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	isWinProc, err := c.StartProcess(ctx, "cmd.exe /c exit 0", nil, nil, nil)
-	isWin = err == nil && isWinProc.Wait() == nil
-
-	c.isWindows = &isWin
-	log.Trace(context.Background(), fmt.Sprintf("host is windows: %t", *c.isWindows), log.KeyHost, c)
+	log.Trace(context.Background(), fmt.Sprintf("host is windows: %t", *c.isWindows))
 
 	return *c.isWindows
 }
