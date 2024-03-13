@@ -58,6 +58,11 @@ func SetTraceLogger(l TraceLogger) {
 	trace = sync.OnceValue(func() TraceLogger { return l })
 }
 
+// GetTraceLogger gets the current value of trace logger.
+func GetTraceLogger() TraceLogger {
+	return trace()
+}
+
 // TraceLogger is a logger for rig's internal trace logging.
 type TraceLogger interface {
 	Log(ctx context.Context, level slog.Level, msg string, keysAndValues ...any)
