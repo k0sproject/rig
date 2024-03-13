@@ -15,13 +15,15 @@ var (
 )
 
 type expandOptions struct {
-	params bool
-	exec   bool
+	dollarvars bool
+	errorunset bool
+	params     bool
+	exec       bool
 	// TODO execbacktick
 }
 
 func newExpandOptions(options ...ExpandOption) *expandOptions {
-	opts := &expandOptions{}
+	opts := &expandOptions{dollarvars: true}
 	for _, o := range options {
 		o(opts)
 	}
@@ -43,6 +45,21 @@ func ExpandExec() ExpandOption {
 func ExpandParam() ExpandOption {
 	return func(o *expandOptions) {
 		o.params = true
+	}
+}
+
+// ExpandErrorIfUnset causes Expand to return an error if a variable is not set. By default, unset variables are
+// replaced with an empty string. This only applies when ExpandParam is not set.
+func ExpandErrorIfUnset() ExpandOption {
+	return func(o *expandOptions) {
+		o.errorunset = true
+	}
+}
+
+// ExpandNoDollarVars disables $var expansion.
+func ExpandNoDollarVars() ExpandOption {
+	return func(o *expandOptions) {
+		o.dollarvars = false
 	}
 }
 
@@ -118,6 +135,14 @@ func (s *builderStack) Dump() {
 	}
 }
 
+func getEnv(varName string, options *expandOptions) (string, error) {
+	val, ok := os.LookupEnv(varName)
+	if !ok && options.errorunset {
+		return "", fmt.Errorf("%w: expand: variable %q not set", errInvalidInput, varName)
+	}
+	return val, nil
+}
+
 // Expand expands the input string according to the rules of a posix shell. It supports parameter expansion, command
 // substitution and simple $envvar expansion. It does not support arithmetic expansion, tilde expansion, or any of
 // the other expansions and it doesn't support backticks.
@@ -147,7 +172,7 @@ func Expand(input string, opts ...ExpandOption) (string, error) { //nolint:cyclo
 			continue
 		}
 
-		if inDollar {
+		if inDollar { //nolint:nestif
 			if currCh == '$' {
 				inDollar = false
 				_ = stack.WriteByte(currCh)
@@ -172,7 +197,18 @@ func Expand(input string, opts ...ExpandOption) (string, error) { //nolint:cyclo
 
 			// Finish processing variable
 			inDollar = false
-			_, _ = stack.WriteString(os.Getenv(stack.String()))
+			var val string
+			varName := stack.String()
+			if options.dollarvars {
+				v, err := getEnv(varName, options)
+				if err != nil {
+					return "", err
+				}
+				val = v
+			} else {
+				val = "$" + varName
+			}
+			_, _ = stack.WriteString(val)
 			_ = stack.WriteByte(currCh)
 			continue
 		}
@@ -188,7 +224,11 @@ func Expand(input string, opts ...ExpandOption) (string, error) { //nolint:cyclo
 					}
 					result = res
 				} else {
-					result = os.Getenv(stack.String())
+					val, err := getEnv(stack.String(), options)
+					if err != nil {
+						return "", err
+					}
+					result = val
 				}
 				_, _ = stack.WriteString(result)
 				continue
