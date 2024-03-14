@@ -143,19 +143,31 @@ func formatStderr(stderr string, isWindows bool) string {
 }
 
 // Wait waits for the command to finish and returns an error if it fails or if it wrote to stderr.
-func (w *waiterWrapper) Wait() error {
-	waitErr := w.waiter.Wait()
+func (w *waiterWrapper) Wait() (err error) {
+	if w.isWindows {
+		defer func() {
+			if r := recover(); err == nil && r != nil {
+				if strings.Contains(fmt.Sprint(r), "close of closed channel") {
+					log.Trace(context.Background(), "recovered from a panic in command.Wait", r)
+				} else {
+					panic(r)
+				}
+			}
+		}()
+	}
+
+	err = w.waiter.Wait()
 	stderr := formatStderr(w.opts.ErrString(), w.isWindows)
-	if waitErr == nil && w.isWindows && !w.opts.AllowWinStderr() && len(stderr) > 0 {
-		waitErr = ErrWroteStderr
+	if err == nil && w.isWindows && !w.opts.AllowWinStderr() && len(stderr) > 0 {
+		err = ErrWroteStderr
 	}
-	if waitErr != nil {
+	if err != nil {
 		if len(stderr) > 0 {
-			return fmt.Errorf("process finished with error: %w (%s)", waitErr, stderr)
+			err = fmt.Errorf("process finished with error: %w (%s)", err, stderr)
 		}
-		return fmt.Errorf("process finished with error: %w", waitErr)
+		err = fmt.Errorf("process finished with error: %w", err)
 	}
-	return nil
+	return err
 }
 
 func isExe(cmd string) bool {
