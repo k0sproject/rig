@@ -23,8 +23,8 @@ var (
 	_          fs.FS = (*PosixFS)(nil)
 	_          FS    = (*PosixFS)(nil)
 	errInvalid       = errors.New("invalid")
-	statCmdGNU       = "stat -c '%%#f %%s %%.9Y //%%n//' -- %s 2> /dev/null"
-	statCmdBSD       = "stat -f '%%#p %%z %%Fm //%%N//' -- %s 2> /dev/null"
+	statCmdGNU       = "env -i LC_ALL=C stat -c '%%#f %%s %%.9Y //%%n//' -- %s 2> /dev/null"
+	statCmdBSD       = "env -i LC_ALL=C stat -f '%%#p %%z %%Fm //%%N//' -- %s 2> /dev/null"
 )
 
 const (
