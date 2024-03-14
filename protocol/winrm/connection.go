@@ -196,7 +196,7 @@ type command struct {
 }
 
 // Wait blocks until the command finishes.
-func (c *command) Wait() error {
+func (c *command) Wait() (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if strings.Contains(fmt.Sprint(r), "close of closed channel") {
@@ -216,10 +216,10 @@ func (c *command) Wait() error {
 	log.Trace(context.Background(), "command finished", log.KeyExitCode, c.cmd.ExitCode())
 
 	if c.cmd.ExitCode() != 0 {
-		return fmt.Errorf("%w: exit code %d", errExitCode, c.cmd.ExitCode())
+		err = fmt.Errorf("%w: exit code %d", errExitCode, c.cmd.ExitCode())
 	}
 
-	return nil
+	return err
 }
 
 // Close terminates the command.
