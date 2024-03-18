@@ -274,8 +274,8 @@ func (f *PosixFile) Seek(offset int64, whence int) (int64, error) {
 }
 
 var (
-	statCmdGNU = "stat -c '%%#f %%s %%.9Y //%%n//' -- %s 2> /dev/null"
-	statCmdBSD = "stat -f '%%#p %%z %%Fm //%%N//' -- %s 2> /dev/null"
+	statCmdGNU = "env -i LC_ALL=C stat -c '%%#f %%s %%.9Y //%%n//' -- %s 2> /dev/null"
+	statCmdBSD = "env -i LC_ALL=C stat -f '%%#p %%z %%Fm //%%N//' -- %s 2> /dev/null"
 )
 
 func (fsys *PosixFsys) initStat() error {
