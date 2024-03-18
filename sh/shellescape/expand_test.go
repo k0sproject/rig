@@ -25,12 +25,12 @@ func TestExpand(t *testing.T) {
 		require.Equal(t, "show me the test value.", result)
 	})
 	t.Run("command", func(t *testing.T) {
-		result, err := shellescape.Expand("show me the $(echo test $(echo value)).")
+		result, err := shellescape.Expand("show me the $(echo test $(echo value)).", shellescape.ExpandExec())
 		require.NoError(t, err)
 		require.Equal(t, "show me the test value.", result)
 	})
 	t.Run("command with curly", func(t *testing.T) {
-		result, err := shellescape.Expand("show me the $(echo $(echo ${TEST_VAR})).")
+		result, err := shellescape.Expand("show me the $(echo $(echo ${TEST_VAR})).", shellescape.ExpandExec())
 		require.NoError(t, err)
 		require.Equal(t, "show me the test value.", result)
 	})
@@ -46,62 +46,62 @@ func TestExpandParamExpansion(t *testing.T) {
 	os.Unsetenv("TEST_VAR2")
 
 	t.Run("simple", func(t *testing.T) {
-		result, err := shellescape.Expand("show me the ${TEST_VAR}.")
+		result, err := shellescape.Expand("show me the ${TEST_VAR}.", shellescape.ExpandParam())
 		require.NoError(t, err)
 		require.Equal(t, "show me the test value.", result)
 	})
 
 	t.Run("colon", func(t *testing.T) {
 		t.Run("default", func(t *testing.T) {
-			result, err := shellescape.Expand("show me the ${TEST_VAR:-default}.")
+			result, err := shellescape.Expand("show me the ${TEST_VAR:-default}.", shellescape.ExpandParam())
 			require.NoError(t, err)
 			require.Equal(t, "show me the test value.", result)
 		})
 		t.Run("default with empty", func(t *testing.T) {
-			result, err := shellescape.Expand("show me the ${TEST_VAR:-}.")
+			result, err := shellescape.Expand("show me the ${TEST_VAR:-}.", shellescape.ExpandParam())
 			require.NoError(t, err)
 			require.Equal(t, "show me the test value.", result)
 		})
 		t.Run("default with empty and space", func(t *testing.T) {
-			result, err := shellescape.Expand("show me the ${TEST_VAR:- }.")
+			result, err := shellescape.Expand("show me the ${TEST_VAR:- }.", shellescape.ExpandParam())
 			require.NoError(t, err)
 			require.Equal(t, "show me the test value.", result)
 		})
 		t.Run("default with unset", func(t *testing.T) {
-			result, err := shellescape.Expand("show me the ${TEST_VAR2:-default}.")
+			result, err := shellescape.Expand("show me the ${TEST_VAR2:-default}.", shellescape.ExpandParam())
 			require.NoError(t, err)
 			require.Equal(t, "show me the default.", result)
 		})
 		t.Run("anti-default with unset", func(t *testing.T) {
-			result, err := shellescape.Expand("show me the ${TEST_VAR2:+default}.")
+			result, err := shellescape.Expand("show me the ${TEST_VAR2:+default}.", shellescape.ExpandParam())
 			require.NoError(t, err)
 			require.Equal(t, "show me the .", result)
-			result, err = shellescape.Expand("show me the ${TEST_VAR:+default}.")
+			result, err = shellescape.Expand("show me the ${TEST_VAR:+default}.", shellescape.ExpandParam())
 			require.NoError(t, err)
 			require.Equal(t, "show me the default.", result)
 		})
 		t.Run("offset", func(t *testing.T) {
-			result, err := shellescape.Expand("show me the ${TEST_VAR:2}.")
+			result, err := shellescape.Expand("show me the ${TEST_VAR:2}.", shellescape.ExpandParam())
 			require.NoError(t, err)
 			require.Equal(t, "show me the st value.", result)
 		})
 		t.Run("offset with empty", func(t *testing.T) {
-			result, err := shellescape.Expand("show me the ${TEST_VAR2:2}.")
+			result, err := shellescape.Expand("show me the ${TEST_VAR2:2}.", shellescape.ExpandParam())
 			require.NoError(t, err)
 			require.Equal(t, "show me the .", result)
 		})
 		t.Run("offset with negative", func(t *testing.T) {
-			result, err := shellescape.Expand("show me the ${TEST_VAR: -2}.")
+			result, err := shellescape.Expand("show me the ${TEST_VAR: -2}.", shellescape.ExpandParam())
 			require.NoError(t, err)
 			require.Equal(t, "show me the ue.", result)
 		})
 		t.Run("offset with negative and length", func(t *testing.T) {
-			result, err := shellescape.Expand("show me the ${TEST_VAR: -3:2}.")
+			result, err := shellescape.Expand("show me the ${TEST_VAR: -3:2}.", shellescape.ExpandParam())
 			require.NoError(t, err)
 			require.Equal(t, "show me the lu.", result)
 		})
 		t.Run("offset with length", func(t *testing.T) {
-			result, err := shellescape.Expand("show me the ${TEST_VAR:2:2}.")
+			result, err := shellescape.Expand("show me the ${TEST_VAR:2:2}.", shellescape.ExpandParam())
 			require.NoError(t, err)
 			require.Equal(t, "show me the st.", result)
 		})
@@ -109,12 +109,12 @@ func TestExpandParamExpansion(t *testing.T) {
 
 	t.Run("length", func(t *testing.T) {
 		t.Run("length", func(t *testing.T) {
-			result, err := shellescape.Expand("show me the ${#TEST_VAR}.")
+			result, err := shellescape.Expand("show me the ${#TEST_VAR}.", shellescape.ExpandParam())
 			require.NoError(t, err)
 			require.Equal(t, "show me the 10.", result)
 		})
 		t.Run("length with empty", func(t *testing.T) {
-			result, err := shellescape.Expand("show me the ${#TEST_VAR2}.")
+			result, err := shellescape.Expand("show me the ${#TEST_VAR2}.", shellescape.ExpandParam())
 			require.NoError(t, err)
 			require.Equal(t, "show me the 0.", result)
 		})
@@ -127,7 +127,7 @@ func TestExpandParamExpansion(t *testing.T) {
 			defer os.Unsetenv("TEST_VAR2")
 		}
 		os.Setenv("TEST_VAR2", "test value2")
-		result, err := shellescape.Expand("show me the ${!TEST_VA*}")
+		result, err := shellescape.Expand("show me the ${!TEST_VA*}", shellescape.ExpandParam())
 		require.NoError(t, err)
 		result = strings.TrimPrefix(result, "show me the ")
 		result = strings.TrimSuffix(result, ".")
