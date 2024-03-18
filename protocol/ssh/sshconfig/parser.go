@@ -100,7 +100,7 @@ func NewParser(input io.Reader) (*Parser, error) {
 	if nr, ok := input.(*os.File); ok {
 		parser.rname = nr.Name()
 	} else {
-		parser.rname, _ = homedir.Expand("~/unknown")
+		parser.rname, _ = homedir.Expand("~/.ssh/unknown")
 	}
 	if br, ok := input.(*bytes.Reader); ok {
 		parser.r = br
