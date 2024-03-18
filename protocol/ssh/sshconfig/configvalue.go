@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -411,6 +413,11 @@ func (v *PathValue) SetString(value string, originType ValueOriginType, origin s
 	value, err := shellescape.Unquote(value)
 	if err != nil {
 		return fmt.Errorf("can't parse path value %q: %w", value, err)
+	}
+
+	if runtime.GOOS == "windows" {
+		// this is a hack to support the __PROGRAMDATA__ in the ssh default config
+		value = strings.ReplaceAll(value, "__PROGRAMDATA__", os.Getenv("PROGRAMDATA"))
 	}
 
 	value = filepath.Clean(value)
