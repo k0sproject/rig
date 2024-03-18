@@ -413,21 +413,19 @@ func (v *PathValue) SetString(value string, originType ValueOriginType, origin s
 		return fmt.Errorf("can't parse path value %q: %w", value, err)
 	}
 
+	value = filepath.Clean(value)
+
 	if !filepath.IsAbs(value) {
 		if origin != "" {
 			value = filepath.Join(filepath.Dir(origin), value)
 		} else {
-			value = filepath.Join(home(), value)
+			value = filepath.Join(home(), ".ssh", value)
 		}
 	}
 
 	value, err = homedir.Expand(value)
 	if err != nil {
 		return fmt.Errorf("can't expand path value %q: %w", value, err)
-	}
-
-	if !filepath.IsAbs(value) {
-		value = filepath.Join(home(), value)
 	}
 
 	v.Set(value, originType, origin)
