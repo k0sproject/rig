@@ -30,3 +30,16 @@ func TestDump(t *testing.T) {
 	require.Equal(t, content, content2)
 	println(content)
 }
+
+func TestDumpG(t *testing.T) {
+	obj := &sshconfig.SSHConfig{}
+	obj.SetHost("test")
+	parser, err := sshconfig.NewParser(nil)
+	require.NoError(t, err)
+	rigtest.TraceToStderr()
+	require.NoError(t, parser.Parse(obj))
+	rigtest.TraceOff()
+	content, err := sshconfig.DumpG(obj)
+	require.NoError(t, err)
+	println(content)
+}

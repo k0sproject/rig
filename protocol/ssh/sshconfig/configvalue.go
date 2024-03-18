@@ -209,6 +209,26 @@ func (v *UintValue) String() string {
 	return strconv.FormatUint(uint64(val), 10)
 }
 
+// OctalUintValue is a configuration value that holds an unsigned integer in octal format.
+type OctalUintValue struct {
+	UintValue
+}
+
+// SetString sets the value of the unsigned integer and its origin.
+func (v *OctalUintValue) SetString(value string, originType ValueOriginType, origin string) error {
+	num, err := strconv.ParseUint(value, 8, 64)
+	if err != nil {
+		return fmt.Errorf("invalid octal uint value %q: %w", value, err)
+	}
+	return v.UintValue.SetString(strconv.FormatUint(num, 10), originType, origin)
+}
+
+// String returns the value formatted as octal as a string.
+func (v *OctalUintValue) String() string {
+	val, _ := v.Get()
+	return strconv.FormatUint(uint64(val), 8)
+}
+
 // DurationValue is a configuration value that holds a time.Duration. The ssh configuration uses the same format as the time package
 // for duration, except it parses a number without a unit suffix to be seconds. 1m30s is a valid duration.
 type DurationValue struct {

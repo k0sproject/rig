@@ -853,7 +853,7 @@ type SSHConfig struct {
 	// the second for non-interactive sessions.  The default is
 	// af21 (Low-Latency Data) for interactive sessions and cs1
 	// (Lower Effort) for non-interactive sessions.
-	IPQoS StringListValue
+	IPQoS StringValue
 
 	// Specifies whether to use keyboard-interactive
 	// authentication.  The argument to this keyword must be yes
@@ -1340,7 +1340,7 @@ type SSHConfig struct {
 	// socket file that is readable and writable only by the
 	// owner.  Note that not all operating systems honor the
 	// file mode on Unix-domain socket files.
-	StreamLocalBindMask UintValue
+	StreamLocalBindMask OctalUintValue
 
 	// Specifies whether to remove an existing Unix-domain
 	// socket file for local or remote port forwarding before

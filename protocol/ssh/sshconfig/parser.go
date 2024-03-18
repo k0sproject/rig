@@ -651,6 +651,28 @@ func (p *Parser) parse(obj withRequiredFields, fields map[string]configValue, re
 		}
 
 		switch key {
+		case "certificatefile", "controlpath", "identityagent", "identityfile", "knownhostscommand", "userknownhostsfile":
+		  val, err := expand(value)
+		  if err != nil { 
+		    return fmt.Errorf("expand value %q for %q in %s:%d: %w", value, key, origin, row, err)
+		  }
+		  value = val
+		case "localforward", "remoteforward":
+		  val, err := expand(value)
+		  if err != nil {
+		    return fmt.Errorf("expand value %q for %q in %s:%d: %w", value, key, origin, row, err)
+		  }
+			unq, err := shellescape.Unquote(val)
+			if err != nil {
+			  return fmt.Errorf("unquote value %q for %q in %s:%d: %w", val, key, origin, row, err)
+			}
+		  if _, err := os.Stat(unq); err != nil {
+		    return fmt.Errorf("stat value %q for %q in %s:%d: %w", unq, key, origin, row, err)
+		  }
+		  value = unq
+		}
+
+		switch key {
 		case fkHost:
 			if p.didCanonicalize {
 				trace.Log(ctx, slog.LevelInfo, "canonicalization was done during the last block before Host")
@@ -917,17 +939,10 @@ func (p *Parser) Reset() {
 	p.doingFinal = false
 }
 
-// ENVIRONMENT VARIABLES         [17]top
-//
-//       Arguments to some keywords can be expanded at runtime from
-//       environment variables on the client by enclosing them in ${}, for
-//       example ${HOME}/.ssh would refer to the user's .ssh directory.
-//       If a specified environment variable does not exist then an error
-//       will be returned and the setting for that keyword will be
-//       ignored.
-//
-//       The keywords CertificateFile, ControlPath, IdentityAgent,
-//       IdentityFile, KnownHostsCommand, and UserKnownHostsFile support
-//       environment variables.  The keywords LocalForward and
-//       RemoteForward support environment variables only for Unix domain
-//       socket paths
+func expand(input string) (string, error) {
+	val, err := shellescape.Expand(input, shellescape.ExpandNoDollarVars(), shellescape.ErrorIfUnset())
+	if err != nil {
+		return "", fmt.Errorf("expand: %w", input, err)
+	}
+	return val, nil
+}
