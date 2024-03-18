@@ -70,7 +70,7 @@ func (rf *RequiredFields) SetHostname(hostName string) error {
 	}
 	return nil
 }
-	
+
 var canonicalizationFields = []string{
 	"canonicaldomains",
 	"canonicalizehostname",

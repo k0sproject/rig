@@ -276,6 +276,13 @@ type SSHConfig struct {
 	// time interval), ask or a time interval.
 	AddKeysToAgent MultiStateBoolValue
 
+	// Use apple's MPTCP. Mac only option.
+	AppleMultiPath BoolValue
+
+	// When adding identities, each passphrase will also be stored in the user's keychain.
+	// (this is a mac only option)
+	UseKeyChain BoolValue
+
 	// Specifies which address family to use when connecting.
 	// Valid arguments are any (the default), inet (use IPv4
 	// only), or inet6 (use IPv6 only).
@@ -838,7 +845,7 @@ type SSHConfig struct {
 	// IgnoreUnknown be listed early in the configuration file
 	// as it will not be applied to unknown options that appear
 	// before it.
-	IgnoreUnknown BoolValue
+	IgnoreUnknown StringListValue
 
 	// Specifies the IPv4 type-of-service or DSCP class for
 	// connections.  Accepted values are af11, af12, af13, af21,

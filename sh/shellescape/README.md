@@ -2,9 +2,11 @@
 
 A drop-in replacement for [alessio/shellescape](https://github.com/alessio/shellescape) / ["gopkg.in/alessio/shellescape.v1"]("gopkg.in/alessio/shellescape.v1").
 
-It's a bit faster and allocates a little bit less. It's quite unlikely that anyone will notice any difference in a real-world application, the is here just to reduce dependencies of the `rig` package.
+It's a tiny bit faster and allocates a tiny bit less. It's quite unlikely that anyone will notice any difference in a real-world application, the is here just to reduce dependencies of the `rig` package.
 
 To use, replace `alessio/shellescape` with `github.com/k0sproject/rig/v2/sh/shellescape` in your imports.
+
+In addition to the original package, this package also includes `Unquote`, `Split` and `Expand` (which supports `${var}`, `$var`, `$(cmd)` and `${var:-word}` and some other expansions).
 
 ## Benchmarks
 

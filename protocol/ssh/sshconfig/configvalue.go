@@ -259,7 +259,7 @@ func (v *DurationValue) String() string {
 	return val.String()
 }
 
-// StringListValueis a configuration value that holds a slice of strings. When setting the value, it accepts a
+// StringListValue is a configuration value that holds a slice of strings. When setting the value, it accepts a
 // comma-separated or whitespace-separated list of values. The values can be quoted using single or double quotes.
 // If the existing value is set from the defaults, the slice is cleared before setting the new value. Duplicate
 // values are ignored.
@@ -655,6 +655,7 @@ func (v *RemovableStringListValue) SetString(value string, originType ValueOrigi
 	if remove {
 		vals = filterOutMultiple(vals, newVals)
 	} else {
+		vals = filterOutMultiple(vals, newVals)
 		vals = append(vals, newVals...)
 	}
 	v.value = vals

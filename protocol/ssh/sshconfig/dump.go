@@ -55,7 +55,7 @@ func Dump(obj withRequiredFields) (string, error) {
 	return builder.String(), nil
 }
 
-// Dump returns a string representation of the given ssh config object in the same format as
+// DumpG returns a string representation of the given ssh config object in the same format as
 // you get from `ssh -G`. This is useful for debugging and testing.
 func DumpG(obj withRequiredFields) (string, error) {
 	fields, err := objFields(obj)

@@ -30,7 +30,7 @@ import (
   Config value load order:
 
   When a configuration file is not supplied (ssh -F path or NewParser(nil)):
-  1. Configuration defaults - any values set here can be overriden at any stage.
+  1. Configuration defaults - any values set here can be overridden at any stage.
   2. Command-line options - any values set here have the highest precedence.
   3. User configuration file (~/.ssh/config)
   4. Global configuration file (/etc/ssh/ssh_config))
@@ -70,15 +70,22 @@ var (
 // to a struct, but instead it sets values to the passed in object for each directive
 // it finds to match the host alias found in the object.
 type Parser struct {
-	r                *bytes.Reader
-	originalHost     string
-	rname            string
+	// GlobalConfigPath can be changed to point to a different global config file than the /etc/ssh/ssh_config.
 	GlobalConfigPath string
-	UserConfigPath   string
-	canonicalized    map[string]string
-	didCanonicalize  bool // if the hostname field was canonicalized
-	hasFinal         bool // if the config has a final directive
-	doingFinal       bool // if the parser is currently parsing a final directive
+
+	// UserConfigPath can be changed to point to a different user config file than the ~/.ssh/config.
+	UserConfigPath string
+
+	// ErrorOnUnknown when true, will cause the parser to respect the `IgnoreUnknown` directive.
+	ErrorOnUnknown bool
+
+	r               *bytes.Reader
+	originalHost    string
+	rname           string
+	canonicalized   map[string]string
+	didCanonicalize bool // if the hostname field was canonicalized
+	hasFinal        bool // if the config has a final directive
+	doingFinal      bool // if the parser is currently parsing a final directive
 }
 
 // NewParser returns a new Parser. If r is nil, the global and user config files are read instead.
@@ -652,24 +659,24 @@ func (p *Parser) parse(obj withRequiredFields, fields map[string]configValue, re
 
 		switch key {
 		case "certificatefile", "controlpath", "identityagent", "identityfile", "knownhostscommand", "userknownhostsfile":
-		  val, err := expand(value)
-		  if err != nil { 
-		    return fmt.Errorf("expand value %q for %q in %s:%d: %w", value, key, origin, row, err)
-		  }
-		  value = val
+			val, err := expand(value)
+			if err != nil {
+				return fmt.Errorf("expand value %q for %q in %s:%d: %w", value, key, origin, row, err)
+			}
+			value = val
 		case "localforward", "remoteforward":
-		  val, err := expand(value)
-		  if err != nil {
-		    return fmt.Errorf("expand value %q for %q in %s:%d: %w", value, key, origin, row, err)
-		  }
+			val, err := expand(value)
+			if err != nil {
+				return fmt.Errorf("expand value %q for %q in %s:%d: %w", value, key, origin, row, err)
+			}
 			unq, err := shellescape.Unquote(val)
 			if err != nil {
-			  return fmt.Errorf("unquote value %q for %q in %s:%d: %w", val, key, origin, row, err)
+				return fmt.Errorf("unquote value %q for %q in %s:%d: %w", val, key, origin, row, err)
 			}
-		  if _, err := os.Stat(unq); err != nil {
-		    return fmt.Errorf("stat value %q for %q in %s:%d: %w", unq, key, origin, row, err)
-		  }
-		  value = unq
+			if _, err := os.Stat(unq); err != nil {
+				return fmt.Errorf("stat value %q for %q in %s:%d: %w", unq, key, origin, row, err)
+			}
+			value = unq
 		}
 
 		switch key {
@@ -754,7 +761,7 @@ func (p *Parser) parse(obj withRequiredFields, fields map[string]configValue, re
 			}
 
 			if err := pjump.SetString(value, originType, origin); err != nil {
-				return fmt.Errorf("set value %q for proxycommand in %s:%d: %w", value, origin, err, err)
+				return fmt.Errorf("set value %q for proxycommand in %s:%d: %w", value, origin, row, err)
 			}
 		case "proxycommand":
 			// proxyjump and proxycommand are mutually exclusive, the first one to be set wins.
@@ -791,10 +798,26 @@ func (p *Parser) parse(obj withRequiredFields, fields map[string]configValue, re
 				p.didCanonicalize = true
 			}
 
-			if f, ok := fields[key]; ok {
+			if f, ok := fields[key]; ok { //nolint:nestif
 				trace.Log(ctx, slog.LevelInfo, "setting value", "value", value)
 				if err := f.SetString(value, originType, origin); err != nil {
 					return fmt.Errorf("set value for %q in %s:%d: %w", key, origin, row, err)
+				}
+			} else if p.ErrorOnUnknown {
+				iu, ok := fields["ignoreunknown"]
+				if !ok || !iu.IsSet() || iu.String() == "" {
+					return fmt.Errorf("%w: unknown field %q in %s:%d", ErrSyntax, key, origin, row)
+				}
+				patterns, err := shellescape.Split(iu.String())
+				if err != nil {
+					return fmt.Errorf("can't split IgnoreUnknown directive %q in %s:%d: %w", iu.String(), origin, row, err)
+				}
+				match, err := matchesPatterns(patterns, key)
+				if err != nil {
+					return fmt.Errorf("match IgnoreUnknown directive %q in %s:%d: %w", iu.String(), origin, row, err)
+				}
+				if !match {
+					return fmt.Errorf("%w: unknown field %q in %s:%d", ErrSyntax, key, origin, row)
 				}
 			}
 		}
@@ -821,7 +844,7 @@ func (p *Parser) canonicalize(obj withRequiredFields) error {
 
 		if prevNh, ok := p.canonicalized[host]; ok && prevNh != newHost {
 			p.canonicalized[host] = newHost
-			obj.SetHost(newHost)
+			_ = obj.SetHost(newHost)
 			return errRedo
 		}
 	}
@@ -842,7 +865,7 @@ type withCanonicalize interface {
 // Parse the ssh config for the parts that apply to the passed in object.
 // The object must have fields for user, host and hostname. The host
 // field must be set before calling this function.
-func (p *Parser) Parse(obj withRequiredFields) error { //nolint:cyclop
+func (p *Parser) Parse(obj withRequiredFields) error { //nolint:cyclop,gocognit
 	fields, err := objFields(obj)
 	if err != nil {
 		return fmt.Errorf("check configuration object compatibility: %w", err)
@@ -859,7 +882,7 @@ func (p *Parser) Parse(obj withRequiredFields) error { //nolint:cyclop
 	}
 
 	// Reader is provided, parse it and nothing else
-	if p.r != nil {
+	if p.r != nil { //nolint:nestif
 		if err := p.parse(obj, fields, p.r, ValueOriginFile, p.rname, true); err != nil {
 			if errors.Is(err, errRedo) {
 				if err := p.Parse(obj); err != nil {
@@ -878,7 +901,7 @@ func (p *Parser) Parse(obj withRequiredFields) error { //nolint:cyclop
 			p.UserConfigPath = cfg
 		}
 	}
-	if p.UserConfigPath != "" {
+	if p.UserConfigPath != "" { //nolint:nestif
 		userConfigFile, err := os.Open(p.UserConfigPath)
 		if err == nil {
 			defer userConfigFile.Close()
@@ -898,7 +921,7 @@ func (p *Parser) Parse(obj withRequiredFields) error { //nolint:cyclop
 		p.GlobalConfigPath = defaultGlobalConfigPath()
 	}
 	globalConfigFile, err := os.Open(p.GlobalConfigPath)
-	if err == nil {
+	if err == nil { //nolint:nestif
 		defer globalConfigFile.Close()
 		if err := p.parse(obj, fields, globalConfigFile, ValueOriginFile, p.GlobalConfigPath, true); err != nil {
 			if errors.Is(err, errRedo) {
@@ -940,9 +963,9 @@ func (p *Parser) Reset() {
 }
 
 func expand(input string) (string, error) {
-	val, err := shellescape.Expand(input, shellescape.ExpandNoDollarVars(), shellescape.ErrorIfUnset())
+	val, err := shellescape.Expand(input, shellescape.ExpandNoDollarVars(), shellescape.ExpandErrorIfUnset())
 	if err != nil {
-		return "", fmt.Errorf("expand: %w", input, err)
+		return "", fmt.Errorf("expand: %w", err)
 	}
 	return val, nil
 }

@@ -78,8 +78,6 @@ identityfile ~/.ssh/id_dsa
 canonicaldomains none
 globalknownhostsfile /etc/ssh/ssh_known_hosts /etc/ssh/ssh_known_hosts2
 userknownhostsfile ~/.ssh/known_hosts ~/.ssh/known_hosts2
-sendenv LANG
-sendenv LC_*
 logverbose none
 permitremoteopen any
 addkeystoagent false

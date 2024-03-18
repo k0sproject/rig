@@ -135,10 +135,10 @@ func (s *builderStack) Dump() {
 	}
 }
 
-func getEnv(var string, options *expandOptions) (string, error) {
-	val, ok := os.LookupEnv(var)
+func getEnv(varName string, options *expandOptions) (string, error) {
+	val, ok := os.LookupEnv(varName)
 	if !ok && options.errorunset {
-		return "", fmt.Errorf("%w: expand: variable %q not set", errInvalidInput, var)
+		return "", fmt.Errorf("%w: expand: variable %q not set", errInvalidInput, varName)
 	}
 	return val, nil
 }
@@ -146,7 +146,7 @@ func getEnv(var string, options *expandOptions) (string, error) {
 // Expand expands the input string according to the rules of a posix shell. It supports parameter expansion, command
 // substitution and simple $envvar expansion. It does not support arithmetic expansion, tilde expansion, or any of
 // the other expansions and it doesn't support backticks.
-func Expand(input string, opts ...ExpandOption) (string, error) { //nolint:gocognit,cyclop
+func Expand(input string, opts ...ExpandOption) (string, error) { //nolint:gocognit,cyclop,funlen
 	options := newExpandOptions(opts...)
 	var inDollar, inCurly, inParen, inEscape bool
 	stack := builderStack{}
@@ -172,7 +172,7 @@ func Expand(input string, opts ...ExpandOption) (string, error) { //nolint:gocog
 			continue
 		}
 
-		if inDollar {
+		if inDollar { //nolint:nestif
 			if currCh == '$' {
 				inDollar = false
 				_ = stack.WriteByte(currCh)
