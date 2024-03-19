@@ -659,6 +659,9 @@ func (p *Parser) parse(obj withRequiredFields, fields map[string]configValue, re
 		}
 
 		switch key {
+		case "challengeresponseauthentication":
+			// deprecated alias
+			key = "kbdinteractiveauthentication"
 		case "certificatefile", "controlpath", "identityagent", "identityfile", "knownhostscommand", "userknownhostsfile":
 			for i, value := range values {
 				val, err := expand(value)
