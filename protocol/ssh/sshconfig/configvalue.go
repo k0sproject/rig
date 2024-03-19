@@ -1,7 +1,6 @@
 package sshconfig
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -17,7 +16,6 @@ import (
 	"time"
 
 	"github.com/k0sproject/rig/v2/homedir"
-	"github.com/k0sproject/rig/v2/log"
 	"github.com/k0sproject/rig/v2/sh/shellescape"
 )
 
@@ -412,24 +410,18 @@ type PathValue struct {
 
 // SetString sets the value of the path and its origin.
 func (v *PathValue) SetString(value string, originType ValueOriginType, origin string) error {
-	log.Trace(context.Background(), "setting path", "value", value)
 	if runtime.GOOS == "windows" {
 		// this is a hack to support the __PROGRAMDATA__ in the ssh config dumps on windows.
 		value = strings.ReplaceAll(value, "__PROGRAMDATA__", os.Getenv("PROGRAMDATA"))
-		log.Trace(context.Background(), "replaced programdata path", "value", value)
 	}
 
 	value = strings.ReplaceAll(filepath.Clean(value), "\\", "/")
-	log.Trace(context.Background(), "after clean & replace", "value", value)
 
 	if !filepath.IsAbs(value) {
-		log.Trace(context.Background(), "not abs", "value", value)
 		if origin != "" {
 			value = filepath.Join(path.Dir(origin), value)
-			log.Trace(context.Background(), "prepended with origin", "value", value, "origin", origin)
 		} else {
 			value = path.Join(home(), ".ssh", value)
-			log.Trace(context.Background(), "prepended with home", "value", value, "home", home())
 		}
 	}
 
@@ -437,9 +429,9 @@ func (v *PathValue) SetString(value string, originType ValueOriginType, origin s
 	if err != nil {
 		return fmt.Errorf("can't expand path value %q: %w", value, err)
 	}
-	log.Trace(context.Background(), "after expand", "value", value)
+
+	// forward slashes again (homedir.Expand replaces them with backslashes)
 	value = strings.ReplaceAll(value, "\\", "/")
-	log.Trace(context.Background(), "back to forward slashes", "value", value)
 
 	v.Set(value, originType, origin)
 	return nil
@@ -565,20 +557,9 @@ func (v *ModifiableStringListValue) SetString(value string, originType ValueOrig
 func parseStringSliceValue(value string) ([]string, error) {
 	if strings.Contains(value, ",") {
 		newVals := strings.Split(value, ",")
-		for i, val := range newVals {
-			v, err := shellescape.Unquote(strings.TrimSpace(val))
-			if err != nil {
-				return nil, fmt.Errorf("can't parse string slice value %q: %w", value, err)
-			}
-			newVals[i] = v
-		}
 		return newVals, nil
 	}
-	v, err := shellescape.Split(value)
-	if err != nil {
-		return nil, fmt.Errorf("can't parse string slice value %q: %w", value, err)
-	}
-	return v, nil
+	return []string{value}, nil
 }
 
 // appendUniqueValues adds new values to the slice, avoiding duplicates.
