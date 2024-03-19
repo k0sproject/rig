@@ -27,7 +27,7 @@ Implemented features:
 - The origin of each value can be determined.
 - The origin based value precedence is correctly implemented as described in the specification.
 - Hostname canonicalization is implemented.
-- Proper unquoting and splitting of values.
+- Proper unquoting and splitting of values based on a converted `argv_split` from the original source.
 
 ### Status
 

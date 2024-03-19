@@ -365,40 +365,42 @@ func checkRequiredFields(fields map[string]configValue) error {
 // but here it doesn't:
 //
 // IdentityFile=~/.ssh/id_rsa # foo.
-func tokenizeRow(s string) (key string, value string, err error) {
-	var valIndex int
-	var valModeEquals bool
-	s = strings.TrimSpace(s)
-	for i, r := range s {
-		if r == '#' {
-			return "", "", nil
-		}
-		if r == '=' || r == ' ' || r == '\t' {
-			if r == '=' {
-				valModeEquals = true
-			}
-			valIndex = i
-			key = strings.ToLower(s[:valIndex])
-			break
-		}
+func tokenizeRow(s string) (key string, values []string, err error) {
+	// find the first non-space character
+	idx := strings.IndexFunc(s, func(r rune) bool { return !unicode.IsSpace(r) })
+
+	// skip comments
+	if idx == -1 || s[idx] == '#' {
+		return "", nil, nil
 	}
 
-	if valIndex == 0 {
-		return "", "", nil
+	leftTrimmed := s[idx:]
+
+	// find separator
+	idx = strings.IndexFunc(leftTrimmed, func(r rune) bool { return r == ' ' || r == '=' || r == '\t' })
+
+	// if there is no separator, the line is invalid
+	if idx == -1 {
+		return "", nil, fmt.Errorf("%w: missing separator: %q", ErrSyntax, s)
 	}
 
-	valStr := strings.TrimSpace(s[valIndex+1:])
-	if !valModeEquals {
-		commentIndex := strings.Index(valStr, "#")
-		if commentIndex != -1 {
-			valStr = valStr[:commentIndex]
-		}
+	key = strings.ToLower(leftTrimmed[:idx])
+	if len(leftTrimmed) < idx+1 {
+		return "", nil, fmt.Errorf("%w: missing value: %q", ErrSyntax, s)
 	}
-	value, err = shellescape.Unquote(valStr)
+
+	//modeEquals := leftTrimmed[idx] == '='
+
+	values, err = SplitArgs(leftTrimmed[idx+1:], true)
 	if err != nil {
-		return "", "", fmt.Errorf("can't unquote value %q: %w", valStr, err)
+		return "", nil, fmt.Errorf("%w: %w", ErrSyntax, err)
 	}
-	return key, value, nil
+
+	if len(values) == 0 {
+		return "", nil, fmt.Errorf("%w: missing value: %q", ErrSyntax, s)
+	}
+
+	return key, values, nil
 }
 
 // matchesPattern compares a single pattern against a string.
@@ -437,12 +439,7 @@ func matchesPattern(pattern, value string) (bool, error) {
 }
 
 // matchesMatch parses the Match directive's value and determines if it applies to the current context.
-func (p *Parser) matchesMatch(matchValue string, fields map[string]configValue) (bool, error) { //nolint:gocognit,cyclop,funlen,gocyclo // TODO split this up
-	conditions, err := shellescape.Split(matchValue)
-	if err != nil {
-		return false, fmt.Errorf("can't split Match directive %q: %w", matchValue, err)
-	}
-
+func (p *Parser) matchesMatch(conditions []string, fields map[string]configValue) (bool, error) { //nolint:gocognit,cyclop,funlen,gocyclo // TODO split this up
 	for i := 0; i < len(conditions); i++ {
 		statement := strings.ToLower(conditions[i])
 
@@ -623,7 +620,7 @@ func (p *Parser) parse(obj withRequiredFields, fields map[string]configValue, re
 	tlog := log.GetTraceLogger()
 	for scanner.Scan() {
 		row++
-		key, value, err := tokenizeRow(scanner.Text())
+		key, values, err := tokenizeRow(scanner.Text())
 		if err != nil {
 			return fmt.Errorf("parse row %d: %w", row, err)
 		}
@@ -646,37 +643,44 @@ func (p *Parser) parse(obj withRequiredFields, fields map[string]configValue, re
 
 		if supportsTokens(key) {
 			trace.Log(ctx, slog.LevelInfo, "field supports token expansion")
-			value = tokenRe.ReplaceAllStringFunc(value, func(token string) string {
-				if isAllowedToken(key, token) {
-					expanded := expandToken(token, fields)
-					trace.Log(ctx, slog.LevelInfo, "expanded token", "token", token, "expanded", expanded)
-					return expanded
-				}
-				trace.Log(ctx, slog.LevelInfo, "token unknown or not allowed", "token", token)
-				return token
-			})
+			for i, value := range values {
+				values[i] = tokenRe.ReplaceAllStringFunc(value, func(token string) string {
+					if isAllowedToken(key, token) {
+						expanded := expandToken(token, fields)
+						trace.Log(ctx, slog.LevelInfo, "expanded token", "token", token, "expanded", expanded)
+						return expanded
+					}
+					trace.Log(ctx, slog.LevelInfo, "token unknown or not allowed", "token", token)
+					return token
+				})
+			}
 		}
 
 		switch key {
 		case "certificatefile", "controlpath", "identityagent", "identityfile", "knownhostscommand", "userknownhostsfile":
-			val, err := expand(value)
-			if err != nil {
-				return fmt.Errorf("expand value %q for %q in %s:%d: %w", value, key, origin, row, err)
+			for i, value := range values {
+				val, err := expand(value)
+				if err != nil {
+					return fmt.Errorf("expand value %q for %q in %s:%d: %w", value, key, origin, row, err)
+				}
+				values[i] = val
 			}
-			value = val
 		case "localforward", "remoteforward":
-			val, err := expand(value)
-			if err != nil {
-				return fmt.Errorf("expand value %q for %q in %s:%d: %w", value, key, origin, row, err)
+			// these fields only accept a socket path from expansion
+			for i, value := range values {
+				val, err := expand(value)
+				if err != nil {
+					return fmt.Errorf("expand value %q for %q in %s:%d: %w", value, key, origin, row, err)
+				}
+				unq, err := shellescape.Unquote(val)
+				if err != nil {
+					return fmt.Errorf("unquote value %q for %q in %s:%d: %w", val, key, origin, row, err)
+				}
+				if _, err := os.Stat(unq); err != nil {
+					return fmt.Errorf("stat value %q for %q in %s:%d: %w", unq, key, origin, row, err)
+				}
+				values[i] = unq
 			}
-			unq, err := shellescape.Unquote(val)
-			if err != nil {
-				return fmt.Errorf("unquote value %q for %q in %s:%d: %w", val, key, origin, row, err)
-			}
-			if _, err := os.Stat(unq); err != nil {
-				return fmt.Errorf("stat value %q for %q in %s:%d: %w", unq, key, origin, row, err)
-			}
-			value = unq
 		}
 
 		switch key {
@@ -689,24 +693,23 @@ func (p *Parser) parse(obj withRequiredFields, fields map[string]configValue, re
 				}
 			}
 			inMatch = false
-			patterns, err := shellescape.Split(value)
-			if err != nil {
-				return fmt.Errorf("can't split Host directive %q in %s:%d: %w", value, origin, row, err)
-			}
-			match, err := matchesPatterns(patterns, host)
+			match, err := matchesPatterns(values, host)
 			if err != nil {
 				return err
 			}
-			trace.Log(ctx, slog.LevelInfo, "evaluated host block conditions", "conditions", patterns, "applies", match)
+			trace.Log(ctx, slog.LevelInfo, "evaluated host block conditions", "conditions", values, "applies", match)
 			appliesToCurrent = match
 		case "include":
 			hostBefore, _ := obj.GetHost()
-			matches, err := filepath.Glob(value) // TODO handle relative paths
+			if !filepath.IsAbs(values[0]) {
+				values[0] = filepath.Join(filepath.Dir(origin), values[0])
+			}
+			matches, err := filepath.Glob(values[0])
 			if err != nil {
-				return fmt.Errorf("can't glob Include path %q in %s:%d: %w", value, origin, row, err)
+				return fmt.Errorf("can't glob Include path %q in %s:%d: %w", values[0], origin, row, err)
 			}
 			for _, match := range matches {
-				f, err := os.Open(match) // TODO handle relative paths
+				f, err := os.Open(match)
 				if err != nil {
 					return fmt.Errorf("can't open Include file %q in %s:%d: %w", match, origin, row, err)
 				}
@@ -729,16 +732,16 @@ func (p *Parser) parse(obj withRequiredFields, fields map[string]configValue, re
 				}
 			}
 			inMatch = true
-			if value == "all" {
+			if values[0] == "all" {
 				appliesToCurrent = true
 				break
 			}
 
-			matches, err := p.matchesMatch(value, fields)
+			matches, err := p.matchesMatch(values, fields)
 			if err != nil {
-				return fmt.Errorf("can't parse Match directive %q in %s:%d: %w", value, origin, row, err)
+				return fmt.Errorf("can't parse Match directive %q in %s:%d: %w", values, origin, row, err)
 			}
-			trace.Log(ctx, slog.LevelInfo, "evaluated match conditions", "conditions", value, "applies", matches)
+			trace.Log(ctx, slog.LevelInfo, "evaluated match conditions", "conditions", values, "applies", matches)
 			appliesToCurrent = matches
 		case "proxyjump":
 			// proxyjump and proxycommand are mutually exclusive, the first one to be set wins.
@@ -760,8 +763,8 @@ func (p *Parser) parse(obj withRequiredFields, fields map[string]configValue, re
 				continue
 			}
 
-			if err := pjump.SetString(value, originType, origin); err != nil {
-				return fmt.Errorf("set value %q for proxycommand in %s:%d: %w", value, origin, row, err)
+			if err := pjump.SetString(shellescape.QuoteCommand(values), originType, origin); err != nil {
+				return fmt.Errorf("set value %q for proxycommand in %s:%d: %w", values, origin, row, err)
 			}
 		case "proxycommand":
 			// proxyjump and proxycommand are mutually exclusive, the first one to be set wins.
@@ -782,8 +785,8 @@ func (p *Parser) parse(obj withRequiredFields, fields map[string]configValue, re
 				continue
 			}
 
-			if err := pcmd.SetString(value, originType, origin); err != nil {
-				return fmt.Errorf("set value %q for proxycommand in %s:%d: %w", value, origin, row, err)
+			if err := pcmd.SetString(shellescape.QuoteCommand(values), originType, origin); err != nil {
+				return fmt.Errorf("set value %q for proxycommand in %s:%d: %w", values, origin, row, err)
 			}
 		default:
 			if !appliesToCurrent {
@@ -799,8 +802,8 @@ func (p *Parser) parse(obj withRequiredFields, fields map[string]configValue, re
 			}
 
 			if f, ok := fields[key]; ok { //nolint:nestif
-				trace.Log(ctx, slog.LevelInfo, "setting value", "value", value)
-				if err := f.SetString(value, originType, origin); err != nil {
+				trace.Log(ctx, slog.LevelInfo, "setting value", "value", values)
+				if err := f.SetString(strings.Join(values, " "), originType, origin); err != nil {
 					return fmt.Errorf("set value for %q in %s:%d: %w", key, origin, row, err)
 				}
 			} else if p.ErrorOnUnknown {
