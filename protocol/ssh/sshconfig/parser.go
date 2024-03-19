@@ -393,7 +393,7 @@ func tokenizeRow(s string) (key string, values []string, err error) {
 		return "", nil, fmt.Errorf("%w: missing value: %q", ErrSyntax, s)
 	}
 
-	values, err = SplitArgs(leftTrimmed[idx+1:], true)
+	values, err = splitArgs(leftTrimmed[idx+1:], true)
 	if err != nil {
 		return "", nil, fmt.Errorf("%w: %w", ErrSyntax, err)
 	}
@@ -814,8 +814,14 @@ func (p *Parser) parse(obj withRequiredFields, fields map[string]configValue, re
 
 			if f, ok := fields[key]; ok { //nolint:nestif
 				trace.Log(ctx, slog.LevelInfo, "setting value", "value", values)
-				if err := f.SetString(strings.Join(values, " "), originType, origin); err != nil {
-					return fmt.Errorf("set value for %q in %s:%d: %w", key, origin, row, err)
+				var setVal string
+				if len(values) > 1 {
+					setVal = shellescape.QuoteCommand(values)
+				} else {
+					setVal = values[0]
+				}
+				if err := f.SetString(setVal, originType, origin); err != nil {
+					return fmt.Errorf("set value %q for %q in %s:%d: %w", setVal, key, origin, row, err)
 				}
 			} else if p.ErrorOnUnknown {
 				iu, ok := fields["ignoreunknown"]

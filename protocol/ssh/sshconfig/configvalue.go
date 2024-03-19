@@ -464,7 +464,7 @@ func (v *PathListValue) SetString(value string, originType ValueOriginType, orig
 		}
 	}
 
-	paths, err := parseStringSliceValue(value)
+	paths, err := shellescape.Split(value)
 	if err != nil {
 		return fmt.Errorf("can't parse path slice value %q: %w", value, err)
 	}

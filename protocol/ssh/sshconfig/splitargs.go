@@ -17,9 +17,9 @@ var (
 	errMismatchedQuotes = errors.New("mismatched quotes")
 )
 
-// SplitArgs splits a string into arguments like argv_split in ssh C source. It is in fact almost a direct
+// splitArgs splits a string into arguments like argv_split in ssh C source. It is in fact almost a direct
 // copy of the original function.
-func SplitArgs(input string, terminateOnComment bool) ([]string, error) { //nolint:gocognit,cyclop
+func splitArgs(input string, terminateOnComment bool) ([]string, error) { //nolint:gocognit,cyclop
 	var args []string
 
 	argBuilder, ok := builderPool.Get().(*strings.Builder)
