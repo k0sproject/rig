@@ -438,6 +438,8 @@ func (v *PathValue) SetString(value string, originType ValueOriginType, origin s
 		return fmt.Errorf("can't expand path value %q: %w", value, err)
 	}
 	log.Trace(context.Background(), "after expand", "value", value)
+	value = strings.ReplaceAll(value, "\\", "/")
+	log.Trace(context.Background(), "back to forward slashes", "value", value)
 
 	v.Set(value, originType, origin)
 	return nil
