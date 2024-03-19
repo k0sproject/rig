@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"os/user"
+	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -416,17 +417,17 @@ func (v *PathValue) SetString(value string, originType ValueOriginType, origin s
 	}
 
 	if runtime.GOOS == "windows" {
-		// this is a hack to support the __PROGRAMDATA__ in the ssh default config
+		// this is a hack to support the __PROGRAMDATA__ in the ssh config dumps on windows.
 		value = strings.ReplaceAll(value, "__PROGRAMDATA__", os.Getenv("PROGRAMDATA"))
 	}
 
-	value = filepath.Clean(value)
+	value = strings.ReplaceAll(filepath.Clean(value), "\\", "/")
 
 	if !filepath.IsAbs(value) {
 		if origin != "" {
-			value = filepath.Join(filepath.Dir(origin), value)
+			value = filepath.Join(path.Dir(origin), value)
 		} else {
-			value = filepath.Join(home(), ".ssh", value)
+			value = path.Join(home(), ".ssh", value)
 		}
 	}
 

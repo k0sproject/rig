@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -13,12 +14,12 @@ import (
 var errNotImplemented = errors.New("not implemented")
 
 // Expand does ~/ style path expansion for files under current user home. ~user/ style paths are not supported.
-func Expand(path string) (string, error) {
-	if !strings.HasPrefix(path, "~") {
-		return path, nil
+func Expand(dir string) (string, error) {
+	if !strings.HasPrefix(dir, "~") {
+		return dir, nil
 	}
 
-	parts := strings.Split(path, string(os.PathSeparator))
+	parts := strings.Split(dir, string(os.PathSeparator))
 	if parts[0] != "~" {
 		return "", fmt.Errorf("%w: ~user/ style paths not supported", errNotImplemented)
 	}
@@ -27,8 +28,9 @@ func Expand(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("homedir expand: %w", err)
 	}
+	home = strings.ReplaceAll(filepath.Clean(home), "\\", "/")
 
 	parts[0] = home
 
-	return filepath.Join(parts...), nil
+	return path.Join(parts...), nil
 }

@@ -47,7 +47,7 @@ forwardx11 no
 forwardx11timeout 1200
 forwardx11trusted no
 gatewayports no
-globalknownhostsfile __PROGRAMDATA__\ssh/ssh_known_hosts __PROGRAMDATA__\ssh/ssh_known_hosts2
+globalknownhostsfile __PROGRAMDATA__/ssh/ssh_known_hosts __PROGRAMDATA__/ssh/ssh_known_hosts2
 gssapiauthentication no
 gssapidelegatecredentials no
 hashknownhosts no
@@ -88,5 +88,5 @@ updatehostkeys false
 userknownhostsfile ~/.ssh/known_hosts ~/.ssh/known_hosts2
 verifyhostkeydns false
 visualhostkey no
-xauthlocation /usr/X11R6/bin/xauth
+xauthlocation __PROGRAMDATA__/ssh/bin/xauth
 `
