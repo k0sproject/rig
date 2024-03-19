@@ -410,11 +410,6 @@ type PathValue struct {
 
 // SetString sets the value of the path and its origin.
 func (v *PathValue) SetString(value string, originType ValueOriginType, origin string) error {
-	value, err := shellescape.Unquote(value)
-	if err != nil {
-		return fmt.Errorf("can't parse path value %q: %w", value, err)
-	}
-
 	if runtime.GOOS == "windows" {
 		// this is a hack to support the __PROGRAMDATA__ in the ssh config dumps on windows.
 		value = strings.ReplaceAll(value, "__PROGRAMDATA__", os.Getenv("PROGRAMDATA"))
@@ -430,7 +425,7 @@ func (v *PathValue) SetString(value string, originType ValueOriginType, origin s
 		}
 	}
 
-	value, err = homedir.Expand(value)
+	value, err := homedir.Expand(value)
 	if err != nil {
 		return fmt.Errorf("can't expand path value %q: %w", value, err)
 	}
@@ -442,7 +437,7 @@ func (v *PathValue) SetString(value string, originType ValueOriginType, origin s
 // String returns the value as a string.
 func (v *PathValue) String() string {
 	val, _ := v.Get()
-	return shellescape.Quote(val)
+	return val
 }
 
 // PathListValue a list of [PathValue] entries. Duplicates are skipped. If the existing list
