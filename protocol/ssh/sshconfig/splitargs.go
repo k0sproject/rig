@@ -18,7 +18,7 @@ var (
 )
 
 // SplitArgs splits a string into arguments like argv_split in ssh C source.
-func SplitArgs(input string, terminateOnComment bool) ([]string, error) {
+func SplitArgs(input string, terminateOnComment bool) ([]string, error) { //nolint:gocognit,cyclop
 	var args []string
 
 	argBuilder, ok := builderPool.Get().(*strings.Builder)
@@ -34,14 +34,14 @@ func SplitArgs(input string, terminateOnComment bool) ([]string, error) {
 	var inQuote rune
 
 	for i := 0; i < len(input); i++ {
-		ch := rune(input[i])
+		currCh := rune(input[i])
 
-		if terminateOnComment && ch == '#' {
+		if terminateOnComment && currCh == '#' {
 			break
 		}
 
 		// Skip leading whitespace
-		if inQuote == 0 && (ch == ' ' || ch == '\t') {
+		if inQuote == 0 && (currCh == ' ' || currCh == '\t') {
 			if argBuilder.Len() > 0 {
 				args = append(args, argBuilder.String())
 				argBuilder.Reset()
@@ -50,30 +50,30 @@ func SplitArgs(input string, terminateOnComment bool) ([]string, error) {
 		}
 
 		// Handle escape sequences
-		if ch == '\\' {
+		if currCh == '\\' {
 			if i+1 < len(input) && (input[i+1] == '\\' || input[i+1] == '\'' || input[i+1] == '"' || (inQuote == 0 && input[i+1] == ' ')) {
 				i++
 				argBuilder.WriteRune(rune(input[i]))
 			} else {
-				argBuilder.WriteRune(ch)
+				argBuilder.WriteRune(currCh)
 			}
 			continue
 		}
 
 		// Handle quotes
-		if ch == '\'' || ch == '"' {
-			if inQuote == ch {
+		if currCh == '\'' || currCh == '"' {
+			if inQuote == currCh {
 				inQuote = 0
 			} else if inQuote == 0 {
-				inQuote = ch
+				inQuote = currCh
 				continue
 			}
 		}
 
-		argBuilder.WriteRune(ch)
+		argBuilder.WriteRune(currCh)
 
 		// Check if arg is complete
-		if inQuote == 0 && (ch == ' ' || ch == '\t') {
+		if inQuote == 0 && (currCh == ' ' || currCh == '\t') {
 			// Remove trailing space
 			arg := argBuilder.String()
 			if len(arg) > 0 {
