@@ -17,7 +17,8 @@ var (
 	errMismatchedQuotes = errors.New("mismatched quotes")
 )
 
-// SplitArgs splits a string into arguments like argv_split in ssh C source.
+// SplitArgs splits a string into arguments like argv_split in ssh C source. It is in fact almost a direct
+// copy of the original function.
 func SplitArgs(input string, terminateOnComment bool) ([]string, error) { //nolint:gocognit,cyclop
 	var args []string
 
@@ -31,65 +32,46 @@ func SplitArgs(input string, terminateOnComment bool) ([]string, error) { //noli
 	}()
 	argBuilder.Grow(len(input))
 
-	var inQuote rune
+	var quote rune
 
 	for i := 0; i < len(input); i++ {
 		currCh := rune(input[i])
+
+		// Skip leading whitespace
+		if currCh == ' ' || currCh == '\t' {
+			continue
+		}
 
 		if terminateOnComment && currCh == '#' {
 			break
 		}
 
-		// Skip leading whitespace
-		if inQuote == 0 && (currCh == ' ' || currCh == '\t') {
-			if argBuilder.Len() > 0 {
-				args = append(args, argBuilder.String())
-				argBuilder.Reset()
-			}
-			continue
-		}
-
-		// Handle escape sequences
-		if currCh == '\\' {
-			if i+1 < len(input) && (input[i+1] == '\\' || input[i+1] == '\'' || input[i+1] == '"' || (inQuote == 0 && input[i+1] == ' ')) {
-				i++
+		// Copy the token in, removing escapes
+		for ; i < len(input); i++ { // weird stuff originates from the C sources
+			currCh = rune(input[i])
+			if currCh == '\\' { //nolint:gocritic,nestif
+				if i+1 < len(input) && (input[i+1] == '\\' || input[i+1] == '\'' || input[i+1] == '"' || (quote == 0 && input[i+1] == ' ')) {
+					i++ // Skip '\'
+				}
 				argBuilder.WriteRune(rune(input[i]))
+			} else if quote == 0 && currCh == ' ' || currCh == '\t' {
+				// done
+				break
+			} else if quote == 0 && currCh == '"' || currCh == '\'' {
+				quote = currCh
+			} else if quote != 0 && currCh == quote {
+				quote = 0 // quote end
 			} else {
 				argBuilder.WriteRune(currCh)
 			}
-			continue
 		}
-
-		// Handle quotes
-		if currCh == '\'' || currCh == '"' {
-			if inQuote == currCh {
-				inQuote = 0
-			} else if inQuote == 0 {
-				inQuote = currCh
-				continue
-			}
+		if quote != 0 {
+			return nil, errMismatchedQuotes
 		}
-
-		argBuilder.WriteRune(currCh)
-
-		// Check if arg is complete
-		if inQuote == 0 && (currCh == ' ' || currCh == '\t') {
-			// Remove trailing space
-			arg := argBuilder.String()
-			if len(arg) > 0 {
-				arg = arg[:len(arg)-1]
-				args = append(args, arg)
-				argBuilder.Reset()
-			}
+		if argBuilder.Len() > 0 {
+			args = append(args, argBuilder.String())
+			argBuilder.Reset()
 		}
-	}
-
-	// Add the last arg
-	if argBuilder.Len() > 0 {
-		args = append(args, argBuilder.String())
-	}
-	if inQuote != 0 {
-		return nil, errMismatchedQuotes
 	}
 	return args, nil
 }
