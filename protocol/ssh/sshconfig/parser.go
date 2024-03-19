@@ -381,6 +381,10 @@ func tokenizeRow(s string) (key string, values []string, err error) {
 
 	// if there is no separator, the line is invalid
 	if idx == -1 {
+		if strings.HasPrefix(leftTrimmed, "canonicaldomains") {
+			// some versions of ssh output a broken line for canonicaldomains
+			return "canonicaldomains", []string{"none"}, nil
+		}
 		return "", nil, fmt.Errorf("%w: missing separator: %q", ErrSyntax, s)
 	}
 
@@ -388,8 +392,6 @@ func tokenizeRow(s string) (key string, values []string, err error) {
 	if len(leftTrimmed) < idx+1 {
 		return "", nil, fmt.Errorf("%w: missing value: %q", ErrSyntax, s)
 	}
-
-	//modeEquals := leftTrimmed[idx] == '='
 
 	values, err = SplitArgs(leftTrimmed[idx+1:], true)
 	if err != nil {
