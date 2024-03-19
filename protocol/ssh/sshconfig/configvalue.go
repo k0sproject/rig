@@ -410,7 +410,6 @@ type PathValue struct {
 
 // SetString sets the value of the path and its origin.
 func (v *PathValue) SetString(value string, originType ValueOriginType, origin string) error {
-	// TODO - path expansion based on origin
 	value, err := shellescape.Unquote(value)
 	if err != nil {
 		return fmt.Errorf("can't parse path value %q: %w", value, err)
