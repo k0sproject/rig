@@ -342,7 +342,7 @@ type SSHConfig struct {
 	// be tried in sequence.  Multiple CertificateFile
 	// directives will add to the list of certificates used for
 	// authentication.
-	CertificateFile AppendingStringListValue
+	CertificateFile AppendingPathListValue
 
 	// Specifies whether and how quickly ssh(1) should close
 	// inactive channels.  Timeouts are specified as one or more
@@ -860,7 +860,7 @@ type SSHConfig struct {
 	// the second for non-interactive sessions.  The default is
 	// af21 (Low-Latency Data) for interactive sessions and cs1
 	// (Lower Effort) for non-interactive sessions.
-	IPQoS StringValue
+	IPQoS TwoItemsStringListValue
 
 	// Specifies whether to use keyboard-interactive
 	// authentication.  The argument to this keyword must be yes
@@ -1183,7 +1183,7 @@ type SSHConfig struct {
 	// rekeying is performed after the cipher's default amount
 	// of data has been sent or received and no time based
 	// rekeying is done.
-	RekeyLimit StringValue
+	RekeyLimit TwoItemsStringListValue
 
 	// Specifies a command to execute on the remote machine
 	// after successfully connecting to the server.  The command
@@ -1286,6 +1286,11 @@ type SSHConfig struct {
 	// It is possible to clear previously set SendEnv variable
 	// names by prefixing patterns with -.  The default is not
 	// to send any environment variables.
+	//
+	// NOTE: It is quite usual to have LANG and LC_* variables
+	// in /etc/ssh/ssh_config, and since that file is read
+	// last, using something like "SendEnv -*" in user config
+	// or ssh options will not remove those.
 	SendEnv RemovableStringListValue
 
 	// Sets the number of server alive messages (see below)

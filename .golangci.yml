@@ -50,8 +50,10 @@ linters-settings:
     ignore-decls:
       - w http.ResponseWriter
       - r *http.Request
+      - r io.Reader
       - i int
       - n int
+      - j int
       - p []byte
       - mu sync.Mutex
       - wg sync.WaitGroup

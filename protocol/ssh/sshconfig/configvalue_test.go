@@ -10,13 +10,8 @@ import (
 func TestConfigValue(t *testing.T) {
 	t.Run("SpecialStringSliceValue", func(t *testing.T) {
 		ss := sshconfig.ModifiableStringListValue{}
-		require.NoError(t, ss.SetString("one,'two',three", sshconfig.ValueOriginOption, ""))
+		require.NoError(t, ss.SetString("1,2,3", sshconfig.ValueOriginOption, ""))
 		val, ok := ss.Get()
-		require.True(t, ok)
-		require.Equal(t, []string{"one", "two", "three"}, val)
-		// set again but space separated
-		require.NoError(t, ss.SetString("1 2 3", sshconfig.ValueOriginOption, ""))
-		val, ok = ss.Get()
 		require.True(t, ok)
 		require.Equal(t, []string{"1", "2", "3"}, val)
 		// set again but with + prefix
@@ -44,7 +39,7 @@ func TestConfigValue(t *testing.T) {
 	})
 	t.Run("SpecialStringSliceValue with pattern", func(t *testing.T) {
 		ss := sshconfig.ModifiableStringListValue{}
-		require.NoError(t, ss.SetString("one,'two',three", sshconfig.ValueOriginOption, ""))
+		require.NoError(t, ss.SetString("one,two,three", sshconfig.ValueOriginOption, ""))
 		val, ok := ss.Get()
 		require.True(t, ok)
 		require.Equal(t, []string{"one", "two", "three"}, val)

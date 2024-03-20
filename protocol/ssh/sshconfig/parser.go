@@ -273,6 +273,7 @@ func expandToken(token string, fields map[string]configValue) string { //nolint:
 
 type configValue interface {
 	SetString(val string, originType ValueOriginType, origin string) error
+	SetStrings(vals []string, originType ValueOriginType, origin string) error
 	IsDefault() bool
 	IsSet() bool
 	String() string
@@ -774,7 +775,7 @@ func (p *Parser) parse(obj withRequiredFields, fields map[string]configValue, re
 				continue
 			}
 
-			if err := pjump.SetString(shellescape.QuoteCommand(values), originType, origin); err != nil {
+			if err := pjump.SetStrings([]string{shellescape.QuoteCommand(values)}, originType, origin); err != nil {
 				return fmt.Errorf("set value %q for proxycommand in %s:%d: %w", values, origin, row, err)
 			}
 		case "proxycommand":
@@ -796,7 +797,7 @@ func (p *Parser) parse(obj withRequiredFields, fields map[string]configValue, re
 				continue
 			}
 
-			if err := pcmd.SetString(shellescape.QuoteCommand(values), originType, origin); err != nil {
+			if err := pcmd.SetStrings([]string{shellescape.QuoteCommand(values)}, originType, origin); err != nil {
 				return fmt.Errorf("set value %q for proxycommand in %s:%d: %w", values, origin, row, err)
 			}
 		default:
@@ -814,14 +815,8 @@ func (p *Parser) parse(obj withRequiredFields, fields map[string]configValue, re
 
 			if f, ok := fields[key]; ok { //nolint:nestif
 				trace.Log(ctx, slog.LevelInfo, "setting value", "value", values)
-				var setVal string
-				if len(values) > 1 {
-					setVal = shellescape.QuoteCommand(values)
-				} else {
-					setVal = values[0]
-				}
-				if err := f.SetString(setVal, originType, origin); err != nil {
-					return fmt.Errorf("set value %q for %q in %s:%d: %w", setVal, key, origin, row, err)
+				if err := f.SetStrings(values, originType, origin); err != nil {
+					return fmt.Errorf("set value %q for %q in %s:%d: %w", values, key, origin, row, err)
 				}
 			} else if p.ErrorOnUnknown {
 				iu, ok := fields["ignoreunknown"]

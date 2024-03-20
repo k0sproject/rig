@@ -117,8 +117,29 @@ type StringValue struct {
 
 // SetString sets the value of the string and its origin.
 func (v *StringValue) SetString(value string, originType ValueOriginType, origin string) error {
+	if value == "" {
+		return fmt.Errorf("%w: value is empty", ErrInvalidValue)
+	}
 	v.Set(value, originType, origin)
 	return nil
+}
+
+func expectOne(values []string) error {
+	if len(values) == 0 {
+		return fmt.Errorf("%w: value is empty", ErrInvalidValue)
+	}
+	if len(values) > 1 {
+		return fmt.Errorf("%w: too many values in %q", ErrInvalidValue, values)
+	}
+	return nil
+}
+
+// SetStrings sets the value of the string and its origin. It accepts a slice of strings, but only the first value is used.
+func (v *StringValue) SetStrings(values []string, originType ValueOriginType, origin string) error {
+	if err := expectOne(values); err != nil {
+		return err
+	}
+	return v.SetString(values[0], originType, origin)
 }
 
 // String returns the value as a string.
@@ -145,6 +166,14 @@ func (v *BoolValue) SetString(value string, originType ValueOriginType, origin s
 	return nil
 }
 
+// SetStrings sets the value of the string and its origin. It accepts a slice of strings, but only the first value is used.
+func (v *BoolValue) SetStrings(values []string, originType ValueOriginType, origin string) error {
+	if err := expectOne(values); err != nil {
+		return err
+	}
+	return v.SetString(values[0], originType, origin)
+}
+
 // String returns the value as a string.
 func (v *BoolValue) String() string {
 	val, _ := v.Get()
@@ -157,13 +186,7 @@ func (v *BoolValue) String() string {
 // MultiStateBoolValue is a configuration value that can be a boolean or a string. Fields like this are used in the
 // ssh configuration for things like "yes/no/ask" or "yes/no/auto". The Bool() function returns the value as a boolean.
 type MultiStateBoolValue struct {
-	Value[string]
-}
-
-// SetString sets the value of the multi-state value and its origin. It accepts "yes", "true", "no" and "false" as boolean values.
-func (v *MultiStateBoolValue) SetString(value string, originType ValueOriginType, origin string) error {
-	v.Set(value, originType, origin)
-	return nil
+	StringValue
 }
 
 // Bool returns the value as a boolean. It returns the boolean value and a boolean indicating if the value was set to a boolean value.
@@ -184,8 +207,13 @@ func (v *MultiStateBoolValue) Bool() (bool, bool) {
 
 // String returns the value as a string.
 func (v *MultiStateBoolValue) String() string {
-	val, _ := v.Get()
-	return val
+	if val, ok := v.Bool(); ok {
+		if val {
+			return boolYes
+		}
+		return boolNo
+	}
+	return v.StringValue.String()
 }
 
 // UintValue is a configuration value that holds an unsigned integer.
@@ -206,6 +234,14 @@ func (v *UintValue) SetString(value string, originType ValueOriginType, origin s
 	return nil
 }
 
+// SetStrings sets the value of the string and its origin. It accepts a slice of strings, but only the first value is used.
+func (v *UintValue) SetStrings(values []string, originType ValueOriginType, origin string) error {
+	if err := expectOne(values); err != nil {
+		return err
+	}
+	return v.SetString(values[0], originType, origin)
+}
+
 // String returns the value as a string.
 func (v *UintValue) String() string {
 	val, _ := v.Get()
@@ -224,6 +260,14 @@ func (v *OctalUintValue) SetString(value string, originType ValueOriginType, ori
 		return fmt.Errorf("invalid octal uint value %q: %w", value, err)
 	}
 	return v.UintValue.SetString(strconv.FormatUint(num, 10), originType, origin)
+}
+
+// SetStrings sets the value of the string and its origin. It accepts a slice of strings, but only the first value is used.
+func (v *OctalUintValue) SetStrings(values []string, originType ValueOriginType, origin string) error {
+	if err := expectOne(values); err != nil {
+		return err
+	}
+	return v.SetString(values[0], originType, origin)
 }
 
 // String returns the value formatted as octal as a string.
@@ -256,6 +300,14 @@ func (v *DurationValue) SetString(value string, originType ValueOriginType, orig
 	return nil
 }
 
+// SetStrings sets the value of the string and its origin. It accepts a slice of strings, but only the first value is used.
+func (v *DurationValue) SetStrings(values []string, originType ValueOriginType, origin string) error {
+	if err := expectOne(values); err != nil {
+		return err
+	}
+	return v.SetString(values[0], originType, origin)
+}
+
 // String returns the value as a string.
 func (v *DurationValue) String() string {
 	val, _ := v.Get()
@@ -274,44 +326,35 @@ type StringListValue struct {
 // other origin than the defaults, it appends the new value to the slice. If the value is set from the defaults, it
 // clears the slice before setting the new values.
 func (v *StringListValue) SetString(value string, originType ValueOriginType, origin string) error {
+	return v.SetStrings(strings.Split(value, ","), originType, origin)
+}
+
+// SetStrings sets the value of the list and its origin.
+func (v *StringListValue) SetStrings(values []string, originType ValueOriginType, origin string) error {
 	var oldVals []string
 	if v.OriginType() != ValueOriginDefault {
 		oldVals, _ = v.Get()
-	}
-
-	var newVals []string
-	if strings.Contains(value, ",") {
-		newVals = strings.Split(value, ",")
-		for i, val := range newVals {
-			v, err := shellescape.Unquote(strings.TrimSpace(val))
-			if err != nil {
-				return fmt.Errorf("can't parse string slice value %q: %w", value, err)
+		for _, val := range values {
+			if val == "" {
+				continue
 			}
-			newVals[i] = v
+			if !slices.Contains(oldVals, val) {
+				oldVals = append(oldVals, val)
+			}
 		}
-	} else {
-		vals, err := shellescape.Split(value)
-		if err != nil {
-			return fmt.Errorf("can't parse string slice value %q: %w", value, err)
-		}
-		newVals = vals
+		v.Set(oldVals, originType, origin)
+		return nil
 	}
-	for _, newVal := range newVals {
-		if newVal == "" {
+	newVals := make([]string, len(values))
+	var j int
+	for _, val := range values {
+		if val == "" {
 			continue
 		}
-		var exists bool
-		for _, oldVal := range oldVals {
-			if oldVal == newVal {
-				exists = true
-			}
-		}
-		if !exists {
-			oldVals = append(oldVals, newVal)
-		}
+		newVals[j] = val
+		j++
 	}
-
-	v.Set(oldVals, originType, origin)
+	v.Set(newVals[:j], originType, origin)
 	return nil
 }
 
@@ -346,49 +389,38 @@ type IntListValue struct {
 // SetString appends the value to the slice and sets the origin of the value. If the value is set from the defaults, it
 // clears the slice before setting the new values. Duplicate values are ignored.
 func (v *IntListValue) SetString(value string, originType ValueOriginType, origin string) error {
-	var oldVals []int
-	if v.OriginType() != ValueOriginDefault {
-		oldVals, _ = v.Get()
-	}
+	return v.SetStrings(strings.Split(value, ","), originType, origin)
+}
 
-	var newVals []int //nolint:prealloc // size is not known, the input can have blanks.
-	var stringVals []string
-	if strings.Contains(value, ",") {
-		stringVals = strings.Split(value, ",")
-	} else {
-		vals, err := shellescape.Split(value)
-		if err != nil {
-			return fmt.Errorf("can't parse int slice value %q: %w", value, err)
-		}
-		stringVals = vals
-	}
-	for _, val := range stringVals {
+// SetStrings sets the value of the list and its origin.
+func (v *IntListValue) SetStrings(values []string, originType ValueOriginType, origin string) error {
+	ints := make([]int, len(values))
+	var j int
+	for _, val := range values {
 		if val == "" {
 			continue
 		}
-		unq, err := shellescape.Unquote(strings.TrimSpace(val))
+		num, err := strconv.Atoi(val)
 		if err != nil {
-			return fmt.Errorf("can't parse int slice value %q: %w", value, err)
+			return fmt.Errorf("%w: invalid int value %q: %w", ErrInvalidValue, val, err)
 		}
-		intVal, err := strconv.Atoi(unq)
-		if err != nil {
-			return fmt.Errorf("can't parse int slice value %q: %w", value, err)
-		}
-		newVals = append(newVals, intVal)
+		ints[j] = num
+		j++
 	}
-	for _, newVal := range newVals {
-		var exists bool
-		for _, oldVal := range oldVals {
-			if oldVal == newVal {
-				exists = true
+	ints = ints[:j]
+
+	var oldVals []int
+	if v.OriginType() != ValueOriginDefault {
+		oldVals, _ = v.Get()
+		for _, val := range ints {
+			if !slices.Contains(oldVals, val) {
+				oldVals = append(oldVals, val)
 			}
 		}
-		if !exists {
-			oldVals = append(oldVals, newVal)
-		}
+		v.Set(oldVals, originType, origin)
+		return nil
 	}
-
-	v.Set(oldVals, originType, origin)
+	v.Set(ints, originType, origin)
 	return nil
 }
 
@@ -437,6 +469,14 @@ func (v *PathValue) SetString(value string, originType ValueOriginType, origin s
 	return nil
 }
 
+// SetStrings sets the value of the string and its origin. It accepts a slice of strings, but only the first value is used.
+func (v *PathValue) SetStrings(values []string, originType ValueOriginType, origin string) error {
+	if err := expectOne(values); err != nil {
+		return err
+	}
+	return v.SetString(values[0], originType, origin)
+}
+
 // String returns the value as a string.
 func (v *PathValue) String() string {
 	val, _ := v.Get()
@@ -483,22 +523,41 @@ func (v *PathListValue) String() string {
 	return formatStringSlice(val, ' ')
 }
 
-// AppendingStringListValue is like a [StringListValue] but it always appends the value to the existing value
+// AppendingPathListValue is like a [StringListValue] but it always appends the value to the existing value
 // even if a value was already set.
-type AppendingStringListValue struct {
-	StringListValue
+type AppendingPathListValue struct {
+	PathListValue
 }
 
-// SetString appends the value to the existing value.
-func (v *AppendingStringListValue) SetString(value string, originType ValueOriginType, origin string) error {
+// SetString appends the value to the slice and sets the origin of the value.
+func (v *AppendingPathListValue) SetString(value string, originType ValueOriginType, origin string) error {
 	if value == "" {
-		return nil
+		return fmt.Errorf("%w: value is empty", ErrInvalidValue)
 	}
-	newVals, err := parseStringSliceValue(value)
-	if err != nil {
-		return fmt.Errorf("can't parse string slice value %q: %w", value, err)
+	return v.SetStrings(strings.Split(value, " "), originType, origin)
+}
+
+// SetStrings appends the value to the slice and sets the origin of the value.
+func (v *AppendingPathListValue) SetStrings(values []string, originType ValueOriginType, origin string) error {
+	if len(values) == 0 {
+		return fmt.Errorf("%w: value is empty", ErrInvalidValue)
 	}
-	v.value = append(v.value, newVals...)
+	if values[0] == "" {
+		return fmt.Errorf("%w: value is empty", ErrInvalidValue)
+	}
+	for _, val := range values {
+		if val == "" {
+			continue
+		}
+		np := &PathValue{}
+		if err := np.SetString(val, originType, origin); err != nil {
+			return err
+		}
+		val, _ := np.Get()
+		if !slices.Contains(v.value, val) {
+			v.value = append(v.value, val)
+		}
+	}
 	v.originType = originType
 	v.origin = origin
 	return nil
@@ -520,109 +579,84 @@ type ModifiableStringListValue struct {
 // it modifies the list accordingly.
 func (v *ModifiableStringListValue) SetString(value string, originType ValueOriginType, origin string) error {
 	if value == "" {
-		return nil
+		return fmt.Errorf("%w: value is empty", ErrInvalidValue)
+	}
+	return v.SetStrings(strings.Split(value, ","), originType, origin)
+}
+
+// SetStrings sets the value of the list and its origin. If the first character of the value is a prefix, it modifies the list accordingly.
+// The prefix can be +, - or ^.
+// + - appends the value to the existing list
+// - - removes the given value from the existing list. the values can be wildcard patterns.
+// ^ - prepends the value to the existing list
+// If no prefix is used, it sets the value to the list.
+func (v *ModifiableStringListValue) SetStrings(values []string, originType ValueOriginType, origin string) error { //nolint:cyclop
+	if len(values) == 0 {
+		return fmt.Errorf("%w: value is empty", ErrInvalidValue)
+	}
+
+	if values[0] == "" {
+		return fmt.Errorf("%w: value is empty", ErrInvalidValue)
 	}
 
 	// Check for a prefix
-	prefix := value[0]
+	prefix := values[0][0]
 	if prefix == '+' || prefix == '-' || prefix == '^' {
-		value = value[1:]
+		values[0] = values[0][1:]
+	} else {
+		prefix = 0
 	}
 
-	valuesToSet, err := parseStringSliceValue(value)
-	if err != nil {
-		return fmt.Errorf("can't parse string slice value %q: %w", value, err)
-	}
+	oldVals, _ := v.Get()
 
-	var finalValues []string
 	switch prefix {
 	case '+':
-		finalValues = v.appendUniqueValues(valuesToSet)
+		// append the new values to the existing list
+		for _, val := range values {
+			if val == "" {
+				continue
+			}
+			if !slices.Contains(oldVals, val) {
+				oldVals = append(oldVals, val)
+			}
+		}
 	case '-':
-		finalValues = v.removeAllOccurrences(valuesToSet)
+		// remove the new values from the existing list
+		for _, val := range values {
+			if val == "" {
+				continue
+			}
+			oldVals = slices.DeleteFunc(oldVals, func(v string) bool {
+				matches, err := matchesPattern(val, v)
+				return err == nil && matches
+			})
+		}
 	case '^':
-		finalValues = v.prependUniqueValues(valuesToSet)
+		for _, val := range values {
+			if val == "" {
+				continue
+			}
+			oldVals = slices.DeleteFunc(oldVals, func(v string) bool {
+				matches, err := matchesPattern(val, v)
+				return err == nil && matches
+			})
+		}
+		oldVals = append(values, oldVals...)
 	default:
-		finalValues = valuesToSet
+		oldVals = values
 	}
-
-	v.value = finalValues
+	v.value = oldVals
 	v.originType = originType
 	v.origin = origin
 
 	return nil
 }
 
-// parseStringSliceValue parses a comma-separated string into a slice.
-func parseStringSliceValue(value string) ([]string, error) {
-	if strings.Contains(value, ",") {
-		newVals := strings.Split(value, ",")
-		return newVals, nil
-	}
-	return []string{value}, nil
-}
-
-// appendUniqueValues adds new values to the slice, avoiding duplicates.
-func (v *ModifiableStringListValue) appendUniqueValues(newValues []string) []string {
-	existingValues, _ := v.Get()
-	for _, newVal := range newValues {
-		if !slices.Contains(existingValues, newVal) {
-			existingValues = append(existingValues, newVal)
-		}
-	}
-	return existingValues
-}
-
-// removeAllOccurrences removes all occurrences of the specified values from the slice.
-func (v *ModifiableStringListValue) removeAllOccurrences(valuesToRemove []string) []string {
-	existingValues, _ := v.Get()
-	for _, removeVal := range valuesToRemove {
-		existingValues = filterOutMatchPattern(existingValues, removeVal)
-	}
-	return existingValues
-}
-
-// prependUniqueValues prepends new values to the slice after removing any existing occurrences.
-func (v *ModifiableStringListValue) prependUniqueValues(newValues []string) []string {
-	existingValues, _ := v.Get()
-	existingValues = filterOutMultiple(existingValues, newValues)
-	return append(newValues, existingValues...)
-}
-
-// filterOut removes a specific value from a slice.
-func filterOut(slice []string, value string) []string {
-	result := []string{}
-	for _, v := range slice {
-		if v != value {
-			result = append(result, v)
-		}
-	}
-	return result
-}
-
-// filterOutMatchPattern removes a specific value from a slice.
-// The value can be a match pattern and remove multiple values.
-func filterOutMatchPattern(slice []string, value string) []string {
-	result := []string{}
-	for _, v := range slice {
-		if matches, err := matchesPattern(value, v); err != nil || !matches {
-			result = append(result, v)
-		}
-	}
-	return result
-}
-
-// filterOutMultiple removes multiple values from a slice.
-func filterOutMultiple(slice []string, valuesToRemove []string) []string {
-	for _, removeVal := range valuesToRemove {
-		slice = filterOut(slice, removeVal)
-	}
-	return slice
-}
-
 // RemovableStringListValue is a configuration value that holds a slice of strings. It is used in the ssh configuration
-// for the SendEnv field. Prefixing the value with - removes the value from the list. Like [AppendingStringListValue],
+// for the SendEnv field. Prefixing the value with - removes the value from the list. Like [AppendingPathListValue],
 // without the prefix it always appends even if a value was set before.
+// This is only used by SendEnv in the ssh configuration and since the value LANG LC_* is usually set in the gloabal
+// config which is parsed last, in reality the - prefix will not work to remove those.
 type RemovableStringListValue struct {
 	StringListValue
 }
@@ -631,27 +665,67 @@ type RemovableStringListValue struct {
 // it modifies the list accordingly.
 func (v *RemovableStringListValue) SetString(value string, originType ValueOriginType, origin string) error {
 	if value == "" {
-		return nil
+		return fmt.Errorf("%w: value is empty", ErrInvalidValue)
 	}
-	vals, _ := v.Get()
-	var remove bool
-	if strings.HasPrefix(value, "-") {
-		remove = true
-		value = value[1:]
+	return v.SetStrings(strings.Split(value, " "), originType, origin)
+}
+
+// SetStrings appends the value to the slice and sets the origin of the value or if a prefix is used,
+// it modifies the list accordingly.
+func (v *RemovableStringListValue) SetStrings(values []string, originType ValueOriginType, origin string) error {
+	if len(values) == 0 {
+		return fmt.Errorf("%w: value is empty", ErrInvalidValue)
 	}
 
-	newVals, err := parseStringSliceValue(value)
-	if err != nil {
-		return fmt.Errorf("can't parse string slice value %q: %w", value, err)
+	oldVals, _ := v.Get()
+	for _, val := range values {
+		if val == "" {
+			continue
+		}
+		var remove bool
+		if val[0] == '-' {
+			remove = true
+			val = val[1:]
+		}
+		if remove {
+			oldVals = slices.DeleteFunc(oldVals, func(v string) bool {
+				matches, err := matchesPattern(val, v)
+				return err == nil && matches
+			})
+		} else if !slices.Contains(oldVals, val) {
+			oldVals = append(oldVals, val)
+		}
 	}
-	if remove {
-		vals = filterOutMultiple(vals, newVals)
-	} else {
-		vals = filterOutMultiple(vals, newVals)
-		vals = append(vals, newVals...)
-	}
-	v.value = vals
+	v.value = oldVals
 	v.originType = originType
 	v.origin = origin
 	return nil
+}
+
+// TwoItemsStringListValue is a stringlist value that can hold one or two items.
+type TwoItemsStringListValue struct {
+	StringListValue
+}
+
+// SetString sets the value of the list and its origin.
+func (v *TwoItemsStringListValue) SetString(value string, originType ValueOriginType, origin string) error {
+	return v.SetStrings(strings.Split(value, " "), originType, origin)
+}
+
+// SetStrings sets the value of the list and its origin.
+func (v *TwoItemsStringListValue) SetStrings(values []string, originType ValueOriginType, origin string) error {
+	if len(values) == 0 {
+		return fmt.Errorf("%w: value is empty", ErrInvalidValue)
+	}
+	if len(values) > 2 {
+		return fmt.Errorf("%w: too many values in %q", ErrInvalidValue, values)
+	}
+	v.Set(values, originType, origin)
+	return nil
+}
+
+// String returns the value as a string.
+func (v *TwoItemsStringListValue) String() string {
+	val, _ := v.Get()
+	return formatStringSlice(val, ' ')
 }
