@@ -1,6 +1,6 @@
 //go:build !windows && !darwin
 
-package sshconfig
+package tree
 
 var defaultGlobalConfigPath = func() string {
 	return "/etc/ssh/ssh_config"
@@ -8,7 +8,8 @@ var defaultGlobalConfigPath = func() string {
 
 // sshDefaultConfig is the default configuration for an SSH client.
 // this is obtained via "ssh -G" on a fresh linux machine without
-// any ssh config files.
+// any ssh config files. the output is sorted and the fields with key
+// "identityfile" are joined into a single line.
 //
 // note that some of the boolean values are displayed as "true"/"false"
 // instead of "yes"/"no".
@@ -47,13 +48,7 @@ hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ecdsa-sha2-nistp256
 hostbasedauthentication no
 hostkeyalgorithms ssh-ed25519-cert-v01@openssh.com,ecdsa-sha2-nistp256-cert-v01@openssh.com,ecdsa-sha2-nistp384-cert-v01@openssh.com,ecdsa-sha2-nistp521-cert-v01@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com,sk-ecdsa-sha2-nistp256-cert-v01@openssh.com,rsa-sha2-512-cert-v01@openssh.com,rsa-sha2-256-cert-v01@openssh.com,ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,rsa-sha2-512,rsa-sha2-256
 identitiesonly no
-identityfile ~/.ssh/id_dsa
-identityfile ~/.ssh/id_ecdsa
-identityfile ~/.ssh/id_ecdsa_sk
-identityfile ~/.ssh/id_ed25519
-identityfile ~/.ssh/id_ed25519_sk
-identityfile ~/.ssh/id_rsa
-identityfile ~/.ssh/id_xmss
+identityfile ~/.ssh/id_dsa ~/.ssh/id_ecdsa ~/.ssh/id_ecdsa_sk ~/.ssh/id_ed25519 ~/.ssh/id_ed25519_sk ~/.ssh/id_rsa ~/.ssh/id_xmss
 ipqos af21 cs1
 kbdinteractiveauthentication yes
 kexalgorithms sntrup761x25519-sha512@openssh.com,curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,diffie-hellman-group14-sha256

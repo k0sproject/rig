@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net"
 	"strings"
+
+	"github.com/k0sproject/rig/v2/protocol/ssh/sshconfig/value"
 )
 
 // RequiredFields holds the required fields for a Host entry in the ssh configuration. These fields need to
@@ -12,13 +14,13 @@ import (
 type RequiredFields struct {
 	// Host is the host alias that is used to match suitable confirguration blocks, it holds
 	// the value as it would have been given when running "ssh hostalias".
-	Host StringValue
+	host string
 
 	// Specifies the user to log in as.  This can be useful when
 	// a different user name is used on different machines.
 	// This saves the trouble of having to remember to give the
 	// user name on the command line.
-	User StringValue
+	User value.StringValue
 
 	// Specifies the real host name to log into.  This can be
 	// used to specify nicknames or abbreviations for hosts.
@@ -27,17 +29,17 @@ type RequiredFields struct {
 	// permitted (both on the command line and in Hostname
 	// specifications).  The default is the name given on the
 	// command line.
-	Hostname StringValue
+	Hostname value.StringValue
 }
 
 // SetUser sets the user field. If the name is empty, it sets the current system user.
 func (rf *RequiredFields) SetUser(name string) error {
 	if name != "" {
-		if err := rf.User.SetString(name, ValueOriginOption, ""); err != nil {
+		if err := rf.User.SetString(name, ""); err != nil {
 			return fmt.Errorf("can't set user value %q: %w", name, err)
 		}
 	} else {
-		if err := rf.User.SetString(username(), ValueOriginOption, ""); err != nil {
+		if err := rf.User.SetString(username(), ""); err != nil {
 			return fmt.Errorf("can't set user value %q: %w", username(), err)
 		}
 	}
@@ -47,36 +49,34 @@ func (rf *RequiredFields) SetUser(name string) error {
 // SetHost sets the host field. This must be set for the configuration parsing to work.
 func (rf *RequiredFields) SetHost(host string) error {
 	if host == "" {
-		return fmt.Errorf("%w: host must be non-empty", ErrInvalidValue)
+		return fmt.Errorf("%w: host must be non-empty", value.ErrInvalidValue)
 	}
-	if err := rf.Host.SetString(host, ValueOriginOption, ""); err != nil {
-		return fmt.Errorf("can't set host value %q: %w", host, err)
-	}
+	rf.host = host
 	return nil
 }
 
 // GetHost returns the host field and a boolean indicating if the value was set.
 func (rf *RequiredFields) GetHost() (string, bool) {
-	return rf.Host.Get()
+	return rf.host, rf.host != ""
 }
 
 // SetHostname sets the hostname field.
 func (rf *RequiredFields) SetHostname(hostName string) error {
 	if hostName == "" {
-		return fmt.Errorf("%w: can't set empty hostname", ErrInvalidValue)
+		return fmt.Errorf("%w: can't set empty hostname", value.ErrInvalidValue)
 	}
-	if err := rf.Hostname.SetString(hostName, ValueOriginOption, ""); err != nil {
+	if err := rf.Hostname.SetString(hostName, ""); err != nil {
 		return fmt.Errorf("can't set hostname value %q: %w", hostName, err)
 	}
 	return nil
 }
 
-var canonicalizationFields = []string{
-	"canonicaldomains",
-	"canonicalizehostname",
-	"canonicalizemaxdots",
-	"canonicalizefallbacklocal",
-	"canonicalizepermittedcnames",
+var canonicalizationFields = map[string]struct{}{
+	"canonicaldomains":            {},
+	"canonicalizehostname":        {},
+	"canonicalizemaxdots":         {},
+	"canonicalizefallbacklocal":   {},
+	"canonicalizepermittedcnames": {},
 }
 
 // CanonicalizationFields must exist in a config struct for hostname canonicalization to work.
@@ -84,7 +84,7 @@ type CanonicalizationFields struct {
 	// When CanonicalizeHostname is enabled, this option
 	// specifies the list of domain suffixes in which to search
 	// for the specified destination host.
-	CanonicalDomains StringListValue
+	CanonicalDomains value.StringListValue
 
 	// Controls whether explicit hostname canonicalization is
 	// performed.  The default, no, is not to perform any name
@@ -101,13 +101,13 @@ type CanonicalizationFields struct {
 	// are processed again using the new target name to pick up
 	// any new configuration in matching Host and Match stanzas.
 	// A value of none disables the use of a ProxyJump host.
-	CanonicalizeHostname MultiStateBoolValue
+	CanonicalizeHostname value.MultiStateBoolValue
 
 	// Specifies the maximum number of dot characters in a
 	// hostname before canonicalization is disabled.  The
 	// default, 1, allows a single dot (i.e.
 	// hostname.subdomain).
-	CanonicalizeMaxDots UintValue
+	CanonicalizeMaxDots value.UintValue
 
 	// Specifies whether to fail with an error when hostname
 	// canonicalization fails.  The default, yes, will attempt
@@ -116,7 +116,7 @@ type CanonicalizationFields struct {
 	// to fail instantly if CanonicalizeHostname is enabled and
 	// the target hostname cannot be found in any of the domains
 	// specified by CanonicalDomains.
-	CanonicalizeFallbackLocal BoolValue
+	CanonicalizeFallbackLocal value.BoolValue
 
 	// Specifies rules to determine whether CNAMEs should be
 	// followed when canonicalizing hostnames.  The rules
@@ -135,7 +135,7 @@ type CanonicalizationFields struct {
 	// A single argument of "none" causes no CNAMEs to be
 	// considered for canonicalization.  This is the default
 	// behaviour.
-	CanonicalizePermittedCNAMEs StringListValue
+	CanonicalizePermittedCNAMEs value.StringListValue
 }
 
 // Canonicalize takes an address, applies the canonicalization rules and returns two values:
@@ -143,7 +143,7 @@ type CanonicalizationFields struct {
 // 2. A boolean indicating whether the original address should be used as is or should an error be returned.
 func (cf CanonicalizationFields) Canonicalize(addr string) (string, bool) { //nolint:cyclop
 	// Check if CanonicalizeHostname is enabled
-	if val, ok := cf.CanonicalizeHostname.Get(); ok && val != "always" && val != boolYes && val != boolTrue {
+	if val, ok := cf.CanonicalizeHostname.Get(); !ok || val != "always" && val != "yes" && val != "true" {
 		// when it is set to "always", then canonicalization is applied to proxied connections too
 		return "", true // CanonicalizeHostname is not enabled, true means "feel free to use the addr as is"
 	}
@@ -208,7 +208,7 @@ func (cf CanonicalizationFields) isCNAMEPermitted(cname string, dst bool) bool {
 			checkidx = 1
 		}
 
-		match, err := matchesPattern(parts[checkidx], cname)
+		match, err := value.Match(cname, parts[checkidx])
 		if err == nil && match {
 			return true
 		}

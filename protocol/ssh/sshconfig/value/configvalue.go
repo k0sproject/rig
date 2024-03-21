@@ -1,114 +1,26 @@
-package sshconfig
+package value
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"os"
-	"os/user"
 	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/k0sproject/rig/v2/homedir"
-	"github.com/k0sproject/rig/v2/sh/shellescape"
 )
-
-var (
-	home = sync.OnceValue(
-		func() string {
-			home, _ := homedir.Expand("~")
-			return home
-		},
-	)
-	username = sync.OnceValue(
-		func() string {
-			if user, err := user.Current(); err == nil {
-				return user.Username
-			}
-			return ""
-		},
-	)
-
-	// ErrInvalidValue is returned when trying to set an invalid value.
-	ErrInvalidValue = errors.New("invalid value")
-)
-
-// ValueOriginType is an enum type for the origin of a configuration value.
-type ValueOriginType int
 
 const (
-	// ValueOriginUnset indicates that the value is not set.
-	ValueOriginUnset ValueOriginType = 0
-
-	// ValueOriginDefault indicates that the value is set from the defaults.
-	ValueOriginDefault ValueOriginType = 1
-
-	// ValueOriginFile indicates that the value is set from a config file. The origin field should contain the file name.
-	ValueOriginFile ValueOriginType = 2
-
-	// ValueOriginOption indicates that the value is set manually.
-	ValueOriginOption ValueOriginType = 3
-
-	// ValueOriginCanonicalize indicates that the value is set from the canonicalization rules (should only be set on the HostName field).
-	ValueOriginCanonicalize ValueOriginType = 4
-
 	boolTrue  = "true"
 	boolFalse = "false"
 	boolYes   = "yes"
 	boolNo    = "no"
-
-	fkHost = "host"
 )
-
-// Value is a generic type for a configuration value. It is necessary to track the origin of the value
-// to be able to determine if it should be overridden by a new value and to resolve relative paths.
-type Value[T any] struct {
-	value      T
-	originType ValueOriginType
-	origin     string
-}
-
-// Set the value and its origin.
-func (cv *Value[T]) Set(value T, originType ValueOriginType, origin string) {
-	// if the value is already set and the origin is not defaults, don't override it
-	if cv.IsSet() && cv.originType != ValueOriginDefault {
-		return
-	}
-	cv.value = value
-	cv.originType = originType
-	cv.origin = origin
-}
-
-// IsSet returns true if the value is set.
-func (cv Value[T]) IsSet() bool {
-	return cv.originType != ValueOriginUnset
-}
-
-// Get returns the value and a boolean indicating if the value was set.
-func (cv Value[T]) Get() (T, bool) {
-	return cv.value, cv.IsSet()
-}
-
-// OriginType returns the origin type of the value.
-func (cv Value[T]) OriginType() ValueOriginType {
-	return cv.originType
-}
-
-// Origin returns the origin of the value.
-func (cv Value[T]) Origin() string {
-	return cv.origin
-}
-
-// IsDefault returns true if the value is set from the defaults.
-func (cv Value[T]) IsDefault() bool {
-	return cv.originType == ValueOriginDefault
-}
 
 // StringValue is a configuration value that holds a string.
 type StringValue struct {
@@ -116,11 +28,11 @@ type StringValue struct {
 }
 
 // SetString sets the value of the string and its origin.
-func (v *StringValue) SetString(value string, originType ValueOriginType, origin string) error {
+func (v *StringValue) SetString(value string, origin string) error {
 	if value == "" {
 		return fmt.Errorf("%w: value is empty", ErrInvalidValue)
 	}
-	v.Set(value, originType, origin)
+	v.Set(value, origin)
 	return nil
 }
 
@@ -135,11 +47,11 @@ func expectOne(values []string) error {
 }
 
 // SetStrings sets the value of the string and its origin. It accepts a slice of strings, but only the first value is used.
-func (v *StringValue) SetStrings(values []string, originType ValueOriginType, origin string) error {
+func (v *StringValue) SetStrings(values []string, origin string) error {
 	if err := expectOne(values); err != nil {
 		return err
 	}
-	return v.SetString(values[0], originType, origin)
+	return v.SetString(values[0], origin)
 }
 
 // String returns the value as a string.
@@ -154,12 +66,12 @@ type BoolValue struct {
 }
 
 // SetString sets the value of the boolean and its origin. It accepts "yes", "true", "no" and "false" as valid values.
-func (v *BoolValue) SetString(value string, originType ValueOriginType, origin string) error {
+func (v *BoolValue) SetString(value string, origin string) error {
 	switch value {
 	case boolYes, boolTrue:
-		v.Set(true, originType, origin)
+		v.Set(true, origin)
 	case boolNo, boolFalse:
-		v.Set(false, originType, origin)
+		v.Set(false, origin)
 	default:
 		return fmt.Errorf("%w: invalid value %q for a boolean field", ErrInvalidValue, value)
 	}
@@ -167,11 +79,11 @@ func (v *BoolValue) SetString(value string, originType ValueOriginType, origin s
 }
 
 // SetStrings sets the value of the string and its origin. It accepts a slice of strings, but only the first value is used.
-func (v *BoolValue) SetStrings(values []string, originType ValueOriginType, origin string) error {
+func (v *BoolValue) SetStrings(values []string, origin string) error {
 	if err := expectOne(values); err != nil {
 		return err
 	}
-	return v.SetString(values[0], originType, origin)
+	return v.SetString(values[0], origin)
 }
 
 // String returns the value as a string.
@@ -222,7 +134,7 @@ type UintValue struct {
 }
 
 // SetString sets the value of the unsigned integer and its origin.
-func (v *UintValue) SetString(value string, originType ValueOriginType, origin string) error {
+func (v *UintValue) SetString(value string, origin string) error {
 	num, err := strconv.ParseUint(value, 10, 64)
 	if err != nil {
 		return fmt.Errorf("invalid uint value %q: %w", value, err)
@@ -230,16 +142,16 @@ func (v *UintValue) SetString(value string, originType ValueOriginType, origin s
 	if num > math.MaxUint {
 		return fmt.Errorf("%w: uint value %q exceed maxuint", ErrInvalidValue, value)
 	}
-	v.Set(uint(num), originType, origin)
+	v.Set(uint(num), origin)
 	return nil
 }
 
 // SetStrings sets the value of the string and its origin. It accepts a slice of strings, but only the first value is used.
-func (v *UintValue) SetStrings(values []string, originType ValueOriginType, origin string) error {
+func (v *UintValue) SetStrings(values []string, origin string) error {
 	if err := expectOne(values); err != nil {
 		return err
 	}
-	return v.SetString(values[0], originType, origin)
+	return v.SetString(values[0], origin)
 }
 
 // String returns the value as a string.
@@ -254,20 +166,20 @@ type OctalUintValue struct {
 }
 
 // SetString sets the value of the unsigned integer and its origin.
-func (v *OctalUintValue) SetString(value string, originType ValueOriginType, origin string) error {
+func (v *OctalUintValue) SetString(value string, origin string) error {
 	num, err := strconv.ParseUint(value, 8, 64)
 	if err != nil {
 		return fmt.Errorf("invalid octal uint value %q: %w", value, err)
 	}
-	return v.UintValue.SetString(strconv.FormatUint(num, 10), originType, origin)
+	return v.UintValue.SetString(strconv.FormatUint(num, 10), origin)
 }
 
 // SetStrings sets the value of the string and its origin. It accepts a slice of strings, but only the first value is used.
-func (v *OctalUintValue) SetStrings(values []string, originType ValueOriginType, origin string) error {
+func (v *OctalUintValue) SetStrings(values []string, origin string) error {
 	if err := expectOne(values); err != nil {
 		return err
 	}
-	return v.SetString(values[0], originType, origin)
+	return v.SetString(values[0], origin)
 }
 
 // String returns the value formatted as octal as a string.
@@ -283,9 +195,9 @@ type DurationValue struct {
 }
 
 // SetString sets the value of the duration and its origin.
-func (v *DurationValue) SetString(value string, originType ValueOriginType, origin string) error {
+func (v *DurationValue) SetString(value string, origin string) error {
 	if value == "none" {
-		v.Set(0, originType, origin)
+		v.Set(0, origin)
 		return nil
 	}
 	unit := value[len(value)-1]
@@ -296,16 +208,16 @@ func (v *DurationValue) SetString(value string, originType ValueOriginType, orig
 	if err != nil {
 		return fmt.Errorf("invalid duration value %q: %w", value, err)
 	}
-	v.Set(d, originType, origin)
+	v.Set(d, origin)
 	return nil
 }
 
 // SetStrings sets the value of the string and its origin. It accepts a slice of strings, but only the first value is used.
-func (v *DurationValue) SetStrings(values []string, originType ValueOriginType, origin string) error {
+func (v *DurationValue) SetStrings(values []string, origin string) error {
 	if err := expectOne(values); err != nil {
 		return err
 	}
-	return v.SetString(values[0], originType, origin)
+	return v.SetString(values[0], origin)
 }
 
 // String returns the value as a string.
@@ -325,24 +237,13 @@ type StringListValue struct {
 // SetString appends the value to the slice and sets the origin of the value. If the value is already set from any
 // other origin than the defaults, it appends the new value to the slice. If the value is set from the defaults, it
 // clears the slice before setting the new values.
-func (v *StringListValue) SetString(value string, originType ValueOriginType, origin string) error {
-	return v.SetStrings(strings.Split(value, ","), originType, origin)
+func (v *StringListValue) SetString(value string, origin string) error {
+	return v.SetStrings(strings.Split(value, ","), origin)
 }
 
 // SetStrings sets the value of the list and its origin.
-func (v *StringListValue) SetStrings(values []string, originType ValueOriginType, origin string) error {
-	var oldVals []string
-	if v.OriginType() != ValueOriginDefault {
-		oldVals, _ = v.Get()
-		for _, val := range values {
-			if val == "" {
-				continue
-			}
-			if !slices.Contains(oldVals, val) {
-				oldVals = append(oldVals, val)
-			}
-		}
-		v.Set(oldVals, originType, origin)
+func (v *StringListValue) SetStrings(values []string, origin string) error {
+	if vals, ok := v.Get(); ok && len(vals) > 0 {
 		return nil
 	}
 	newVals := make([]string, len(values))
@@ -354,7 +255,7 @@ func (v *StringListValue) SetStrings(values []string, originType ValueOriginType
 		newVals[j] = val
 		j++
 	}
-	v.Set(newVals[:j], originType, origin)
+	v.Set(newVals[:j], origin)
 	return nil
 }
 
@@ -388,12 +289,15 @@ type IntListValue struct {
 
 // SetString appends the value to the slice and sets the origin of the value. If the value is set from the defaults, it
 // clears the slice before setting the new values. Duplicate values are ignored.
-func (v *IntListValue) SetString(value string, originType ValueOriginType, origin string) error {
-	return v.SetStrings(strings.Split(value, ","), originType, origin)
+func (v *IntListValue) SetString(value string, origin string) error {
+	return v.SetStrings(strings.Split(value, ","), origin)
 }
 
 // SetStrings sets the value of the list and its origin.
-func (v *IntListValue) SetStrings(values []string, originType ValueOriginType, origin string) error {
+func (v *IntListValue) SetStrings(values []string, origin string) error {
+	if vals, ok := v.Get(); ok && len(vals) > 0 {
+		return nil
+	}
 	ints := make([]int, len(values))
 	var j int
 	for _, val := range values {
@@ -409,18 +313,7 @@ func (v *IntListValue) SetStrings(values []string, originType ValueOriginType, o
 	}
 	ints = ints[:j]
 
-	var oldVals []int
-	if v.OriginType() != ValueOriginDefault {
-		oldVals, _ = v.Get()
-		for _, val := range ints {
-			if !slices.Contains(oldVals, val) {
-				oldVals = append(oldVals, val)
-			}
-		}
-		v.Set(oldVals, originType, origin)
-		return nil
-	}
-	v.Set(ints, originType, origin)
+	v.Set(ints, origin)
 	return nil
 }
 
@@ -441,7 +334,7 @@ type PathValue struct {
 }
 
 // SetString sets the value of the path and its origin.
-func (v *PathValue) SetString(value string, originType ValueOriginType, origin string) error {
+func (v *PathValue) SetString(value string, origin string) error {
 	if runtime.GOOS == "windows" {
 		// this is a hack to support the __PROGRAMDATA__ in the ssh config dumps on windows.
 		value = strings.ReplaceAll(value, "__PROGRAMDATA__", os.Getenv("PROGRAMDATA"))
@@ -465,16 +358,16 @@ func (v *PathValue) SetString(value string, originType ValueOriginType, origin s
 	// forward slashes again (homedir.Expand replaces them with backslashes)
 	value = strings.ReplaceAll(value, "\\", "/")
 
-	v.Set(value, originType, origin)
+	v.Set(value, origin)
 	return nil
 }
 
 // SetStrings sets the value of the string and its origin. It accepts a slice of strings, but only the first value is used.
-func (v *PathValue) SetStrings(values []string, originType ValueOriginType, origin string) error {
+func (v *PathValue) SetStrings(values []string, origin string) error {
 	if err := expectOne(values); err != nil {
 		return err
 	}
-	return v.SetString(values[0], originType, origin)
+	return v.SetString(values[0], origin)
 }
 
 // String returns the value as a string.
@@ -489,31 +382,29 @@ type PathListValue struct {
 	StringListValue
 }
 
-// SetString appends the value to the slice and sets the origin of the value.
-func (v *PathListValue) SetString(value string, originType ValueOriginType, origin string) error {
-	var oldVals []string
-	if originType == ValueOriginDefault || v.OriginType() != ValueOriginDefault {
-		if val, ok := v.Get(); ok {
-			oldVals = val
-		}
+// SetString appends the value to the slice and sets the origin of the value. Don't use, it doesn't unescape safely.
+func (v *PathListValue) SetString(value string, origin string) error {
+	return v.SetStrings(strings.Split(value, " "), origin)
+}
+
+// SetStrings appends the value to the slice and sets the origin of the value.
+func (v *PathListValue) SetStrings(values []string, origin string) error {
+	if vals, ok := v.Get(); ok && len(vals) > 0 {
+		return nil
 	}
 
-	paths, err := shellescape.Split(value)
-	if err != nil {
-		return fmt.Errorf("can't parse path slice value %q: %w", value, err)
-	}
-
-	for _, path := range paths {
-		np := &PathValue{}
-		if err := np.SetString(path, originType, origin); err != nil {
+	newVals := make([]string, len(values))
+	for i, path := range values {
+		np := &PathValue{} // does expansion/normalization
+		if err := np.SetString(path, origin); err != nil {
 			return err
 		}
 		path, _ := np.Get()
-		if !slices.Contains(oldVals, path) {
-			oldVals = append(oldVals, path)
+		if !slices.Contains(newVals, path) {
+			newVals[i] = path
 		}
 	}
-	v.Set(oldVals, originType, origin)
+	v.Set(newVals, origin)
 	return nil
 }
 
@@ -530,15 +421,15 @@ type AppendingPathListValue struct {
 }
 
 // SetString appends the value to the slice and sets the origin of the value.
-func (v *AppendingPathListValue) SetString(value string, originType ValueOriginType, origin string) error {
+func (v *AppendingPathListValue) SetString(value string, origin string) error {
 	if value == "" {
 		return fmt.Errorf("%w: value is empty", ErrInvalidValue)
 	}
-	return v.SetStrings(strings.Split(value, " "), originType, origin)
+	return v.SetStrings(strings.Split(value, " "), origin)
 }
 
 // SetStrings appends the value to the slice and sets the origin of the value.
-func (v *AppendingPathListValue) SetStrings(values []string, originType ValueOriginType, origin string) error {
+func (v *AppendingPathListValue) SetStrings(values []string, origin string) error {
 	if len(values) == 0 {
 		return fmt.Errorf("%w: value is empty", ErrInvalidValue)
 	}
@@ -550,7 +441,7 @@ func (v *AppendingPathListValue) SetStrings(values []string, originType ValueOri
 			continue
 		}
 		np := &PathValue{}
-		if err := np.SetString(val, originType, origin); err != nil {
+		if err := np.SetString(val, origin); err != nil {
 			return err
 		}
 		val, _ := np.Get()
@@ -558,7 +449,7 @@ func (v *AppendingPathListValue) SetStrings(values []string, originType ValueOri
 			v.value = append(v.value, val)
 		}
 	}
-	v.originType = originType
+	v.isSet = true
 	v.origin = origin
 	return nil
 }
@@ -577,11 +468,11 @@ type ModifiableStringListValue struct {
 
 // SetString appends the value to the slice and sets the origin of the value or if a prefix is used,
 // it modifies the list accordingly.
-func (v *ModifiableStringListValue) SetString(value string, originType ValueOriginType, origin string) error {
+func (v *ModifiableStringListValue) SetString(value string, origin string) error {
 	if value == "" {
 		return fmt.Errorf("%w: value is empty", ErrInvalidValue)
 	}
-	return v.SetStrings(strings.Split(value, ","), originType, origin)
+	return v.SetStrings(strings.Split(value, ","), origin)
 }
 
 // SetStrings sets the value of the list and its origin. If the first character of the value is a prefix, it modifies the list accordingly.
@@ -590,7 +481,7 @@ func (v *ModifiableStringListValue) SetString(value string, originType ValueOrig
 // - - removes the given value from the existing list. the values can be wildcard patterns.
 // ^ - prepends the value to the existing list
 // If no prefix is used, it sets the value to the list.
-func (v *ModifiableStringListValue) SetStrings(values []string, originType ValueOriginType, origin string) error { //nolint:cyclop
+func (v *ModifiableStringListValue) SetStrings(values []string, origin string) error { //nolint:cyclop
 	if len(values) == 0 {
 		return fmt.Errorf("%w: value is empty", ErrInvalidValue)
 	}
@@ -627,7 +518,7 @@ func (v *ModifiableStringListValue) SetStrings(values []string, originType Value
 				continue
 			}
 			oldVals = slices.DeleteFunc(oldVals, func(v string) bool {
-				matches, err := matchesPattern(val, v)
+				matches, err := Match(v, val)
 				return err == nil && matches
 			})
 		}
@@ -637,7 +528,7 @@ func (v *ModifiableStringListValue) SetStrings(values []string, originType Value
 				continue
 			}
 			oldVals = slices.DeleteFunc(oldVals, func(v string) bool {
-				matches, err := matchesPattern(val, v)
+				matches, err := Match(v, val)
 				return err == nil && matches
 			})
 		}
@@ -645,8 +536,8 @@ func (v *ModifiableStringListValue) SetStrings(values []string, originType Value
 	default:
 		oldVals = values
 	}
+	v.isSet = true
 	v.value = oldVals
-	v.originType = originType
 	v.origin = origin
 
 	return nil
@@ -663,16 +554,16 @@ type RemovableStringListValue struct {
 
 // SetString appends the value to the slice and sets the origin of the value or if a prefix is used,
 // it modifies the list accordingly.
-func (v *RemovableStringListValue) SetString(value string, originType ValueOriginType, origin string) error {
+func (v *RemovableStringListValue) SetString(value string, origin string) error {
 	if value == "" {
 		return fmt.Errorf("%w: value is empty", ErrInvalidValue)
 	}
-	return v.SetStrings(strings.Split(value, " "), originType, origin)
+	return v.SetStrings(strings.Split(value, " "), origin)
 }
 
 // SetStrings appends the value to the slice and sets the origin of the value or if a prefix is used,
 // it modifies the list accordingly.
-func (v *RemovableStringListValue) SetStrings(values []string, originType ValueOriginType, origin string) error {
+func (v *RemovableStringListValue) SetStrings(values []string, origin string) error {
 	if len(values) == 0 {
 		return fmt.Errorf("%w: value is empty", ErrInvalidValue)
 	}
@@ -689,17 +580,23 @@ func (v *RemovableStringListValue) SetStrings(values []string, originType ValueO
 		}
 		if remove {
 			oldVals = slices.DeleteFunc(oldVals, func(v string) bool {
-				matches, err := matchesPattern(val, v)
+				matches, err := Match(v, val)
 				return err == nil && matches
 			})
 		} else if !slices.Contains(oldVals, val) {
 			oldVals = append(oldVals, val)
 		}
 	}
+	v.isSet = true
 	v.value = oldVals
-	v.originType = originType
 	v.origin = origin
 	return nil
+}
+
+// String returns the value as a string.
+func (v *RemovableStringListValue) String() string {
+	val, _ := v.Get()
+	return formatStringSlice(val, ' ')
 }
 
 // TwoItemsStringListValue is a stringlist value that can hold one or two items.
@@ -708,19 +605,19 @@ type TwoItemsStringListValue struct {
 }
 
 // SetString sets the value of the list and its origin.
-func (v *TwoItemsStringListValue) SetString(value string, originType ValueOriginType, origin string) error {
-	return v.SetStrings(strings.Split(value, " "), originType, origin)
+func (v *TwoItemsStringListValue) SetString(value string, origin string) error {
+	return v.SetStrings(strings.Split(value, " "), origin)
 }
 
 // SetStrings sets the value of the list and its origin.
-func (v *TwoItemsStringListValue) SetStrings(values []string, originType ValueOriginType, origin string) error {
+func (v *TwoItemsStringListValue) SetStrings(values []string, origin string) error {
 	if len(values) == 0 {
 		return fmt.Errorf("%w: value is empty", ErrInvalidValue)
 	}
 	if len(values) > 2 {
 		return fmt.Errorf("%w: too many values in %q", ErrInvalidValue, values)
 	}
-	v.Set(values, originType, origin)
+	v.Set(values, origin)
 	return nil
 }
 

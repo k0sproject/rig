@@ -1,9 +1,7 @@
-// Package sshconfig provides a parser for openssh ssh_config files.
+// Package sshconfig provides a parser for openssh ssh_config files as documented in https://man7.org/linux/man-pages/man5/ssh_config.5.html manual pages.
 package sshconfig
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,15 +10,14 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
-	"path/filepath"
 	"reflect"
 	"regexp"
-	"slices"
 	"strings"
-	"unicode"
+	"sync"
 
-	"github.com/k0sproject/rig/v2/homedir"
 	"github.com/k0sproject/rig/v2/log"
+	"github.com/k0sproject/rig/v2/protocol/ssh/sshconfig/tree"
+	"github.com/k0sproject/rig/v2/protocol/ssh/sshconfig/value"
 	"github.com/k0sproject/rig/v2/sh/shellescape"
 )
 
@@ -53,133 +50,167 @@ var (
 	// ErrInvalidObject is returned when the object passed to Parse is not compatible.
 	ErrInvalidObject = errors.New("invalid object")
 
-	// ErrSyntax is returned when the config file has a syntax error.
-	ErrSyntax = errors.New("syntax error")
-
 	// ErrCanonicalizationFailed is returned when a hostname could not be canonicalized.
 	ErrCanonicalizationFailed = errors.New("canonicalization failed")
 
 	// ErrNotImplemented is returned when encountering a feature that is not implemented.
 	ErrNotImplemented = errors.New("not implemented")
 
+	// ErrSyntax is returned when the config file has a syntax error.
+	ErrSyntax = tree.ErrSyntax
+
 	// if the host alias gets canonicalized, the parser needs to start over.
 	errRedo = errors.New("redo after canonicalization")
+
+	username = sync.OnceValue(
+		func() string {
+			if user, err := user.Current(); err == nil {
+				return user.Username
+			}
+			return ""
+		},
+	)
 )
 
-// Parser is a parser for openssh ssh_config files. It doesn't parse the full config
-// to a struct, but instead it sets values to the passed in object for each directive
-// it finds to match the host alias found in the object.
+const fkHost = "host"
+
+// Parser is a parser for openssh ssh_config files.
 type Parser struct {
-	// GlobalConfigPath can be changed to point to a different global config file than the /etc/ssh/ssh_config.
-	GlobalConfigPath string
+	mu sync.Mutex
 
-	// UserConfigPath can be changed to point to a different user config file than the ~/.ssh/config.
-	UserConfigPath string
-
-	// ErrorOnUnknown when true, will cause the parser to respect the `IgnoreUnknown` directive.
-	ErrorOnUnknown bool
-
-	r               *bytes.Reader
+	errorOnUnknown  bool
+	iter            *tree.TreeIterator
 	originalHost    string
 	rname           string
 	canonicalized   map[string]string
-	didCanonicalize bool // if the hostname field was canonicalized
+	didCanonicalize bool // if the host alias was canonicalized
 	hasFinal        bool // if the config has a final directive
 	doingFinal      bool // if the parser is currently parsing a final directive
+
+	executor executor
 }
 
-// NewParser returns a new Parser. If r is nil, the global and user config files are read instead.
-// When r is not nil, the settings from the reader will be applied over default values.
-// Note that the reader will be read in its entirety into a buffer when it is not a bytes.Reader.
-// This has to be done because the ssh config parsing rules require the file to be read multiple times.
-func NewParser(input io.Reader) (*Parser, error) {
-	parser := &Parser{}
-	if input == nil {
-		return parser, nil
+// ParserOptions for the ssh config parser.
+type ParserOptions struct {
+	errorOnUnknown     bool
+	globalConfigPath   string
+	userConfigPath     string
+	globalConfigReader io.Reader
+	userConfigReader   io.Reader
+	executor           executor
+}
+
+type executor interface {
+	Run(cmd string, args ...string) error
+}
+
+type defaultExecutor struct{}
+
+func (d defaultExecutor) Run(cmd string, args ...string) error {
+	if err := exec.Command(cmd, args...).Run(); err != nil {
+		return fmt.Errorf("run command %q: %w", cmd, err)
 	}
-	if nr, ok := input.(*os.File); ok {
-		parser.rname = nr.Name()
-	} else {
-		parser.rname, _ = homedir.Expand("~/.ssh/unknown")
+	return nil
+}
+
+// ParserOption is a function that sets a parser option.
+type ParserOption func(*ParserOptions)
+
+// NewParserOptions returns a new ParserOptions with the given options applied.
+func NewParserOptions(opts ...ParserOption) *ParserOptions {
+	options := &ParserOptions{executor: defaultExecutor{}}
+	for _, opt := range opts {
+		opt(options)
 	}
-	if br, ok := input.(*bytes.Reader); ok {
-		parser.r = br
-		return parser, nil
+	return options
+}
+
+// WithErrorOnUnknown is a functional option that makes the parser respect the 'IgnoreUnknown' directive,
+// thus meaning it will error out unless any encountered unknown key does not match any of the patterns
+// in the 'IgnoreUnknown' field of the object.
+func WithErrorOnUnknown() ParserOption {
+	return func(o *ParserOptions) {
+		o.errorOnUnknown = true
 	}
-	buf, err := io.ReadAll(input)
+}
+
+// WithGlobalConfigPath is a functional option that overrides the default global config path (/etc/ssh/ssh_config
+// or PROGRAMDATA/ssh/ssh_config on windows).
+func WithGlobalConfigPath(path string) ParserOption {
+	return func(o *ParserOptions) {
+		o.globalConfigPath = path
+	}
+}
+
+// WithUserConfigPath is a functional option that overrides the default user config path (~/.ssh/config).
+func WithUserConfigPath(path string) ParserOption {
+	return func(o *ParserOptions) {
+		o.userConfigPath = path
+	}
+}
+
+// WithGlobalConfigReader is a functional option that overrides the default global config reader.
+func WithGlobalConfigReader(r io.Reader) ParserOption {
+	return func(o *ParserOptions) {
+		o.globalConfigReader = r
+	}
+}
+
+// WithUserConfigReader is a functional option that overrides the default user config reader.
+func WithUserConfigReader(r io.Reader) ParserOption {
+	return func(o *ParserOptions) {
+		o.userConfigReader = r
+	}
+}
+
+// WithExecutor is a functional option that overrides the default executor for testing (or disabling?) purposes.
+func WithExecutor(e executor) ParserOption {
+	return func(o *ParserOptions) {
+		o.executor = e
+	}
+}
+
+// HostConfig interface defines the methods that the object passed to Parse must implement. The
+// easiest way to implement this is to embed `sshconfig.RequiredFields` into a struct.
+//
+// Example:
+//
+//	type MyConfig struct {
+//	    sshconfig.RequiredFields
+//	    IdentityFile sshconfig.PathListValue
+//	 }
+type HostConfig interface {
+	SetUser(username string) error
+	SetHost(host string) error
+	SetHostname(hostname string) error
+	GetHost() (string, bool)
+}
+
+type withCanonicalize interface {
+	Canonicalize(addr string) (string, bool)
+}
+
+// NewParser returns a new Parser that uses a [TreeIterator] to walk the ssh config tree.
+func NewParser(r io.Reader, opts ...ParserOption) (*Parser, error) {
+	options := NewParserOptions(opts...)
+	treeParser := tree.NewTreeParser(r)
+	if options.globalConfigPath != "" {
+		treeParser.GlobalConfigPath = options.globalConfigPath
+	}
+	if options.userConfigPath != "" {
+		treeParser.UserConfigPath = options.userConfigPath
+	}
+	if options.globalConfigReader != nil {
+		treeParser.GlobalConfigReader = options.globalConfigReader
+	}
+	if options.userConfigReader != nil {
+		treeParser.UserConfigReader = options.userConfigReader
+	}
+	iter, err := treeParser.Parse()
 	if err != nil {
-		return nil, fmt.Errorf("read content to buffer: %w", err)
+		return nil, fmt.Errorf("failed to tokenize ssh config: %w", err)
 	}
-	parser.r = bytes.NewReader(buf)
-	return parser, nil
-}
-
-// Only a subset of fields are allowed inside a Match block.
-var allowedInMatchFields = map[string]struct{}{
-	"acceptenv":                       {},
-	"allowagentforwarding":            {},
-	"allowgroups":                     {},
-	"allowstreamlocalforwarding":      {},
-	"allowtcpforwarding":              {},
-	"allowusers":                      {},
-	"authenticationmethods":           {},
-	"authorizedkeyscommand":           {},
-	"authorizedkeyscommanduser":       {},
-	"authorizedkeysfile":              {},
-	"authorizedprincipalscommand":     {},
-	"authorizedprincipalscommanduser": {},
-	"authorizedprincipalsfile":        {},
-	"banner":                          {},
-	"casignaturealgorithms":           {},
-	"channeltimeout":                  {},
-	"chrootdirectory":                 {},
-	"clientalivecountmax":             {},
-	"clientaliveinterval":             {},
-	"denygroups":                      {},
-	"denyusers":                       {},
-	"disableforwarding":               {},
-	"exposeauthinfo":                  {},
-	"forcecommand":                    {},
-	"gatewayports":                    {},
-	"gssapiauthentication":            {},
-	"hostbasedacceptedalgorithms":     {},
-	"hostbasedauthentication":         {},
-	"hostbasedusesnamefrompacketonly": {},
-	"ignorerhosts":                    {},
-	"include":                         {},
-	"ipqos":                           {},
-	"kbdinteractiveauthentication":    {},
-	"kerberosauthentication":          {},
-	"loglevel":                        {},
-	"maxauthtries":                    {},
-	"maxsessions":                     {},
-	"passwordauthentication":          {},
-	"permitemptypasswords":            {},
-	"permitlisten":                    {},
-	"permitopen":                      {},
-	"permitrootlogin":                 {},
-	"permittty":                       {},
-	"permittunnel":                    {},
-	"permituserrc":                    {},
-	"pubkeyacceptedalgorithms":        {},
-	"pubkeyauthentication":            {},
-	"pubkeyauthoptions":               {},
-	"rekeylimit":                      {},
-	"revokedkeys":                     {},
-	"rdomain":                         {},
-	"setenv":                          {},
-	"streamlocalbindmask":             {},
-	"streamlocalbindunlink":           {},
-	"trustedusercakeys":               {},
-	"unusedconnectiontimeout":         {},
-	"x11displayoffset":                {},
-	"x11forwarding":                   {},
-	"x11uselocalhost":                 {},
-}
-
-func allowedInMatch(fieldname string) bool {
-	_, ok := allowedInMatchFields[fieldname]
-	return ok
+	return &Parser{iter: iter, errorOnUnknown: options.errorOnUnknown, executor: options.executor}, nil
 }
 
 // These tokens are used to replace values in the config file, like %h for the hostname.
@@ -239,10 +270,10 @@ func expandToken(token string, fields map[string]configValue) string { //nolint:
 	case "%u":
 		return username()
 	case "%d":
-		return home()
+		if h, err := os.Hostname(); err == nil {
+			return h
+		}
 	case "%h":
-		// TODO this casting of setters into different valuetypes is a bit ugly
-		// and repetitive.
 		for _, fn := range []string{"hostname", fkHost} {
 			if f, ok := fields[fn]; ok {
 				if f.IsSet() {
@@ -266,14 +297,18 @@ func expandToken(token string, fields map[string]configValue) string { //nolint:
 		if f, ok := fields["proxyjump"]; ok {
 			return f.String()
 		}
+	case "%L":
+		if h, err := os.Hostname(); err == nil {
+			return h
+		}
 	}
 	// unsupported or unknown token
 	return token
 }
 
 type configValue interface {
-	SetString(val string, originType ValueOriginType, origin string) error
-	SetStrings(vals []string, originType ValueOriginType, origin string) error
+	SetString(val string, origin string) error
+	SetStrings(vals []string, origin string) error
 	IsDefault() bool
 	IsSet() bool
 	String() string
@@ -328,121 +363,15 @@ func objFields(obj any) (map[string]configValue, error) {
 
 	extractFields(v, t, fields)
 
-	if err := checkRequiredFields(fields); err != nil {
-		return nil, err
+	if _, ok := obj.(HostConfig); !ok {
+		return nil, fmt.Errorf("%w: object does not contain the required fields", ErrInvalidObject)
 	}
 
 	return fields, nil
 }
 
-// these fields are required to exist in the object passed to Parse
-// because some of the config directives need to look into their value.
-func checkRequiredFields(fields map[string]configValue) error {
-	// Validate the required fields
-	if _, ok := fields["user"]; !ok {
-		return fmt.Errorf("%w: user field not found in object", ErrInvalidObject)
-	}
-	if _, ok := fields[fkHost]; !ok {
-		return fmt.Errorf("%w: host field not found in object", ErrInvalidObject)
-	}
-	if _, ok := fields["hostname"]; !ok {
-		return fmt.Errorf("%w: hostname field not found in object", ErrInvalidObject)
-	}
-	return nil
-}
-
-// tokenizeRow splits a line into a key and a value.
-// any comments are stripped from the value.
-//
-// note that comments are parsed in a different way
-// depending on if the key and value are separated with
-// a space or an equals sign.
-//
-// for example here the comment becomes part of the
-// value:
-//
-// IdentityFile ~/.ssh/id_rsa # foo
-//
-// but here it doesn't:
-//
-// IdentityFile=~/.ssh/id_rsa # foo.
-func tokenizeRow(s string) (key string, values []string, err error) {
-	// find the first non-space character
-	idx := strings.IndexFunc(s, func(r rune) bool { return !unicode.IsSpace(r) })
-
-	// skip comments
-	if idx == -1 || s[idx] == '#' {
-		return "", nil, nil
-	}
-
-	leftTrimmed := s[idx:]
-
-	// find separator
-	idx = strings.IndexFunc(leftTrimmed, func(r rune) bool { return r == ' ' || r == '=' || r == '\t' })
-
-	// if there is no separator, the line is invalid
-	if idx == -1 {
-		if strings.HasPrefix(leftTrimmed, "canonicaldomains") {
-			// some versions of ssh output a broken line for canonicaldomains
-			return "canonicaldomains", []string{"none"}, nil
-		}
-		return "", nil, fmt.Errorf("%w: missing separator: %q", ErrSyntax, s)
-	}
-
-	key = strings.ToLower(leftTrimmed[:idx])
-	if len(leftTrimmed) < idx+1 {
-		return "", nil, fmt.Errorf("%w: missing value: %q", ErrSyntax, s)
-	}
-
-	values, err = splitArgs(leftTrimmed[idx+1:], true)
-	if err != nil {
-		return "", nil, fmt.Errorf("%w: %w", ErrSyntax, err)
-	}
-
-	if len(values) == 0 {
-		return "", nil, fmt.Errorf("%w: missing value: %q", ErrSyntax, s)
-	}
-
-	return key, values, nil
-}
-
-// matchesPattern compares a single pattern against a string.
-func matchesPattern(pattern, value string) (bool, error) {
-	if pattern == "*" {
-		return true, nil
-	}
-
-	if !strings.ContainsAny(pattern, "*?") {
-		return pattern == value, nil
-	}
-
-	var sb strings.Builder
-	sb.WriteString("^")
-	for _, ch := range pattern {
-		switch ch {
-		case '*':
-			sb.WriteString(".*")
-		case '?':
-			sb.WriteString(".")
-		default:
-			if !unicode.IsLetter(ch) && !unicode.IsNumber(ch) {
-				sb.WriteRune('\\')
-			}
-			sb.WriteRune(ch)
-		}
-	}
-	sb.WriteString("$")
-
-	regex, err := regexp.Compile(sb.String())
-	if err != nil {
-		return false, fmt.Errorf("invalid pattern: %w", err)
-	}
-
-	return regex.MatchString(value), nil
-}
-
 // matchesMatch parses the Match directive's value and determines if it applies to the current context.
-func (p *Parser) matchesMatch(conditions []string, fields map[string]configValue) (bool, error) { //nolint:gocognit,cyclop,funlen,gocyclo // TODO split this up
+func (p *Parser) matchesMatch(conditions []string, obj HostConfig, fields map[string]configValue) (bool, error) { //nolint:gocognit,cyclop,funlen,gocyclo // TODO split this up
 	for i := 0; i < len(conditions); i++ {
 		statement := strings.ToLower(conditions[i])
 
@@ -454,7 +383,7 @@ func (p *Parser) matchesMatch(conditions []string, fields map[string]configValue
 		}
 
 		if statement == "canonical" {
-			if !p.didCanonicalize {
+			if !p.doingFinal {
 				return false, nil
 			}
 		}
@@ -472,11 +401,11 @@ func (p *Parser) matchesMatch(conditions []string, fields map[string]configValue
 
 		// consume the directive value
 		i++
-		conditionValues := strings.Split(conditions[i], ",")
+		conditionValue := conditions[i]
 
 		switch statement {
 		case "user":
-			userValue, ok := fields["user"].(*StringValue)
+			userValue, ok := fields["user"].(*value.StringValue)
 			if !ok {
 				return false, fmt.Errorf("%w: user field not found or is not a StringValue", ErrInvalidObject)
 			}
@@ -484,7 +413,8 @@ func (p *Parser) matchesMatch(conditions []string, fields map[string]configValue
 			if !ok {
 				return false, fmt.Errorf("%w: user not set for evaluating match condition", ErrInvalidObject)
 			}
-			match, err := matchesPatterns(conditionValues, user)
+			conditionValues := strings.Split(conditionValue, ",")
+			match, err := value.MatchAll(user, conditionValues...)
 			if err != nil {
 				return false, fmt.Errorf("match user for match condition: %w", err)
 			}
@@ -495,7 +425,8 @@ func (p *Parser) matchesMatch(conditions []string, fields map[string]configValue
 			if p.originalHost == "" {
 				return false, fmt.Errorf("%w: originalhost not set for evaluating match condition", ErrInvalidObject)
 			}
-			match, err := matchesPatterns(conditionValues, p.originalHost)
+			conditionValues := strings.Split(conditionValue, ",")
+			match, err := value.MatchAll(p.originalHost, conditionValues...)
 			if err != nil {
 				return false, fmt.Errorf("match originalhost for match condition: %w", err)
 			}
@@ -503,12 +434,12 @@ func (p *Parser) matchesMatch(conditions []string, fields map[string]configValue
 				return false, nil
 			}
 		case fkHost:
-			hostValue, ok := fields[fkHost]
+			host, ok := obj.GetHost()
 			if !ok {
-				return false, fmt.Errorf("%w: host field not found", ErrInvalidObject)
+				return false, fmt.Errorf("%w: host field not set", ErrInvalidObject)
 			}
-			host := hostValue.String()
-			match, err := matchesPatterns(conditionValues, host)
+			conditionValues := strings.Split(conditionValue, ",")
+			match, err := value.MatchAll(host, conditionValues...)
 			if err != nil {
 				return false, fmt.Errorf("match host for match condition: %w", err)
 			}
@@ -516,14 +447,13 @@ func (p *Parser) matchesMatch(conditions []string, fields map[string]configValue
 				return false, nil
 			}
 		case "exec":
-			cmd := exec.Command(conditionValues[0], conditionValues[1:]...) //nolint:gosec // yes, this runs arbitrary commands
-			if err := cmd.Run(); err != nil {
+			parts, err := shellescape.Split(conditionValue)
+			if err != nil {
+				return false, fmt.Errorf("split exec command: %w", err)
+			}
+			if err := p.executor.Run(parts[0], parts[1:]...); err != nil {
 				return false, nil //nolint:nilerr // error content is not relevant
 			}
-		case "address":
-			// TODO there needs to be some function in the config to get the address.
-			// this can be a pattern or a CIDR
-			return false, nil
 		case "group":
 			user, err := user.Current()
 			if err != nil {
@@ -533,8 +463,9 @@ func (p *Parser) matchesMatch(conditions []string, fields map[string]configValue
 			if err != nil {
 				return false, fmt.Errorf("can't get current user groups: %w", err)
 			}
+			conditionValues := strings.Split(conditionValue, ",")
 			for _, group := range groups {
-				match, err := matchesPatterns(conditionValues, group)
+				match, err := value.MatchAll(group, conditionValues...)
 				if err != nil {
 					return false, fmt.Errorf("match group for match condition: %w", err)
 				}
@@ -547,55 +478,22 @@ func (p *Parser) matchesMatch(conditions []string, fields map[string]configValue
 			if !ok {
 				return false, nil
 			}
-			match, err := matchesPatterns(conditionValues, hostTagValue.String())
+			if !hostTagValue.IsSet() {
+				return false, nil
+			}
+			conditionValues := strings.Split(conditionValue, ",")
+			match, err := value.MatchAll(hostTagValue.String(), conditionValues...)
 			if err != nil {
 				return false, fmt.Errorf("match tag for match condition: %w", err)
 			}
 			if !match {
 				return false, nil
 			}
-		case "localaddress", "localport", "rdomain":
+		case "address", "localaddress", "localport", "rdomain":
 			return false, fmt.Errorf("%w: match condition %q not supported by the ssh config parser", ErrNotImplemented, statement)
 		}
 	}
 	return true, nil
-}
-
-// check if the value matches the patterns.
-// the rule is that !negated patterns alone will never yield a
-// match unless there is also a positive match in the pattern.
-func matchesPatterns(patterns []string, value string) (bool, error) {
-	var hasPositiveMatch bool
-	for _, pattern := range patterns {
-		if pattern == "" {
-			continue
-		}
-		subPatterns := strings.Split(pattern, ",")
-		for _, subPattern := range subPatterns {
-			subPattern = strings.TrimSpace(subPattern)
-			if subPattern == "" {
-				continue
-			}
-			negate := strings.HasPrefix(pattern, "!")
-			if negate {
-				pattern = pattern[1:]
-			}
-
-			match, err := matchesPattern(pattern, value)
-			if err != nil {
-				return false, err
-			}
-
-			if match {
-				if negate {
-					return false, nil
-				}
-				hasPositiveMatch = true
-			}
-		}
-	}
-
-	return hasPositiveMatch, nil
 }
 
 var tokenRe = regexp.MustCompile(`%[a-zA-Z%]`)
@@ -605,39 +503,23 @@ type withAttrs interface {
 	With(attrs ...any) *slog.Logger
 }
 
-func (p *Parser) parse(obj withRequiredFields, fields map[string]configValue, reader io.Reader, originType ValueOriginType, origin string, appliesToCurrent bool) error { //nolint:cyclop,gocognit,funlen,gocyclo,maintidx // TODO a pretty strong hint to split this up
+func (p *Parser) parse(obj HostConfig, fields map[string]configValue) error { //nolint:cyclop,gocognit,funlen,gocyclo,maintidx // TODO a pretty strong hint to split this up
 	host, ok := obj.GetHost()
 	if !ok {
 		return fmt.Errorf("%w: host field is not set", ErrInvalidObject)
 	}
-	if p.originalHost == "" {
-		p.originalHost = host
-	}
-	inMatch := false
 
-	scanner := bufio.NewScanner(reader)
 	ctx := context.Background()
 
-	var row int
 	var trace log.TraceLogger
 	tlog := log.GetTraceLogger()
-	for scanner.Scan() {
-		row++
-		key, values, err := tokenizeRow(scanner.Text())
-		if err != nil {
-			return fmt.Errorf("parse row %d: %w", row, err)
-		}
-		if key == "" {
-			continue
-		}
-		var orig string
-		if originType == ValueOriginDefault {
-			orig = "defaults"
-		} else {
-			orig = origin
-		}
+	for p.iter.Next() {
+		key := p.iter.Key()
+		values := p.iter.Values()
+		path := p.iter.Path()
+		row := p.iter.Row()
 		if tl, ok := tlog.(withAttrs); ok {
-			trace = tl.With("origin", orig, "origintype", originType, "hostalias", host, "row", row, "key", key)
+			trace = tl.With("origin", path, "row", row, "hostalias", host, "key", key)
 		} else {
 			trace = tlog
 		}
@@ -673,7 +555,7 @@ func (p *Parser) parse(obj withRequiredFields, fields map[string]configValue, re
 			for i, value := range values {
 				val, err := expand(value)
 				if err != nil {
-					return fmt.Errorf("expand value %q for %q in %s:%d: %w", value, key, origin, row, err)
+					return fmt.Errorf("expand value %q for %q in %s:%d: %w", value, key, path, row, err)
 				}
 				values[i] = val
 			}
@@ -682,14 +564,14 @@ func (p *Parser) parse(obj withRequiredFields, fields map[string]configValue, re
 			for i, value := range values {
 				val, err := expand(value)
 				if err != nil {
-					return fmt.Errorf("expand value %q for %q in %s:%d: %w", value, key, origin, row, err)
+					return fmt.Errorf("expand value %q for %q in %s:%d: %w", value, key, path, row, err)
 				}
 				unq, err := shellescape.Unquote(val)
 				if err != nil {
-					return fmt.Errorf("unquote value %q for %q in %s:%d: %w", val, key, origin, row, err)
+					return fmt.Errorf("unquote value %q for %q in %s:%d: %w", val, key, path, row, err)
 				}
 				if _, err := os.Stat(unq); err != nil {
-					return fmt.Errorf("stat value %q for %q in %s:%d: %w", unq, key, origin, row, err)
+					return fmt.Errorf("stat value %q for %q in %s:%d: %w", unq, key, path, row, err)
 				}
 				values[i] = unq
 			}
@@ -701,66 +583,49 @@ func (p *Parser) parse(obj withRequiredFields, fields map[string]configValue, re
 				trace.Log(ctx, slog.LevelInfo, "canonicalization was done during the last block before Host")
 				p.didCanonicalize = false
 				if err := p.canonicalize(obj); err != nil {
-					return fmt.Errorf("canonicalize host %q in %s:%d: %w", host, origin, row, err)
+					return fmt.Errorf("canonicalize host %q in %s:%d: %w", host, path, row, err)
 				}
 			}
-			inMatch = false
-			match, err := matchesPatterns(values, host)
+			match, err := value.MatchAll(host, values...)
 			if err != nil {
 				return err
 			}
 			trace.Log(ctx, slog.LevelInfo, "evaluated host block conditions", "conditions", values, "applies", match)
-			appliesToCurrent = match
+			if !match {
+				p.iter.Skip()
+			}
 		case "include":
 			hostBefore, _ := obj.GetHost()
-			if !filepath.IsAbs(values[0]) {
-				values[0] = filepath.Join(filepath.Dir(origin), values[0])
+			if err := p.parse(obj, fields); err != nil {
+				return fmt.Errorf("failed to parse include file %s in %s:%d: %w", values[0], path, row, err)
 			}
-			matches, err := filepath.Glob(values[0])
-			if err != nil {
-				return fmt.Errorf("can't glob Include path %q in %s:%d: %w", values[0], origin, row, err)
-			}
-			for _, match := range matches {
-				f, err := os.Open(match)
-				if err != nil {
-					return fmt.Errorf("can't open Include file %q in %s:%d: %w", match, origin, row, err)
-				}
-				defer f.Close()
-				if err := p.parse(obj, fields, f, ValueOriginFile, match, appliesToCurrent); err != nil {
-					return fmt.Errorf("failed to parse Include file %s in %s:%d: %w", match, origin, row, err)
-				}
-				hostAfter, _ := obj.GetHost()
-				if hostBefore != hostAfter {
-					trace.Log(ctx, slog.LevelInfo, "host alias changed during Include, triggering a redo", "before", hostBefore, "after", hostAfter)
-					return errRedo
-				}
+			hostAfter, _ := obj.GetHost()
+			if hostBefore != hostAfter {
+				trace.Log(ctx, slog.LevelInfo, "host alias changed during Include, triggering a redo", "before", hostBefore, "after", hostAfter)
+				return errRedo
 			}
 		case "match":
 			if p.didCanonicalize {
 				trace.Log(ctx, slog.LevelInfo, "canonicalization was done during the last block before Match")
 				p.didCanonicalize = false
 				if err := p.canonicalize(obj); err != nil {
-					return fmt.Errorf("canonicalize host %q in %s:%d: %w", host, origin, row, err)
+					return fmt.Errorf("canonicalize host %q in %s:%d: %w", host, path, row, err)
 				}
 			}
-			inMatch = true
 			if values[0] == "all" {
-				appliesToCurrent = true
-				break
-			}
-
-			matches, err := p.matchesMatch(values, fields)
-			if err != nil {
-				return fmt.Errorf("can't parse Match directive %q in %s:%d: %w", values, origin, row, err)
-			}
-			trace.Log(ctx, slog.LevelInfo, "evaluated match conditions", "conditions", values, "applies", matches)
-			appliesToCurrent = matches
-		case "proxyjump":
-			// proxyjump and proxycommand are mutually exclusive, the first one to be set wins.
-			if !appliesToCurrent {
 				continue
 			}
 
+			matches, err := p.matchesMatch(values, obj, fields)
+			if err != nil {
+				return fmt.Errorf("can't parse Match directive %q in %s:%d: %w", values, path, row, err)
+			}
+			trace.Log(ctx, slog.LevelInfo, "evaluated match conditions", "conditions", values, "applies", matches)
+			if !matches {
+				p.iter.Skip()
+			}
+		case "proxyjump":
+			// proxyjump and proxycommand are mutually exclusive, the first one to be set wins.
 			pjump, ok := fields["proxyjump"]
 			if !ok {
 				continue
@@ -775,15 +640,11 @@ func (p *Parser) parse(obj withRequiredFields, fields map[string]configValue, re
 				continue
 			}
 
-			if err := pjump.SetStrings([]string{shellescape.QuoteCommand(values)}, originType, origin); err != nil {
-				return fmt.Errorf("set value %q for proxycommand in %s:%d: %w", values, origin, row, err)
+			if err := pjump.SetStrings([]string{shellescape.QuoteCommand(values)}, path); err != nil {
+				return fmt.Errorf("set value %q for proxycommand in %s:%d: %w", values, path, row, err)
 			}
 		case "proxycommand":
 			// proxyjump and proxycommand are mutually exclusive, the first one to be set wins.
-			if !appliesToCurrent {
-				continue
-			}
-
 			pcmd, ok := fields["proxycommand"]
 			if !ok {
 				continue
@@ -797,42 +658,35 @@ func (p *Parser) parse(obj withRequiredFields, fields map[string]configValue, re
 				continue
 			}
 
-			if err := pcmd.SetStrings([]string{shellescape.QuoteCommand(values)}, originType, origin); err != nil {
-				return fmt.Errorf("set value %q for proxycommand in %s:%d: %w", values, origin, row, err)
+			if err := pcmd.SetStrings([]string{shellescape.QuoteCommand(values)}, path); err != nil {
+				return fmt.Errorf("set value %q for proxycommand in %s:%d: %w", values, path, row, err)
 			}
 		default:
-			if !appliesToCurrent {
-				continue
-			}
-			if inMatch && !allowedInMatch(key) {
-				return fmt.Errorf("%w: field %q not allowed inside match block in %s:%d", ErrSyntax, key, origin, row)
-			}
-
-			if slices.Contains(canonicalizationFields, key) {
+			if _, ok := canonicalizationFields[key]; ok {
 				trace.Log(ctx, slog.LevelInfo, "touched canonicalization field")
 				p.didCanonicalize = true
 			}
 
 			if f, ok := fields[key]; ok { //nolint:nestif
 				trace.Log(ctx, slog.LevelInfo, "setting value", "value", values)
-				if err := f.SetStrings(values, originType, origin); err != nil {
-					return fmt.Errorf("set value %q for %q in %s:%d: %w", values, key, origin, row, err)
+				if err := f.SetStrings(values, path); err != nil {
+					return fmt.Errorf("set value %q for %q in %s:%d: %w", values, key, path, row, err)
 				}
-			} else if p.ErrorOnUnknown {
+			} else if p.errorOnUnknown {
 				iu, ok := fields["ignoreunknown"]
 				if !ok || !iu.IsSet() || iu.String() == "" {
-					return fmt.Errorf("%w: unknown field %q in %s:%d", ErrSyntax, key, origin, row)
+					return fmt.Errorf("%w: unknown field %q in %s:%d", ErrSyntax, key, path, row)
 				}
 				patterns, err := shellescape.Split(iu.String())
 				if err != nil {
-					return fmt.Errorf("can't split IgnoreUnknown directive %q in %s:%d: %w", iu.String(), origin, row, err)
+					return fmt.Errorf("can't split IgnoreUnknown directive %q in %s:%d: %w", iu.String(), path, row, err)
 				}
-				match, err := matchesPatterns(patterns, key)
+				match, err := value.MatchAll(key, patterns...)
 				if err != nil {
-					return fmt.Errorf("match IgnoreUnknown directive %q in %s:%d: %w", iu.String(), origin, row, err)
+					return fmt.Errorf("match IgnoreUnknown directive %q in %s:%d: %w", iu.String(), path, row, err)
 				}
 				if !match {
-					return fmt.Errorf("%w: unknown field %q in %s:%d", ErrSyntax, key, origin, row)
+					return fmt.Errorf("%w: unknown field %q in %s:%d", ErrSyntax, key, path, row)
 				}
 			}
 		}
@@ -840,7 +694,7 @@ func (p *Parser) parse(obj withRequiredFields, fields map[string]configValue, re
 	return nil
 }
 
-func (p *Parser) canonicalize(obj withRequiredFields) error {
+func (p *Parser) canonicalize(obj HostConfig) error {
 	host, _ := obj.GetHost()
 	co, ok := obj.(withCanonicalize)
 	if !ok {
@@ -866,115 +720,60 @@ func (p *Parser) canonicalize(obj withRequiredFields) error {
 	return nil
 }
 
-type withRequiredFields interface {
-	SetUser(username string) error
-	SetHost(host string) error
-	SetHostname(hostname string) error
-	GetHost() (string, bool)
-}
-
-type withCanonicalize interface {
-	Canonicalize(addr string) (string, bool)
-}
-
 // Parse the ssh config for the parts that apply to the passed in object.
 // The object must have fields for user, host and hostname. The host
 // field must be set before calling this function.
-func (p *Parser) Parse(obj withRequiredFields) error { //nolint:cyclop,gocognit
+func (p *Parser) Parse(obj HostConfig, host string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.reset()
+
+	if host == "" {
+		h, ok := obj.GetHost()
+		if !ok {
+			return fmt.Errorf("%w: host field is not set", ErrInvalidObject)
+		}
+		host = h
+	} else {
+		_ = obj.SetHost(host)
+	}
+	p.originalHost = host
 	fields, err := objFields(obj)
 	if err != nil {
 		return fmt.Errorf("check configuration object compatibility: %w", err)
 	}
-	if err := p.parse(obj, fields, strings.NewReader(sshDefaultConfig), ValueOriginDefault, "", true); err != nil {
-		if errors.Is(err, errRedo) {
-			if err := p.Parse(obj); err != nil {
-				return fmt.Errorf("second pass after canonicalization failed: %w", err)
-			}
-			return nil
-		}
-		// defaults do not contain canonicalization
-		return fmt.Errorf("failed to parse default ssh config: %w", err)
-	}
-
-	// Reader is provided, parse it and nothing else
-	if p.r != nil { //nolint:nestif
-		if err := p.parse(obj, fields, p.r, ValueOriginFile, p.rname, true); err != nil {
-			if errors.Is(err, errRedo) {
-				if err := p.Parse(obj); err != nil {
-					return fmt.Errorf("second pass after canonicalization failed: %w", err)
-				}
-				return nil
-			}
+	p.iter.Reset()
+	if err := p.parse(obj, fields); err != nil {
+		if !errors.Is(err, errRedo) {
 			return fmt.Errorf("failed to parse ssh config: %w", err)
 		}
-		return nil
 	}
 
-	// No reader provided, parse user and global config
-	if p.UserConfigPath == "" {
-		if cfg, err := homedir.Expand("~/.ssh/config"); err == nil {
-			p.UserConfigPath = cfg
-		}
-	}
-	if p.UserConfigPath != "" { //nolint:nestif
-		userConfigFile, err := os.Open(p.UserConfigPath)
-		if err == nil {
-			defer userConfigFile.Close()
-			if err := p.parse(obj, fields, userConfigFile, ValueOriginFile, p.UserConfigPath, true); err != nil {
-				if errors.Is(err, errRedo) {
-					if err := p.Parse(obj); err != nil {
-						return fmt.Errorf("second pass after canonicalization failed: %w", err)
-					}
-					return nil
-				}
-				return fmt.Errorf("parsing user config from %s failed: %w", p.UserConfigPath, err)
-			}
-		}
-	}
-
-	if p.GlobalConfigPath == "" {
-		p.GlobalConfigPath = defaultGlobalConfigPath()
-	}
-	globalConfigFile, err := os.Open(p.GlobalConfigPath)
-	if err == nil { //nolint:nestif
-		defer globalConfigFile.Close()
-		if err := p.parse(obj, fields, globalConfigFile, ValueOriginFile, p.GlobalConfigPath, true); err != nil {
-			if errors.Is(err, errRedo) {
-				if err := p.Parse(obj); err != nil {
-					return fmt.Errorf("second pass after canonicalization failed: %w", err)
-				}
-				return nil
-			}
-			return fmt.Errorf("parsing global config from %s failed: %w", p.GlobalConfigPath, err)
-		}
-	}
-
-	if !p.doingFinal && p.hasFinal {
-		// second pass to handle Match final directives and other Matchblocks that
-		// may match after hostname has been canonicalized.
-		if p.r != nil {
-			if _, err := p.r.Seek(0, 0); err != nil {
-				return fmt.Errorf("error seeking to the start of the reader: %w", err)
-			}
-		}
+	if p.hasFinal || p.didCanonicalize {
 		p.doingFinal = true
-		if err := p.Parse(obj); err != nil {
-			return fmt.Errorf("final pass of parsing ssh config failed: %w", err)
+		p.iter.Reset()
+		if err := p.parse(obj, fields); err != nil {
+			return fmt.Errorf("second pass of ssh config parsing failed: %w", err)
 		}
 	}
 
 	return nil
 }
 
-// Reset resets the parser to its initial state.
-func (p *Parser) Reset() {
-	if p.r != nil {
-		_, _ = p.r.Seek(0, 0)
-	}
+func (p *Parser) reset() {
+	p.iter.Reset()
 	p.originalHost = ""
 	p.didCanonicalize = false
 	p.hasFinal = false
 	p.doingFinal = false
+}
+
+// Reset resets the parser to its initial state.
+func (p *Parser) Reset() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.reset()
 }
 
 func expand(input string) (string, error) {

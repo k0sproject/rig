@@ -10,10 +10,9 @@ import (
 
 func TestDump(t *testing.T) {
 	obj := &sshconfig.SSHConfig{}
-	obj.SetHost("test")
 	parser, err := sshconfig.NewParser(nil)
 	require.NoError(t, err)
-	require.NoError(t, parser.Parse(obj))
+	require.NoError(t, parser.Parse(obj, "test"))
 	content, err := sshconfig.Dump(obj)
 	require.NoError(t, err)
 	require.True(t, strings.HasPrefix(content, "Host test"), "content should start with 'Host test'")
@@ -21,8 +20,8 @@ func TestDump(t *testing.T) {
 	obj2.SetHost("test")
 	parser, err = sshconfig.NewParser(strings.NewReader(content))
 	require.NoError(t, err)
-	require.NoError(t, parser.Parse(obj2))
+	require.NoError(t, parser.Parse(obj2, "test"))
 	content2, err := sshconfig.Dump(obj2)
 	require.NoError(t, err)
-	require.Equal(t, content, content2)
+	require.Equal(t, content, content2, "content should remain equal after parse => dump => parse => dump")
 }

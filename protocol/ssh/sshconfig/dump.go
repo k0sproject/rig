@@ -10,18 +10,18 @@ import (
 const indentLevel = 4
 
 // Dump returns a string representation of the given ssh config object.
-func Dump(obj withRequiredFields) (string, error) {
+func Dump(obj HostConfig) (string, error) {
 	fields, err := objFields(obj)
 	if err != nil {
 		return "", fmt.Errorf("dump config: failed to get fields: %w", err)
 	}
-	host, ok := fields[fkHost]
+	host, ok := obj.GetHost()
 	if !ok {
-		return "", fmt.Errorf("%w: dump config: missing required field: host", ErrInvalidObject)
+		return "", fmt.Errorf("%w: dump config: missing host from object", ErrInvalidObject)
 	}
 	builder := strings.Builder{}
 	builder.WriteString("Host ")
-	builder.WriteString(host.String())
+	builder.WriteString(host)
 	builder.WriteByte('\n')
 
 	indent := bytes.Repeat([]byte(" "), indentLevel)
@@ -43,7 +43,7 @@ func Dump(obj withRequiredFields) (string, error) {
 		if !field.IsSet() {
 			continue
 		}
-		if capKey, ok := CapitalizeKey(key); ok {
+		if capKey, ok := capitalizeKey(key); ok {
 			key = capKey
 		}
 		builder.Write(indent)
@@ -57,7 +57,7 @@ func Dump(obj withRequiredFields) (string, error) {
 
 // DumpG returns a string representation of the given ssh config object in the same format as
 // you get from `ssh -G`. This is useful for debugging and testing.
-func DumpG(obj withRequiredFields) (string, error) {
+func DumpG(obj HostConfig) (string, error) {
 	fields, err := objFields(obj)
 	if err != nil {
 		return "", fmt.Errorf("dump config: failed to get fields: %w", err)

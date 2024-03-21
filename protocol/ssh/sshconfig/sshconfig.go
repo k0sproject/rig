@@ -1,5 +1,7 @@
 package sshconfig
 
+import "github.com/k0sproject/rig/v2/protocol/ssh/sshconfig/value"
+
 /*
 Copied from the ssh_config man page for reference:
 
@@ -274,35 +276,35 @@ type SSHConfig struct {
 	// it will automatically be removed.  The argument must be
 	// no (the default), yes, confirm (optionally followed by a
 	// time interval), ask or a time interval.
-	AddKeysToAgent MultiStateBoolValue
+	AddKeysToAgent value.MultiStateBoolValue
 
 	// Use apple's MPTCP. Mac only option.
-	AppleMultiPath BoolValue
+	AppleMultiPath value.BoolValue
 
 	// When adding identities, each passphrase will also be stored in the user's keychain.
 	// (this is a mac only option)
-	UseKeyChain BoolValue
+	UseKeyChain value.BoolValue
 
 	// Specifies which address family to use when connecting.
 	// Valid arguments are any (the default), inet (use IPv4
 	// only), or inet6 (use IPv6 only).
-	AddressFamily StringValue
+	AddressFamily value.StringValue
 
 	// If set to yes, user interaction such as password prompts
 	// and host key confirmation requests will be disabled.
 	// This option is useful in scripts and other batch jobs
 	// where no user is present to interact with ssh(1).  The
 	// argument must be yes or no (the default).
-	BatchMode BoolValue
+	BatchMode value.BoolValue
 
 	// Use the specified address on the local machine as the
 	// source address of the connection.  Only useful on systems
 	// with more than one address.
-	BindAddress StringValue
+	BindAddress value.StringValue
 
 	// Use the address of the specified interface on the local
 	// machine as the source address of the connection.
-	BindInterface StringValue
+	BindInterface value.StringValue
 
 	// Specifies which algorithms are allowed for signing of
 	// certificates by certificate authorities (CAs).  The
@@ -323,7 +325,7 @@ type SSHConfig struct {
 	//
 	// ssh(1) will not accept host certificates signed using
 	// algorithms other than those specified.
-	CASignatureAlgorithms ModifiableStringListValue
+	CASignatureAlgorithms value.ModifiableStringListValue
 
 	// Specifies a file from which the user's certificate is
 	// read.  A corresponding private key must be provided
@@ -342,7 +344,7 @@ type SSHConfig struct {
 	// be tried in sequence.  Multiple CertificateFile
 	// directives will add to the list of certificates used for
 	// authentication.
-	CertificateFile AppendingPathListValue
+	CertificateFile value.AppendingPathListValue
 
 	// Specifies whether and how quickly ssh(1) should close
 	// inactive channels.  Timeouts are specified as one or more
@@ -398,7 +400,7 @@ type SSHConfig struct {
 	//
 	// The default is not to expire channels of any type for
 	// inactivity.
-	ChannelTimeout DurationValue
+	ChannelTimeout value.DurationValue
 
 	// If set to yes, ssh(1) will additionally check the host IP
 	// address in the known_hosts file.  This allows it to
@@ -407,7 +409,7 @@ type SSHConfig struct {
 	// in the process, regardless of the setting of
 	// StrictHostKeyChecking.  If the option is set to no (the
 	// default), the check will not be executed.
-	CheckHostIP BoolValue
+	CheckHostIP value.BoolValue
 
 	// Specifies the ciphers allowed and their order of
 	// preference.  Multiple ciphers must be comma-separated.
@@ -441,7 +443,7 @@ type SSHConfig struct {
 	//
 	// The list of available ciphers may also be obtained using
 	// "ssh -Q cipher".
-	Ciphers ModifiableStringListValue
+	Ciphers value.ModifiableStringListValue
 
 	// Specifies that all local, remote, and dynamic port
 	// forwardings specified in the configuration files or on
@@ -450,24 +452,24 @@ type SSHConfig struct {
 	// port forwardings set in configuration files, and is
 	// automatically set by scp(1) and sftp(1).  The argument
 	// must be yes or no (the default).
-	ClearAllForwardings BoolValue
+	ClearAllForwardings value.BoolValue
 
 	// Specifies whether to use compression.  The argument must
 	// be yes or no (the default).
-	Compression BoolValue
+	Compression value.BoolValue
 
 	// Specifies the number of tries (one per second) to make
 	// before exiting.  The argument must be an integer.  This
 	// may be useful in scripts if the connection sometimes
 	// fails.  The default is 1.
-	ConnectionAttempts UintValue
+	ConnectionAttempts value.UintValue
 
 	// Specifies the timeout (in seconds) used when connecting
 	// to the SSH server, instead of using the default system
 	// TCP timeout.  This timeout is applied both to
 	// establishing the connection and to performing the initial
 	// SSH protocol handshake and key exchange.
-	ConnectTimeout DurationValue
+	ConnectTimeout value.DurationValue
 
 	// Enables the sharing of multiple sessions over a single
 	// network connection.  When set to yes, ssh(1) will listen
@@ -497,7 +499,7 @@ type SSHConfig struct {
 	// back to creating a new one if one does not already exist.
 	// These options are: auto and autoask.  The latter requires
 	// confirmation like the ask option.
-	ControlMaster StringValue
+	ControlMaster value.StringValue
 
 	// Specify the path to the control socket used for
 	// connection sharing as described in the ControlMaster
@@ -511,7 +513,7 @@ type SSHConfig struct {
 	// and %r (or alternatively %C) and be placed in a directory
 	// that is not writable by other users.  This ensures that
 	// shared connections are uniquely identified.
-	ControlPath PathValue
+	ControlPath value.PathValue
 
 	// When used in conjunction with ControlMaster, specifies
 	// that the master connection should remain open in the
@@ -527,7 +529,7 @@ type SSHConfig struct {
 	// then the backgrounded master connection will
 	// automatically terminate after it has remained idle (with
 	// no client connections) for the specified time.
-	ControlPersist StringValue
+	ControlPersist value.StringValue
 
 	// Specifies that a TCP port on the local machine be
 	// forwarded over the secure channel, and the application
@@ -549,12 +551,12 @@ type SSHConfig struct {
 	// forwardings may be specified, and additional forwardings
 	// can be given on the command line.  Only the superuser can
 	// forward privileged ports.
-	DynamicForward StringValue
+	DynamicForward value.StringValue
 
 	// Enables the command line option in the EscapeChar menu
 	// for interactive sessions (default `~C').  By default, the
 	// command line is disabled.
-	EnableEscapeCommandline StringValue
+	EnableEscapeCommandline value.StringValue
 
 	// Setting this option to yes in the global client
 	// configuration file /etc/ssh/ssh_config enables the use of
@@ -563,14 +565,14 @@ type SSHConfig struct {
 	// (the default).  This option should be placed in the non-
 	// hostspecific section.  See ssh-keysign(8) for more
 	// information.
-	EnableSSHKeysign BoolValue
+	EnableSSHKeysign value.BoolValue
 
 	// Sets the escape character (default: `~').  The escape
 	// character can also be set on the command line.  The
 	// argument should be a single character, `^' followed by a
 	// letter, or none to disable the escape character entirely
 	// (making the connection transparent for binary data).
-	EscapeChar StringValue
+	EscapeChar value.StringValue
 
 	// Specifies whether ssh(1) should terminate the connection
 	// if it cannot set up all requested dynamic, tunnel, local,
@@ -581,12 +583,12 @@ type SSHConfig struct {
 	// cause ssh(1) to exit if TCP connections to the ultimate
 	// forwarding destination fail.  The argument must be yes or
 	// no (the default).
-	ExitOnForwardFailure BoolValue
+	ExitOnForwardFailure value.BoolValue
 
 	// Specifies the hash algorithm used when displaying key
 	// fingerprints.  Valid options are: md5 and sha256 (the
 	// default).
-	FingerprintHash StringValue
+	FingerprintHash value.StringValue
 
 	// Requests ssh to go to background just before command
 	// execution.  This is useful if ssh is going to ask for
@@ -605,7 +607,7 @@ type SSHConfig struct {
 	// successfully established before placing itself in the
 	// background.  The argument to this keyword must be yes
 	// (same as the -f option) or no (the default).
-	ForkAfterAuthentication BoolValue
+	ForkAfterAuthentication value.BoolValue
 
 	// Specifies whether the connection to the authentication
 	// agent (if any) will be forwarded to the remote machine.
@@ -621,7 +623,7 @@ type SSHConfig struct {
 	// however they can perform operations on the keys that
 	// enable them to authenticate using the identities loaded
 	// into the agent.
-	ForwardAgent MultiStateBoolValue
+	ForwardAgent value.MultiStateBoolValue
 
 	// Specifies whether X11 connections will be automatically
 	// redirected over the secure channel and DISPLAY set.  The
@@ -634,7 +636,7 @@ type SSHConfig struct {
 	// connection.  An attacker may then be able to perform
 	// activities such as keystroke monitoring if the
 	// ForwardX11Trusted option is also enabled.
-	ForwardX11 BoolValue
+	ForwardX11 value.BoolValue
 
 	// Specify a timeout for untrusted X11 forwarding using the
 	// format described in the "TIME FORMATS" section of
@@ -644,7 +646,7 @@ type SSHConfig struct {
 	// for the life of the connection.  The default is to
 	// disable untrusted X11 forwarding after twenty minutes has
 	// elapsed.
-	ForwardX11Timeout DurationValue
+	ForwardX11Timeout value.DurationValue
 
 	// If this option is set to yes, remote X11 clients will
 	// have full access to the original X11 display.
@@ -658,7 +660,7 @@ type SSHConfig struct {
 	//
 	// See the X11 SECURITY extension specification for full
 	// details on the restrictions imposed on untrusted clients.
-	ForwardX11Trusted BoolValue
+	ForwardX11Trusted value.BoolValue
 
 	// Specifies whether remote hosts are allowed to connect to
 	// local forwarded ports.  By default, ssh(1) binds local
@@ -668,20 +670,20 @@ type SSHConfig struct {
 	// local port forwardings to the wildcard address, thus
 	// allowing remote hosts to connect to forwarded ports.  The
 	// argument must be yes or no (the default).
-	GatewayPorts BoolValue
+	GatewayPorts value.BoolValue
 
 	// Specifies one or more files to use for the global host
 	// key database, separated by whitespace.  The default is
 	// /etc/ssh/ssh_known_hosts, /etc/ssh/ssh_known_hosts2.
-	GlobalKnownHostsFile PathListValue
+	GlobalKnownHostsFile value.PathListValue
 
 	// Specifies whether user authentication based on GSSAPI is
 	// allowed.  The default is no.
-	GSSAPIAuthentication BoolValue
+	GSSAPIAuthentication value.BoolValue
 
 	// Forward (delegate) credentials to the server.  The
 	// default is no.
-	GSSAPIDelegateCredentials BoolValue
+	GSSAPIDelegateCredentials value.BoolValue
 
 	// Indicates that ssh(1) should hash host names and
 	// addresses when they are added to ~/.ssh/known_hosts.
@@ -691,7 +693,7 @@ type SSHConfig struct {
 	// default is no.  Note that existing names and addresses in
 	// known hosts files will not be converted automatically,
 	// but may be manually hashed using ssh-keygen(1).
-	HashKnownHosts BoolValue
+	HashKnownHosts value.BoolValue
 
 	// Specifies the signature algorithms that will be used for
 	// hostbased authentication as a comma-separated list of
@@ -723,12 +725,12 @@ type SSHConfig struct {
 	// The -Q option of ssh(1) may be used to list supported
 	// signature algorithms.  This was formerly named
 	// HostbasedKeyTypes.
-	HostbasedAcceptedAlgorithms ModifiableStringListValue
+	HostbasedAcceptedAlgorithms value.ModifiableStringListValue
 
 	// Specifies whether to try rhosts based authentication with
 	// public key authentication.  The argument must be yes or
 	// no (the default).
-	HostbasedAuthentication BoolValue
+	HostbasedAuthentication value.BoolValue
 
 	// Specifies the host key signature algorithms that the
 	// client wants to use in order of preference.  Alternately
@@ -762,7 +764,7 @@ type SSHConfig struct {
 	//
 	// The list of available signature algorithms may also be
 	// obtained using "ssh -Q HostKeyAlgorithms".
-	HostKeyAlgorithms ModifiableStringListValue
+	HostKeyAlgorithms value.ModifiableStringListValue
 
 	// Specifies an alias that should be used instead of the
 	// real host name when looking up or saving the host key in
@@ -770,7 +772,7 @@ type SSHConfig struct {
 	// certificates.  This option is useful for tunneling SSH
 	// connections or for multiple servers running on a single
 	// host.
-	HostKeyAlias StringValue
+	HostKeyAlias value.StringValue
 
 	// Specifies that ssh(1) should only use the configured
 	// authentication identity and certificate files (either the
@@ -781,7 +783,7 @@ type SSHConfig struct {
 	// must be yes or no (the default).  This option is intended
 	// for situations where ssh-agent offers many different
 	// identities.
-	IdentitiesOnly BoolValue
+	IdentitiesOnly value.BoolValue
 
 	// Specifies the Unix-domain socket used to communicate with
 	// the authentication agent.
@@ -800,7 +802,7 @@ type SSHConfig struct {
 	// refer to a user's home directory, the tokens described in
 	// the "TOKENS" section and environment variables as
 	// described in the "ENVIRONMENT VARIABLES" section.
-	IdentityAgent PathValue
+	IdentityAgent value.PathValue
 
 	// Specifies a file from which the user's DSA, ECDSA,
 	// authenticator-hosted ECDSA, Ed25519, authenticator-hosted
@@ -836,7 +838,7 @@ type SSHConfig struct {
 	// used in conjunction with CertificateFile in order to
 	// provide any certificate also needed for authentication
 	// with the identity.
-	IdentityFile PathListValue
+	IdentityFile value.PathListValue
 
 	// Specifies a pattern-list of unknown options to be ignored
 	// if they are encountered in configuration parsing.  This
@@ -845,7 +847,7 @@ type SSHConfig struct {
 	// IgnoreUnknown be listed early in the configuration file
 	// as it will not be applied to unknown options that appear
 	// before it.
-	IgnoreUnknown StringListValue
+	IgnoreUnknown value.StringListValue
 
 	// Specifies the IPv4 type-of-service or DSCP class for
 	// connections.  Accepted values are af11, af12, af13, af21,
@@ -860,13 +862,13 @@ type SSHConfig struct {
 	// the second for non-interactive sessions.  The default is
 	// af21 (Low-Latency Data) for interactive sessions and cs1
 	// (Lower Effort) for non-interactive sessions.
-	IPQoS TwoItemsStringListValue
+	IPQoS value.TwoItemsStringListValue
 
 	// Specifies whether to use keyboard-interactive
 	// authentication.  The argument to this keyword must be yes
 	// (the default) or no.  ChallengeResponseAuthentication is
 	// a deprecated alias for this.
-	KbdInteractiveAuthentication BoolValue
+	KbdInteractiveAuthentication value.BoolValue
 
 	// Specifies the list of methods to use in keyboard-
 	// interactive authentication.  Multiple method names must
@@ -874,7 +876,7 @@ type SSHConfig struct {
 	// specified list.  The methods available vary depending on
 	// what the server supports.  For an OpenSSH server, it may
 	// be zero or more of: bsdauth and pam.
-	KbdInteractiveDevices StringListValue
+	KbdInteractiveDevices value.StringListValue
 
 	// Specifies the available KEX (Key Exchange) algorithms.
 	// Multiple algorithms must be comma-separated.  If the
@@ -898,7 +900,7 @@ type SSHConfig struct {
 	//
 	// The list of available key exchange algorithms may also be
 	// obtained using "ssh -Q kex".
-	KexAlgorithms ModifiableStringListValue
+	KexAlgorithms value.ModifiableStringListValue
 
 	// Specifies a command to use to obtain a list of host keys,
 	// in addition to those listed in UserKnownHostsFile and
@@ -915,7 +917,7 @@ type SSHConfig struct {
 	// obtain the host key matching the server's address.  If
 	// the command exits abnormally or returns a non-zero exit
 	// status then the connection is terminated.
-	KnownHostsCommand StringValue
+	KnownHostsCommand value.StringValue
 
 	// Specifies a command to execute on the local machine after
 	// successfully connecting to the server.  The command
@@ -929,7 +931,7 @@ type SSHConfig struct {
 	//
 	// This directive is ignored unless PermitLocalCommand has
 	// been enabled.
-	LocalCommand StringValue
+	LocalCommand value.StringValue
 
 	// Specifies that a TCP port on the local machine be
 	// forwarded over the secure channel to the specified host
@@ -953,7 +955,7 @@ type SSHConfig struct {
 	// domain socket paths may use the tokens described in the
 	// "TOKENS" section and environment variables as described
 	// in the "ENVIRONMENT VARIABLES" section.
-	LocalForward StringValue
+	LocalForward value.StringValue
 
 	// Gives the verbosity level that is used when logging
 	// messages from ssh(1).  The possible values are: QUIET,
@@ -961,7 +963,7 @@ type SSHConfig struct {
 	// DEBUG3.  The default is INFO.  DEBUG and DEBUG1 are
 	// equivalent.  DEBUG2 and DEBUG3 each specify higher levels
 	// of verbose output.
-	LogLevel StringValue
+	LogLevel value.StringValue
 
 	// Specify one or more overrides to LogLevel.  An override
 	// consists of a pattern lists that matches the source file,
@@ -975,7 +977,7 @@ type SSHConfig struct {
 	// and all code in the packet.c file.  This option is
 	// intended for debugging and no overrides are enabled by
 	// default.
-	LogVerbose StringListValue
+	LogVerbose value.StringListValue
 
 	// Specifies the MAC (message authentication code)
 	// algorithms in order of preference.  The MAC algorithm is
@@ -1005,17 +1007,17 @@ type SSHConfig struct {
 	//
 	// The list of available MAC algorithms may also be obtained
 	// using "ssh -Q mac".
-	MACs ModifiableStringListValue
+	MACs value.ModifiableStringListValue
 
 	// Disable host authentication for localhost (loopback
 	// addresses).  The argument to this keyword must be yes or
 	// no (the default).
-	NoHostAuthenticationForLocalhost BoolValue
+	NoHostAuthenticationForLocalhost value.BoolValue
 
 	// Specifies the number of password prompts before giving
 	// up.  The argument to this keyword must be an integer.
 	// The default is 3.
-	NumberOfPasswordPrompts UintValue
+	NumberOfPasswordPrompts value.UintValue
 
 	// Specifies whether ssh(1) should try to obscure inter-
 	// keystroke timings from passive observers of network
@@ -1029,16 +1031,16 @@ type SSHConfig struct {
 	// using a 20ms packet interval.  Note that smaller
 	// intervals will result in higher fake keystroke packet
 	// rates.
-	ObscureKeystrokeTiming MultiStateBoolValue
+	ObscureKeystrokeTiming value.MultiStateBoolValue
 
 	// Specifies whether to use password authentication.  The
 	// argument to this keyword must be yes (the default) or no.
-	PasswordAuthentication BoolValue
+	PasswordAuthentication value.BoolValue
 
 	// Allow local command execution via the LocalCommand option
 	// or using the !command escape sequence in ssh(1).  The
 	// argument must be yes or no (the default).
-	PermitLocalCommand BoolValue
+	PermitLocalCommand value.BoolValue
 
 	// Specifies the destinations to which remote TCP port
 	// forwarding is permitted when RemoteForward is used as a
@@ -1057,18 +1059,18 @@ type SSHConfig struct {
 	// for host or port to allow all hosts or ports
 	// respectively.  Otherwise, no pattern matching or address
 	// lookups are performed on supplied names.
-	PermitRemoteOpen StringListValue
+	PermitRemoteOpen value.StringListValue
 
 	// Specifies which PKCS#11 provider to use or none to
 	// indicate that no provider should be used (the default).
 	// The argument to this keyword is a path to the PKCS#11
 	// shared library ssh(1) should use to communicate with a
 	// PKCS#11 token providing keys for user authentication.
-	PKCS11Provider StringValue
+	PKCS11Provider value.StringValue
 
 	// Specifies the port number to connect on the remote host.
 	// The default is 22.
-	Port UintValue
+	Port value.UintValue
 
 	// Specifies the order in which the client should try
 	// authentication methods.  This allows a client to prefer
@@ -1077,7 +1079,7 @@ type SSHConfig struct {
 	//
 	// gssapi-with-mic,hostbased,publickey,
 	// keyboard-interactive,password
-	PreferredAuthentications StringListValue
+	PreferredAuthentications value.StringListValue
 
 	// Specifies the command to use to connect to the server.
 	// The command string extends to the end of the line, and is
@@ -1101,7 +1103,7 @@ type SSHConfig struct {
 	// would connect via an HTTP proxy at 192.0.2.0:
 	//
 	// ProxyCommand /usr/bin/nc -X connect -x 192.0.2.0:8080 %h %p
-	ProxyCommand StringValue
+	ProxyCommand value.StringValue
 
 	// Specifies one or more jump proxies as either
 	// [user@]host[:port] or an ssh URI.  Multiple proxies may
@@ -1122,12 +1124,12 @@ type SSHConfig struct {
 	// configuration file) is not generally applied to jump
 	// hosts.  ~/.ssh/config should be used if specific
 	// configuration is required for jump hosts.
-	ProxyJump StringValue
+	ProxyJump value.StringValue
 
 	// Specifies that ProxyCommand will pass a connected file
 	// descriptor back to ssh(1) instead of continuing to
 	// execute and pass data.  The default is no.
-	ProxyUseFdpass BoolValue
+	ProxyUseFdpass value.BoolValue
 
 	// Specifies the signature algorithms that will be used for
 	// public key authentication as a comma-separated list of
@@ -1157,7 +1159,7 @@ type SSHConfig struct {
 	//
 	// The list of available signature algorithms may also be
 	// obtained using "ssh -Q PubkeyAcceptedAlgorithms".
-	PubkeyAcceptedAlgorithms ModifiableStringListValue
+	PubkeyAcceptedAlgorithms value.ModifiableStringListValue
 
 	// Specifies whether to try public key authentication.  The
 	// argument to this keyword must be yes (the default), no,
@@ -1166,7 +1168,7 @@ type SSHConfig struct {
 	// enabling the OpenSSH host-bound authentication protocol
 	// extension required for restricted ssh-agent(1)
 	// forwarding.
-	PubkeyAuthentication MultiStateBoolValue
+	PubkeyAuthentication value.MultiStateBoolValue
 
 	// Specifies the maximum amount of data that may be
 	// transmitted or received before the session key is
@@ -1183,14 +1185,14 @@ type SSHConfig struct {
 	// rekeying is performed after the cipher's default amount
 	// of data has been sent or received and no time based
 	// rekeying is done.
-	RekeyLimit TwoItemsStringListValue
+	RekeyLimit value.TwoItemsStringListValue
 
 	// Specifies a command to execute on the remote machine
 	// after successfully connecting to the server.  The command
 	// string extends to the end of the line, and is executed
 	// with the user's shell.  Arguments to RemoteCommand accept
 	// the tokens described in the "TOKENS" section.
-	RemoteCommand StringValue
+	RemoteCommand value.StringValue
 
 	// Specifies that a TCP port on the remote machine be
 	// forwarded over the secure channel.  The remote port may
@@ -1227,7 +1229,7 @@ type SSHConfig struct {
 	// to listen on all interfaces.  Specifying a remote
 	// bind_address will only succeed if the server's
 	// GatewayPorts option is enabled (see sshd_config(5)).
-	RemoteForward StringListValue
+	RemoteForward value.StringListValue
 
 	// Specifies whether to request a pseudo-tty for the
 	// session.  The argument may be one of: no (never request a
@@ -1235,7 +1237,7 @@ type SSHConfig struct {
 	// TTY), force (always request a TTY) or auto (request a TTY
 	// when opening a login session).  This option mirrors the
 	// -t and -T flags for ssh(1).
-	RequestTTY MultiStateBoolValue
+	RequestTTY value.MultiStateBoolValue
 
 	// Specifies the minimum RSA key size (in bits) that ssh(1)
 	// will accept.  User authentication keys smaller than this
@@ -1243,7 +1245,7 @@ type SSHConfig struct {
 	// smaller than this limit will cause the connection to be
 	// terminated.  The default is 1024 bits.  Note that this
 	// limit may only be raised from the default.
-	RequiredRSASize UintValue
+	RequiredRSASize value.UintValue
 
 	// Specifies revoked host public keys.  Keys listed in this
 	// file will be refused for host authentication.  Note that
@@ -1258,7 +1260,7 @@ type SSHConfig struct {
 	// tokens described in the "TOKENS" section and environment
 	// variables as described in the "ENVIRONMENT VARIABLES"
 	// section.
-	RevokedHostKeys PathValue
+	RevokedHostKeys value.PathValue
 
 	// Specifies a path to a library that will be used when
 	// loading any FIDO authenticator-hosted keys, overriding
@@ -1267,7 +1269,7 @@ type SSHConfig struct {
 	// If the specified value begins with a `$' character, then
 	// it will be treated as an environment variable containing
 	// the path to the library.
-	SecurityKeyProvider StringValue // TODO it's a path that can also be $env_var
+	SecurityKeyProvider value.StringValue // TODO it's a path that can also be $env_var
 
 	// Specifies what variables from the local environ(7) should
 	// be sent to the server.  The server must also support it,
@@ -1291,7 +1293,7 @@ type SSHConfig struct {
 	// in /etc/ssh/ssh_config, and since that file is read
 	// last, using something like "SendEnv -*" in user config
 	// or ssh options will not remove those.
-	SendEnv RemovableStringListValue
+	SendEnv value.RemovableStringListValue
 
 	// Sets the number of server alive messages (see below)
 	// which may be sent without ssh(1) receiving any messages
@@ -1312,14 +1314,14 @@ type SSHConfig struct {
 	// ServerAliveCountMax is left at the default, if the server
 	// becomes unresponsive, ssh will disconnect after
 	// approximately 45 seconds.
-	ServerAliveCountMax UintValue
+	ServerAliveCountMax value.UintValue
 
 	// Sets a timeout interval in seconds after which if no data
 	// has been received from the server, ssh(1) will send a
 	// message through the encrypted channel to request a
 	// response from the server.  The default is 0, indicating
 	// that these messages will not be sent to the server.
-	ServerAliveInterval DurationValue
+	ServerAliveInterval value.DurationValue
 
 	// May be used to either request invocation of a subsystem
 	// on the remote system, or to prevent the execution of a
@@ -1327,21 +1329,21 @@ type SSHConfig struct {
 	// forwarding ports.  The argument to this keyword must be
 	// none (same as the -N option), subsystem (same as the -s
 	// option) or default (shell or command execution).
-	SessionType StringValue
+	SessionType value.StringValue
 
 	// Directly specify one or more environment variables and
 	// their contents to be sent to the server.  Similarly to
 	// SendEnv, with the exception of the TERM variable, the
 	// server must be prepared to accept the environment
 	// variable.
-	SetEnv StringListValue
+	SetEnv value.StringListValue
 
 	// Redirects stdin from /dev/null (actually, prevents
 	// reading from stdin).  Either this or the equivalent -n
 	// option must be used when ssh is run in the background.
 	// The argument to this keyword must be yes (same as the -n
 	// option) or no (the default).
-	StdinNull BoolValue
+	StdinNull value.BoolValue
 
 	// Sets the octal file creation mode mask (umask) used when
 	// creating a Unix-domain socket file for local or remote
@@ -1352,7 +1354,7 @@ type SSHConfig struct {
 	// socket file that is readable and writable only by the
 	// owner.  Note that not all operating systems honor the
 	// file mode on Unix-domain socket files.
-	StreamLocalBindMask OctalUintValue
+	StreamLocalBindMask value.OctalUintValue
 
 	// Specifies whether to remove an existing Unix-domain
 	// socket file for local or remote port forwarding before
@@ -1363,7 +1365,7 @@ type SSHConfig struct {
 	// Unix-domain socket file.
 	//
 	// The argument must be yes or no (the default).
-	StreamLocalBindUnlink BoolValue
+	StreamLocalBindUnlink value.BoolValue
 
 	// If this flag is set to yes, ssh(1) will never
 	// automatically add host keys to the ~/.ssh/known_hosts
@@ -1388,13 +1390,13 @@ type SSHConfig struct {
 	// ssh will refuse to connect to hosts whose host key has
 	// changed.  The host keys of known hosts will be verified
 	// automatically in all cases.
-	StrictHostKeyChecking MultiStateBoolValue
+	StrictHostKeyChecking value.MultiStateBoolValue
 
 	// Gives the facility code that is used when logging
 	// messages from ssh(1).  The possible values are: DAEMON,
 	// USER, AUTH, LOCAL0, LOCAL1, LOCAL2, LOCAL3, LOCAL4,
 	// LOCAL5, LOCAL6, LOCAL7.  The default is USER.
-	SyslogFacility StringValue
+	SyslogFacility value.StringValue
 
 	// Specifies whether the system should send TCP keepalive
 	// messages to the other side.  If they are sent, death of
@@ -1411,18 +1413,18 @@ type SSHConfig struct {
 	// To disable TCP keepalive messages, the value should be
 	// set to no.  See also ServerAliveInterval for protocol-
 	// level keepalives.
-	TCPKeepAlive BoolValue
+	TCPKeepAlive value.BoolValue
 
 	// Specify a configuration tag name that may be later used
 	// by a Match directive to select a block of configuration.
-	Tag StringValue
+	Tag value.StringValue
 
 	// Request tun(4) device forwarding between the client and
 	// the server.  The argument must be yes, point-to-point
 	// (layer 3), ethernet (layer 2), or no (the default).
 	// Specifying yes requests the default tunnel mode, which is
 	// point-to-point.
-	Tunnel MultiStateBoolValue
+	Tunnel value.MultiStateBoolValue
 
 	// Specifies the tun(4) devices to open on the client
 	// (local_tun) and the server (remote_tun).
@@ -1432,7 +1434,7 @@ type SSHConfig struct {
 	// which uses the next available tunnel device.  If
 	// remote_tun is not specified, it defaults to any.  The
 	// default is any:any.
-	TunnelDevice StringValue
+	TunnelDevice value.StringValue
 
 	// Specifies whether ssh(1) should accept notifications of
 	// additional hostkeys from the server sent after
@@ -1463,7 +1465,7 @@ type SSHConfig struct {
 	// Presently, only sshd(8) from OpenSSH 6.8 and greater
 	// support the "hostkeys@openssh.com" protocol extension
 	// used to inform the client of all the server's hostkeys.
-	UpdateHostKeys MultiStateBoolValue
+	UpdateHostKeys value.MultiStateBoolValue
 
 	// Specifies one or more files to use for the user host key
 	// database, separated by whitespace.  Each filename may use
@@ -1473,7 +1475,7 @@ type SSHConfig struct {
 	// section.  A value of none causes ssh(1) to ignore any
 	// user-specific known hosts files.  The default is
 	// ~/.ssh/known_hosts, ~/.ssh/known_hosts2.
-	UserKnownHostsFile PathListValue
+	UserKnownHostsFile value.PathListValue
 
 	// Specifies whether to verify the remote key using DNS and
 	// SSHFP resource records.  If this option is set to yes,
@@ -1486,7 +1488,7 @@ type SSHConfig struct {
 	// The default is no.
 	//
 	// See also "VERIFYING HOST KEYS" in ssh(1).
-	VerifyHostKeyDNS MultiStateBoolValue
+	VerifyHostKeyDNS value.MultiStateBoolValue
 
 	// If this flag is set to yes, an ASCII art representation
 	// of the remote host key fingerprint is printed in addition
@@ -1494,9 +1496,9 @@ type SSHConfig struct {
 	// keys.  If this flag is set to no (the default), no
 	// fingerprint strings are printed at login and only the
 	// fingerprint string will be printed for unknown host keys.
-	VisualHostKey BoolValue
+	VisualHostKey value.BoolValue
 
 	// Specifies the full pathname of the xauth(1) program.  The
 	// default is /usr/X11R6/bin/xauth.
-	XAuthLocation PathValue
+	XAuthLocation value.PathValue
 }

@@ -1,4 +1,4 @@
-package sshconfig
+package tree
 
 import (
 	"errors"
@@ -57,7 +57,7 @@ func splitArgs(input string, terminateOnComment bool) ([]string, error) { //noli
 			} else if quote == 0 && currCh == ' ' || currCh == '\t' {
 				// done
 				break
-			} else if quote == 0 && currCh == '"' || currCh == '\'' {
+			} else if quote == 0 && (currCh == '"' || currCh == '\'') {
 				quote = currCh
 			} else if quote != 0 && currCh == quote {
 				quote = 0 // quote end

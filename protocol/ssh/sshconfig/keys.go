@@ -1,7 +1,7 @@
 package sshconfig
 
 var knownKeys = map[string]string{
-	fkHost:                             "Host",
+	fkHost:                             fkHost,
 	"match":                            "Match",
 	"addkeystoagent":                   "AddKeysToAgent",
 	"addressfamily":                    "AddressFamily",
@@ -104,8 +104,8 @@ var knownKeys = map[string]string{
 	"xauthlocation":                    "XAuthLocation",
 }
 
-// CapitalizeKey transforms a key to its canonical mixed-case form.
-func CapitalizeKey(key string) (string, bool) {
+// capitalizeKey transforms a key to its canonical mixed-case form.
+func capitalizeKey(key string) (string, bool) {
 	val, ok := knownKeys[key]
 	return val, ok
 }
