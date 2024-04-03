@@ -18,6 +18,8 @@ linters:
     - forbidigo
     - gochecknoinits
     - gochecknoglobals
+    - gocognit # cyclop is used instead
+    - gocyclo # cyclop is used instead
     - godox
     - golint
     - interfacer
@@ -52,6 +54,8 @@ linters-settings:
       - r *http.Request
       - i int
       - n int
+      - j int
+      - ok bool
       - p []byte
       - mu sync.Mutex
       - wg sync.WaitGroup
@@ -73,3 +77,9 @@ issues:
     - EXC0015
   max-issues-per-linter: 0
   max-same-issues: 0
+  exclude-rules:
+    - linters: 
+      - errname # lots of false positives for an unknown reason
+      - revive # no need for comments on obvious vars like BooleanOptionYes
+      path: 'options/options\.go'
+

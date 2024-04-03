@@ -121,7 +121,7 @@ func (s *builderStack) Dump() {
 // Expand expands the input string according to the rules of a posix shell. It supports parameter expansion, command
 // substitution and simple $envvar expansion. It does not support arithmetic expansion, tilde expansion, or any of
 // the other expansions and it doesn't support backticks.
-func Expand(input string, opts ...ExpandOption) (string, error) { //nolint:gocognit,cyclop
+func Expand(input string, opts ...ExpandOption) (string, error) { //nolint:cyclop,funlen
 	options := newExpandOptions(opts...)
 	var inDollar, inCurly, inParen, inEscape bool
 	stack := builderStack{}
