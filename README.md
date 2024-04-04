@@ -2,7 +2,7 @@
 
 ### Rig
 
-[![GoDoc](https://godoc.org/github.com/k0sproject/rig?status.svg)](https://godoc.org/github.com/k0sproject/rig)
+[![GoDoc](https://godoc.org/github.com/k0sproject/rig/v2/?status.svg)](https://godoc.org/github.com/k0sproject/rig/v2)
 [![Go Report Card](https://goreportcard.com/badge/github.com/k0sproject/rig)](https://goreportcard.com/report/github.com/k0sproject/rig)
 [![Build Status](https://travis-ci.com/k0sproject/rig.svg?branch=main)](https://travis-ci.com/k0sproject/rig)
 [![codecov](https://codecov.io/gh/k0sproject/rig/branch/main/graph/badge.svg)](https://codecov.io/gh/k0sproject/rig)

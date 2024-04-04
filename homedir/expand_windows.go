@@ -9,6 +9,9 @@ import (
 
 // Expand does ~/ style path expansion for files under current user home. On windows, this supports paths like %USERPROFILE%\path.
 func Expand(path string) (string, error) {
+	if strings.Contains(path, "/") {
+		path = filepath.FromSlash(path)
+	}
 	parts := strings.Split(path, string(os.PathSeparator))
 	if parts[0] != "~" && parts[0] != "%USERPROFILE%" && parts[0] != "%userprofile%" && parts[0] != "%HOME%" && parts[0] != "%home%" {
 		return path, nil
