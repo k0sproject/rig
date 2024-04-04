@@ -76,10 +76,10 @@ func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
 }
 
 var (
-	authMethodCache   = sync.Map{}
-	dummyhostKeyPaths []string
-	knownHostsMU      sync.Mutex
-	globalOnce        sync.Once
+	authMethodCache = sync.Map{}
+
+	knownHostsMU sync.Mutex
+	globalOnce   sync.Once
 
 	// ErrChecksumMismatch is returned when the checksum of an uploaded file does not match expectation.
 	ErrChecksumMismatch = errors.New("checksum mismatch")
@@ -94,8 +94,6 @@ func init() {
 		}
 	})
 }
-
-const hopefullyNonexistentHost = "thisH0stDoe5not3xist"
 
 // Dial initiates a connection to the addr from the remote host.
 func (c *Connection) Dial(network, address string) (net.Conn, error) {
@@ -159,6 +157,7 @@ func (c *Connection) IsConnected() bool {
 	return err == nil
 }
 
+// ConfigParser is an instance of rig/v2/sshconfig.Parser - it is exported here for weird design decisions made in rig v0.x and will be removed in rig v2 final.
 var ConfigParser *sshconfig.Parser
 
 // String returns the connection's printable name.
