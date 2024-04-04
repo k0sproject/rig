@@ -25,9 +25,6 @@ var (
 	// InsecureIgnoreHostKeyCallback is an insecure HostKeyCallback that accepts any host key.
 	InsecureIgnoreHostKeyCallback = ssh.InsecureIgnoreHostKey() //nolint:gosec
 
-	// DefaultKnownHostsPath is the default path to the known_hosts file - make sure to homedir-expand it.
-	DefaultKnownHostsPath = "~/.ssh/known_hosts"
-
 	mu sync.Mutex
 )
 
@@ -73,6 +70,8 @@ func KnownHostsFileCallback(path string, permissive, hash bool) (ssh.HostKeyCall
 // is not found in the known_hosts file but instead adds it to the file as new
 // entry.
 func wrapCallback(hkc ssh.HostKeyCallback, path string, permissive, hash bool) ssh.HostKeyCallback {
+	// TODO this should use the HostKeyAlias from the ssh config. It should also support the
+	// "accept-new" of StrictHostNameChecking and possibly some other options.
 	return ssh.HostKeyCallback(func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 		mu.Lock()
 		defer mu.Unlock()

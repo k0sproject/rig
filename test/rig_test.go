@@ -24,8 +24,8 @@ import (
 	"github.com/k0sproject/rig/v2/protocol/ssh"
 	"github.com/k0sproject/rig/v2/protocol/winrm"
 	"github.com/k0sproject/rig/v2/remotefs"
+	"github.com/k0sproject/rig/v2/sshconfig"
 	"github.com/k0sproject/rig/v2/stattime"
-	"github.com/kevinburke/ssh_config"
 
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -88,17 +88,12 @@ func TestMain(m *testing.M) {
 		if err != nil {
 			panic(err)
 		}
-		cfg, err := ssh_config.Decode(f)
+		defer f.Close()
+		parser, err := sshconfig.NewParser(f)
 		if err != nil {
 			panic(err)
 		}
-		ssh.SSHConfigGetAll = func(dst, key string) []string {
-			res, err := cfg.GetAll(dst, key)
-			if err != nil {
-				return nil
-			}
-			return res
-		}
+		ssh.ConfigParser = parser
 	}
 
 	// Run tests
