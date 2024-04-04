@@ -10,7 +10,6 @@ import (
 	"net"
 	"os"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,8 +20,7 @@ import (
 	"github.com/k0sproject/rig/v2/protocol"
 	"github.com/k0sproject/rig/v2/protocol/ssh/agent"
 	"github.com/k0sproject/rig/v2/protocol/ssh/hostkey"
-	"github.com/k0sproject/rig/v2/sh/shellescape"
-	"github.com/kevinburke/ssh_config"
+	"github.com/k0sproject/rig/v2/sshconfig"
 	ssh "golang.org/x/crypto/ssh"
 	"golang.org/x/term"
 )
@@ -33,6 +31,8 @@ var errNotConnected = errors.New("not connected")
 type Connection struct {
 	log.LoggerInjectable `yaml:"-"`
 	Config               `yaml:",inline"`
+
+	sshConfig *sshconfig.Config
 
 	options *Options
 
@@ -55,24 +55,51 @@ func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
 	options.InjectLoggerTo(cfg, log.KeyProtocol, "ssh-config")
 	cfg.SetDefaults()
 
-	c := &Connection{Config: cfg, options: options}
+	c := &Connection{Config: cfg, options: options} //nolint:varnamelen
 	options.InjectLoggerTo(c, log.KeyProtocol, "ssh")
+	c.sshConfig = &sshconfig.Config{
+		User: c.Config.User,
+		Host: c.Config.Address,
+	}
+
+	if c.Config.Port != 0 && c.Config.Port != 22 {
+		c.sshConfig.Port = c.Config.Port
+	}
+
+	if c.Config.KeyPath != nil {
+		c.sshConfig.IdentityFile = []string{*c.Config.KeyPath}
+	}
+
+	if ConfigParser != nil {
+		if err := ConfigParser.Apply(c.sshConfig, c.Config.Address); err != nil {
+			return nil, fmt.Errorf("failed to apply ssh config: %w", err)
+		}
+	}
+
+	c.Config.Port = c.sshConfig.Port
 
 	return c, nil
 }
 
 var (
-	authMethodCache   = sync.Map{}
-	defaultKeypaths   = []string{"~/.ssh/id_rsa", "~/.ssh/identity", "~/.ssh/id_dsa", "~/.ssh/id_ecdsa", "~/.ssh/id_ed25519"}
-	dummyhostKeyPaths []string
-	globalOnce        sync.Once
-	knownHostsMU      sync.Mutex
+	authMethodCache = sync.Map{}
+
+	knownHostsMU sync.Mutex
+	globalOnce   sync.Once
 
 	// ErrChecksumMismatch is returned when the checksum of an uploaded file does not match expectation.
 	ErrChecksumMismatch = errors.New("checksum mismatch")
 )
 
-const hopefullyNonexistentHost = "thisH0stDoe5not3xist"
+// TODO make the parser initialization more elegant.
+func init() {
+	globalOnce.Do(func() {
+		parser, err := sshconfig.NewParser(nil)
+		if err == nil {
+			ConfigParser = parser
+		}
+	})
+}
 
 // Dial initiates a connection to the addr from the remote host.
 func (c *Connection) Dial(network, address string) (net.Conn, error) {
@@ -85,13 +112,7 @@ func (c *Connection) Dial(network, address string) (net.Conn, error) {
 
 func (c *Connection) keypathsFromConfig() []string {
 	log.Trace(context.Background(), "trying to get a keyfile path from ssh config", log.KeyHost, c)
-	idf := c.getConfigAll("IdentityFile")
-	// https://github.com/kevinburke/ssh_config/blob/master/config.go#L254 says:
-	// TODO: IdentityFile has multiple default values that we should return
-	// To work around this, the hard coded list of known defaults are appended to the list
-	idf = append(idf, defaultKeypaths...)
-	sort.Strings(idf)
-	idf = slices.Compact(idf)
+	idf := slices.Compact(c.sshConfig.IdentityFile)
 
 	if len(idf) > 0 {
 		log.Trace(context.Background(), fmt.Sprintf("detected %d identity file paths from ssh config", len(idf)), log.KeyFile, idf)
@@ -101,69 +122,17 @@ func (c *Connection) keypathsFromConfig() []string {
 	return []string{}
 }
 
-func (c *Connection) initGlobalDefaults() {
-	dummyHostIdentityFiles := SSHConfigGetAll(hopefullyNonexistentHost, "IdentityFile")
-	// https://github.com/kevinburke/ssh_config/blob/master/config.go#L254 says:
-	// TODO: IdentityFile has multiple default values that we should return
-	// To work around this, the hard coded list of known defaults are appended to the list
-	dummyHostIdentityFiles = append(dummyHostIdentityFiles, defaultKeypaths...)
-	sort.Strings(dummyHostIdentityFiles)
-	dummyHostIdentityFiles = slices.Compact(dummyHostIdentityFiles)
-	for _, keyPath := range dummyHostIdentityFiles {
-		if expanded, err := homedir.Expand(keyPath); err == nil {
-			dummyhostKeyPaths = append(dummyhostKeyPaths, expanded)
-		}
-	}
-}
-
-func findUniq(a, b []string) (string, bool) {
-	for _, s := range a {
-		found := false
-		for _, t := range b {
-			if s == t {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return s, true
-		}
-	}
-	return "", false
-}
-
 // SetDefaults sets various default values.
 func (c *Connection) SetDefaults() {
-	globalOnce.Do(c.initGlobalDefaults)
 	c.once.Do(func() {
-		if c.KeyPath != nil && *c.KeyPath != "" {
-			if expanded, err := homedir.Expand(*c.KeyPath); err == nil {
-				c.keyPaths = append(c.keyPaths, expanded)
-			}
-			// keypath is explicitly set, accept the fact even if it's invalid and
-			// don't try to find it from ssh config/defaults
-			return
-		}
-		c.KeyPath = nil
+		c.Port = c.sshConfig.Port
 
-		paths := c.keypathsFromConfig()
-
-		if c.Port == 0 || c.Port == 22 {
-			ports := c.getConfigAll("Port")
-			if len(ports) > 0 {
-				if p, err := strconv.Atoi(ports[0]); err == nil {
-					c.Port = p
-				}
-			}
-		}
-
-		addrs := c.getConfigAll("HostName")
-		if len(addrs) > 0 {
+		if c.sshConfig.Hostname != "" {
 			c.alias = c.Address
-			c.Address = addrs[0]
+			c.Address = c.sshConfig.Hostname
 		}
 
-		for _, p := range paths {
+		for _, p := range c.keypathsFromConfig() {
 			expanded, err := homedir.ExpandFile(p)
 			if err != nil {
 				log.Trace(context.Background(), "expand and validate", log.KeyFile, p, log.KeyError, err)
@@ -171,12 +140,6 @@ func (c *Connection) SetDefaults() {
 			}
 			c.Log().Debug("using identity file", log.KeyFile, expanded)
 			c.keyPaths = append(c.keyPaths, expanded)
-		}
-
-		// check if all the paths that were found are global defaults
-		// errors are handled differently when a keypath is explicitly set vs when it's defaulted
-		if uniq, found := findUniq(c.keyPaths, dummyhostKeyPaths); found {
-			c.KeyPath = &uniq
 		}
 	})
 }
@@ -200,16 +163,8 @@ func (c *Connection) IsConnected() bool {
 	return err == nil
 }
 
-// SSHConfigGetAll by default points to ssh_config package's GetAll() function
-// you can override it with your own implementation for testing purposes.
-var SSHConfigGetAll = ssh_config.GetAll
-
-func (c *Connection) getConfigAll(key string) []string {
-	if c.alias != "" {
-		return SSHConfigGetAll(c.alias, key)
-	}
-	return SSHConfigGetAll(c.Address, key)
-}
+// ConfigParser is an instance of rig/v2/sshconfig.Parser - it is exported here for weird design decisions made in rig v0.x and will be removed in rig v2 final.
+var ConfigParser *sshconfig.Parser
 
 // String returns the connection's printable name.
 func (c *Connection) String() string {
@@ -275,7 +230,7 @@ func knownhostsCallback(path string, permissive, hash bool) (ssh.HostKeyCallback
 }
 
 func isPermissive(c *Connection) bool {
-	if strict := c.getConfigAll("StrictHostkeyChecking"); len(strict) > 0 && strict[0] == "no" {
+	if c.sshConfig.StrictHostKeyChecking.IsFalse() {
 		log.Trace(context.Background(), "config StrictHostkeyChecking is set to 'no'", log.KeyHost, c)
 		return true
 	}
@@ -284,14 +239,11 @@ func isPermissive(c *Connection) bool {
 }
 
 func shouldHash(c *Connection) bool {
-	var hash bool
-	if hashKnownHosts := c.getConfigAll("HashKnownHosts"); len(hashKnownHosts) == 1 {
-		hash := hashKnownHosts[0] == "yes"
-		if hash {
-			log.Trace(context.Background(), "config HashKnownHosts is set", log.KeyHost, c)
-		}
+	if c.sshConfig.HashKnownHosts.IsTrue() {
+		log.Trace(context.Background(), "config HashKnownHosts is set", log.KeyHost, c)
+		return true
 	}
-	return hash
+	return false
 }
 
 func (c *Connection) hostkeyCallback() (ssh.HostKeyCallback, error) {
@@ -311,33 +263,21 @@ func (c *Connection) hostkeyCallback() (ssh.HostKeyCallback, error) {
 
 	var khPath string
 
-	// Ask ssh_config for a known hosts file
-	kfs := c.getConfigAll("UserKnownHostsFile")
-	// splitting the result as for some reason ssh_config sometimes seems to
-	// return a single string containing space separated paths
-	if files, err := shellescape.Split(strings.Join(kfs, " ")); err == nil {
-		for _, f := range files {
-			log.Trace(context.Background(), "trying known_hosts file from ssh config", log.KeyHost, c, log.KeyFile, f)
-			exp, err := homedir.Expand(f)
-			if err == nil {
-				khPath = exp
-				break
-			}
+	for _, f := range c.sshConfig.UserKnownHostsFile {
+		log.Trace(context.Background(), "trying known_hosts file from ssh config", log.KeyHost, c, log.KeyFile, f)
+		exp, err := homedir.Expand(f)
+		if err == nil {
+			khPath = exp
+			break
 		}
 	}
 
 	if khPath != "" {
-		log.Trace(context.Background(), "using known_hosts file from ssh config", log.KeyHost, c, log.KeyFile, khPath)
+		log.Trace(context.Background(), "using known_hosts file", log.KeyHost, c, log.KeyFile, khPath)
 		return knownhostsCallback(khPath, permissive, hash)
 	}
 
-	log.Trace(context.Background(), "using default known_hosts file", log.KeyHost, c, log.KeyFile, hostkey.DefaultKnownHostsPath)
-	defaultPath, err := homedir.Expand(hostkey.DefaultKnownHostsPath)
-	if err != nil {
-		return nil, fmt.Errorf("expand known_hosts file path: %w", err)
-	}
-
-	return knownhostsCallback(defaultPath, permissive, hash)
+	return nil, fmt.Errorf("%w: no known_hosts file found", protocol.ErrAbort)
 }
 
 func (c *Connection) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop

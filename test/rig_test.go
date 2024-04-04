@@ -24,8 +24,9 @@ import (
 	"github.com/k0sproject/rig/v2/protocol/ssh"
 	"github.com/k0sproject/rig/v2/protocol/winrm"
 	"github.com/k0sproject/rig/v2/remotefs"
+	"github.com/k0sproject/rig/v2/rigtest"
+	"github.com/k0sproject/rig/v2/sshconfig"
 	"github.com/k0sproject/rig/v2/stattime"
-	"github.com/kevinburke/ssh_config"
 
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -44,6 +45,7 @@ var (
 	onlyConnect     bool
 	privateKey      string
 	enableMultiplex bool
+	traceLog        bool
 )
 
 func pathBase(p string) string {
@@ -66,9 +68,14 @@ func TestMain(m *testing.M) {
 	flag.BoolVar(&useHTTPS, "winrm-https", false, "use https for winrm")
 	flag.BoolVar(&enableMultiplex, "openssh-multiplex", true, "use ssh multiplexing")
 	flag.BoolVar(&onlyConnect, "connect", false, "only connect to host, dont run other tests")
+	flag.BoolVar(&traceLog, "trace", false, "turn on trace logging")
 
 	// Parse the flags
 	flag.Parse()
+
+	if traceLog {
+		rigtest.TraceToStderr()
+	}
 
 	if targetHost == "" {
 		// no host, nothing to test
@@ -88,17 +95,12 @@ func TestMain(m *testing.M) {
 		if err != nil {
 			panic(err)
 		}
-		cfg, err := ssh_config.Decode(f)
+		defer f.Close()
+		parser, err := sshconfig.NewParser(f)
 		if err != nil {
 			panic(err)
 		}
-		ssh.SSHConfigGetAll = func(dst, key string) []string {
-			res, err := cfg.GetAll(dst, key)
-			if err != nil {
-				return nil
-			}
-			return res
-		}
+		ssh.ConfigParser = parser
 	}
 
 	// Run tests
