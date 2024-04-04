@@ -70,11 +70,6 @@ linters-settings:
     max-complexity: 12
 
 issues:
-  exclude-rules:
-    - path: protocol/ssh/sshconfig/options.go
-      linters:
-        - errname # lots of false positives for unknown reason
-        - revive # no need for comments on obvious vars.
   include:
     - EXC0002
     - EXC0012
