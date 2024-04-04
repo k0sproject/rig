@@ -1,7 +1,7 @@
 KEY_TYPE ?= rsa
 KEY_SIZE ?= 4096
 KEY_PASSPHRASE ?= ""
-KEY_PATH ?= ".ssh/identity"
+KEY_PATH ?= ".ssh/id_ed25519"
 REPLICAS ?= 1
 LINUX_IMAGE ?= "quay.io/k0sproject/bootloose-ubuntu20.04"
 
@@ -34,20 +34,20 @@ $(bootloose):
 gomod: 
 	go mod download
 
-.ssh/identity: .ssh
-	rm -f .ssh/identity
-	ssh-keygen -t $(KEY_TYPE) -b $(KEY_SIZE) -f .ssh/identity -N $(KEY_PASSPHRASE)
+.ssh/id_ed25519: .ssh
+	rm -f .ssh/id_ed25519
+	ssh-keygen -t $(KEY_TYPE) -b $(KEY_SIZE) -f .ssh/id_ed25519 -N $(KEY_PASSPHRASE)
 
 .PHONY: docker-network
 docker-network:
 	docker network inspect bootloose-cluster || docker network create bootloose-cluster --subnet 172.16.86.0/24 --gateway 172.16.86.1 --attachable
 
-bootloose.yaml: .ssh/identity $(bootloose)
+bootloose.yaml: .ssh/id_ed25519 $(bootloose)
 	$(bootloose) config create \
 		--config bootloose.yaml \
 	  --image $(LINUX_IMAGE) \
 		--name rigtest \
-	  --key .ssh/identity \
+	  --key .ssh/id_ed25519 \
 		--networks bootloose-cluster \
     --override \
 		--replicas $(REPLICAS)
@@ -62,7 +62,7 @@ delete-host: bootloose.yaml
 
 .PHONY: clean
 clean: delete-host
-	rm -f bootloose.yaml identity
+	rm -f bootloose.yaml
 	rm -rf .ssh
 	docker network rm bootloose-cluster || true
 

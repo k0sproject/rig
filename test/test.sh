@@ -20,7 +20,7 @@ sanity_check() {
   docker ps
   echo "* SSH port: $(ssh_port node0)"
   echo "* Testing stock ssh"
-  retry ssh -vvv -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i .ssh/identity -p "$(ssh_port node0)" root@127.0.0.1 echo "test-conn" || return $?
+  retry ssh -vvv -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i .ssh/id_ed25519 -p "$(ssh_port node0)" root@127.0.0.1 echo "test-conn" || return $?
   set +e
   echo "* Testing bootloose ssh"
   bootloose ssh root@node0 echo test-conn | grep -q test-conn
@@ -33,7 +33,7 @@ sanity_check() {
 rig_test_key_from_path() {
   color_echo "- Testing regular keypath and host functions"
   make create-host
-  mv .ssh/identity .ssh/identity2
+  mv .ssh/id_ed25519 .ssh/identity2
   set +e
   go test -v ./ -args -host 127.0.0.1 -port "$(ssh_port node0)" -user root -ssh-keypath .ssh/identity2 
   exit_code=$?
@@ -45,10 +45,10 @@ rig_test_agent_with_public_key() {
   color_echo "- Testing connection using agent and providing a path to public key"
   make create-host
   eval "$(ssh-agent -s)"
-  ssh-add .ssh/identity
-  rm -f .ssh/identity
+  ssh-add .ssh/id_ed25519
+  rm -f .ssh/id_ed25519
   set +e
-  HOME=$(pwd) SSH_AUTH_SOCK=$SSH_AUTH_SOCK go test -v ./ -args -host 127.0.0.1 -port "$(ssh_port node0)" -user root -ssh-keypath .ssh/identity.pub -connect
+  HOME=$(pwd) SSH_AUTH_SOCK=$SSH_AUTH_SOCK go test -v ./ -args -host 127.0.0.1 -port "$(ssh_port node0)" -user root -ssh-keypath .ssh/id_ed25519.pub -connect
   exit_code=$?
   set -e
   kill "$SSH_AGENT_PID"
@@ -62,14 +62,14 @@ rig_test_agent_with_private_key() {
   make create-host KEY_PASSPHRASE=testPhrase
   eval "$(ssh-agent -s)"
   expect -c '
-    spawn ssh-add .ssh/identity
+    spawn ssh-add .ssh/id_ed25519
     expect "?:"
     send "testPhrase\n"
     expect eof"
   '
   set +e
   # path points to a private key, rig should try to look for the .pub for it 
-  HOME=$(pwd) SSH_AUTH_SOCK=$SSH_AUTH_SOCK go test -v ./ -args -host 127.0.0.1 -port "$(ssh_port node0)" -user root -ssh-keypath .ssh/identity -connect
+  HOME=$(pwd) SSH_AUTH_SOCK=$SSH_AUTH_SOCK go test -v ./ -args -host 127.0.0.1 -port "$(ssh_port node0)" -user root -ssh-keypath .ssh/id_ed25519 -connect
   exit_code=$?
   set -e
   kill $SSH_AGENT_PID
@@ -82,8 +82,8 @@ rig_test_agent() {
   color_echo "- Testing connection using any key from agent (empty keypath)"
   make create-host
   eval "$(ssh-agent -s)"
-  ssh-add .ssh/identity
-  rm -f .ssh/identity
+  ssh-add .ssh/id_ed25519
+  rm -f .ssh/id_ed25519
   set +e
   ssh-add -l
   HOME=$(pwd) SSH_AUTH_SOCK=$SSH_AUTH_SOCK go test -v ./ -args -host 127.0.0.1 -port "$(ssh_port node0)" -user root -ssh-keypath "" -connect
@@ -101,8 +101,8 @@ rig_test_agent_and_invalid_key() {
   eval "$(ssh-agent -s)"
   ssh-keygen -f .ssh/id_rsa -N ""
   ssh-add .ssh/id_rsa
-  ssh-add .ssh/identity
-  rm -f .ssh/identity
+  ssh-add .ssh/id_ed25519
+  rm -f .ssh/id_ed25519
   set +e
   ssh-add -l
   HOME=$(pwd) SSH_AUTH_SOCK=$SSH_AUTH_SOCK go test -v ./ -args -host 127.0.0.1 -port "$(ssh_port node0)" -user root -ssh-keypath "" -connect
@@ -118,7 +118,7 @@ rig_test_agent_and_invalid_key() {
 rig_test_ssh_config() {
   color_echo "- Testing getting identity path from ssh config"
   make create-host
-  mv .ssh/identity .ssh/identity2
+  mv .ssh/id_ed25519 .ssh/identity2
   echo "Host 127.0.0.1" > .ssh/config
   echo "  IdentityFile $(pwd)/.ssh/identity2" >> .ssh/config
   chmod 0600 .ssh/config
@@ -137,7 +137,7 @@ rig_test_ssh_config_strict() {
   echo "  User root" >> .ssh/config
   echo "  HostName 127.0.0.1" >> .ssh/config
   echo "  Port ${port}" >> .ssh/config
-  echo "  IdentityFile $(pwd)/.ssh/identity" >> .ssh/config
+  echo "  IdentityFile $(pwd)/.ssh/id_ed25519" >> .ssh/config
   echo "  UserKnownHostsFile $(pwd)/.ssh/known" >> .ssh/config
   echo "  StrictHostKeyChecking yes" >> .ssh/config
   cat .ssh/config
@@ -202,7 +202,7 @@ rig_test_ssh_config_no_strict() {
 rig_test_key_from_memory() {
   color_echo "- Testing connecting using a key from string"
   make create-host
-  mv .ssh/identity .ssh/identity2
+  mv .ssh/id_ed25519 .ssh/identity2
   set +e
   go test -v ./ -args -host 127.0.0.1 -port "$(ssh_port node0)" -user root -ssh-private-key "$(cat .ssh/identity2)" -connect
   exit_code=$?
@@ -213,7 +213,6 @@ rig_test_key_from_memory() {
 rig_test_key_from_default_location() {
   color_echo "- Testing keypath from default location"
   make create-host
-  mv .ssh/identity .ssh/id_ecdsa
   set +e
   HOME=$(pwd) go test -v ./ -args -host 127.0.0.1 -port "$(ssh_port node0)" -user root -connect
   exit_code=$?
@@ -226,7 +225,7 @@ rig_test_regular_user() {
   make create-host
   sshPort=$(ssh_port node0)
 
-  set -- -T -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i .ssh/identity -p "$sshPort"
+  set -- -T -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i .ssh/id_ed25519 -p "$sshPort"
   retry ssh "$@" root@127.0.0.1 true || {
     RET=$?
     color_echo failed to SSH into machine >&2
@@ -260,7 +259,7 @@ EOF
     return 0
   }
 
-  HOME="$(pwd)" go test -v ./ -args -host 127.0.0.1 -port "$sshPort" -user rigtest-user -ssh-keypath .ssh/identity
+  HOME="$(pwd)" go test -v ./ -args -host 127.0.0.1 -port "$sshPort" -user rigtest-user -ssh-keypath .ssh/id_ed25519
 }
 
 rig_test_openssh_client() {
@@ -270,7 +269,7 @@ rig_test_openssh_client() {
   echo "  HostName 127.0.0.1" >> .ssh/config
   echo "  Port $(ssh_port node0)" >> .ssh/config
   echo "  User root" >> .ssh/config
-  echo "  IdentityFile $(pwd)/.ssh/identity" >> .ssh/config
+  echo "  IdentityFile $(pwd)/.ssh/id_ed25519" >> .ssh/config
   echo "  UserKnownHostsFile /dev/null" >> .ssh/config
   echo "  StrictHostKeyChecking no" >> .ssh/config
   cat .ssh/config
@@ -288,7 +287,7 @@ rig_test_openssh_client_no_multiplex() {
   echo "  HostName 127.0.0.1" >> .ssh/config
   echo "  Port $(ssh_port node0)" >> .ssh/config
   echo "  User root" >> .ssh/config
-  echo "  IdentityFile $(pwd)/.ssh/identity" >> .ssh/config
+  echo "  IdentityFile $(pwd)/.ssh/id_ed25519" >> .ssh/config
   echo "  UserKnownHostsFile /dev/null" >> .ssh/config
   echo "  StrictHostKeyChecking no" >> .ssh/config
   cat .ssh/config
