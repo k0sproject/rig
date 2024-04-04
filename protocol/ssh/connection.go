@@ -60,8 +60,12 @@ func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
 	c.sshConfig = &sshconfig.Config{
 		User: c.Config.User,
 		Host: c.Config.Address,
-		Port: c.Config.Port,
 	}
+
+	if c.Config.Port != 0 && c.Config.Port != 22 {
+		c.sshConfig.Port = c.Config.Port
+	}
+
 	if c.Config.KeyPath != nil {
 		c.sshConfig.IdentityFile = []string{*c.Config.KeyPath}
 	}
@@ -71,6 +75,8 @@ func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
 			return nil, fmt.Errorf("failed to apply ssh config: %w", err)
 		}
 	}
+
+	c.Config.Port = c.sshConfig.Port
 
 	return c, nil
 }
