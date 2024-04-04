@@ -24,6 +24,7 @@ import (
 	"github.com/k0sproject/rig/v2/protocol/ssh"
 	"github.com/k0sproject/rig/v2/protocol/winrm"
 	"github.com/k0sproject/rig/v2/remotefs"
+	"github.com/k0sproject/rig/v2/rigtest"
 	"github.com/k0sproject/rig/v2/sshconfig"
 	"github.com/k0sproject/rig/v2/stattime"
 
@@ -44,6 +45,7 @@ var (
 	onlyConnect     bool
 	privateKey      string
 	enableMultiplex bool
+	traceLog        bool
 )
 
 func pathBase(p string) string {
@@ -66,9 +68,14 @@ func TestMain(m *testing.M) {
 	flag.BoolVar(&useHTTPS, "winrm-https", false, "use https for winrm")
 	flag.BoolVar(&enableMultiplex, "openssh-multiplex", true, "use ssh multiplexing")
 	flag.BoolVar(&onlyConnect, "connect", false, "only connect to host, dont run other tests")
+	flag.BoolVar(&traceLog, "trace", false, "turn on trace logging")
 
 	// Parse the flags
 	flag.Parse()
+
+	if traceLog {
+		rigtest.TraceToStderr()
+	}
 
 	if targetHost == "" {
 		// no host, nothing to test

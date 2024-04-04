@@ -193,7 +193,7 @@ rig_test_ssh_config_no_strict() {
   echo "[127.0.0.1]:$port ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBBgejI9UJnRY/i4HNM/os57oFcRjE77gEbVfUkuGr5NRh3N7XxUnnBKdzrAiQNPttUjKmUm92BN7nCUxbwsoSPw=" > .ssh/known
   echo "[127.0.0.1]:$port ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBGZKwBdFeIPlDWe7otNy4E2Im8+GnQtsukJ5dIuzDGb" >> .ssh/known
   set +e
-  HOME=$(pwd) go test -v ./ -args -ssh-configpath .ssh/config -host testhost -connect
+  HOME=$(pwd) go test -v ./ -args -ssh-configpath .ssh/config -host testhost -connect -trace
   exit_code=$?
   set -e
   RET=$exit_code
