@@ -67,7 +67,7 @@ func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
 	}
 
 	if ConfigParser != nil {
-		if err := ConfigParser.Apply(c.sshConfig, ""); err != nil {
+		if err := ConfigParser.Apply(c.sshConfig, c.Config.Address); err != nil {
 			return nil, fmt.Errorf("failed to apply ssh config: %w", err)
 		}
 	}
