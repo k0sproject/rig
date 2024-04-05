@@ -10,6 +10,13 @@ import (
 type Options struct {
 	log.LoggerInjectable
 	KeepAliveInterval *time.Duration
+	ConfigParser      ConfigParser
+
+	funcs []Option
+}
+
+func (o *Options) Funcs() []Option {
+	return o.funcs
 }
 
 // Option is a function that sets some option on the Options struct.
@@ -19,6 +26,7 @@ type Option func(*Options)
 func NewOptions(opts ...Option) *Options {
 	o := &Options{}
 	for _, opt := range opts {
+		o.funcs = append(o.funcs, opt)
 		opt(o)
 	}
 	return o
@@ -31,9 +39,9 @@ func WithLogger(l log.Logger) Option {
 	}
 }
 
-// WithKeepAlive sets the keep-alive interval option.
-func WithKeepAlive(d time.Duration) Option {
+// WithConfigParser sets a custom ssh configuration parser.
+func WithConfigParser(p ConfigParser) Option {
 	return func(o *Options) {
-		o.KeepAliveInterval = &d
+		o.ConfigParser = p
 	}
 }

@@ -61,7 +61,3 @@ type Connection interface {
 	WindowsChecker
 }
 
-// DefaultsSetter has a SetDefaults method
-type DefaultsSetter interface {
-	SetDefaults() error
-}

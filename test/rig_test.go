@@ -26,6 +26,7 @@ import (
 	"github.com/k0sproject/rig/v2/remotefs"
 	"github.com/k0sproject/rig/v2/rigtest"
 	"github.com/k0sproject/rig/v2/sshconfig"
+	"github.com/k0sproject/rig/v2/sshconfig/options"
 	"github.com/k0sproject/rig/v2/stattime"
 
 	"github.com/stretchr/testify/require"
@@ -90,19 +91,6 @@ func TestMain(m *testing.M) {
 		}
 	}
 
-	if configPath != "" {
-		f, err := os.Open(configPath)
-		if err != nil {
-			panic(err)
-		}
-		defer f.Close()
-		parser, err := sshconfig.NewParser(f)
-		if err != nil {
-			panic(err)
-		}
-		ssh.ConfigParser = parser
-	}
-
 	// Run tests
 	os.Exit(m.Run())
 }
@@ -150,14 +138,16 @@ type Host struct {
 	*rig.Client
 }
 
-func GetHost(t *testing.T, options ...rig.ClientOption) *Host {
+func GetHost(t *testing.T, clientOptions ...rig.ClientOption) *Host {
 	var client protocol.Connection
+	endpoint := protocol.Endpoint{Address: targetHost, Port: targetPort}
 	switch proto {
 	case "ssh":
 		cfg := ssh.Config{
-			Address: targetHost,
-			Port:    targetPort,
-			User:    username,
+			Endpoint:   endpoint,
+			User:       username,
+			ConfigPath: configPath,
+			Config:     sshconfig.Config{StrictHostKeyChecking: options.StrictHostKeyCheckingOptionNo},
 		}
 
 		if privateKey != "" {
@@ -176,8 +166,7 @@ func GetHost(t *testing.T, options ...rig.ClientOption) *Host {
 		client = sshclient
 	case "winrm":
 		cfg := winrm.Config{
-			Address:  targetHost,
-			Port:     targetPort,
+			Endpoint: endpoint,
 			User:     username,
 			UseHTTPS: useHTTPS,
 			Insecure: true,
@@ -190,11 +179,8 @@ func GetHost(t *testing.T, options ...rig.ClientOption) *Host {
 		client, _ = localhost.NewConnection()
 	case "openssh":
 		cfg := openssh.Config{
-			Address:             targetHost,
+			Endpoint:            endpoint,
 			DisableMultiplexing: !enableMultiplex,
-		}
-		if targetPort != 22 {
-			cfg.Port = &targetPort
 		}
 
 		if keyPath != "" {
@@ -213,7 +199,7 @@ func GetHost(t *testing.T, options ...rig.ClientOption) *Host {
 		panic("unknown protocol")
 	}
 	opts := []rig.ClientOption{rig.WithConnection(client), rig.WithLogger(slog.New(NewTestLogHandler(t)))}
-	opts = append(opts, options...)
+	opts = append(opts, clientOptions...)
 	c, err := rig.NewClient(opts...)
 	require.NoError(t, err)
 	return &Host{Client: c}

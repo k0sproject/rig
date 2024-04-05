@@ -18,12 +18,11 @@ type PasswordCallback func() (secret string, err error)
 // Config describes an SSH connection's configuration.
 type Config struct {
 	log.LoggerInjectable `yaml:"-"`
-	Address              string           `yaml:"address" validate:"required,hostname_rfc1123|ip"`
+	protocol.Endpoint    `yaml:",inline"`
 	User                 string           `yaml:"user" validate:"required" default:"root"`
-	Port                 int              `yaml:"port" default:"22" validate:"gt=0,lte=65535"`
 	KeyPath              *string          `yaml:"keyPath" validate:"omitempty"`
 	Bastion              *Config          `yaml:"bastion,omitempty"`
-	ConfigPath					 string           `yaml:"configPath,omitempty"`
+	ConfigPath           string           `yaml:"configPath,omitempty"`
 	PasswordCallback     PasswordCallback `yaml:"-"`
 
 	// AuthMethods can be used to pass in a list of crypto/ssh.AuthMethod objects
@@ -34,50 +33,86 @@ type Config struct {
 	AuthMethods []ssh.AuthMethod `yaml:"-"`
 
 	sshconfig.Config `yaml:",inline"`
-	parser 				 *sshconfig.Parser
+
+	options *Options
 }
 
 // Connection returns a new Connection object based on the configuration.
 func (c *Config) Connection() (protocol.Connection, error) {
-	conn, err := NewConnection(*c, WithLogger(c.Log()))
+	conn, err := NewConnection(*c, c.options.Funcs()...)
+	if !log.HasLogger(conn) && log.HasLogger(c) {
+		log.InjectLogger(c.Log(), c)
+	}
 	return conn, err
 }
 
 // String returns a string representation of the configuration.
 func (c *Config) String() string {
-	return "ssh.Config{" + net.JoinHostPort(c.Address, strconv.Itoa(c.Port)) + "}"
+	return "ssh.Config{" + net.JoinHostPort(c.Address, strconv.Itoa(c.Endpoint.Port)) + "}"
 }
 
 // SetDefaults sets the default values for the configuration.
-func (c *Config) SetDefaults() {
+func (c *Config) SetDefaults(opts ...Option) error {
+	options := NewOptions(opts...)
+
 	if c.KeyPath != nil {
-		if path, err := homedir.Expand(*c.KeyPath); err == nil {
-			c.IdentityFile = []string{path}
+		path, err := homedir.Expand(*c.KeyPath)
+		if err != nil {
+			return fmt.Errorf("keypath: %w", err)
+		}
+		c.KeyPath = &path
+		c.IdentityFile = []string{path}
+	}
+
+	c.Host = c.Address
+	if c.Endpoint.Port != 0 {
+		c.Config.Port = c.Endpoint.Port
+	}
+
+	if c.User != "" {
+		c.Config.User = c.User
+	}
+
+	var parser ConfigParser
+	if options.ConfigParser != nil {
+		parser = options.ConfigParser
+	} else {
+		p, err := ParserCache().Get(c.ConfigPath)
+		if err != nil {
+			return fmt.Errorf("get ssh config parser: %w", err)
+		}
+		parser = p
+	}
+
+	if err := parser.Apply(c, c.Address); err != nil {
+		return fmt.Errorf("apply values from ssh config: %w", err)
+	}
+
+	c.Endpoint.Port = c.Config.Port
+
+	if c.Config.User != "" {
+		c.User = c.Config.User
+	}
+
+	if c.Config.Hostname != "" {
+		c.Address = c.Config.Hostname
+	} else {
+		c.Address = c.Host
+	}
+
+	if c.Bastion != nil {
+		if err := c.Bastion.SetDefaults(); err != nil {
+			return fmt.Errorf("bastion: %w", err)
 		}
 	}
-	c.Host = c.Address
-	if c.Bastion != nil {
-		c.Bastion.SetDefaults()
-	}
-	/*
 
-  TODO setdefaults needs to be able to return an error
-	if c.ConfigPath != "" {
-		cfgPath, err := homedir.Expand(c.ConfigPath)
-
-		c.parser = sshconfig.NewParser(c.ConfigPath)
-	}
-	*/
+	return nil
 }
 
 // Validate returns an error if the configuration is invalid.
 func (c *Config) Validate() error {
-	if c.Address == "" {
-		return fmt.Errorf("%w: address is required", protocol.ErrValidationFailed)
-	}
-
-	if c.Port <= 0 || c.Port > 65535 {
-		return fmt.Errorf("%w: port must be between 1 and 65535", protocol.ErrValidationFailed)
+	if err := c.Endpoint.Validate(); err != nil {
+		return fmt.Errorf("endpoint: %w", err)
 	}
 
 	if c.KeyPath != nil {
