@@ -60,3 +60,8 @@ type Connection interface {
 	ProcessStarter
 	WindowsChecker
 }
+
+// DefaultsSetter has a SetDefaults method
+type DefaultsSetter interface {
+	SetDefaults() error
+}

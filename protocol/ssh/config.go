@@ -8,6 +8,7 @@ import (
 	"github.com/k0sproject/rig/v2/homedir"
 	"github.com/k0sproject/rig/v2/log"
 	"github.com/k0sproject/rig/v2/protocol"
+	"github.com/k0sproject/rig/v2/sshconfig"
 	ssh "golang.org/x/crypto/ssh"
 )
 
@@ -22,6 +23,7 @@ type Config struct {
 	Port                 int              `yaml:"port" default:"22" validate:"gt=0,lte=65535"`
 	KeyPath              *string          `yaml:"keyPath" validate:"omitempty"`
 	Bastion              *Config          `yaml:"bastion,omitempty"`
+	ConfigPath					 string           `yaml:"configPath,omitempty"`
 	PasswordCallback     PasswordCallback `yaml:"-"`
 
 	// AuthMethods can be used to pass in a list of crypto/ssh.AuthMethod objects
@@ -30,6 +32,9 @@ type Config struct {
 	// For convenience, you can use ParseSSHPrivateKey() to parse a private key:
 	//   authMethods, err := ssh.ParseSSHPrivateKey(key, rig.DefaultPassphraseCallback)
 	AuthMethods []ssh.AuthMethod `yaml:"-"`
+
+	sshconfig.Config `yaml:",inline"`
+	parser 				 *sshconfig.Parser
 }
 
 // Connection returns a new Connection object based on the configuration.
@@ -45,20 +50,24 @@ func (c *Config) String() string {
 
 // SetDefaults sets the default values for the configuration.
 func (c *Config) SetDefaults() {
-	if c.Port == 0 {
-		c.Port = 22
-	}
-	if c.User == "" {
-		c.User = "root"
-	}
 	if c.KeyPath != nil {
 		if path, err := homedir.Expand(*c.KeyPath); err == nil {
-			c.KeyPath = &path
+			c.IdentityFile = []string{path}
 		}
 	}
+	c.Host = c.Address
 	if c.Bastion != nil {
 		c.Bastion.SetDefaults()
 	}
+	/*
+
+  TODO setdefaults needs to be able to return an error
+	if c.ConfigPath != "" {
+		cfgPath, err := homedir.Expand(c.ConfigPath)
+
+		c.parser = sshconfig.NewParser(c.ConfigPath)
+	}
+	*/
 }
 
 // Validate returns an error if the configuration is invalid.
