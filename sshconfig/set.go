@@ -153,31 +153,67 @@ func (s *Setter) discoverFields() {
 	sfcMu.Lock()
 	defer sfcMu.Unlock()
 
-	var sfields map[string]reflect.StructField
 	if sfCache == nil {
 		sfCache = make(map[reflect.Type]map[string]reflect.StructField)
 	}
 
-	sf, cached := sfCache[s.elem.Type()]
-	if cached {
-		sfields = sf
+	t := s.elem.Type()
+	if sfields, cached := sfCache[t]; cached {
 		s.elemFields = make(map[string]reflect.Value)
 		for k, v := range sfields {
-			s.elemFields[k] = s.elem.FieldByIndex(v.Index)
+			fieldVal := s.elem
+			for _, idx := range v.Index {
+				if fieldVal.Kind() == reflect.Ptr {
+					fieldVal = fieldVal.Elem()
+				}
+				fieldVal = fieldVal.Field(idx)
+			}
+			s.elemFields[k] = fieldVal
 		}
-		return
+	} else {
+		sfields = make(map[string]reflect.StructField)
+		sfCache[t] = sfields
+		s.elemFields = make(map[string]reflect.Value)
+
+		collectFields(t, sfields, s.elem, nil, s.elemFields)
+	}
+}
+
+func collectFields(t reflect.Type, sfields map[string]reflect.StructField, v reflect.Value, indexPrefix []int, elemFields map[string]reflect.Value) {
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+		v = v.Elem()
 	}
 
-	sfields = make(map[string]reflect.StructField)
-	sfCache[s.elem.Type()] = sfields
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+		index := append(indexPrefix, i)
 
-	s.elemFields = make(map[string]reflect.Value)
+		fieldType := field.Type
+		if fieldType.Kind() == reflect.Ptr {
+			fieldType = fieldType.Elem()
+		}
 
-	for i := 0; i < s.elem.NumField(); i++ {
-		field := s.elem.Field(i)
-		structField := s.elem.Type().Field(i)
-		s.elemFields[structField.Name] = field
-		sfields[structField.Name] = structField
+		fieldVal := v.Field(i)
+		if field.Anonymous && fieldType.Kind() == reflect.Struct {
+			if fieldVal.Kind() == reflect.Ptr && !fieldVal.IsNil() {
+				fieldVal = fieldVal.Elem()
+			}
+			collectFields(fieldType, sfields, fieldVal, index, elemFields)
+		} else {
+			sfields[field.Name] = reflect.StructField{
+				Name:      field.Name,
+				Type:      fieldType,
+				Index:     index,
+				Anonymous: field.Anonymous,
+			}
+			if fieldVal.IsValid() {
+				elemFields[field.Name] = fieldVal
+			}
+		}
 	}
 }
 
@@ -958,6 +994,7 @@ func (s *Setter) Set(key string, values ...string) error {
 
 	if errors.Is(err, errFieldNotFound) || errors.Is(err, errInvalidField) {
 		if !s.ErrorOnUnknownFields {
+			log.Trace(context.Background(), "ignoring unknown key because not in strict mode", "key", key)
 			return nil
 		}
 		if !s.isInIgnoreUnknown(key) {
