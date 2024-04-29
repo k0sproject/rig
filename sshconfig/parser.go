@@ -314,6 +314,7 @@ func (p *Parser) apply(setter *Setter) error {
 				p.iter.Skip()
 			}
 		default:
+			log.Trace(context.Background(), "applying", "key", key, "values", values, "path", path, "row", row)
 			if err := setter.Set(key, values...); err != nil {
 				return fmt.Errorf("set %q: %w", key, err)
 			}

@@ -20,7 +20,6 @@ import (
 	"github.com/k0sproject/rig/v2/protocol"
 	"github.com/k0sproject/rig/v2/protocol/ssh/agent"
 	"github.com/k0sproject/rig/v2/protocol/ssh/hostkey"
-	"github.com/k0sproject/rig/v2/sshconfig"
 	ssh "golang.org/x/crypto/ssh"
 	"golang.org/x/term"
 )
@@ -32,12 +31,9 @@ type Connection struct {
 	log.LoggerInjectable `yaml:"-"`
 	Config               `yaml:",inline"`
 
-	sshConfig *sshconfig.Config
-
 	options *Options
 
-	alias string
-	name  string
+	name string
 
 	isWindows *bool
 	once      sync.Once
@@ -53,30 +49,12 @@ type Connection struct {
 func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
 	options := NewOptions(opts...)
 	options.InjectLoggerTo(cfg, log.KeyProtocol, "ssh-config")
-	cfg.SetDefaults()
+	if err := cfg.SetDefaults(opts...); err != nil {
+		return nil, fmt.Errorf("set ssh config defaults: %w", err)
+	}
 
-	c := &Connection{Config: cfg, options: options} //nolint:varnamelen
+	c := &Connection{Config: cfg, options: options}
 	options.InjectLoggerTo(c, log.KeyProtocol, "ssh")
-	c.sshConfig = &sshconfig.Config{
-		User: c.Config.User,
-		Host: c.Config.Address,
-	}
-
-	if c.Config.Port != 0 && c.Config.Port != 22 {
-		c.sshConfig.Port = c.Config.Port
-	}
-
-	if c.Config.KeyPath != nil {
-		c.sshConfig.IdentityFile = []string{*c.Config.KeyPath}
-	}
-
-	if ConfigParser != nil {
-		if err := ConfigParser.Apply(c.sshConfig, c.Config.Address); err != nil {
-			return nil, fmt.Errorf("failed to apply ssh config: %w", err)
-		}
-	}
-
-	c.Config.Port = c.sshConfig.Port
 
 	return c, nil
 }
@@ -85,21 +63,10 @@ var (
 	authMethodCache = sync.Map{}
 
 	knownHostsMU sync.Mutex
-	globalOnce   sync.Once
 
 	// ErrChecksumMismatch is returned when the checksum of an uploaded file does not match expectation.
 	ErrChecksumMismatch = errors.New("checksum mismatch")
 )
-
-// TODO make the parser initialization more elegant.
-func init() {
-	globalOnce.Do(func() {
-		parser, err := sshconfig.NewParser(nil)
-		if err == nil {
-			ConfigParser = parser
-		}
-	})
-}
 
 // Dial initiates a connection to the addr from the remote host.
 func (c *Connection) Dial(network, address string) (net.Conn, error) {
@@ -112,7 +79,7 @@ func (c *Connection) Dial(network, address string) (net.Conn, error) {
 
 func (c *Connection) keypathsFromConfig() []string {
 	log.Trace(context.Background(), "trying to get a keyfile path from ssh config", log.KeyHost, c)
-	idf := slices.Compact(c.sshConfig.IdentityFile)
+	idf := slices.Compact(c.IdentityFile)
 
 	if len(idf) > 0 {
 		log.Trace(context.Background(), fmt.Sprintf("detected %d identity file paths from ssh config", len(idf)), log.KeyFile, idf)
@@ -125,19 +92,13 @@ func (c *Connection) keypathsFromConfig() []string {
 // SetDefaults sets various default values.
 func (c *Connection) SetDefaults() {
 	c.once.Do(func() {
-		c.Port = c.sshConfig.Port
-
-		if c.sshConfig.Hostname != "" {
-			c.alias = c.Address
-			c.Address = c.sshConfig.Hostname
-		}
-
 		for _, p := range c.keypathsFromConfig() {
 			expanded, err := homedir.ExpandFile(p)
 			if err != nil {
 				log.Trace(context.Background(), "expand and validate", log.KeyFile, p, log.KeyError, err)
 				continue
 			}
+			log.Trace(context.Background(), "using identity file", log.KeyFile, expanded)
 			c.Log().Debug("using identity file", log.KeyFile, expanded)
 			c.keyPaths = append(c.keyPaths, expanded)
 		}
@@ -163,13 +124,10 @@ func (c *Connection) IsConnected() bool {
 	return err == nil
 }
 
-// ConfigParser is an instance of rig/v2/sshconfig.Parser - it is exported here for weird design decisions made in rig v0.x and will be removed in rig v2 final.
-var ConfigParser *sshconfig.Parser
-
 // String returns the connection's printable name.
 func (c *Connection) String() string {
 	if c.name == "" {
-		c.name = net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
+		c.name = net.JoinHostPort(c.Address, strconv.Itoa(c.Endpoint.Port))
 	}
 
 	return c.name
@@ -180,7 +138,7 @@ func (c *Connection) Disconnect() {
 	if c.client == nil {
 		return
 	}
-	if c.options.KeepAliveInterval != nil {
+	if c.Config.ServerAliveInterval != 0 {
 		close(c.done)
 	}
 	c.client.Close()
@@ -230,7 +188,7 @@ func knownhostsCallback(path string, permissive, hash bool) (ssh.HostKeyCallback
 }
 
 func isPermissive(c *Connection) bool {
-	if c.sshConfig.StrictHostKeyChecking.IsFalse() {
+	if c.StrictHostKeyChecking.IsFalse() {
 		log.Trace(context.Background(), "config StrictHostkeyChecking is set to 'no'", log.KeyHost, c)
 		return true
 	}
@@ -239,7 +197,7 @@ func isPermissive(c *Connection) bool {
 }
 
 func shouldHash(c *Connection) bool {
-	if c.sshConfig.HashKnownHosts.IsTrue() {
+	if c.HashKnownHosts.IsTrue() {
 		log.Trace(context.Background(), "config HashKnownHosts is set", log.KeyHost, c)
 		return true
 	}
@@ -263,7 +221,7 @@ func (c *Connection) hostkeyCallback() (ssh.HostKeyCallback, error) {
 
 	var khPath string
 
-	for _, f := range c.sshConfig.UserKnownHostsFile {
+	for _, f := range c.UserKnownHostsFile {
 		log.Trace(context.Background(), "trying known_hosts file from ssh config", log.KeyHost, c, log.KeyFile, f)
 		exp, err := homedir.Expand(f)
 		if err == nil {
@@ -277,10 +235,20 @@ func (c *Connection) hostkeyCallback() (ssh.HostKeyCallback, error) {
 		return knownhostsCallback(khPath, permissive, hash)
 	}
 
-	return nil, fmt.Errorf("%w: no known_hosts file found", protocol.ErrAbort)
+	if len(c.UserKnownHostsFile) > 0 {
+		khPath = c.UserKnownHostsFile[0]
+		log.Trace(context.Background(), "using new known_hosts file", log.KeyHost, c, log.KeyFile, khPath)
+		return knownhostsCallback(khPath, permissive, hash)
+	}
+
+	khPath = os.ExpandEnv("$HOME/.ssh/known_hosts")
+	log.Trace(context.Background(), "using default known_hosts file", log.KeyHost, c, log.KeyFile, khPath)
+	return knownhostsCallback(khPath, permissive, hash)
 }
 
 func (c *Connection) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
+	log.Trace(context.Background(), "creating client config", log.HostAttr(c), "user", c.User)
+
 	config := &ssh.ClientConfig{
 		User: c.User,
 	}
@@ -329,12 +297,15 @@ func (c *Connection) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
 			}
 			continue
 		}
+		log.Trace(context.Background(), "trying to get a signer for identity", log.KeyFile, keyPath)
 		privateKeyAuth, err := c.pkeySigner(signers, keyPath)
 		if err != nil {
+			log.Trace(context.Background(), "failed to get a signer for identity", log.KeyFile, keyPath, log.ErrorAttr(err))
 			c.Log().Debug("failed to obtain a signer for identity", log.KeyFile, keyPath, log.ErrorAttr(err))
 			// store the error so this key won't be loaded again
 			authMethodCache.Store(keyPath, err)
 		} else {
+			log.Trace(context.Background(), "using public key signer", log.KeyFile, keyPath)
 			authMethodCache.Store(keyPath, privateKeyAuth)
 			config.Auth = append(config.Auth, privateKeyAuth)
 		}
@@ -363,10 +334,12 @@ func (c *Connection) connectViaBastion(dst string, config *ssh.ClientConfig) err
 		}
 		return err
 	}
+	log.Trace(context.Background(), "connecting bastion", log.HostAttr(c), "destination", dst)
 	bconn, err := bastionSSH.Dial("tcp", dst)
 	if err != nil {
 		return fmt.Errorf("bastion dial: %w", err)
 	}
+	log.Trace(context.Background(), "creating client connection through bastion", log.HostAttr(c), "destination", dst)
 	client, chans, reqs, err := ssh.NewClientConn(bconn, dst, config)
 	if err != nil {
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
@@ -376,19 +349,18 @@ func (c *Connection) connectViaBastion(dst string, config *ssh.ClientConfig) err
 	}
 	c.client = ssh.NewClient(client, chans, reqs)
 
-	c.startKeepalive()
+	if c.Config.ServerAliveInterval != 0 {
+		c.startKeepalive()
+	}
 
 	return nil
 }
 
 func (c *Connection) startKeepalive() {
-	if c.options.KeepAliveInterval == nil {
-		return
-	}
-
+	log.Trace(context.Background(), "starting keepalive", log.HostAttr(c), "interval", c.Config.ServerAliveInterval)
 	c.done = make(chan struct{})
 	go func() {
-		ticker := time.NewTicker(*c.options.KeepAliveInterval)
+		ticker := time.NewTicker(c.Config.ServerAliveInterval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -413,14 +385,16 @@ func (c *Connection) Connect() error {
 		return fmt.Errorf("%w: create config: %w", protocol.ErrAbort, err)
 	}
 
-	dst := net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
+	dst := net.JoinHostPort(c.Address, strconv.Itoa(c.Endpoint.Port))
 
 	if c.Bastion != nil {
 		return c.connectViaBastion(dst, config)
 	}
 
+	log.Trace(context.Background(), "connecting directly", log.HostAttr(c), "destination", dst)
 	clientDirect, err := ssh.Dial("tcp", dst, config)
 	if err != nil {
+		log.Trace(context.Background(), "dial failed", log.HostAttr(c), "destination", dst, log.ErrorAttr(err))
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
 			return fmt.Errorf("%w: %w", protocol.ErrAbort, err)
 		}
@@ -428,7 +402,9 @@ func (c *Connection) Connect() error {
 	}
 	c.client = clientDirect
 
-	c.startKeepalive()
+	if c.Config.ServerAliveInterval != 0 {
+		c.startKeepalive()
+	}
 
 	return nil
 }

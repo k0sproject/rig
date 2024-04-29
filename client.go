@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -304,7 +305,9 @@ func (c *Client) Connect(ctx context.Context) error {
 	err := retry.DoWithContext(ctx, func(ctx context.Context) error {
 		return c.connect(ctx)
 	}, retry.If(
-		func(err error) bool { return !errors.Is(err, protocol.ErrAbort) },
+		func(err error) bool {
+			return !errors.Is(err, protocol.ErrAbort) && !strings.Contains(err.Error(), "no supported methods")
+		},
 	))
 	if err != nil {
 		return fmt.Errorf("client connect: %w", err)

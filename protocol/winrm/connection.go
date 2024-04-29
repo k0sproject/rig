@@ -46,7 +46,9 @@ type dialFunc func(network, addr string) (net.Conn, error)
 func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
 	options := NewOptions(opts...)
 	options.InjectLoggerTo(cfg, log.KeyProtocol, "winrm-config")
-	cfg.SetDefaults()
+	if err := cfg.SetDefaults(); err != nil {
+		return nil, fmt.Errorf("set winrm config defaults: %w", err)
+	}
 
 	c := &Connection{Config: cfg}
 	options.InjectLoggerTo(c, log.KeyProtocol, "winrm")

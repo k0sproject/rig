@@ -40,7 +40,9 @@ type Connection struct {
 
 // NewConnection creates a new OpenSSH connection. Error is currently always nil.
 func NewConnection(cfg Config) (*Connection, error) {
-	cfg.SetDefaults()
+	if err := cfg.SetDefaults(); err != nil {
+		return nil, fmt.Errorf("set openssh config defaults: %w", err)
+	}
 	return &Connection{Config: cfg}, nil
 }
 
@@ -123,8 +125,8 @@ func (c *Connection) args() []string {
 	if c.KeyPath != nil && *c.KeyPath != "" {
 		args = append(args, "-i", *c.KeyPath)
 	}
-	if c.Port != nil {
-		args = append(args, "-p", strconv.Itoa(*c.Port))
+	if c.Port != 0 {
+		args = append(args, "-p", strconv.Itoa(c.Port))
 	}
 	if c.ConfigPath != nil && *c.ConfigPath != "" {
 		args = append(args, "-F", *c.ConfigPath)
@@ -250,10 +252,10 @@ func (c *Connection) String() string {
 		return c.name
 	}
 
-	if c.Port == nil {
+	if c.Port == 0 {
 		c.name = c.userhost()
 	} else {
-		c.name = fmt.Sprintf("%s:%d", c.userhost(), *c.Port)
+		c.name = fmt.Sprintf("%s:%d", c.userhost(), c.Port)
 	}
 
 	return c.name

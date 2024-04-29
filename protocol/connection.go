@@ -60,3 +60,4 @@ type Connection interface {
 	ProcessStarter
 	WindowsChecker
 }
+

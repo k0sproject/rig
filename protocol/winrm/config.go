@@ -14,13 +14,12 @@ import (
 // Config describes the configuration options for a WinRM connection.
 type Config struct {
 	log.LoggerInjectable `yaml:"-"`
-	Address              string      `yaml:"address" validate:"required,hostname_rfc1123|ip"`
-	User                 string      `yaml:"user" validate:"omitempty,gt=2" default:"Administrator"`
-	Port                 int         `yaml:"port" default:"5985" validate:"gt=0,lte=65535"`
+	protocol.Endpoint    `yaml:",inline"`
+	User                 string      `yaml:"user" validate:"omitempty,gt=2"`
 	Password             string      `yaml:"password,omitempty"`
-	UseHTTPS             bool        `yaml:"useHTTPS" default:"false"`
-	Insecure             bool        `yaml:"insecure" default:"false"`
-	UseNTLM              bool        `yaml:"useNTLM" default:"false"`
+	UseHTTPS             bool        `yaml:"useHTTPS"`
+	Insecure             bool        `yaml:"insecure"`
+	UseNTLM              bool        `yaml:"useNTLM"`
 	CACertPath           string      `yaml:"caCertPath,omitempty" validate:"omitempty,file"`
 	CertPath             string      `yaml:"certPath,omitempty" validate:"omitempty,file"`
 	KeyPath              string      `yaml:"keyPath,omitempty" validate:"omitempty,file"`
@@ -29,16 +28,31 @@ type Config struct {
 }
 
 // SetDefaults sets various default values.
-func (c *Config) SetDefaults() {
-	if p, err := homedir.Expand(c.CACertPath); err == nil {
+func (c *Config) SetDefaults() error {
+	if c.User == "" {
+		c.User = "Administrator"
+	}
+	if c.CACertPath != "" {
+		p, err := homedir.Expand(c.CACertPath)
+		if err != nil {
+			return fmt.Errorf("cacertpath: %w", err)
+		}
 		c.CACertPath = p
 	}
 
-	if p, err := homedir.Expand(c.CertPath); err == nil {
+	if c.CertPath != "" {
+		p, err := homedir.Expand(c.CertPath)
+		if err != nil {
+			return fmt.Errorf("certpath: %w", err)
+		}
 		c.CertPath = p
 	}
 
-	if p, err := homedir.Expand(c.KeyPath); err == nil {
+	if c.KeyPath != "" {
+		p, err := homedir.Expand(c.KeyPath)
+		if err != nil {
+			return fmt.Errorf("keypath: %w", err)
+		}
 		c.KeyPath = p
 	}
 
@@ -53,16 +67,14 @@ func (c *Config) SetDefaults() {
 	case 5986:
 		c.UseHTTPS = true
 	}
+
+	return nil
 }
 
 // Validate checks the configuration for any invalid values.
 func (c *Config) Validate() error {
-	if c.Address == "" {
-		return fmt.Errorf("%w: address is required", protocol.ErrValidationFailed)
-	}
-
-	if c.Port <= 0 || c.Port > 65535 {
-		return fmt.Errorf("%w: port must be between 1 and 65535", protocol.ErrValidationFailed)
+	if err := c.Endpoint.Validate(); err != nil {
+		return fmt.Errorf("endpoint: %w", err)
 	}
 
 	if c.Bastion != nil {
