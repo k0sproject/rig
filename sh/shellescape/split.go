@@ -18,7 +18,7 @@ func Split(input string) ([]string, error) { //nolint:cyclop
 
 	var inDoubleQuotes, inSingleQuotes, isEscaped bool
 
-	for i := 0; i < len(input); i++ {
+	for i := range len(input) {
 		currentChar := input[i]
 
 		if isEscaped {
