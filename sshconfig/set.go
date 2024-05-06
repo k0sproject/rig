@@ -173,7 +173,7 @@ func (s *Setter) discoverFields() {
 
 	s.elemFields = make(map[string]reflect.Value)
 
-	for i := 0; i < s.elem.NumField(); i++ {
+	for i := range s.elem.NumField() {
 		field := s.elem.Field(i)
 		structField := s.elem.Type().Field(i)
 		s.elemFields[structField.Name] = field
@@ -1286,7 +1286,7 @@ func (s *Setter) ExpandSlice(key string) ([]string, error) { //nolint:cyclop
 		return nil, nil
 	}
 	var values []string
-	for i := 0; i < field.Len(); i++ {
+	for i := range field.Len() {
 		f := field.Index(i)
 		switch {
 		case f.Kind() == reflect.String:
@@ -1318,7 +1318,7 @@ func (s *Setter) isInIgnoreUnknown(key string) bool {
 	if err != nil {
 		return false
 	}
-	for i := 0; i < field.Len(); i++ {
+	for i := range field.Len() {
 		match, err := patternMatch(key, field.Index(i).String())
 		if err != nil {
 			return false
@@ -1349,7 +1349,7 @@ func (s *Setter) matchesHost(conditions ...string) (bool, error) {
 // matchesMatch checks if the Match directive conditions are met.
 func (s *Setter) matchesMatch(conditions ...string) (bool, error) { //nolint:funlen,cyclop // TODO extract functions
 	log.Trace(context.Background(), "matching Match directive", "conditions", conditions)
-	for i := 0; i < len(conditions); i++ {
+	for i := range len(conditions) {
 		condition := conditions[i]
 		log.Trace(context.Background(), "matching Match directive", "condition", condition)
 		var negate bool
@@ -1514,7 +1514,7 @@ func (s *Setter) hasProxyJump() bool {
 	if proxyJump.Kind() == reflect.String {
 		return proxyJump.String() != "" && proxyJump.String() != none
 	} else if proxyJump.Kind() == reflect.Slice {
-		for i := 0; i < proxyJump.Len(); i++ {
+		for i := range proxyJump.Len() {
 			if proxyJump.Index(i).String() != "" && proxyJump.Index(i).String() != none {
 				return true
 			}
@@ -1637,7 +1637,7 @@ func (s *Setter) canonicalizePermittedCNAMEs() map[string]string {
 		if permittedCnames.Len() == 0 || (permittedCnames.Len() == 1 && permittedCnames.Index(0).String() == none) {
 			return res
 		}
-		for i := 0; i < permittedCnames.Len(); i++ {
+		for i := range permittedCnames.Len() {
 			parts := strings.Split(permittedCnames.Index(i).String(), ":")
 			if len(parts) != 2 {
 				continue

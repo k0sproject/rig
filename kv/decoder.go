@@ -139,7 +139,7 @@ func (ra *reflectAssigner) setup() error {
 	}
 
 	typ := elem.Type()
-	for i := 0; i < elem.NumField(); i++ {
+	for i := range elem.NumField() {
 		field := elem.Field(i)
 		structField := typ.Field(i)
 		ra.fields = append(ra.fields, newFieldInfo(field, structField))

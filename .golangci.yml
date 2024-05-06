@@ -1,47 +1,45 @@
 run:
   timeout: 8m
 
-  skip-dirs-use-default: false
-  skip-files:
-    - ".*\\.gen\\.go"
-    - examples/*
-    - test/*
   tests: false
   allow-parallel-runners: true
 
 linters:
   enable-all: true
   disable:
-    - nonamedreturns
+    - deadcode
+    - depguard
+    - dogsled
+    - execinquery
     - exhaustivestruct
     - exhaustruct
+    - exhaustive
     - forbidigo
-    - gochecknoinits
     - gochecknoglobals
+    - gochecknoinits
     - gocognit # cyclop is used instead
     - gocyclo # cyclop is used instead
     - godox
+    - goheader
     - golint
+    - gomnd
+    - ifshort
     - interfacer
     - ireturn
+    - lll
     - maligned
+    - mnd
     - nlreturn
+    - nonamedreturns
+    - nosnakecase
     - paralleltest
     - scopelint
-    - tparallel
-    - wsl
-    - tagliatelle
     - structcheck
-    - nosnakecase
-    - deadcode
-    - varcheck
-    - ifshort
-    - goheader
-    - dogsled
-    - lll
-    - gomnd
-    - depguard
     - tagalign
+    - tagliatelle
+    - tparallel
+    - varcheck
+    - wsl
 
 linters-settings:
   funlen:

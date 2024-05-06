@@ -99,7 +99,7 @@ func (p *printer) stringerslicejoin(key string, separator rune) (string, bool) {
 		return "", false
 	}
 	sb := &strings.Builder{}
-	for i := 0; i < field.Len(); i++ {
+	for i := range field.Len() {
 		if i > 0 {
 			sb.WriteRune(separator)
 		}
@@ -187,7 +187,7 @@ func (p *printer) channeltimeout(key string) (string, bool) {
 	}
 	if field, err := p.get(key, reflect.Slice); err == nil {
 		sb := &strings.Builder{}
-		for i := 0; i < field.Len(); i++ {
+		for i := range field.Len() {
 			if s, ok := p.stringify(field.Index(i)); ok {
 				if sb.Len() > 0 {
 					sb.WriteRune(' ')
@@ -223,7 +223,7 @@ func (p *printer) forward(key string) (string, bool) {
 	}
 	if field, err := p.get(key, reflect.Slice); err == nil {
 		sb := &strings.Builder{}
-		for i := 0; i < field.Len(); i++ {
+		for i := range field.Len() {
 			if s, ok := p.stringify(field.Index(i)); ok {
 				if sb.Len() > 0 {
 					sb.WriteRune(' ')

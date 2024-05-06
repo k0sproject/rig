@@ -219,6 +219,7 @@ type MockWaiter struct {
 	fn     CommandHandler
 }
 
+// Close the mock command.
 func (m *MockWaiter) Close() error {
 	log.Trace(m.ctx, "closing waiter streams", log.KeyCommand, m.cmd)
 	if in, ok := m.in.(io.Closer); ok {
@@ -291,7 +292,7 @@ func (m *MockStarter) AddCommandOutput(matchFn CommandMatcher, output string) {
 	}})
 }
 
-// AddCommandOutput adds a matcher and a function to the starter that writes the given output to the stdout of the process.
+// AddCommandSuccess adds a command matcher that should always succeed.
 func (m *MockStarter) AddCommandSuccess(matchFn CommandMatcher) {
 	m.matchers = append(m.matchers, matcher{fn: matchFn, waiterFn: func(a *A) error {
 		log.Trace(a.Ctx, "returning nil from command", log.KeyCommand, a.Command)
@@ -299,7 +300,7 @@ func (m *MockStarter) AddCommandSuccess(matchFn CommandMatcher) {
 	}})
 }
 
-// AddCommandOutput adds a matcher and a function to the starter that writes the given output to the stdout of the process.
+// AddCommandFailure adds a command matcher that should always fail with the given error.
 func (m *MockStarter) AddCommandFailure(matchFn CommandMatcher, err error) {
 	m.matchers = append(m.matchers, matcher{fn: matchFn, waiterFn: func(a *A) error {
 		log.Trace(a.Ctx, "returning error from command", log.KeyCommand, a.Command, log.KeyError, err)

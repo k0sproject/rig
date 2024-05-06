@@ -17,7 +17,7 @@ type Receiver interface {
 	NotReceived(matchFn CommandMatcher) error
 }
 
-func logExtraMsg(t TestingT, msgAndArgs ...any) {
+func logExtraMsg(t TestingT, msgAndArgs ...any) { //nolint:varnamelen
 	if len(msgAndArgs) == 0 {
 		return
 	}

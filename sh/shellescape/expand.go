@@ -152,7 +152,7 @@ func Expand(input string, opts ...ExpandOption) (string, error) { //nolint:cyclo
 	stack := builderStack{}
 	openParen := 0
 
-	for i := 0; i < len(input); i++ {
+	for i := range len(input) {
 		currCh := input[i]
 
 		if inEscape {
@@ -414,7 +414,7 @@ func expandCurly(input string) (string, error) {
 	}
 
 	idx := -1
-	for i := 0; i < len(input); i++ {
+	for i := range len(input) {
 		idx = i
 		if !isValidVarNameChar(input[i], i == 0) {
 			break
