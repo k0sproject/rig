@@ -249,9 +249,11 @@ func (c *Client) String() string {
 func (c *Client) Clone(opts ...ClientOption) *Client {
 	options := c.options.Clone()
 	options.Apply(opts...)
-	return &Client{
+	clone := &Client{
 		options: options,
 	}
+	_ = clone.setup()
+	return clone
 }
 
 // Sudo returns a copy of the connection with a Runner that uses sudo.
