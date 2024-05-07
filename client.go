@@ -252,9 +252,7 @@ func (c *Client) Clone(opts ...ClientOption) *Client {
 	clone := &Client{
 		options: options,
 	}
-	if err := clone.setup(); err != nil {
-		return nil
-	}
+	_ = clone.setup()
 	return clone
 }
 
