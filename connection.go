@@ -383,7 +383,6 @@ func (c *Connection) Disconnect() {
 // Upload copies a file from a local path src to the remote host path dst. For
 // smaller files you should probably use os.WriteFile
 func (c *Connection) Upload(src, dst string, opts ...exec.Option) error {
-	execOpts := exec.Build(opts...)
 
 	if err := c.checkConnected(); err != nil {
 		return err
@@ -401,12 +400,7 @@ func (c *Connection) Upload(src, dst string, opts ...exec.Option) error {
 
 	shasum := sha256.New()
 
-	var fsys rigfs.Fsys
-	if execOpts.Sudo {
-		fsys = c.SudoFsys()
-	} else {
-		fsys = c.Fsys()
-	}
+	fsys := rigfs.NewFsys(c, opts...)
 	remote, err := fsys.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, stat.Mode())
 	if err != nil {
 		return fmt.Errorf("%w: open remote file %s for writing: %w", ErrInvalidPath, dst, err)
