@@ -98,7 +98,15 @@ func wrapCallback(hkc ssh.HostKeyCallback, path string, permissive, hash bool) s
 			return fmt.Errorf("failed to open ssh known_hosts file %s for writing: %w", path, err)
 		}
 
-		knownHostsEntry := knownhosts.Normalize(remote.String())
+		knownHostsEntry := ""
+		if t, ok := remote.(*net.TCPAddr); ok && t.IP.IsUnspecified() {
+			// fallback to hostname if remote addr is unspecified
+			// see: https://github.com/k0sproject/k0sctl/issues/717
+			knownHostsEntry = knownhosts.Normalize(hostname)
+		} else {
+			knownHostsEntry = knownhosts.Normalize(remote.String())
+		}
+
 		if hash {
 			knownHostsEntry = knownhosts.HashHostname(knownHostsEntry)
 		}
