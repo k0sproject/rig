@@ -197,14 +197,23 @@ type Command struct {
 }
 
 // Wait blocks until the command finishes
-func (c *Command) Wait() error {
+func (c *Command) Wait() (err error) { //nolint:nonamedreturns // needed for panic recovery
+	defer func() {
+		if r := recover(); err == nil && r != nil {
+			if strings.Contains(fmt.Sprint(r), "close of closed channel") {
+				log.Debugf("recovered from a panic in Command.Wait: %v", r)
+			} else {
+				panic(r)
+			}
+		}
+	}()
+
 	defer c.sh.Close()
 	defer c.cmd.Close()
 
 	c.wg.Wait()
 	c.cmd.Wait()
 	log.Debugf("command finished")
-	var err error
 	if c.cmd.ExitCode() != 0 {
 		err = fmt.Errorf("%w: exit code %d", ErrCommandFailed, c.cmd.ExitCode())
 	}
