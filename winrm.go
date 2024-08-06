@@ -198,6 +198,13 @@ type Command struct {
 
 // Wait blocks until the command finishes
 func (c *Command) Wait() error {
+	// workaround to ignore "close of a closed channel" panics
+	defer func() {
+		if r := recover(); r != nil {
+			log.Debugf("recovered from a panic: %v", r)
+		}
+	}()
+
 	defer c.sh.Close()
 	defer c.cmd.Close()
 
@@ -213,6 +220,13 @@ func (c *Command) Wait() error {
 
 // Close terminates the command
 func (c *Command) Close() error {
+	// workaround to ignore "close of a closed channel" panics
+	defer func() {
+		if r := recover(); r != nil {
+			log.Debugf("recovered from a panic: %v", r)
+		}
+	}()
+
 	if err := c.cmd.Close(); err != nil {
 		return fmt.Errorf("close command: %w", err)
 	}
