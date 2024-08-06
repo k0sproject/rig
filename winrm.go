@@ -321,6 +321,12 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop
 
 	wg.Add(1)
 	go func() {
+		// ignore channel close panics
+		defer func() {
+			if r := recover(); r != nil {
+				log.Debugf("recovered from a panic while reading stderr: %v", r)
+			}
+		}()
 		defer wg.Done()
 		if execOpts.Writer == nil {
 			outputScanner := bufio.NewScanner(command.Stdout)
@@ -344,6 +350,12 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop
 
 	wg.Add(1)
 	go func() {
+		// ignore channel close panics
+		defer func() {
+			if r := recover(); r != nil {
+				log.Debugf("recovered from a panic while reading stderr: %v", r)
+			}
+		}()
 		defer wg.Done()
 		outputScanner := bufio.NewScanner(command.Stderr)
 
