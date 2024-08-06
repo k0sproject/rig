@@ -253,7 +253,7 @@ func sudoNoop(cmd string) string {
 func sudoSudo(cmd string) string {
 	parts, err := shellwords.Parse(cmd)
 	if err != nil {
-		return "sudo -s -- " + cmd
+		return "sudo -- " + cmd
 	}
 
 	var idx int
@@ -266,14 +266,14 @@ func sudoSudo(cmd string) string {
 	}
 
 	if idx == 0 {
-		return "sudo -s -- " + cmd
+		return "sudo -- " + cmd
 	}
 
 	for i, p := range parts {
 		parts[i] = shellescape.Quote(p)
 	}
 
-	return fmt.Sprintf("sudo -s %s -- %s", strings.Join(parts[0:idx], " "), strings.Join(parts[idx:], " "))
+	return fmt.Sprintf("sudo %s -- %s", strings.Join(parts[0:idx], " "), strings.Join(parts[idx:], " "))
 }
 
 func sudoDoas(cmd string) string {
