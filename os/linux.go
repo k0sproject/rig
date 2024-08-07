@@ -376,7 +376,7 @@ func (c Linux) CleanupServiceEnvironment(h Host, s string) error {
 
 // CommandExist returns true if the command exists
 func (c Linux) CommandExist(h Host, cmd string) bool {
-	return h.Execf(`/bin/sh -c 'command -v -- "%s"' 2> /dev/null`, cmd, exec.Sudo(h)) == nil
+	return h.Execf("/bin/sh -c %s 2> /dev/null", shellescape.Quote(fmt.Sprintf("command -v -- %s", shellescape.Quote(cmd)))) == nil
 }
 
 // Reboot executes the reboot command
