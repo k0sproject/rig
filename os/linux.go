@@ -51,13 +51,13 @@ func (c Linux) hasUpstart(h Host) bool {
 }
 
 func (c Linux) hasOpenRC(h Host) bool {
-	return h.Exec(`command -v openrc-init > /dev/null 2>&1 || \
+	return h.Exec(`/bin/sh -c "command -v openrc-init > /dev/null 2>&1" || \
     (stat /etc/inittab > /dev/null 2>&1 && \
 		  (grep ::sysinit: /etc/inittab | grep -q openrc) )`, exec.Sudo(h)) == nil
 }
 
 func (c Linux) hasSysV(h Host) bool {
-	return h.Exec(`command -v service 2>&1 && stat /etc/init.d > /dev/null 2>&1`, exec.Sudo(h)) == nil
+	return h.Exec(`/bin/sh -c "command -v service 2>&1" && stat /etc/init.d > /dev/null 2>&1`, exec.Sudo(h)) == nil
 }
 
 func (c Linux) is(h Host) (initSystem, error) {
@@ -376,7 +376,7 @@ func (c Linux) CleanupServiceEnvironment(h Host, s string) error {
 
 // CommandExist returns true if the command exists
 func (c Linux) CommandExist(h Host, cmd string) bool {
-	return h.Execf(`command -v -- "%s" 2> /dev/null`, cmd, exec.Sudo(h)) == nil
+	return h.Execf("/bin/sh -c %s 2> /dev/null", shellescape.Quote(fmt.Sprintf("command -v -- %s", shellescape.Quote(cmd)))) == nil
 }
 
 // Reboot executes the reboot command

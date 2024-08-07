@@ -147,6 +147,7 @@ type configurer interface {
 	Touch(rigos.Host, string, time.Time, ...exec.Option) error
 	MkDir(rigos.Host, string, ...exec.Option) error
 	Sha256sum(rigos.Host, string, ...exec.Option) (string, error)
+	CommandExist(rigos.Host, string) bool
 }
 
 // Host is a host that utilizes rig for connections
@@ -244,15 +245,19 @@ type SuiteLogger struct {
 func (s *SuiteLogger) Tracef(msg string, args ...interface{}) {
 	s.t.Log(fmt.Sprintf("%s TRACE %s", time.Now(), fmt.Sprintf(msg, args...)))
 }
+
 func (s *SuiteLogger) Debugf(msg string, args ...interface{}) {
 	s.t.Log(fmt.Sprintf("%s DEBUG %s", time.Now(), fmt.Sprintf(msg, args...)))
 }
+
 func (s *SuiteLogger) Infof(msg string, args ...interface{}) {
 	s.t.Log(fmt.Sprintf("%s INFO %s", time.Now(), fmt.Sprintf(msg, args...)))
 }
+
 func (s *SuiteLogger) Warnf(msg string, args ...interface{}) {
 	s.t.Log(fmt.Sprintf("%s WARN %s", time.Now(), fmt.Sprintf(msg, args...)))
 }
+
 func (s *SuiteLogger) Errorf(msg string, args ...interface{}) {
 	s.t.Log(fmt.Sprintf("%s ERROR %s", time.Now(), fmt.Sprintf(msg, args...)))
 }
@@ -270,7 +275,7 @@ func (s *ConnectedSuite) SetupSuite() {
 	s.Require().NoError(err)
 	s.Require().NoError(s.Host.LoadOS())
 	s.tempDir = "tmp.rig-test." + time.Now().Format("20060102150405")
-	s.Require().NoError(s.Host.Fsys().MkDirAll(s.tempDir, 0755))
+	s.Require().NoError(s.Host.Fsys().MkDirAll(s.tempDir, 0o755))
 }
 
 func (s *ConnectedSuite) TearDownSuite() {
@@ -292,6 +297,16 @@ func (s *ConnectedSuite) TempPath(args ...string) string {
 
 type ConfigurerSuite struct {
 	ConnectedSuite
+}
+
+func (s *ConfigurerSuite) TestCommandExist() {
+	s.Run("Command exists", func() {
+		s.True(s.Host.Configurer.CommandExist(s.Host, "ls"))
+	})
+
+	s.Run("Command does not exist", func() {
+		s.False(s.Host.Configurer.CommandExist(s.Host, "doesnotexist"))
+	})
 }
 
 func (s *ConfigurerSuite) TestStat() {
@@ -416,7 +431,6 @@ func (s *ConfigurerSuite) TestUpload() {
 				s.Require().NoError(err)
 				s.Equal(hex.EncodeToString(sha.Sum(nil)), sum)
 			})
-
 		})
 	}
 }
@@ -448,7 +462,7 @@ func (s *FsysSuite) TestMkdir() {
 	}()
 	s.Run("Create directory", func() {
 		s.T().Log("mkdirall")
-		s.Require().NoError(s.fsys.MkDirAll(testPath, 0755))
+		s.Require().NoError(s.fsys.MkDirAll(testPath, 0o755))
 	})
 	s.Run("Verify directory exists", func() {
 		s.T().Log("stat")
@@ -458,10 +472,10 @@ func (s *FsysSuite) TestMkdir() {
 			if s.Host.IsWindows() {
 				s.T().Skip("Windows does not support chmod permissions")
 			}
-			s.Equal(os.FileMode(0755), stat.Mode().Perm())
+			s.Equal(os.FileMode(0o755), stat.Mode().Perm())
 			parent, err := s.fsys.Stat(s.TempPath("test"))
 			s.Require().NoError(err)
-			s.Equal(os.FileMode(0755), parent.Mode().Perm())
+			s.Equal(os.FileMode(0o755), parent.Mode().Perm())
 		})
 	})
 }
@@ -469,7 +483,7 @@ func (s *FsysSuite) TestMkdir() {
 func (s *FsysSuite) TestRemove() {
 	testPath := s.TempPath("test", "subdir")
 	s.Run("Create directory", func() {
-		s.Require().NoError(s.fsys.MkDirAll(testPath, 0755))
+		s.Require().NoError(s.fsys.MkDirAll(testPath, 0o755))
 	})
 	s.Run("Remove directory", func() {
 		s.Require().NoError(s.fsys.RemoveAll(testPath))
@@ -509,7 +523,7 @@ func (s *FsysSuite) TestReadWriteFile() {
 				_ = s.fsys.Remove(fn)
 			}()
 			s.Run("Write file", func() {
-				f, err := s.fsys.OpenFile(fn, os.O_CREATE|os.O_WRONLY, 0644)
+				f, err := s.fsys.OpenFile(fn, os.O_CREATE|os.O_WRONLY, 0o644)
 				s.Require().NoError(err)
 				n, err := io.Copy(f, reader)
 				s.Require().NoError(err)
@@ -564,7 +578,7 @@ func (s *FsysSuite) TestReadWriteFileCopy() {
 				_ = s.fsys.Remove(fn)
 			}()
 			s.Run("Write file", func() {
-				f, err := s.fsys.OpenFile(fn, os.O_CREATE|os.O_WRONLY, 0644)
+				f, err := s.fsys.OpenFile(fn, os.O_CREATE|os.O_WRONLY, 0o644)
 				s.Require().NoError(err)
 				n, err := f.CopyFrom(reader)
 				s.Require().NoError(err)
@@ -620,7 +634,7 @@ func (s *FsysSuite) TestSeek() {
 	defer func() {
 		_ = s.fsys.Remove(fn)
 	}()
-	f, err := s.fsys.OpenFile(fn, os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := s.fsys.OpenFile(fn, os.O_CREATE|os.O_WRONLY, 0o644)
 	s.Require().NoError(err)
 	n, err := io.Copy(f, bytes.NewReader(bytes.Repeat([]byte{'a'}, 1024)))
 	s.Require().NoError(err)
@@ -637,7 +651,7 @@ func (s *FsysSuite) TestSeek() {
 		s.Equal(reference, b)
 	})
 	s.Run("Alter file beginning", func() {
-		f, err := s.fsys.OpenFile(fn, os.O_WRONLY, 0644)
+		f, err := s.fsys.OpenFile(fn, os.O_WRONLY, 0o644)
 		s.Require().NoError(err)
 		np, err := f.Seek(0, io.SeekStart)
 		s.Require().NoError(err)
@@ -658,7 +672,7 @@ func (s *FsysSuite) TestSeek() {
 		s.Equal(reference, b)
 	})
 	s.Run("Alter file ending", func() {
-		f, err := s.fsys.OpenFile(fn, os.O_WRONLY, 0644)
+		f, err := s.fsys.OpenFile(fn, os.O_WRONLY, 0o644)
 		s.Require().NoError(err)
 		np, err := f.Seek(-256, io.SeekEnd)
 		s.Require().NoError(err)
@@ -679,7 +693,7 @@ func (s *FsysSuite) TestSeek() {
 		s.Equal(reference, b)
 	})
 	s.Run("Alter file middle", func() {
-		f, err := s.fsys.OpenFile(fn, os.O_WRONLY, 0644)
+		f, err := s.fsys.OpenFile(fn, os.O_WRONLY, 0o644)
 		s.Require().NoError(err)
 		np, err := f.Seek(256, io.SeekStart)
 		s.Require().NoError(err)
@@ -706,12 +720,12 @@ func (s *FsysSuite) TestReadDir() {
 		_ = s.fsys.RemoveAll(s.TempPath("test"))
 	}()
 	s.Run("Create directory", func() {
-		s.Require().NoError(s.fsys.MkDirAll(s.TempPath("test"), 0755))
+		s.Require().NoError(s.fsys.MkDirAll(s.TempPath("test"), 0o755))
 	})
 	s.Run("Create files", func() {
 		for _, fn := range []string{s.TempPath("test", "subdir", "nestedfile"), s.TempPath("test", "file")} {
-			s.Require().NoError(s.fsys.MkDirAll(pathDir(fn), 0755))
-			f, err := s.fsys.OpenFile(fn, os.O_CREATE|os.O_WRONLY, 0644)
+			s.Require().NoError(s.fsys.MkDirAll(pathDir(fn), 0o755))
+			f, err := s.fsys.OpenFile(fn, os.O_CREATE|os.O_WRONLY, 0o644)
 			s.Require().NoError(err)
 			n, err := f.Write([]byte("test"))
 			s.Require().NoError(err)
@@ -721,7 +735,7 @@ func (s *FsysSuite) TestReadDir() {
 	})
 
 	s.Run("Read directory", func() {
-		dir, err := s.fsys.OpenFile(s.TempPath("test"), os.O_RDONLY, 0644)
+		dir, err := s.fsys.OpenFile(s.TempPath("test"), os.O_RDONLY, 0o644)
 		s.Require().NoError(err)
 		s.Require().NotNil(dir)
 		readDirFile, ok := dir.(fs.ReadDirFile)
