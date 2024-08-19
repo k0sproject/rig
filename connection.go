@@ -294,7 +294,7 @@ func (c *Connection) configureSudo() {
 			c.sudofunc = sudoNoop
 			return
 		}
-		if c.Exec(`sudo -n true`) == nil {
+		if c.Exec(`sudo -n -l`) == nil {
 			// user has passwordless sudo
 			c.sudofunc = sudoSudo
 			return
