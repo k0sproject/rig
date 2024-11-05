@@ -241,9 +241,17 @@ func (c *Connection) Connect() error {
 		c.OSVersion = &o
 	}
 
-	c.configureSudo()
+	if c.sudofunc == nil {
+		c.discoverSudo()
+	}
 
 	return nil
+}
+
+// SetSudofn inject a sudofn into the connection before Connect()
+// @NOTE this will avoid sudo detection if done before Connect()
+func (c *Connection) SetSudofn(f func(string) string) {
+	c.sudofunc = f
 }
 
 func sudoNoop(cmd string) string {
@@ -287,21 +295,21 @@ func sudoWindows(cmd string) string {
 	return cmd
 }
 
-func (c *Connection) configureSudo() {
+func (c *Connection) discoverSudo() {
 	if !c.IsWindows() {
 		if c.Exec(`[ "$(id -u)" = 0 ]`) == nil {
 			// user is already root
-			c.sudofunc = sudoNoop
+			c.SetSudofn(sudoNoop)
 			return
 		}
 		if c.Exec(`sudo -n -l`) == nil {
 			// user has passwordless sudo
-			c.sudofunc = sudoSudo
+			c.SetSudofn(sudoSudo)
 			return
 		}
 		if c.Exec(`doas -n -- "${SHELL-sh}" -c true`) == nil {
 			// user has passwordless doas
-			c.sudofunc = sudoDoas
+			c.SetSudofn(sudoDoas)
 		}
 		return
 	}
