@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alessio/shellescape"
+	"al.essio.dev/pkg/shellescape"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/os/initsystem"
 )

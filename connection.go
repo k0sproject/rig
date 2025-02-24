@@ -10,7 +10,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/alessio/shellescape"
+	"al.essio.dev/pkg/shellescape"
 	"github.com/creasty/defaults"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
