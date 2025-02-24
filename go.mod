@@ -9,7 +9,7 @@ require (
 	github.com/davidmz/go-pageant v1.0.2
 	github.com/masterzen/winrm v0.0.0-20231227165926-e811dad5ac77
 	github.com/stretchr/testify v1.10.0
-	golang.org/x/crypto v0.33.0
+	golang.org/x/crypto v0.34.0
 	golang.org/x/term v0.29.0
 	gopkg.in/yaml.v2 v2.4.0
 )
