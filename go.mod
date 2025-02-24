@@ -5,9 +5,9 @@ go 1.23.0
 toolchain go1.23.3
 
 require (
+	al.essio.dev/pkg/shellescape v1.5.1
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d
-	github.com/alessio/shellescape v1.4.2
 	github.com/creasty/defaults v1.8.0
 	github.com/davidmz/go-pageant v1.0.2
 	github.com/kevinburke/ssh_config v1.2.0
