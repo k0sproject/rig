@@ -15,7 +15,7 @@ require (
 	github.com/mattn/go-shellwords v1.0.12
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/stretchr/testify v1.9.0
-	golang.org/x/crypto v0.34.0
+	golang.org/x/crypto v0.35.0
 	golang.org/x/term v0.29.0
 )
 
