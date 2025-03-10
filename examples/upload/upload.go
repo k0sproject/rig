@@ -100,7 +100,7 @@ func main() {
 	if *sudo {
 		opts = append(opts, exec.Sudo(h))
 	}
-	if err := h.Upload(*sf, *df, opts...); err != nil {
+	if err := h.Upload(*sf, *df, 0o600, opts...); err != nil {
 		panic(err)
 	}
 	fmt.Println("Done, file now at", *df)

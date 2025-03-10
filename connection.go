@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"strings"
 
@@ -390,8 +391,7 @@ func (c *Connection) Disconnect() {
 
 // Upload copies a file from a local path src to the remote host path dst. For
 // smaller files you should probably use os.WriteFile
-func (c *Connection) Upload(src, dst string, opts ...exec.Option) error {
-
+func (c *Connection) Upload(src, dst string, perm fs.FileMode, opts ...exec.Option) error {
 	if err := c.checkConnected(); err != nil {
 		return err
 	}
@@ -401,15 +401,14 @@ func (c *Connection) Upload(src, dst string, opts ...exec.Option) error {
 	}
 	defer local.Close()
 
-	stat, err := local.Stat()
-	if err != nil {
+	if _, err := local.Stat(); err != nil {
 		return fmt.Errorf("%w: stat local file %s: %w", ErrInvalidPath, src, err)
 	}
 
 	shasum := sha256.New()
 
 	fsys := rigfs.NewFsys(c, opts...)
-	remote, err := fsys.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, stat.Mode())
+	remote, err := fsys.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
 	if err != nil {
 		return fmt.Errorf("%w: open remote file %s for writing: %w", ErrInvalidPath, dst, err)
 	}

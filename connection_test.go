@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"io/fs"
 	"testing"
 
 	"github.com/creasty/defaults"
@@ -19,15 +20,15 @@ type mockClient struct {
 	commands []string
 }
 
-func (m *mockClient) Connect() error                             { return nil }
-func (m *mockClient) Disconnect()                                {}
-func (m *mockClient) Upload(_, _ string, _ ...exec.Option) error { return nil }
-func (m *mockClient) IsWindows() bool                            { return false }
-func (m *mockClient) ExecInteractive(_ string) error             { return nil }
-func (m *mockClient) String() string                             { return "mockclient" }
-func (m *mockClient) Protocol() string                           { return "null" }
-func (m *mockClient) IPAddress() string                          { return "127.0.0.1" }
-func (m *mockClient) IsConnected() bool                          { return true }
+func (m *mockClient) Connect() error                                            { return nil }
+func (m *mockClient) Disconnect()                                               {}
+func (m *mockClient) Upload(_, _ string, _ fs.FileMode, _ ...exec.Option) error { return nil }
+func (m *mockClient) IsWindows() bool                                           { return false }
+func (m *mockClient) ExecInteractive(_ string) error                            { return nil }
+func (m *mockClient) String() string                                            { return "mockclient" }
+func (m *mockClient) Protocol() string                                          { return "null" }
+func (m *mockClient) IPAddress() string                                         { return "127.0.0.1" }
+func (m *mockClient) IsConnected() bool                                         { return true }
 func (m *mockClient) Exec(cmd string, opts ...exec.Option) error {
 	o := exec.Build(opts...)
 	cmd, err := o.Command(cmd)
@@ -39,6 +40,7 @@ func (m *mockClient) Exec(cmd string, opts ...exec.Option) error {
 
 	return nil
 }
+
 func (m *mockClient) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (exec.Waiter, error) {
 	return nil, fmt.Errorf("not implemented")
 }
