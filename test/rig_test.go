@@ -411,7 +411,7 @@ func (s *ConfigurerSuite) TestUpload() {
 			defer s.Host.Configurer.DeleteFile(s.Host, s.TempPath(pathBase(fn)))
 
 			s.Run("Upload file", func() {
-				s.Require().NoError(s.Host.Upload(fn, s.TempPath(pathBase(fn))))
+				s.Require().NoError(s.Host.Upload(fn, s.TempPath(pathBase(fn)), 0o600))
 			})
 
 			s.Run("Verify file size", func() {
