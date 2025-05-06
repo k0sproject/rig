@@ -154,7 +154,8 @@ func posixBitsToFileMode(bits int64) fs.FileMode {
 	}
 
 	// Mapping permission bits
-	mode |= fs.FileMode(bits & 0o777) // Owner, group, and other permissions
+	// Owner, group, and other permissions
+	mode |= fs.FileMode(bits & 0o777) // #nosec G115 -- ignore "integer overflow conversion int64 -> uint64"
 
 	// Mapping special permission bits
 	if bits&0o4000 != 0 { // Set-user-ID

@@ -3,14 +3,22 @@ package remotefs
 import "io/fs"
 
 const (
-	OpClose    = "close"     // OpClose Close operation
-	OpOpen     = "open"      // OpOpen Open operation
-	OpRead     = "read"      // OpRead Read operation
-	OpSeek     = "seek"      // OpSeek Seek operation
-	OpStat     = "stat"      // OpStat Stat operation
-	OpWrite    = "write"     // OpWrite Write operation
-	OpCopyTo   = "copy-to"   // OpCopyTo CopyTo operation
-	OpCopyFrom = "copy-from" // OpCopyFrom CopyFrom operation
+	// OpClose Close operation.
+	OpClose = "close"
+	// OpOpen Open operation.
+	OpOpen = "open"
+	// OpRead Read operation.
+	OpRead = "read"
+	// OpSeek Seek operation.
+	OpSeek = "seek"
+	// OpStat Stat operation.
+	OpStat = "stat"
+	// OpWrite Write operation.
+	OpWrite = "write"
+	// OpCopyTo CopyTo operation.
+	OpCopyTo = "copy-to"
+	// OpCopyFrom CopyFrom operation.
+	OpCopyFrom = "copy-from"
 )
 
 type withPath struct {
