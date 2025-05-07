@@ -52,3 +52,8 @@ GO_LINT_DIRS ?= $(shell ls -d */ | grep -v build/)
 lint: .rigbuild.docker-image.k0s
 	$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
 	$(GO_ENV) golangci-lint run --verbose --build-tags=$(subst $(space),$(comma),$(BUILD_GO_TAGS)) $(GOLANGCI_LINT_FLAGS) $(GO_LINT_DIRS) 
+
+.PHONY: clean-gocache
+clean-gocache:
+	-chmod -R u+w -- '$(RIG_GO_BUILD_CACHE)/go/mod'
+	rm -rf -- '$(RIG_GO_BUILD_CACHE)/go'
