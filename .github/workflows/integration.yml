@@ -11,7 +11,7 @@ jobs:
           - quay.io/k0sproject/bootloose-ubuntu20.04
           - quay.io/k0sproject/bootloose-debian12
           - quay.io/k0sproject/bootloose-alpine3.18
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v4
     
