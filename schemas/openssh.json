@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/k0sproject/rig/open-ssh",
+  "$ref": "#/$defs/OpenSSH",
+  "$defs": {
+    "OpenSSH": {
+      "properties": {
+        "address": {
+          "type": "string",
+          "format": "hostname",
+          "description": "Address of the remote host"
+        },
+        "user": {
+          "type": "string",
+          "description": "Optional SSH user"
+        },
+        "port": {
+          "type": "integer",
+          "maximum": 65535,
+          "minimum": 1,
+          "description": "Optional SSH port"
+        },
+        "keyPath": {
+          "type": "string",
+          "description": "Path to SSH private key"
+        },
+        "configPath": {
+          "type": "string",
+          "description": "Path to SSH config file"
+        },
+        "options": {
+          "$ref": "#/$defs/OpenSSHOptions",
+          "description": "Additional SSH options as key-value pairs"
+        },
+        "disableMultiplexing": {
+          "type": "boolean",
+          "description": "Disable SSH connection multiplexing",
+          "default": false
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "address"
+      ]
+    },
+    "OpenSSHOptions": {
+      "type": "object"
+    }
+  }
+}

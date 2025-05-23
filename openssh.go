@@ -21,13 +21,26 @@ var ErrControlPathNotSet = errors.New("controlpath not set")
 // OpenSSH is a rig.Connection implementation that uses the system openssh client "ssh" to connect to remote hosts.
 // The connection is multiplexec over a control master, so that subsequent connections don't need to re-authenticate.
 type OpenSSH struct {
-	Address             string         `yaml:"address" validate:"required"`
-	User                *string        `yaml:"user"`
-	Port                *int           `yaml:"port"`
-	KeyPath             *string        `yaml:"keyPath,omitempty"`
-	ConfigPath          *string        `yaml:"configPath,omitempty"`
-	Options             OpenSSHOptions `yaml:"options,omitempty"`
-	DisableMultiplexing bool           `yaml:"disableMultiplexing,omitempty"`
+	// Address of the remote host
+	Address string `yaml:"address" json:"address" validate:"required" jsonschema:"required,format=hostname,description=Address of the remote host"`
+
+	// Optional SSH user
+	User *string `yaml:"user,omitempty" json:"user,omitempty" jsonschema:"description=Optional SSH user"`
+
+	// Optional SSH port
+	Port *int `yaml:"port,omitempty" json:"port,omitempty" jsonschema:"minimum=1,maximum=65535,description=Optional SSH port"`
+
+	// Path to SSH private key
+	KeyPath *string `yaml:"keyPath,omitempty" json:"keyPath,omitempty" jsonschema:"description=Path to SSH private key"`
+
+	// Path to SSH config file
+	ConfigPath *string `yaml:"configPath,omitempty" json:"configPath,omitempty" jsonschema:"description=Path to SSH config file"`
+
+	// Additional SSH options as key-value pairs, such as StrictHostKeyChecking: false
+	Options OpenSSHOptions `yaml:"options,omitempty" json:"options,omitempty" jsonschema:"description=Additional SSH options as key-value pairs, such as StrictHostKeyChecking: false"`
+
+	// Disable SSH connection multiplexing
+	DisableMultiplexing bool `yaml:"disableMultiplexing,omitempty" json:"disableMultiplexing,omitempty" jsonschema:"default=false,description=Disable SSH connection multiplexing"`
 
 	isConnected  bool
 	controlMutex sync.Mutex
