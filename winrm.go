@@ -18,18 +18,41 @@ import (
 
 // WinRM describes a WinRM connection with its configuration options
 type WinRM struct {
-	Address       string `yaml:"address" validate:"required,hostname_rfc1123|ip"`
-	User          string `yaml:"user" validate:"omitempty,gt=2" default:"Administrator"`
-	Port          int    `yaml:"port" default:"5985" validate:"gt=0,lte=65535"`
-	Password      string `yaml:"password,omitempty"`
-	UseHTTPS      bool   `yaml:"useHTTPS" default:"false"`
-	Insecure      bool   `yaml:"insecure" default:"false"`
-	UseNTLM       bool   `yaml:"useNTLM" default:"false"`
-	CACertPath    string `yaml:"caCertPath,omitempty" validate:"omitempty,file"`
-	CertPath      string `yaml:"certPath,omitempty" validate:"omitempty,file"`
-	KeyPath       string `yaml:"keyPath,omitempty" validate:"omitempty,file"`
-	TLSServerName string `yaml:"tlsServerName,omitempty" validate:"omitempty,hostname_rfc1123|ip"`
-	Bastion       *SSH   `yaml:"bastion,omitempty"`
+	// Address of the remote host
+	Address string `yaml:"address" json:"address" validate:"required,hostname_rfc1123|ip" jsonschema:"required,format=hostname,description=Address of the remote host"`
+
+	// User to authenticate as
+	User string `yaml:"user" json:"user" validate:"omitempty,gt=2" default:"Administrator" jsonschema:"minLength=3,default=Administrator,description=User to authenticate as"`
+
+	// WinRM port
+	Port int `yaml:"port" json:"port" validate:"gt=0,lte=65535" default:"5985" jsonschema:"minimum=1,maximum=65535,default=5985,description=WinRM port"`
+
+	// Password for WinRM authentication
+	Password string `yaml:"password,omitempty" json:"password,omitempty" jsonschema:"description=Password for WinRM authentication"`
+
+	// Use HTTPS for WinRM
+	UseHTTPS bool `yaml:"useHTTPS" json:"useHTTPS" default:"false" jsonschema:"default=false,description=Use HTTPS for WinRM"`
+
+	// Accept invalid TLS certificates
+	Insecure bool `yaml:"insecure" json:"insecure" default:"false" jsonschema:"default=false,description=Accept invalid TLS certificates"`
+
+	// Use NTLM authentication
+	UseNTLM bool `yaml:"useNTLM" json:"useNTLM" default:"false" jsonschema:"default=false,description=Use NTLM authentication"`
+
+	// Path to CA certificate
+	CACertPath string `yaml:"caCertPath,omitempty" json:"caCertPath,omitempty" validate:"omitempty,file" jsonschema:"description=Path to CA certificate"`
+
+	// Path to client certificate
+	CertPath string `yaml:"certPath,omitempty" json:"certPath,omitempty" validate:"omitempty,file" jsonschema:"description=Path to client certificate"`
+
+	// Path to client key
+	KeyPath string `yaml:"keyPath,omitempty" json:"keyPath,omitempty" validate:"omitempty,file" jsonschema:"description=Path to client key"`
+
+	// TLS server name override
+	TLSServerName string `yaml:"tlsServerName,omitempty" json:"tlsServerName,omitempty" validate:"omitempty,hostname_rfc1123|ip" jsonschema:"format=hostname,description=TLS server name override"`
+
+	// Optional SSH bastion
+	Bastion *SSH `yaml:"bastion,omitempty" json:"bastion,omitempty" jsonschema:"description=Optional SSH bastion"`
 
 	name string
 

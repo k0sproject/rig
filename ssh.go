@@ -27,20 +27,32 @@ import (
 
 // SSH describes an SSH connection
 type SSH struct {
-	Address          string           `yaml:"address" validate:"required,hostname_rfc1123|ip"`
-	User             string           `yaml:"user" validate:"required" default:"root"`
-	Port             int              `yaml:"port" default:"22" validate:"gt=0,lte=65535"`
-	KeyPath          *string          `yaml:"keyPath" validate:"omitempty"`
-	HostKey          string           `yaml:"hostKey,omitempty"`
-	Bastion          *SSH             `yaml:"bastion,omitempty"`
-	PasswordCallback PasswordCallback `yaml:"-"`
+	// Address of the remote host (IP or hostname)
+	Address string `yaml:"address" json:"address" validate:"required,hostname_rfc1123|ip" jsonschema:"required,format=hostname,description=Address of the remote host (IP or hostname)"`
+
+	// User to log in as
+	User string `yaml:"user" json:"user" validate:"required" default:"root" jsonschema:"required,default=root,description=User to log in as"`
+
+	// SSH port, usually 22
+	Port int `yaml:"port" json:"port" validate:"gt=0,lte=65535" default:"22" jsonschema:"minimum=1,maximum=65535,default=22,description=SSH port, usually 22"`
+
+	// Optional path to private key
+	KeyPath *string `yaml:"keyPath,omitempty" json:"keyPath,omitempty" validate:"omitempty" jsonschema:"description=Optional path to private key"`
+
+	// Optional known host key fingerprint
+	HostKey string `yaml:"hostKey,omitempty" json:"hostKey,omitempty" jsonschema:"description=Optional known host key fingerprint"`
+
+	// Optional bastion host
+	Bastion *SSH `yaml:"bastion,omitempty" json:"bastion,omitempty" jsonschema:"description=Optional bastion host"`
+	// Optional password callback function
+	PasswordCallback PasswordCallback `yaml:"-" json:"-"`
 
 	// AuthMethods can be used to pass in a list of ssh.AuthMethod objects
 	// for example to use a private key from memory:
 	//   ssh.PublicKeys(privateKey)
 	// For convenience, you can use ParseSSHPrivateKey() to parse a private key:
 	//   authMethods, err := rig.ParseSSHPrivateKey(key, rig.DefaultPassphraseCallback)
-	AuthMethods []ssh.AuthMethod `yaml:"-"`
+	AuthMethods []ssh.AuthMethod `yaml:"-" json:"-"`
 
 	alias string
 	name  string
