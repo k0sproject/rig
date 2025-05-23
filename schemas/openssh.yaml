@@ -1,0 +1,37 @@
+$defs:
+  OpenSSH:
+    additionalProperties: false
+    properties:
+      address:
+        description: Address of the remote host
+        format: hostname
+        type: string
+      configPath:
+        description: Path to SSH config file
+        type: string
+      disableMultiplexing:
+        default: false
+        description: Disable SSH connection multiplexing
+        type: boolean
+      keyPath:
+        description: Path to SSH private key
+        type: string
+      options:
+        $ref: '#/$defs/OpenSSHOptions'
+        description: Additional SSH options as key-value pairs
+      port:
+        description: Optional SSH port
+        maximum: 65535
+        minimum: 1
+        type: integer
+      user:
+        description: Optional SSH user
+        type: string
+    required:
+      - address
+    type: object
+  OpenSSHOptions:
+    type: object
+$id: https://github.com/k0sproject/rig/open-ssh
+$ref: '#/$defs/OpenSSH'
+$schema: https://json-schema.org/draft/2020-12/schema
