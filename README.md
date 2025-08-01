@@ -6,6 +6,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/k0sproject/rig)](https://goreportcard.com/report/github.com/k0sproject/rig)
 [![Build Status](https://travis-ci.com/k0sproject/rig.svg?branch=main)](https://travis-ci.com/k0sproject/rig)
 [![codecov](https://codecov.io/gh/k0sproject/rig/branch/main/graph/badge.svg)](https://codecov.io/gh/k0sproject/rig)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fk0sproject%2Frig.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fk0sproject%2Frig?ref=badge_shield)
 
 <img src=".github/logo.webp" alt="Rig" width="200" align="left"/>
 
@@ -32,3 +33,7 @@ can be used on Windows.
 
 TBD - for now see godoc, tests and sources.
 
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fk0sproject%2Frig.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fk0sproject%2Frig?ref=badge_large)
