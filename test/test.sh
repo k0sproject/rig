@@ -251,9 +251,13 @@ rig_test_regular_user() {
 
     mkdir -p /var/lib/rigtest-user/.ssh
     cp /root/.ssh/* /var/lib/rigtest-user/.ssh/
+    chmod 755 /var/lib/rigtest-user
     chmod 700 /var/lib/rigtest-user/.ssh
     chmod 600 /var/lib/rigtest-user/.ssh/*
     chown -R rigtest-user:rigtest-user /var/lib/rigtest-user
+    ls -al /var/lib/rigtest-user
+    ls -al /var/lib/rigtest-user/.ssh
+
     [ ! -d /etc/sudoers.d/ ] || {
       echo '%rig-wheel ALL=(ALL)NOPASSWD:ALL' >/etc/sudoers.d/rig-wheel
       chmod 0440 /etc/sudoers.d/rig-wheel
