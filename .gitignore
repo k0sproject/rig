@@ -1,5 +1,7 @@
+/build/cache/*
 test/rigtest
 test/footloose.yaml
 test/Library
 test/.ssh
 test/*.iid
+/.rigbuild.docker-image.k0s

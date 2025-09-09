@@ -1125,7 +1125,7 @@ func (s *Setter) expandToken(token string) (string, error) { //nolint:cyclop
 
 		if f, err := s.get("Port", reflect.Uint); err == nil {
 			if f.Uint() > 0 {
-				return strconv.Itoa(int(f.Uint())), nil
+				return strconv.Itoa(int(f.Uint())), nil // #nosec G115 -- ignore "integer overflow conversion uint64 -> int"
 			}
 		}
 		if f, err := s.get("Port", reflect.String); err == nil {
@@ -1349,7 +1349,7 @@ func (s *Setter) matchesHost(conditions ...string) (bool, error) {
 // matchesMatch checks if the Match directive conditions are met.
 func (s *Setter) matchesMatch(conditions ...string) (bool, error) { //nolint:funlen,cyclop // TODO extract functions
 	log.Trace(context.Background(), "matching Match directive", "conditions", conditions)
-	for i := range len(conditions) {
+	for i := range conditions {
 		condition := conditions[i]
 		log.Trace(context.Background(), "matching Match directive", "condition", condition)
 		var negate bool
@@ -1607,7 +1607,7 @@ func (s *Setter) canonicalizeMaxDots() int {
 	if md, err := s.get("CanonicalizeMaxDots", reflect.Int); err == nil {
 		return int(md.Int())
 	} else if md, err := s.get("CanonicalizeMaxDots", reflect.Uint); err == nil {
-		return int(md.Uint())
+		return int(md.Uint()) // #nosec G115 -- ignore "integer overflow conversion int64 -> uint64"
 	}
 	return 1
 }

@@ -1,0 +1,22 @@
+ARG BUILDIMAGE
+FROM $BUILDIMAGE
+
+ARG TARGETARCH
+RUN set -ex; \
+  if [ ! -z "$(which apt)" ]; then \
+     apt update && apt install -y git; \
+  elif [ ! -z "$(which apk)" ]; then \
+     apk add --no-cache git; \
+  else \
+     echo "unsupported package manager"; \
+     exit 1; \
+  fi
+
+
+ENV \
+  HOME="/run/k0s-build" \
+  PATH="/run/k0s-build/go/bin:$PATH" \
+  GOBIN="/run/k0s-build/go/bin" \
+  GOCACHE="/run/k0s-build/go/build" \
+  GOMODCACHE="/run/k0s-build/go/mod" \
+  GOTELEMETRY="off"

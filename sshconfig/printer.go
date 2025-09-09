@@ -128,9 +128,9 @@ func (p *printer) number(key string) (string, bool) {
 	}
 	if field, err := p.get(key, reflect.Uint); err == nil {
 		if key == "StreamLocalBindMask" {
-			return "0" + strconv.FormatInt(int64(field.Uint()), 8), true
+			return "0" + strconv.FormatInt(int64(field.Uint()), 8), true // #nosec G115 -- ignore "integer overflow conversion int64 -> uint64"
 		}
-		return strconv.FormatInt(int64(field.Uint()), 10), true
+		return strconv.FormatInt(int64(field.Uint()), 10), true // #nosec G115 -- ignore "integer overflow conversion int64 -> uint64"
 	}
 	return "", false
 }

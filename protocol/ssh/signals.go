@@ -57,8 +57,8 @@ func termSizeWNCH() []byte {
 		binary.BigEndian.PutUint32(size, 40)
 		binary.BigEndian.PutUint32(size[4:], 80)
 	} else {
-		binary.BigEndian.PutUint32(size, uint32(cols))
-		binary.BigEndian.PutUint32(size[4:], uint32(rows))
+		binary.BigEndian.PutUint32(size, uint32(cols))     // #nosec G115 -- ignore "integer overflow conversion int -> uint32"
+		binary.BigEndian.PutUint32(size[4:], uint32(rows)) // #nosec G115 -- ignore "integer overflow conversion int -> uint32"
 	}
 
 	return size
