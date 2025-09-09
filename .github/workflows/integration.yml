@@ -13,7 +13,7 @@ jobs:
           - quay.io/k0sproject/bootloose-alpine3.18
     runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     
     - name: Set up Go
       uses: actions/setup-go@v6
@@ -80,7 +80,7 @@ jobs:
 
         Invoke-Command -Session $Session -ScriptBlock { cmd.exe /c ver.exe }
     
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     
     - name: Set up Go
       uses: actions/setup-go@v6
