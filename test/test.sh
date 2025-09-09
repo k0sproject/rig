@@ -233,7 +233,7 @@ rig_test_regular_user() {
     return 0
   }
 
-  ssh "$@" root@127.0.0.1 sh -euxC - <<EOF
+  ssh "$@" root@127.0.0.1 sh -euxC - <<"EOF"
     if command -v groupadd >/dev/null 2>&1; then
       # shadow tools (Debian/Ubuntu/CentOS, or Alpine with shadow installed)
       groupadd -r rig-wheel || true
@@ -243,14 +243,14 @@ rig_test_regular_user() {
     fi
 
     if command -v useradd >/dev/null 2>&1; then
-      id -u rigtest-user >/dev/null 2>&1 || useradd -d /var/lib/rigtest-user -G rig-wheel -g rig-wheel -p '*' -s /bin/sh rigtest-user
+      id -u rigtest-user >/dev/null 2>&1 || useradd -d /var/lib/rigtest-user -G rig-wheel  -p '*' -s /bin/sh rigtest-user
     else
-      id -u rigtest-user >/dev/null 2>&1 || adduser -D -H -h /var/lib/rigtest-user -G rig-wheel -s /bin/sh rigtest-user
+      id -u rigtest-user >/dev/null 2>&1 || adduser -D -H -h /var/lib/rigtest-user -G rigtest-user,rig-wheel -s /bin/sh rigtest-user
     fi
 
     mkdir -p /var/lib/rigtest-user/
-    cp -r /root/.ssh /var/lib/rigtest-user/.
-    chown -R rigtest-user:rig-wheel /var/lib/rigtest-user/
+    cp -r /root/.ssh /var/lib/rigtest-user/
+    chown -R rigtest-user:rigtest-user /var/lib/rigtest-user/.
     [ ! -d /etc/sudoers.d/ ] || {
       echo '%rig-wheel ALL=(ALL)NOPASSWD:ALL' >/etc/sudoers.d/rig-wheel
       chmod 0440 /etc/sudoers.d/rig-wheel
