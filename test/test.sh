@@ -257,6 +257,7 @@ rig_test_regular_user() {
     chown -R rigtest-user:rigtest-user /var/lib/rigtest-user
     ls -al /var/lib/rigtest-user
     ls -al /var/lib/rigtest-user/.ssh
+    cat /var/lib/rigtest-user/.ssh/authorized_keys
 
     [ ! -d /etc/sudoers.d/ ] || {
       echo '%rig-wheel ALL=(ALL)NOPASSWD:ALL' >/etc/sudoers.d/rig-wheel
