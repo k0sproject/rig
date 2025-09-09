@@ -249,9 +249,11 @@ rig_test_regular_user() {
       id -u rigtest-user >/dev/null 2>&1 || adduser -D -H -h /var/lib/rigtest-user -G rig-wheel -s /bin/sh rigtest-user rigtest-user
     fi
 
-    mkdir -p /var/lib/rigtest-user/
-    cp -r /root/.ssh /var/lib/rigtest-user/
-    chown -R rigtest-user:rigtest-user /var/lib/rigtest-user/.
+    mkdir -p /var/lib/rigtest-user/.ssh
+    cp /root/.ssh/* /var/lib/rigtest-user/.ssh/
+    chmod 700 /var/lib/rigtest-user/.ssh
+    chmod 600 /var/lib/rigtest-user/.ssh/*
+    chown -R rigtest-user:rigtest-user /var/lib/rigtest-user
     [ ! -d /etc/sudoers.d/ ] || {
       echo '%rig-wheel ALL=(ALL)NOPASSWD:ALL' >/etc/sudoers.d/rig-wheel
       chmod 0440 /etc/sudoers.d/rig-wheel
