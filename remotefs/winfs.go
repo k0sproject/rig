@@ -69,11 +69,17 @@ func (s *WinFS) Stat(name string) (fs.FileInfo, error) {
 
 // Sha256 returns the SHA256 hash of the remote file.
 func (s *WinFS) Sha256(name string) (string, error) {
-	sum, err := s.ExecOutput(fmt.Sprintf("(Get-FileHash %s -Algorithm SHA256).Hash.ToLower()", ps.DoubleQuotePath(name)), cmd.PS())
+	script := strings.Join([]string{
+		fmt.Sprintf("$in = [System.IO.File]::OpenRead(%s)", ps.DoubleQuotePath(name)),
+		"$hash = [System.Security.Cryptography.SHA256]::Create().ComputeHash($in)",
+		"$in.Close()",
+		`($hash | ForEach-Object { $_.ToString("x2") }) -join ""`,
+	}, "; ")
+	sum, err := s.ExecOutput("try { "+script+" } catch { exit 1 }", cmd.PS())
 	if err != nil {
 		return "", PathErrorf("sum", name, "sha256sum: %w", err)
 	}
-	return sum, nil
+	return strings.TrimSpace(sum), nil
 }
 
 // ReadDir reads the directory named by dirname and returns a list of directory entries.
