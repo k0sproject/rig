@@ -335,7 +335,13 @@ func (c Windows) LineIntoFile(h Host, path, matcher, newLine string) error {
 
 // Sha256sum returns the sha256sum of a file
 func (c Windows) Sha256sum(h Host, path string, opts ...exec.Option) (string, error) {
-	sum, err := h.ExecOutput(ps.Cmd(fmt.Sprintf("(Get-FileHash %s -Algorithm SHA256).Hash.ToLower()", ps.DoubleQuotePath(path))), opts...)
+	cmd := strings.Join([]string{
+		fmt.Sprintf(`$in = [System.IO.File]::OpenRead(%s)`, ps.DoubleQuotePath(path)),
+		`$hash = [System.Security.Cryptography.SHA256]::Create().ComputeHash($in)`,
+		`$in.Close()`,
+		`($hash | ForEach-Object { $_.ToString("x2") }) -join ""`,
+	}, "; ")
+	sum, err := h.ExecOutput(ps.Cmd("try { "+cmd+" } catch { Write-Error $_; exit 1 }"), opts...)
 	if err != nil {
 		return "", fmt.Errorf("failed to get sha256sum for %s: %w", path, err)
 	}
