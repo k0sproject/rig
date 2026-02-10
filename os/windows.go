@@ -132,7 +132,8 @@ func (c Windows) DeleteFile(h Host, path string) error {
 
 // FileExist checks if a file exists on the host
 func (c Windows) FileExist(h Host, path string) bool {
-	return h.Exec(fmt.Sprintf(`powershell -Command "if (!(Test-Path -Path \"%s\")) { exit 1 }"`, ps.DoubleQuotePath(path))) == nil
+	cmd := fmt.Sprintf("if (!(Test-Path -Path %s)) { exit 1 }", ps.DoubleQuotePath(path))
+	return h.Exec(ps.Cmd(cmd)) == nil
 }
 
 // UpdateEnvironment updates the hosts's environment variables
