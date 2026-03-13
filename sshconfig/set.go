@@ -50,7 +50,9 @@ const (
 	none = "none" // the string "none" is used in some fields to indicate no value
 	yes  = "yes"  // the string "yes" is used as the boolean true value
 	no   = "no"   // the string "no" is used as the boolean false value
+)
 
+const (
 	phaseRegular  parserPhase = iota // when setting regular values
 	phaseDefaults                    // when setting values from defaults
 	phaseFinal                       // when performing a finall pass
@@ -325,7 +327,7 @@ func (s *Setter) setInt(key string, values ...string) error {
 		if !field.IsNil() {
 			return nil
 		}
-		intPtr := reflect.New(reflect.TypeOf(ival))
+		intPtr := reflect.New(reflect.TypeFor[int64]())
 		intPtr.Elem().SetInt(ival)
 		field.Set(intPtr)
 	} else {
@@ -369,7 +371,7 @@ func (s *Setter) setUint(key string, values ...string) error {
 		if !field.IsNil() {
 			return nil
 		}
-		uintPtr := reflect.New(reflect.TypeOf(uval))
+		uintPtr := reflect.New(reflect.TypeFor[uint64]())
 		uintPtr.Elem().SetUint(uval)
 		field.Set(uintPtr)
 		return nil
@@ -415,7 +417,7 @@ func (s *Setter) setDuration(key string, values ...string) error { //nolint:cycl
 		return nil
 	}
 
-	durationType := reflect.TypeOf(time.Duration(0))
+	durationType := reflect.TypeFor[time.Duration]()
 	switch {
 	case field.Kind() == reflect.Ptr:
 		if field.Type().Elem() != durationType {
@@ -663,7 +665,7 @@ func (s *Setter) setAddKeysToAgentOption(key string, values ...string) error {
 			f.SetString(normalized.String())
 			return nil
 		}
-		return fmt.Errorf("%w: field %q is not a %s or a string", errInvalidField, key, reflect.TypeOf(normalized))
+		return fmt.Errorf("%w: field %q is not a %s or a string", errInvalidField, key, reflect.TypeFor[time.Duration]())
 	}
 	if field.String() != "" {
 		return nil
@@ -1125,7 +1127,7 @@ func (s *Setter) expandToken(token string) (string, error) { //nolint:cyclop
 
 		if f, err := s.get("Port", reflect.Uint); err == nil {
 			if f.Uint() > 0 {
-				return strconv.Itoa(int(f.Uint())), nil
+				return strconv.Itoa(int(f.Uint())), nil //nolint:gosec // G115: port is in safe range
 			}
 		}
 		if f, err := s.get("Port", reflect.String); err == nil {
@@ -1349,7 +1351,7 @@ func (s *Setter) matchesHost(conditions ...string) (bool, error) {
 // matchesMatch checks if the Match directive conditions are met.
 func (s *Setter) matchesMatch(conditions ...string) (bool, error) { //nolint:funlen,cyclop // TODO extract functions
 	log.Trace(context.Background(), "matching Match directive", "conditions", conditions)
-	for i := range len(conditions) {
+	for i := range conditions {
 		condition := conditions[i]
 		log.Trace(context.Background(), "matching Match directive", "condition", condition)
 		var negate bool
@@ -1407,20 +1409,19 @@ func (s *Setter) matchesMatch(conditions ...string) (bool, error) { //nolint:fun
 				return false, fmt.Errorf("%w: failed to process %q: %w", ErrSyntax, args, err)
 			}
 			cmd := unq[0]
+			var args []string
 			if len(unq) > 1 {
-				unq = unq[1:]
-			} else {
-				unq = nil
+				args = unq[1:]
 			}
-			log.Trace(context.Background(), "executing command from match directive", "condition", condition, "cmd", cmd, "args", unq)
-			if s.executor.Run(cmd, unq...) != nil {
-				log.Trace(context.Background(), "command failed", "condition", condition, "cmd", cmd, "args", unq, "error", err)
+			log.Trace(context.Background(), "executing command from match directive", "condition", condition, "cmd", cmd, "args", args)
+			if runErr := s.executor.Run(cmd, args...); runErr != nil {
+				log.Trace(context.Background(), "command failed", "condition", condition, "cmd", cmd, "args", args, "error", runErr)
 				if negate {
 					return false, nil
 				}
 				continue
 			}
-			log.Trace(context.Background(), "command succeeded", "condition", condition, "cmd", cmd, "args", unq)
+			log.Trace(context.Background(), "command succeeded", "condition", condition, "cmd", cmd, "args", args)
 			if negate {
 				return false, nil
 			}
@@ -1607,7 +1608,7 @@ func (s *Setter) canonicalizeMaxDots() int {
 	if md, err := s.get("CanonicalizeMaxDots", reflect.Int); err == nil {
 		return int(md.Int())
 	} else if md, err := s.get("CanonicalizeMaxDots", reflect.Uint); err == nil {
-		return int(md.Uint())
+		return int(md.Uint()) //nolint:gosec // G115: max dots value is in safe range
 	}
 	return 1
 }
@@ -1673,11 +1674,11 @@ func (s *Setter) CanonicalizeHostname() error { //nolint:cyclop
 
 	for _, domain := range s.canonicalDomains() {
 		fqdn := host + "." + domain
-		if _, err := net.LookupHost(fqdn); err != nil {
+		if _, err := net.LookupHost(fqdn); err != nil { //nolint:noctx // hostname canonicalization, no context available
 			continue
 		}
 
-		cname, err := net.LookupCNAME(fqdn)
+		cname, err := net.LookupCNAME(fqdn) //nolint:noctx // hostname canonicalization, no context available
 		if err != nil {
 			return fmt.Errorf("failed to lookup CNAME for %q: %w", fqdn, err)
 		}

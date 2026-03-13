@@ -128,9 +128,9 @@ func (p *printer) number(key string) (string, bool) {
 	}
 	if field, err := p.get(key, reflect.Uint); err == nil {
 		if key == "StreamLocalBindMask" {
-			return "0" + strconv.FormatInt(int64(field.Uint()), 8), true
+			return "0" + strconv.FormatInt(int64(field.Uint()), 8), true //nolint:gosec // G115: uint fields are in safe range
 		}
-		return strconv.FormatInt(int64(field.Uint()), 10), true
+		return strconv.FormatInt(int64(field.Uint()), 10), true //nolint:gosec // G115: uint fields are in safe range
 	}
 	return "", false
 }
@@ -151,7 +151,7 @@ func (p *printer) boolean(key string) (string, bool) {
 }
 
 func (p *printer) duration(key string) (string, bool) {
-	kind := reflect.TypeOf(time.Duration(0)).Kind()
+	kind := reflect.TypeFor[time.Duration]().Kind()
 	if field, err := p.get(key, kind); err == nil {
 		if field.CanInterface() {
 			if d, ok := field.Interface().(time.Duration); ok {
@@ -168,7 +168,7 @@ func (p *printer) duration(key string) (string, bool) {
 }
 
 func (p *printer) channeltimeout(key string) (string, bool) {
-	kind := reflect.TypeOf(map[string]time.Duration{}).Kind()
+	kind := reflect.TypeFor[map[string]time.Duration]().Kind()
 	if field, err := p.get(key, kind); err == nil { //nolint:nestif
 		if field.CanInterface() {
 			if d, ok := field.Interface().(map[string]time.Duration); ok {
@@ -204,7 +204,7 @@ func (p *printer) channeltimeout(key string) (string, bool) {
 }
 
 func (p *printer) forward(key string) (string, bool) {
-	kind := reflect.TypeOf(map[string]string{}).Kind()
+	kind := reflect.TypeFor[map[string]string]().Kind()
 	if field, err := p.get(key, kind); err == nil { //nolint:nestif
 		if field.CanInterface() {
 			if d, ok := field.Interface().(map[string]string); ok {

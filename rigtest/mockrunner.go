@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
@@ -163,22 +164,18 @@ func (m *MockConnection) Reset() {
 func (m *MockConnection) Received(matchFn CommandMatcher) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for _, cmd := range m.commands {
-		if matchFn(cmd) {
-			return nil
-		}
+	if slices.ContainsFunc(m.commands, matchFn) {
+		return nil
 	}
-	return errors.New("a matching command was not received") //nolint:goerr113
+	return errors.New("a matching command was not received") //nolint:err113
 }
 
 // NotReceived returns an error if a command matching the given regular expression was received.
 func (m *MockConnection) NotReceived(matchFn CommandMatcher) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for _, cmd := range m.commands {
-		if matchFn(cmd) {
-			return errors.New("a matching command was received") //nolint:goerr113
-		}
+	if slices.ContainsFunc(m.commands, matchFn) {
+		return errors.New("a matching command was received") //nolint:err113
 	}
 	return nil
 }

@@ -483,7 +483,7 @@ func (o ObscureKeystrokeTimingOption) Normalize() (ObscureKeystrokeTimingOption,
 	return "", fmt.Errorf("%w: invalid value %q for ObscureKeystrokeTiming", errInvalidValue, o)
 }
 
-// Adds an "s" suffix to a duration string if it ends with a number.
+// AddIntervalSuffix adds an "s" suffix to a duration string if it ends with a number.
 func AddIntervalSuffix(s string) string {
 	if s[len(s)-1] >= '0' && s[len(s)-1] <= '9' {
 		return s + "s"

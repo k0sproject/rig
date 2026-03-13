@@ -54,7 +54,7 @@ func escapeTo(str string, builder *strings.Builder) {
 		// According to strings.Map source code, this is faster than
 		// always using WriteRune.
 		if c < utf8.RuneSelf {
-			builder.WriteByte(byte(c))
+			builder.WriteByte(byte(c)) //nolint:gosec // G115: c < utf8.RuneSelf guarantees safe conversion
 		} else {
 			builder.WriteRune(c)
 		}

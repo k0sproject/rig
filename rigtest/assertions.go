@@ -4,7 +4,7 @@ import "fmt"
 
 // TestingT is an interface that is compatible with the testing.T.
 type TestingT interface {
-	Errorf(format string, args ...interface{})
+	Errorf(format string, args ...any)
 }
 
 type tHelper interface {

@@ -253,16 +253,14 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 	if stdin == nil {
 		proc.Stdin.Close()
 	} else {
-		res.wg.Add(1)
-		go func() {
-			defer res.wg.Done()
+		res.wg.Go(func() {
 			n, err := io.Copy(proc.Stdin, stdin)
 			if err != nil {
 				log.Trace(ctx, "copying data to command stdin failed", log.KeyError, err)
 				return
 			}
 			log.Trace(ctx, "finished copying data to command stdin", log.KeyBytes, n)
-		}()
+		})
 	}
 	if stdout == nil {
 		stdout = io.Discard

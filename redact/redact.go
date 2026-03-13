@@ -35,7 +35,7 @@ func StringRedacter(mask string, matches ...string) Redacter {
 	if len(matches) == 0 {
 		return noopRedacter{}
 	}
-	var newMatches []string //nolint:prealloc
+	var newMatches []string
 	for _, match := range matches {
 		if match == "" {
 			continue

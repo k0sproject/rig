@@ -1,84 +1,87 @@
+version: "2"
 run:
-  timeout: 8m
-
   tests: false
   allow-parallel-runners: true
-
 linters:
-  enable-all: true
+  default: all
   disable:
-    - deadcode
     - depguard
     - dogsled
-    - execinquery
-    - exhaustivestruct
-    - exhaustruct
+    - embeddedstructfieldcheck
     - exhaustive
+    - exhaustruct
     - forbidigo
+    - funcorder
     - gochecknoglobals
     - gochecknoinits
-    - gocognit # cyclop is used instead
-    - gocyclo # cyclop is used instead
+    - gocognit
+    - gocyclo
     - godox
     - goheader
-    - golint
-    - gomnd
-    - ifshort
-    - interfacer
     - ireturn
     - lll
-    - maligned
     - mnd
     - nlreturn
+    - noinlineerr
     - nonamedreturns
-    - nosnakecase
     - paralleltest
-    - scopelint
-    - structcheck
     - tagalign
     - tagliatelle
     - tparallel
-    - varcheck
     - wsl
-
-linters-settings:
-  funlen:
-    lines: 100
-    statements: 75
-  varnamelen:
-    max-distance: 10
-    ignore-decls:
-      - w http.ResponseWriter
-      - r *http.Request
-      - r io.Reader
-      - i int
-      - n int
-      - j int
-      - ok bool
-      - p []byte
-      - mu sync.Mutex
-      - wg sync.WaitGroup
-      - h Host
-      - fs FS
-      - fs remotefs.FS
-      - sb strings.Builder
-      - sb *strings.Builder
-      - s string
-  cyclop:
-    max-complexity: 12
-
+    - wsl_v5
+  settings:
+    cyclop:
+      max-complexity: 12
+    funlen:
+      lines: 100
+      statements: 75
+    varnamelen:
+      max-distance: 10
+      ignore-decls:
+        - w http.ResponseWriter
+        - r *http.Request
+        - r io.Reader
+        - i int
+        - n int
+        - j int
+        - ok bool
+        - p []byte
+        - mu sync.Mutex
+        - wg sync.WaitGroup
+        - h Host
+        - fs FS
+        - fs remotefs.FS
+        - sb strings.Builder
+        - sb *strings.Builder
+        - s string
+  exclusions:
+    generated: lax
+    presets:
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - errname
+          - revive
+        path: options/options\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 issues:
-  include:
-    - EXC0002
-    - EXC0012
-    - EXC0013
-    - EXC0014
-    - EXC0015
   max-issues-per-linter: 0
   max-same-issues: 0
-  exclude-rules:
-    - linters: 
-      - errname # lots of false positives for an unknown reason
-      - revive # no need for comments on obvious vars like BooleanOptionYes
-      path: 'options/options\.go'
-
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

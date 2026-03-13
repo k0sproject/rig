@@ -63,7 +63,7 @@ ConvertTo-Json -Compress -Depth 5 @($items)
 `
 
 var fileInfoPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		infos := make([]*winFileInfo, 0)
 		return &infos
 	},

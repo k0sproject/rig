@@ -58,8 +58,7 @@ func patternMatchAll(value string, patterns ...string) (bool, error) {
 		if pattern == "" {
 			continue
 		}
-		subPatterns := strings.Split(pattern, ",")
-		for _, subPattern := range subPatterns {
+		for subPattern := range strings.SplitSeq(pattern, ",") {
 			subPattern = strings.TrimSpace(subPattern)
 			if subPattern == "" {
 				continue

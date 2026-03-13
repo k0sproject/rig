@@ -156,7 +156,8 @@ func (c *Connection) Connect(ctx context.Context) error {
 	opts.Set("ControlPersist", 600)
 	opts.Set("TCPKeepalive", true)
 
-	args := []string{"-N", "-f"}
+	args := make([]string, 0, 2+len(opts.ToArgs())+len(c.args()))
+	args = append(args, "-N", "-f")
 	args = append(args, opts.ToArgs()...)
 	args = append(args, c.args()...)
 
@@ -196,12 +197,13 @@ func (c *Connection) closeControl() error {
 		return ErrControlPathNotSet
 	}
 
-	args := []string{"-O", "exit", "-S", controlPath}
+	args := make([]string, 0, 4+len(c.args())+1)
+	args = append(args, "-O", "exit", "-S", controlPath)
 	args = append(args, c.args()...)
 	args = append(args, c.userhost())
 
 	log.Trace(context.Background(), "closing ssh multiplexing control master", log.KeyHost, c)
-	cmd := exec.Command("ssh", args...)
+	cmd := exec.Command("ssh", args...) //nolint:noctx // cleanup code path, no context available
 	err := cmd.Run()
 	if err != nil {
 		return fmt.Errorf("failed to close ssh control master: %w", err)

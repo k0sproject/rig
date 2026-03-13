@@ -17,7 +17,7 @@ func getFromOpenSSH(key string) string {
 	if !haveOpenSSH() {
 		return ""
 	}
-	cmd := exec.Command("ssh", "-Q", key)
+	cmd := exec.Command("ssh", "-Q", key) //nolint:noctx // utility function, no context available
 	out, err := cmd.Output()
 	if err != nil {
 		return ""

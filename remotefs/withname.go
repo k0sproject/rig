@@ -2,6 +2,7 @@ package remotefs
 
 import "io/fs"
 
+// Operation constants for remote filesystem operations.
 const (
 	OpClose    = "close"     // OpClose Close operation
 	OpOpen     = "open"      // OpOpen Open operation
