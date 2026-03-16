@@ -46,6 +46,9 @@ jobs:
 
       - name: Check go.mod/go.sum to be consistent
         run: go mod tidy -v && git diff --exit-code
+      
+      - name: Check schemas to be consistent
+        run: make schemas && git diff --exit-code
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v4

@@ -1,0 +1,35 @@
+$defs:
+  SSH:
+    additionalProperties: false
+    properties:
+      address:
+        description: Address of the remote host (IP or hostname)
+        format: hostname
+        type: string
+      bastion:
+        $ref: '#/$defs/SSH'
+        description: Optional bastion host
+      hostKey:
+        description: Optional known host key fingerprint
+        type: string
+      keyPath:
+        description: Optional path to private key
+        type: string
+      port:
+        default: 22
+        description: SSH port
+        maximum: 65535
+        minimum: 1
+        type: integer
+      user:
+        default: root
+        description: User to log in as
+        type: string
+    required:
+      - address
+      - user
+      - port
+    type: object
+$id: https://github.com/k0sproject/rig/ssh
+$ref: '#/$defs/SSH'
+$schema: https://json-schema.org/draft/2020-12/schema

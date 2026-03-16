@@ -1,0 +1,92 @@
+$defs:
+  SSH:
+    additionalProperties: false
+    properties:
+      address:
+        description: Address of the remote host (IP or hostname)
+        format: hostname
+        type: string
+      bastion:
+        $ref: '#/$defs/SSH'
+        description: Optional bastion host
+      hostKey:
+        description: Optional known host key fingerprint
+        type: string
+      keyPath:
+        description: Optional path to private key
+        type: string
+      port:
+        default: 22
+        description: SSH port
+        maximum: 65535
+        minimum: 1
+        type: integer
+      user:
+        default: root
+        description: User to log in as
+        type: string
+    required:
+      - address
+      - user
+      - port
+    type: object
+  WinRM:
+    additionalProperties: false
+    properties:
+      address:
+        description: Address of the remote host
+        format: hostname
+        type: string
+      bastion:
+        $ref: '#/$defs/SSH'
+        description: Optional SSH bastion
+      caCertPath:
+        description: Path to CA certificate
+        type: string
+      certPath:
+        description: Path to client certificate
+        type: string
+      insecure:
+        default: false
+        description: Accept invalid TLS certificates
+        type: boolean
+      keyPath:
+        description: Path to client key
+        type: string
+      password:
+        description: Password for WinRM authentication
+        type: string
+      port:
+        default: 5985
+        description: WinRM port
+        maximum: 65535
+        minimum: 1
+        type: integer
+      tlsServerName:
+        description: TLS server name override
+        format: hostname
+        type: string
+      useHTTPS:
+        default: false
+        description: Use HTTPS for WinRM
+        type: boolean
+      useNTLM:
+        default: false
+        description: Use NTLM authentication
+        type: boolean
+      user:
+        default: Administrator
+        description: User to authenticate as
+        minLength: 3
+        type: string
+    required:
+      - address
+      - user
+      - port
+      - useHTTPS
+      - insecure
+      - useNTLM
+    type: object
+$id: https://github.com/k0sproject/rig/win-rm
+$ref: '#/$defs/WinRM'
+$schema: https://json-schema.org/draft/2020-12/schema

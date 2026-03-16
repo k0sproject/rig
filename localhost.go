@@ -18,7 +18,8 @@ const name = "[local] localhost"
 
 // Localhost is a direct localhost connection
 type Localhost struct {
-	Enabled bool `yaml:"enabled" validate:"required,eq=true" default:"true"`
+	// Enabled must be true for the connection to be valid
+	Enabled bool `yaml:"enabled" json:"enabled" validate:"required,eq=true" default:"true" jsonschema:"const=true,description=Enabled must be true for the connection to be valid"`
 }
 
 // Protocol returns the protocol name, "Local"
