@@ -82,7 +82,7 @@ func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
 }
 
 var (
-	authMethodCache = sync.Map{}
+	signerCache = sync.Map{}
 
 	knownHostsMU sync.Mutex
 	globalOnce   sync.Once
@@ -276,6 +276,28 @@ func (c *Connection) hostkeyCallback() (ssh.HostKeyCallback, error) {
 	return nil, fmt.Errorf("%w: no known_hosts file found", protocol.ErrAbort)
 }
 
+// mergeSigners combines key-file signers and agent signers, deduplicating by
+// public key bytes. Key-file signers take priority (appear first).
+func mergeSigners(keySigners, agentSigners []ssh.Signer) []ssh.Signer {
+	seen := make(map[string]struct{}, len(keySigners))
+	out := make([]ssh.Signer, 0, len(keySigners)+len(agentSigners))
+	for _, s := range keySigners {
+		k := string(s.PublicKey().Marshal())
+		if _, dup := seen[k]; !dup {
+			seen[k] = struct{}{}
+			out = append(out, s)
+		}
+	}
+	for _, s := range agentSigners {
+		k := string(s.PublicKey().Marshal())
+		if _, dup := seen[k]; !dup {
+			seen[k] = struct{}{}
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 func (c *Connection) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
 	config := &ssh.ClientConfig{
 		User: c.User,
@@ -287,13 +309,13 @@ func (c *Connection) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
 	}
 	config.HostKeyCallback = hkc
 
-	var signers []ssh.Signer
-	agent, err := agent.NewClient()
+	var agentSigners []ssh.Signer
+	agentClient, err := agent.NewClient()
 	if err != nil {
 		log.Trace(context.Background(), "failed to get ssh agent client", log.ErrorAttr(err))
 	} else {
 		c.Log().Debug("using ssh agent")
-		signers, err = agent.Signers()
+		agentSigners, err = agentClient.Signers()
 		if err != nil {
 			log.Trace(context.Background(), "failed to list signers from ssh agent", log.ErrorAttr(err))
 		}
@@ -302,38 +324,42 @@ func (c *Connection) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
 	if len(c.AuthMethods) > 0 {
 		log.Trace(context.Background(), "using passed-in auth methods", "count", len(c.AuthMethods))
 		config.Auth = c.AuthMethods
-	} else if len(signers) > 0 {
-		c.Log().Debug("using all keys from ssh agent because a keypath was not explicitly given", "count", len(signers))
-		config.Auth = append(config.Auth, ssh.PublicKeys(signers...))
+		return config, nil
 	}
 
+	var keySigners []ssh.Signer
 	for _, keyPath := range c.keyPaths {
 		keyPath, err := homedir.Expand(keyPath)
 		if err != nil {
 			log.Trace(context.Background(), "expand keypath", log.FileAttr(keyPath), log.ErrorAttr(err))
 			continue
 		}
-		if am, ok := authMethodCache.Load(keyPath); ok {
-			switch authM := am.(type) {
-			case ssh.AuthMethod:
-				log.Trace(context.Background(), "using cached auth method", log.FileAttr(keyPath))
-				config.Auth = append(config.Auth, authM)
+		if cached, ok := signerCache.Load(keyPath); ok {
+			switch v := cached.(type) {
+			case ssh.Signer:
+				log.Trace(context.Background(), "using cached signer", log.FileAttr(keyPath))
+				keySigners = append(keySigners, v)
 			case error:
-				log.Trace(context.Background(), "already discarded key", log.FileAttr(keyPath), log.ErrorAttr(authM))
+				log.Trace(context.Background(), "already discarded key", log.FileAttr(keyPath), log.ErrorAttr(v))
 			default:
-				log.Trace(context.Background(), fmt.Sprintf("unexpected type %T for cached auth method for %s", am, keyPath))
+				log.Trace(context.Background(), fmt.Sprintf("unexpected type %T for cached signer for %s", cached, keyPath))
 			}
 			continue
 		}
-		privateKeyAuth, err := c.pkeySigner(signers, keyPath)
+		signer, err := c.pkeySigner(agentSigners, keyPath)
 		if err != nil {
 			c.Log().Debug("failed to obtain a signer for identity", log.KeyFile, keyPath, log.ErrorAttr(err))
-			// store the error so this key won't be loaded again
-			authMethodCache.Store(keyPath, err)
+			signerCache.Store(keyPath, err)
 		} else {
-			authMethodCache.Store(keyPath, privateKeyAuth)
-			config.Auth = append(config.Auth, privateKeyAuth)
+			signerCache.Store(keyPath, signer)
+			keySigners = append(keySigners, signer)
 		}
+	}
+
+	combined := mergeSigners(keySigners, agentSigners)
+	if len(combined) > 0 {
+		c.Log().Debug("using public key authentication", "num_keys", len(combined))
+		config.Auth = append(config.Auth, ssh.PublicKeys(combined...))
 	}
 
 	if len(config.Auth) == 0 {
@@ -429,22 +455,22 @@ func (c *Connection) Connect() error {
 	return nil
 }
 
-func (c *Connection) pubkeySigner(signers []ssh.Signer, key ssh.PublicKey) (ssh.AuthMethod, error) {
-	if len(signers) == 0 {
+func (c *Connection) pubkeySigner(agentSigners []ssh.Signer, key ssh.PublicKey) (ssh.Signer, error) {
+	if len(agentSigners) == 0 {
 		return nil, fmt.Errorf("%w: signer not found for public key", protocol.ErrAbort)
 	}
 
-	for _, s := range signers {
+	for _, s := range agentSigners {
 		if bytes.Equal(key.Marshal(), s.PublicKey().Marshal()) {
 			c.Log().Debug("signer for public key available in ssh agent")
-			return ssh.PublicKeys(s), nil
+			return s, nil
 		}
 	}
 
 	return nil, fmt.Errorf("%w: the provided key is a public key and is not known by agent", protocol.ErrAbort)
 }
 
-func (c *Connection) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMethod, error) {
+func (c *Connection) pkeySigner(agentSigners []ssh.Signer, path string) (ssh.Signer, error) {
 	path, err := homedir.ExpandFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("expand keyfile path: %w", err)
@@ -458,21 +484,21 @@ func (c *Connection) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMeth
 	pubKey, _, _, _, err := ssh.ParseAuthorizedKey(key)
 	if err == nil {
 		log.Trace(context.Background(), "file is a public key", log.KeyFile, path)
-		return c.pubkeySigner(signers, pubKey)
+		return c.pubkeySigner(agentSigners, pubKey)
 	}
 
 	signer, err := ssh.ParsePrivateKey(key)
 	if err == nil {
 		c.Log().Debug("using an unencrypted private key", log.KeyFile, path)
-		return ssh.PublicKeys(signer), nil
+		return signer, nil
 	}
 
 	var ppErr *ssh.PassphraseMissingError
 	if errors.As(err, &ppErr) { //nolint:nestif
 		c.Log().Debug("key is encrypted", log.KeyFile, path)
 
-		if len(signers) > 0 {
-			if signer, err := c.pkeySigner(signers, path+".pub"); err == nil {
+		if len(agentSigners) > 0 {
+			if signer, err := c.pkeySigner(agentSigners, path+".pub"); err == nil {
 				return signer, nil
 			}
 		}
@@ -487,7 +513,7 @@ func (c *Connection) pkeySigner(signers []ssh.Signer, path string) (ssh.AuthMeth
 			if err != nil {
 				return nil, fmt.Errorf("%w: encrypted key %s decoding failed: %w", protocol.ErrAbort, path, err)
 			}
-			return ssh.PublicKeys(signer), nil
+			return signer, nil
 		}
 	}
 
