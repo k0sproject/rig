@@ -155,7 +155,7 @@ type executor interface {
 type defaultExecutor struct{}
 
 func (d defaultExecutor) Run(cmd string, args ...string) error {
-	if err := exec.Command(cmd, args...).Run(); err != nil {
+	if err := exec.Command(cmd, args...).Run(); err != nil { //nolint:noctx // default executor, no context available
 		return fmt.Errorf("run command %q: %w", cmd, err)
 	}
 	return nil

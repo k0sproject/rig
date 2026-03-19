@@ -58,25 +58,25 @@ func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
 	c := &Connection{Config: cfg, options: options} //nolint:varnamelen
 	options.InjectLoggerTo(c, log.KeyProtocol, "ssh")
 	c.sshConfig = &sshconfig.Config{
-		User: c.Config.User,
-		Host: c.Config.Address,
+		User: c.User,
+		Host: c.Address,
 	}
 
-	if c.Config.Port != 0 && c.Config.Port != 22 {
-		c.sshConfig.Port = c.Config.Port
+	if c.Port != 0 && c.Port != 22 {
+		c.sshConfig.Port = c.Port
 	}
 
-	if c.Config.KeyPath != nil {
-		c.sshConfig.IdentityFile = []string{*c.Config.KeyPath}
+	if c.KeyPath != nil {
+		c.sshConfig.IdentityFile = []string{*c.KeyPath}
 	}
 
 	if ConfigParser != nil {
-		if err := ConfigParser.Apply(c.sshConfig, c.Config.Address); err != nil {
+		if err := ConfigParser.Apply(c.sshConfig, c.Address); err != nil {
 			return nil, fmt.Errorf("failed to apply ssh config: %w", err)
 		}
 	}
 
-	c.Config.Port = c.sshConfig.Port
+	c.Port = c.sshConfig.Port
 
 	return c, nil
 }
@@ -159,7 +159,7 @@ func (c *Connection) IsConnected() bool {
 	if c.client == nil || c.client.Conn == nil {
 		return false
 	}
-	_, _, err := c.client.Conn.SendRequest("keepalive@rig", true, nil)
+	_, _, err := c.client.SendRequest("keepalive@rig", true, nil)
 	return err == nil
 }
 
@@ -186,10 +186,6 @@ func (c *Connection) Disconnect() {
 	c.client.Close()
 }
 
-func boolptr(b bool) *bool {
-	return &b
-}
-
 // IsWindows is true when the host is running windows.
 func (c *Connection) IsWindows() bool {
 	if c.isWindows != nil {
@@ -205,15 +201,15 @@ func (c *Connection) IsWindows() bool {
 
 	switch {
 	case strings.Contains(serverVersion, "windows"):
-		c.isWindows = boolptr(true)
+		c.isWindows = new(true)
 	case isKnownPosix(serverVersion):
-		c.isWindows = boolptr(false)
+		c.isWindows = new(false)
 	default:
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
 		isWinProc, err := c.StartProcess(ctx, "ver.exe", nil, nil, nil)
-		c.isWindows = boolptr(err == nil && isWinProc.Wait() == nil)
+		c.isWindows = new(err == nil && isWinProc.Wait() == nil)
 	}
 
 	log.Trace(context.Background(), fmt.Sprintf("host is windows: %t", *c.isWindows))
@@ -542,7 +538,7 @@ func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr
 	var input io.Reader
 
 	if inF, ok := stdin.(*os.File); ok {
-		fd := int(os.Stdin.Fd())
+		fd := int(os.Stdin.Fd()) //nolint:gosec // G115: os.Stdin.Fd() always returns valid int
 		old, err := term.MakeRaw(fd)
 		if err != nil {
 			return fmt.Errorf("make local terminal raw: %w", err)
@@ -625,7 +621,7 @@ func ParseSSHPrivateKey(key []byte, callback PasswordCallback) ([]ssh.AuthMethod
 // DefaultPasswordCallback is a default implementation for PasswordCallback.
 func DefaultPasswordCallback() (string, error) {
 	fmt.Print("Enter passphrase: ")
-	pass, err := term.ReadPassword(int(os.Stdin.Fd()))
+	pass, err := term.ReadPassword(int(os.Stdin.Fd())) //nolint:gosec // G115: os.Stdin.Fd() always returns valid int
 	fmt.Println()
 	if err != nil {
 		return "", fmt.Errorf("failed to read password: %w", err)

@@ -188,35 +188,35 @@ func WithConnectionConfigurer(configurer ConnectionConfigurer) ClientOption {
 // WithRemoteFSProvider is a functional option that sets the filesystem provider to use for the connection's RemoteFSService.
 func WithRemoteFSProvider(provider remotefs.RemoteFSProvider) ClientOption {
 	return func(o *ClientOptions) {
-		o.providersContainer.remoteFSProvider = remoteFSProvider{provider: provider}
+		o.remoteFSProvider = remoteFSProvider{provider: provider}
 	}
 }
 
 // WithInitSystemProvider is a functional option that sets the init system provider to use for the connection's InitSystemService.
 func WithInitSystemProvider(provider initsystem.InitSystemProvider) ClientOption {
 	return func(o *ClientOptions) {
-		o.providersContainer.initSystemProvider = initSystemProvider{provider: provider}
+		o.initSystemProvider = initSystemProvider{provider: provider}
 	}
 }
 
 // WithOSReleaseProvider is a functional option that sets the os release provider to use for the connection's OSReleaseService.
 func WithOSReleaseProvider(provider os.OSReleaseProvider) ClientOption {
 	return func(o *ClientOptions) {
-		o.providersContainer.osReleaseProvider = osReleaseProvider{provider: provider}
+		o.osReleaseProvider = osReleaseProvider{provider: provider}
 	}
 }
 
 // WithPackageManagerProvider is a functional option that sets the package manager provider to use for the connection's PackageManagerService.
 func WithPackageManagerProvider(provider packagemanager.PackageManagerProvider) ClientOption {
 	return func(o *ClientOptions) {
-		o.providersContainer.packageManagerProvider = packageManagerProvider{provider: provider}
+		o.packageManagerProvider = packageManagerProvider{provider: provider}
 	}
 }
 
 // WithSudoProvider is a functional option that sets the sudo provider to use for the connection's SudoService.
 func WithSudoProvider(provider sudo.SudoProvider) ClientOption {
 	return func(o *ClientOptions) {
-		o.providersContainer.sudoProvider = sudoProvider{provider: provider}
+		o.sudoProvider = sudoProvider{provider: provider}
 	}
 }
 

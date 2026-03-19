@@ -133,7 +133,7 @@ func (c *ClientWithConfig) Connect(ctx context.Context, opts ...ClientOption) er
 
 // UnmarshalYAML implements the yaml.Unmarshaler interface, it unmarshals and
 // sets up a connection from a YAML configuration.
-func (c *ClientWithConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
+func (c *ClientWithConfig) UnmarshalYAML(unmarshal func(any) error) error {
 	type configuredConnection ClientWithConfig
 	conn := (*configuredConnection)(c)
 	if err := unmarshal(conn); err != nil {
@@ -225,7 +225,7 @@ func (c *Client) setup(opts ...ClientOption) error {
 //
 //	service, err := client.Sudo().Service("nginx")
 func (c *Client) Service(name string) (*Service, error) {
-	is, err := c.InitSystemService.GetServiceManager()
+	is, err := c.GetServiceManager()
 	if err != nil {
 		return nil, fmt.Errorf("get service manager: %w", err)
 	}
@@ -260,7 +260,7 @@ func (c *Client) Clone(opts ...ClientOption) *Client {
 func (c *Client) Sudo() *Client {
 	c.sudoOnce.Do(func() {
 		c.sudoClone = c.Clone(
-			WithRunner(c.SudoService.SudoRunner()),
+			WithRunner(c.SudoRunner()),
 			WithConnection(c.connection),
 			WithLogger(log.WithAttrs(c.Log(), log.KeySudo, true)),
 		)
@@ -362,7 +362,7 @@ func (c *Client) PackageManager() packagemanager.PackageManager {
 
 // OS returns the host's operating system version and release information or an error if it can't be determined.
 func (c *Client) OS() (*os.Release, error) {
-	os, err := c.OSReleaseService.GetOSRelease()
+	os, err := c.GetOSRelease()
 	if err != nil {
 		return nil, fmt.Errorf("get os release: %w", err)
 	}

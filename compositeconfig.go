@@ -35,7 +35,7 @@ type compositeConfigIntermediary struct {
 }
 
 // UnmarshalYAML implements the yaml.Unmarshaler interface.
-func (c *CompositeConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
+func (c *CompositeConfig) UnmarshalYAML(unmarshal func(any) error) error {
 	var intermediary compositeConfigIntermediary
 	if err := unmarshal(&intermediary); err != nil {
 		return err

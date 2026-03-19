@@ -137,7 +137,7 @@ func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr
 		return fmt.Errorf("failed to parse command: %w", err)
 	}
 
-	proc, err := os.StartProcess(parts[0], parts[1:], procAttr)
+	proc, err := os.StartProcess(parts[0], parts[1:], procAttr) //nolint:gosec // G702: intentional command execution from parsed arguments
 	if err != nil {
 		return fmt.Errorf("failed to start process: %w", err)
 	}

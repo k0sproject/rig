@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -106,10 +107,8 @@ func checkField(field reflect.Value) error {
 		return fmt.Errorf("%w: field s unexported", ErrInvalidTags)
 	}
 
-	for _, kind := range getSupportedKinds() {
-		if field.Kind() == kind {
-			return nil
-		}
+	if slices.Contains(getSupportedKinds(), field.Kind()) {
+		return nil
 	}
 
 	return fmt.Errorf("%w: unsupported type %v", ErrInvalidTags, field.Kind())
@@ -214,9 +213,7 @@ func (ra *reflectAssigner) assignSlice(info fieldInfo, value string) error {
 	}
 	field := info.value
 
-	parts := strings.Split(value, delim)
-
-	for _, part := range parts {
+	for part := range strings.SplitSeq(value, delim) {
 		// Create a new addressable (modifiable) value for the slice's element type
 		newElemPtr := reflect.New(field.Type().Elem())
 		newElem := newElemPtr.Elem()
@@ -432,7 +429,7 @@ func (d *Decoder) Decode(obj any) (err error) { //nolint:cyclop
 	defer func() {
 		if r := recover(); r != nil {
 			// Capture the panic, optionally log it
-			err = fmt.Errorf("panic in Decode: %v", r) //nolint:goerr113
+			err = fmt.Errorf("panic in Decode: %v", r) //nolint:err113
 		}
 	}()
 

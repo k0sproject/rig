@@ -276,7 +276,7 @@ func evalCmd(input string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("eval: split %q: %w", input, err)
 	}
-	cmd := exec.Command(parts[0], parts[1:]...) //nolint:gosec
+	cmd := exec.Command(parts[0], parts[1:]...) //nolint:gosec,noctx // command expansion, no context available
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("eval %q: %w", input, err)
@@ -381,11 +381,11 @@ func expandVarNames(input string) (string, error) {
 	var varnames []string
 	for _, env := range os.Environ() {
 		if strings.HasPrefix(env, input) {
-			idx := strings.Index(env, "=")
-			if idx == -1 {
+			key, _, found := strings.Cut(env, "=")
+			if !found {
 				continue
 			}
-			varnames = append(varnames, env[:idx])
+			varnames = append(varnames, key)
 		}
 	}
 	sep := ' '

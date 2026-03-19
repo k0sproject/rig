@@ -159,11 +159,11 @@ func (w *waiterWrapper) Wait() error {
 }
 
 func isExe(cmd string) bool {
-	firstWordIdx := strings.Index(cmd, " ")
-	if firstWordIdx == -1 {
+	firstWord, _, found := strings.Cut(cmd, " ")
+	if !found {
 		return strings.HasSuffix(cmd, ".exe")
 	}
-	return strings.HasSuffix(cmd[:firstWordIdx], ".exe")
+	return strings.HasSuffix(firstWord, ".exe")
 }
 
 func decodeEncoded(cmd string) string {

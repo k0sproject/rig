@@ -10,7 +10,7 @@ import (
 // DefaultPasswordCallback is a default implementation for PasswordCallback.
 func DefaultPasswordCallback() (string, error) {
 	fmt.Print("Enter passphrase: ")
-	pass, err := term.ReadPassword(int(os.Stdin.Fd()))
+	pass, err := term.ReadPassword(int(os.Stdin.Fd())) //nolint:gosec // G115: os.Stdin.Fd() always returns valid int
 	fmt.Println()
 	if err != nil {
 		return "", fmt.Errorf("failed to read password: %w", err)

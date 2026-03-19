@@ -8,7 +8,7 @@ import (
 
 var (
 	builderPool = sync.Pool{
-		New: func() interface{} {
+		New: func() any {
 			return &strings.Builder{}
 		},
 	}

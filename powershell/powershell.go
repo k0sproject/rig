@@ -17,9 +17,8 @@ const PipeIsBeingClosed = "The pipe is being closed."
 // CompressedCmd creates a scriptlet that will decompress and execute a gzipped script to both avoid
 // command line length limits and to reduce data transferred.
 func CompressedCmd(psCmd string) string {
-	var trimmed []string //nolint:prealloc
-	lines := strings.Split(psCmd, "\n")
-	for _, line := range lines {
+	var trimmed []string
+	for line := range strings.SplitSeq(psCmd, "\n") {
 		line = strings.TrimSpace(line)
 		if len(line) == 0 || line[0] == '#' {
 			continue
@@ -51,13 +50,13 @@ func EncodeCmd(psCmd string) string {
 		psCmd = "$ProgressPreference='SilentlyContinue'; " + psCmd
 	}
 	// 2 byte chars to make PowerShell happy
-	wideCmd := ""
+	var wideCmd strings.Builder
 	for _, b := range []byte(psCmd) {
-		wideCmd += string(b) + "\x00"
+		wideCmd.WriteString(string(b) + "\x00")
 	}
 
 	// Base64 encode the command
-	input := []uint8(wideCmd)
+	input := []uint8(wideCmd.String())
 	return base64.StdEncoding.EncodeToString(input)
 }
 

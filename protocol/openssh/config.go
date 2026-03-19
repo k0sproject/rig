@@ -2,6 +2,7 @@ package openssh
 
 import (
 	"fmt"
+	"maps"
 	"net"
 	"strconv"
 
@@ -66,9 +67,7 @@ type OptionArguments map[string]any
 // Copy returns a copy of the options.
 func (o OptionArguments) Copy() OptionArguments {
 	dup := make(OptionArguments, len(o))
-	for k, v := range o {
-		dup[k] = v
-	}
+	maps.Copy(dup, o)
 	return dup
 }
 

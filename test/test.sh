@@ -233,8 +233,18 @@ rig_test_regular_user() {
   }
 
   ssh "$@" root@127.0.0.1 sh -euxC - <<EOF
-    groupadd --system rig-wheel
-    useradd -d /var/lib/rigtest-user -G rig-wheel -p '*' rigtest-user
+    if command -v groupadd >/dev/null 2>&1; then
+      groupadd --system rig-wheel
+      groupadd --system rigtest-user || true
+      useradd -d /var/lib/rigtest-user -g rigtest-user -G rig-wheel -p '*' rigtest-user
+      passwd -d rigtest-user || true
+    else
+      addgroup -S rig-wheel
+      addgroup -S rigtest-user || true
+      adduser -D -h /var/lib/rigtest-user -G rigtest-user rigtest-user
+      addgroup rigtest-user rig-wheel
+      passwd -u rigtest-user || true
+    fi
     mkdir -p /var/lib/rigtest-user/
     cp -r /root/.ssh /var/lib/rigtest-user/.
     chown -R rigtest-user:rigtest-user /var/lib/rigtest-user/
