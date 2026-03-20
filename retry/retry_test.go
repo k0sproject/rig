@@ -177,10 +177,10 @@ func TestRetryDoForWithContext(t *testing.T) {
 	err := retry.DoForWithContext(50*time.Millisecond, func(ctx context.Context) error {
 		attempts++
 		<-ctx.Done()
-		return retry.ErrAbort
+		return retry.ErrNonRetryable
 	}, retry.Delay(10*time.Millisecond))
 	took := time.Since(start)
-	require.ErrorIs(t, err, retry.ErrAbort)
+	require.ErrorIs(t, err, retry.ErrNonRetryable)
 	assert.True(t, attempts == 1, "Expected exactly 1 attempt")
 	assert.True(t, took >= 50*time.Millisecond, "Expected at least 50ms")
 }

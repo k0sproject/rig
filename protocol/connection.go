@@ -12,9 +12,9 @@ var (
 	// ErrValidationFailed is returned when a connection config fails validation.
 	ErrValidationFailed = errors.New("validation failed")
 
-	// ErrAbort is returned when retrying an operation will not result in a
+	// ErrNonRetryable is returned when retrying an operation will not result in a
 	// different outcome.
-	ErrAbort = errors.New("operation can not be completed")
+	ErrNonRetryable = errors.New("operation can not be completed")
 )
 
 // Waiter is a process that can be waited to finish.

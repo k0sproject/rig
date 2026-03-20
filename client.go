@@ -291,7 +291,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	defer c.mu.Unlock()
 
 	if c.connection == nil {
-		return fmt.Errorf("%w: connection not properly intialized", protocol.ErrAbort)
+		return fmt.Errorf("%w: connection not properly intialized", protocol.ErrNonRetryable)
 	}
 
 	if _, ok := ctx.Deadline(); !ok {
@@ -310,7 +310,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	err := retry.DoWithContext(ctx, func(ctx context.Context) error {
 		return c.connect(ctx)
 	}, retry.If(
-		func(err error) bool { return !errors.Is(err, protocol.ErrAbort) },
+		func(err error) bool { return !errors.Is(err, protocol.ErrNonRetryable) },
 	))
 	if err != nil {
 		return fmt.Errorf("client connect: %w", err)

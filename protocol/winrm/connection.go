@@ -116,12 +116,12 @@ func (c *Connection) bastionDialer() (dialFunc, error) {
 	}
 	bastionSSH, ok := bastion.(*ssh.Connection)
 	if !ok {
-		return nil, fmt.Errorf("%w: bastion connection is not an SSH connection", protocol.ErrAbort)
+		return nil, fmt.Errorf("%w: bastion connection is not an SSH connection", protocol.ErrNonRetryable)
 	}
 	log.Trace(context.Background(), "connecting to bastion", log.KeyHost, c)
 	if err := bastionSSH.Connect(); err != nil {
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
-			return nil, fmt.Errorf("%w: bastion connect: %w", protocol.ErrAbort, err)
+			return nil, fmt.Errorf("%w: bastion connect: %w", protocol.ErrNonRetryable, err)
 		}
 		return nil, fmt.Errorf("bastion connect: %w", err)
 	}
@@ -131,7 +131,7 @@ func (c *Connection) bastionDialer() (dialFunc, error) {
 // Connect opens the WinRM connection.
 func (c *Connection) Connect() error {
 	if err := c.loadCertificates(); err != nil {
-		return fmt.Errorf("%w: failed to load certificates: %w", protocol.ErrAbort, err)
+		return fmt.Errorf("%w: failed to load certificates: %w", protocol.ErrNonRetryable, err)
 	}
 
 	endpoint := &winrm.Endpoint{
@@ -237,7 +237,7 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 		return nil, errNotConnected
 	}
 	if len(cmd) > 8191 {
-		return nil, fmt.Errorf("%w: %w: command too long (%d/%d)", protocol.ErrAbort, errInvalidCommand, len(cmd), 8191)
+		return nil, fmt.Errorf("%w: %w: command too long (%d/%d)", protocol.ErrNonRetryable, errInvalidCommand, len(cmd), 8191)
 	}
 
 	shell, err := c.client.CreateShell()

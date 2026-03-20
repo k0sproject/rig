@@ -130,7 +130,7 @@ func (o *ClientOptions) GetConnection() (protocol.Connection, error) {
 		conn = o.connection
 	} else {
 		if o.connectionFactory == nil {
-			return nil, fmt.Errorf("%w: no connection or connection configurer provided", protocol.ErrAbort)
+			return nil, fmt.Errorf("%w: no connection or connection configurer provided", protocol.ErrNonRetryable)
 		}
 		o.Log().Debug("using client configurer to setup a connection", log.HostAttr(o.connectionFactory), log.KeyComponent, "clientoptions")
 		c, err := o.connectionFactory.Connection()

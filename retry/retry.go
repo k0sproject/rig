@@ -11,9 +11,9 @@ import (
 var (
 	// ErrPanic is returned when a panic is rescued.
 	ErrPanic = errors.New("panic")
-	// ErrAbort is returned when retrying an operation will not result in a
+	// ErrNonRetryable is returned when retrying an operation will not result in a
 	// different outcome.
-	ErrAbort = errors.New("operation can not be completed")
+	ErrNonRetryable = errors.New("operation can not be completed")
 )
 
 // Options for retry.
@@ -31,7 +31,7 @@ func NewOptions(opts ...Option) Options {
 		rescuePanic: false,
 		delay:       2 * time.Second,
 		continueOnErr: func(err error) bool {
-			return !errors.Is(err, ErrAbort)
+			return !errors.Is(err, ErrNonRetryable)
 		},
 		backoffFactor: 1.0,
 	}

@@ -16,9 +16,9 @@ import (
 // easier to consume them without importing more packages.
 
 var (
-	// ErrAbort is returned when retrying an action will not yield a different outcome.
-	// An alias of protocol.ErrAbort for easier access without importing subpackages.
-	ErrAbort = protocol.ErrAbort
+	// ErrNonRetryable is returned when retrying an action will not yield a different outcome.
+	// An alias of protocol.ErrNonRetryable for easier access without importing subpackages.
+	ErrNonRetryable = protocol.ErrNonRetryable
 
 	// ErrValidationFailed is returned when a validation check fails.
 	// An alias of protocol.ErrValidationFailed for easier access without importing subpackages.

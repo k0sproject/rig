@@ -220,7 +220,7 @@ func (c *Connection) IsWindows() bool {
 func knownhostsCallback(path string, permissive, hash bool) (ssh.HostKeyCallback, error) {
 	cb, err := hostkey.KnownHostsFileCallback(path, permissive, hash)
 	if err != nil {
-		return nil, fmt.Errorf("%w: create host key validator: %w", protocol.ErrAbort, err)
+		return nil, fmt.Errorf("%w: create host key validator: %w", protocol.ErrNonRetryable, err)
 	}
 	return cb, nil
 }
@@ -273,7 +273,7 @@ func (c *Connection) hostkeyCallback() (ssh.HostKeyCallback, error) {
 		return knownhostsCallback(khPath, permissive, hash)
 	}
 
-	return nil, fmt.Errorf("%w: no known_hosts file found", protocol.ErrAbort)
+	return nil, fmt.Errorf("%w: no known_hosts file found", protocol.ErrNonRetryable)
 }
 
 // mergeSigners combines key-file signers and agent signers, deduplicating by
@@ -363,7 +363,7 @@ func (c *Connection) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
 	}
 
 	if len(config.Auth) == 0 {
-		return nil, fmt.Errorf("%w: no usable authentication method found", protocol.ErrAbort)
+		return nil, fmt.Errorf("%w: no usable authentication method found", protocol.ErrNonRetryable)
 	}
 
 	return config, nil
@@ -376,12 +376,12 @@ func (c *Connection) connectViaBastion(dst string, config *ssh.ClientConfig) err
 	}
 	bastionSSH, ok := bastion.(*Connection)
 	if !ok {
-		return fmt.Errorf("%w: bastion connection is not an SSH connection", protocol.ErrAbort)
+		return fmt.Errorf("%w: bastion connection is not an SSH connection", protocol.ErrNonRetryable)
 	}
 	c.Log().Debug("connecting to bastion", log.HostAttr(c), "bastion", bastionSSH)
 	if err := bastionSSH.Connect(); err != nil {
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
-			return fmt.Errorf("%w: bastion connect: %w", protocol.ErrAbort, err)
+			return fmt.Errorf("%w: bastion connect: %w", protocol.ErrNonRetryable, err)
 		}
 		return err
 	}
@@ -392,7 +392,7 @@ func (c *Connection) connectViaBastion(dst string, config *ssh.ClientConfig) err
 	client, chans, reqs, err := ssh.NewClientConn(bconn, dst, config)
 	if err != nil {
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
-			return fmt.Errorf("%w: bastion client connect: %w", protocol.ErrAbort, err)
+			return fmt.Errorf("%w: bastion client connect: %w", protocol.ErrNonRetryable, err)
 		}
 		return fmt.Errorf("bastion client connect: %w", err)
 	}
@@ -432,7 +432,7 @@ func (c *Connection) Connect() error {
 
 	config, err := c.clientConfig()
 	if err != nil {
-		return fmt.Errorf("%w: create config: %w", protocol.ErrAbort, err)
+		return fmt.Errorf("%w: create config: %w", protocol.ErrNonRetryable, err)
 	}
 
 	dst := net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
@@ -444,7 +444,7 @@ func (c *Connection) Connect() error {
 	clientDirect, err := ssh.Dial("tcp", dst, config)
 	if err != nil {
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
-			return fmt.Errorf("%w: %w", protocol.ErrAbort, err)
+			return fmt.Errorf("%w: %w", protocol.ErrNonRetryable, err)
 		}
 		return fmt.Errorf("ssh dial: %w", err)
 	}
@@ -457,7 +457,7 @@ func (c *Connection) Connect() error {
 
 func (c *Connection) pubkeySigner(agentSigners []ssh.Signer, key ssh.PublicKey) (ssh.Signer, error) {
 	if len(agentSigners) == 0 {
-		return nil, fmt.Errorf("%w: signer not found for public key", protocol.ErrAbort)
+		return nil, fmt.Errorf("%w: signer not found for public key", protocol.ErrNonRetryable)
 	}
 
 	for _, s := range agentSigners {
@@ -467,7 +467,7 @@ func (c *Connection) pubkeySigner(agentSigners []ssh.Signer, key ssh.PublicKey) 
 		}
 	}
 
-	return nil, fmt.Errorf("%w: the provided key is a public key and is not known by agent", protocol.ErrAbort)
+	return nil, fmt.Errorf("%w: the provided key is a public key and is not known by agent", protocol.ErrNonRetryable)
 }
 
 func (c *Connection) pkeySigner(agentSigners []ssh.Signer, path string) (ssh.Signer, error) {
@@ -478,7 +478,7 @@ func (c *Connection) pkeySigner(agentSigners []ssh.Signer, path string) (ssh.Sig
 	log.Trace(context.Background(), "checking identity file", log.KeyFile, path)
 	key, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("%w: read identity file %s: %w", protocol.ErrAbort, path, err)
+		return nil, fmt.Errorf("%w: read identity file %s: %w", protocol.ErrNonRetryable, path, err)
 	}
 
 	pubKey, _, _, _, err := ssh.ParseAuthorizedKey(key)
@@ -507,17 +507,17 @@ func (c *Connection) pkeySigner(agentSigners []ssh.Signer, path string) (ssh.Sig
 			log.Trace(context.Background(), "asking for a password to decrypt key", log.HostAttr(c), log.KeyFile, path)
 			pass, err := c.PasswordCallback()
 			if err != nil {
-				return nil, fmt.Errorf("%w: failed to get password: %w", protocol.ErrAbort, err)
+				return nil, fmt.Errorf("%w: failed to get password: %w", protocol.ErrNonRetryable, err)
 			}
 			signer, err := ssh.ParsePrivateKeyWithPassphrase(key, []byte(pass))
 			if err != nil {
-				return nil, fmt.Errorf("%w: encrypted key %s decoding failed: %w", protocol.ErrAbort, path, err)
+				return nil, fmt.Errorf("%w: encrypted key %s decoding failed: %w", protocol.ErrNonRetryable, path, err)
 			}
 			return signer, nil
 		}
 	}
 
-	return nil, fmt.Errorf("%w: can't parse keyfile: %s: %w", protocol.ErrAbort, path, err)
+	return nil, fmt.Errorf("%w: can't parse keyfile: %s: %w", protocol.ErrNonRetryable, path, err)
 }
 
 // StartProcess executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
