@@ -13,14 +13,14 @@ import (
 	"github.com/k0sproject/rig/v2/sudo"
 )
 
-// ConnectionConfigurer can create connections. When a connection is not given, the configurer is used
+// ConnectionFactory can create connections. When a connection is not given, the configurer is used
 // to build a connection.
-type ConnectionConfigurer interface {
+type ConnectionFactory interface {
 	fmt.Stringer
 	Connection() (protocol.Connection, error)
 }
 
-func defaultConnectionConfigurer() ConnectionConfigurer {
+func defaultConnectionFactory() ConnectionFactory {
 	return &CompositeConfig{}
 }
 
@@ -28,7 +28,7 @@ func defaultConnectionConfigurer() ConnectionConfigurer {
 type ClientOptions struct {
 	log.LoggerInjectable
 	connection           protocol.Connection
-	connectionConfigurer ConnectionConfigurer
+	connectionFactory ConnectionFactory
 	runner               cmd.Runner
 	retryConnection      bool
 	providersContainer
@@ -101,7 +101,7 @@ func (o *ClientOptions) Apply(opts ...ClientOption) {
 
 // Validate the options.
 func (o *ClientOptions) Validate() error {
-	if o.connection == nil && o.connectionConfigurer == nil {
+	if o.connection == nil && o.connectionFactory == nil {
 		return fmt.Errorf("%w: no connection or connection configurer provided", protocol.ErrValidationFailed)
 	}
 	return nil
@@ -111,7 +111,7 @@ func (o *ClientOptions) Validate() error {
 func (o *ClientOptions) Clone() *ClientOptions {
 	return &ClientOptions{
 		connection:           o.connection,
-		connectionConfigurer: o.connectionConfigurer,
+		connectionFactory: o.connectionFactory,
 		runner:               o.runner,
 		providersContainer:   o.providersContainer,
 	}
@@ -122,18 +122,18 @@ func (o *ClientOptions) ShouldRetry() bool {
 	return o.retryConnection
 }
 
-// GetConnection returns the connection to use for the rig client. If no connection is set, it will use the ConnectionConfigurer to create one.
+// GetConnection returns the connection to use for the rig client. If no connection is set, it will use the ConnectionFactory to create one.
 func (o *ClientOptions) GetConnection() (protocol.Connection, error) {
 	var conn protocol.Connection
 	if o.connection != nil {
 		o.Log().Debug("using provided connection", log.HostAttr(o.connection), log.KeyComponent, "clientoptions")
 		conn = o.connection
 	} else {
-		if o.connectionConfigurer == nil {
+		if o.connectionFactory == nil {
 			return nil, fmt.Errorf("%w: no connection or connection configurer provided", protocol.ErrAbort)
 		}
-		o.Log().Debug("using client configurer to setup a connection", log.HostAttr(o.connectionConfigurer), log.KeyComponent, "clientoptions")
-		c, err := o.connectionConfigurer.Connection()
+		o.Log().Debug("using client configurer to setup a connection", log.HostAttr(o.connectionFactory), log.KeyComponent, "clientoptions")
+		c, err := o.connectionFactory.Connection()
 		if err != nil {
 			return nil, fmt.Errorf("create connection: %w", err)
 		}
@@ -164,7 +164,7 @@ func WithLogger(logger log.Logger) ClientOption {
 	}
 }
 
-// WithConnection is a functional option that sets the client to use for connecting instead of getting it from the ConnectionConfigurer.
+// WithConnection is a functional option that sets the client to use for connecting instead of getting it from the ConnectionFactory.
 func WithConnection(conn protocol.Connection) ClientOption {
 	return func(o *ClientOptions) {
 		o.connection = conn
@@ -178,10 +178,10 @@ func WithRunner(runner cmd.Runner) ClientOption {
 	}
 }
 
-// WithConnectionConfigurer is a functional option that sets the client configurer to use for connecting.
-func WithConnectionConfigurer(configurer ConnectionConfigurer) ClientOption {
+// WithConnectionFactory is a functional option that sets the client configurer to use for connecting.
+func WithConnectionFactory(factory ConnectionFactory) ClientOption {
 	return func(o *ClientOptions) {
-		o.connectionConfigurer = configurer
+		o.connectionFactory = factory
 	}
 }
 
@@ -230,7 +230,7 @@ func WithRetry(retry bool) ClientOption {
 // DefaultClientOptions returns a new Options struct with the default options applied.
 func DefaultClientOptions() *ClientOptions {
 	return &ClientOptions{
-		connectionConfigurer: defaultConnectionConfigurer(),
+		connectionFactory: defaultConnectionFactory(),
 		providersContainer:   defaultProviders(),
 		retryConnection:      true,
 	}

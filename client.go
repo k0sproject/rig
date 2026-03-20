@@ -52,7 +52,7 @@ import (
 type Client struct {
 	options *ClientOptions
 
-	connectionConfigurer ConnectionConfigurer
+	connectionFactory ConnectionFactory
 	connection           protocol.Connection
 	once                 sync.Once
 	mu                   sync.Mutex
@@ -110,7 +110,7 @@ func (c *ClientWithConfig) Setup(opts ...ClientOption) error {
 	if c.Client != nil {
 		return nil
 	}
-	opts = append(opts, WithConnectionConfigurer(&c.ConnectionConfig))
+	opts = append(opts, WithConnectionFactory(&c.ConnectionConfig))
 	client, err := NewClient(opts...)
 	if err != nil {
 		return fmt.Errorf("new client: %w", err)
@@ -145,15 +145,15 @@ func (c *ClientWithConfig) UnmarshalYAML(unmarshal func(any) error) error {
 // NewClient returns a new Connection object with the given options.
 //
 // You must use either WithConnection to provide a pre-configured connection
-// or WithConnectionConfigurer to provide a connection configurer.
+// or WithConnectionFactory to provide a connection configurer.
 //
 // An example SSH connection via ssh.Config::
 //
-//	client, err := rig.NewClient(WithConnectionConfigurer(&ssh.Config{Address: "10.0.0.1"}))
+//	client, err := rig.NewClient(WithConnectionFactory(&ssh.Config{Address: "10.0.0.1"}))
 //
 // Using the [CompositeConfig] struct:
 //
-//	client, err := rig.NewClient(WithConnectionConfigurer(&rig.CompositeConfig{SSH: &ssh.Config{...}}))
+//	client, err := rig.NewClient(WithConnectionFactory(&rig.CompositeConfig{SSH: &ssh.Config{...}}))
 //
 // If you want to use a pre-configured connection, you can use WithConnection:
 //
@@ -236,10 +236,10 @@ func (c *Client) Service(name string) (*Service, error) {
 // something like: `address:port` or `user@address:port`.
 func (c *Client) String() string {
 	if c.connection == nil {
-		if c.connectionConfigurer == nil {
+		if c.connectionFactory == nil {
 			return "[uninitialized connection]"
 		}
-		return c.connectionConfigurer.String()
+		return c.connectionFactory.String()
 	}
 
 	return c.connection.String()

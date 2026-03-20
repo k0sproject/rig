@@ -10,7 +10,7 @@ import (
 	"github.com/k0sproject/rig/v2/protocol/winrm"
 )
 
-var _ ConnectionConfigurer = (*CompositeConfig)(nil)
+var _ ConnectionFactory = (*CompositeConfig)(nil)
 
 // CompositeConfig is a composite configuration of all the protocols supported out of the box by rig.
 // It is intended to be embedded into host structs that are unmarshaled from configuration files.
@@ -59,8 +59,8 @@ func (c *CompositeConfig) UnmarshalYAML(unmarshal func(any) error) error {
 	return nil
 }
 
-func (c *CompositeConfig) configuredConfig() (ConnectionConfigurer, error) {
-	var configurer ConnectionConfigurer
+func (c *CompositeConfig) configuredConfig() (ConnectionFactory, error) {
+	var configurer ConnectionFactory
 	count := 0
 
 	if c.WinRM != nil {
