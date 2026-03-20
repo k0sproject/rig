@@ -14,8 +14,8 @@ type Provider struct {
 	lazy *plumbing.LazyService[cmd.SimpleRunner, *Release]
 }
 
-// GetOSRelease returns remote host operating system version and release information.
-func (p *Provider) GetOSRelease() (*Release, error) {
+// OSRelease returns remote host operating system version and release information.
+func (p *Provider) OSRelease() (*Release, error) {
 	os, err := p.lazy.Get()
 	if err != nil {
 		return nil, fmt.Errorf("get os release: %w", err)

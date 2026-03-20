@@ -16,26 +16,14 @@ type Provider struct {
 	lazy *plumbing.LazyService[cmd.ContextRunner, ServiceManager]
 }
 
-// GetServiceManager returns a ServiceManager or an error if a service manager
+// ServiceManager returns a ServiceManager or an error if a service manager
 // could not be initialized.
-func (p *Provider) GetServiceManager() (ServiceManager, error) {
+func (p *Provider) ServiceManager() (ServiceManager, error) {
 	sm, err := p.lazy.Get()
 	if err != nil {
 		return nil, fmt.Errorf("get service manager: %w", err)
 	}
 	return sm, nil
-}
-
-// ServiceManager provides easy access to the underlying init system service manager
-// instance. It initializes the service manager if it has not been initialized yet.
-// If the initialization fails, a NullServiceManager instance is returned which will
-// return the initialization error on every operation that is attempted on it.
-func (p *Provider) ServiceManager() ServiceManager {
-	sm, err := p.lazy.Get()
-	if err != nil {
-		return &NullServiceManager{Err: err}
-	}
-	return sm
 }
 
 // NewInitSystemProvider creates a new instance of Provider

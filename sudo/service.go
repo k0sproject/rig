@@ -16,25 +16,14 @@ type Provider struct {
 	lazy *plumbing.LazyService[cmd.Runner, cmd.Runner]
 }
 
-// GetSudoRunner returns an cmd.Runner with a sudo decorator or an error if the
+// SudoRunner returns a cmd.Runner with a sudo decorator or an error if the
 // decorator could not be initialized.
-func (p *Provider) GetSudoRunner() (cmd.Runner, error) {
+func (p *Provider) SudoRunner() (cmd.Runner, error) {
 	runner, err := p.lazy.Get()
 	if err != nil {
 		return nil, fmt.Errorf("get sudo runner: %w", err)
 	}
 	return runner, nil
-}
-
-// SudoRunner returns an cmd.Runner with a sudo decorator. If the runner initialization
-// failed, an error runner is returned which will return the initialization error on
-// every operation that is attempted on it.
-func (p *Provider) SudoRunner() cmd.Runner {
-	runner, err := p.lazy.Get()
-	if err != nil {
-		return cmd.NewErrorExecutor(err)
-	}
-	return runner
 }
 
 // NewSudoProvider creates a new instance of Provider with the provided SudoFactory

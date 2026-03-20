@@ -225,7 +225,7 @@ func (c *Client) setup(opts ...ClientOption) error {
 //
 //	service, err := client.Sudo().Service("nginx")
 func (c *Client) Service(name string) (*Service, error) {
-	is, err := c.GetServiceManager()
+	is, err := c.InitSystemProvider.ServiceManager()
 	if err != nil {
 		return nil, fmt.Errorf("get service manager: %w", err)
 	}
@@ -259,8 +259,12 @@ func (c *Client) Clone(opts ...ClientOption) *Client {
 // Sudo returns a copy of the connection with a Runner that uses sudo.
 func (c *Client) Sudo() *Client {
 	c.sudoOnce.Do(func() {
+		sudoRunner, err := c.SudoProvider.SudoRunner()
+		if err != nil {
+			sudoRunner = cmd.NewErrorExecutor(err)
+		}
 		c.sudoClone = c.Clone(
-			WithRunner(c.SudoRunner()),
+			WithRunner(sudoRunner),
 			WithConnection(c.connection),
 			WithLogger(log.WithAttrs(c.Log(), log.KeySudo, true)),
 		)
@@ -347,22 +351,31 @@ func (c *Client) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.
 // FS returns an fs.FS compatible filesystem interface for accessing files on the host.
 //
 // If the filesystem can't be accessed, a filesystem that returns an error for all operations is returned
-// instead. If you need to handle the error, you can use c.RemoteFSProvider.GetFS() directly.
+// instead. If you need to handle the error, you can use c.RemoteFSProvider.FS() directly.
 func (c *Client) FS() remotefs.FS {
-	return c.RemoteFSProvider.FS()
+	fs, err := c.RemoteFSProvider.FS()
+	if err != nil {
+		errRunner := cmd.NewErrorExecutor(err)
+		return remotefs.NewPosixFS(errRunner)
+	}
+	return fs
 }
 
 // PackageManager for the host's operating system. This can be used to install or remove packages.
 //
 // If a known package manager can't be detected, a PackageManager that returns an error for all operations is returned.
-// If you need to handle the error, you can use client.PackageManagerProvider.GetPackageManager() (packagemanager.PackageManager, error) directly.
+// If you need to handle the error, you can use client.PackageManagerProvider.PackageManager() directly.
 func (c *Client) PackageManager() packagemanager.PackageManager {
-	return c.PackageManagerProvider.PackageManager()
+	pm, err := c.PackageManagerProvider.PackageManager()
+	if err != nil {
+		return &packagemanager.NullPackageManager{Err: err}
+	}
+	return pm
 }
 
 // OS returns the host's operating system version and release information or an error if it can't be determined.
 func (c *Client) OS() (*os.Release, error) {
-	os, err := c.GetOSRelease()
+	os, err := c.OSReleaseProvider.OSRelease()
 	if err != nil {
 		return nil, fmt.Errorf("get os release: %w", err)
 	}
