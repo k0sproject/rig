@@ -8,17 +8,17 @@ import (
 	"github.com/k0sproject/rig/v2/plumbing"
 )
 
-// Service provides a unified interface to interact with different init systems.
+// Provider provides a unified interface to interact with different init systems.
 // It ensures that a suitable service manager is lazily initialized and made
 // available for service managament operations. It supports operations like
 // starting and stopping services.
-type Service struct {
+type Provider struct {
 	lazy *plumbing.LazyService[cmd.ContextRunner, ServiceManager]
 }
 
 // GetServiceManager returns a ServiceManager or an error if a service manager
 // could not be initialized.
-func (p *Service) GetServiceManager() (ServiceManager, error) {
+func (p *Provider) GetServiceManager() (ServiceManager, error) {
 	sm, err := p.lazy.Get()
 	if err != nil {
 		return nil, fmt.Errorf("get service manager: %w", err)
@@ -30,7 +30,7 @@ func (p *Service) GetServiceManager() (ServiceManager, error) {
 // instance. It initializes the service manager if it has not been initialized yet.
 // If the initialization fails, a NullServiceManager instance is returned which will
 // return the initialization error on every operation that is attempted on it.
-func (p *Service) ServiceManager() ServiceManager {
+func (p *Provider) ServiceManager() ServiceManager {
 	sm, err := p.lazy.Get()
 	if err != nil {
 		return &NullServiceManager{Err: err}
@@ -38,10 +38,10 @@ func (p *Service) ServiceManager() ServiceManager {
 	return sm
 }
 
-// NewInitSystemService creates a new instance of PackageManagerService
-// with the provided PackageManagerProvider.
-func NewInitSystemService(provider InitSystemProvider, runner cmd.ContextRunner) *Service {
-	return &Service{plumbing.NewLazyService[cmd.ContextRunner, ServiceManager](provider, runner)}
+// NewInitSystemProvider creates a new instance of Provider
+// with the provided InitSystemProvider.
+func NewInitSystemProvider(provider InitSystemProvider, runner cmd.ContextRunner) *Provider {
+	return &Provider{plumbing.NewLazyService[cmd.ContextRunner, ServiceManager](provider, runner)}
 }
 
 // NullServiceManager is a service manager that always returns an error on

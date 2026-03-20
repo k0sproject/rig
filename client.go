@@ -62,11 +62,11 @@ type Client struct {
 
 	log.LoggerInjectable
 
-	*PackageManagerService
-	*InitSystemService
-	*RemoteFSService
-	*OSReleaseService
-	*SudoService
+	*PackageManagerProvider
+	*InitSystemProvider
+	*RemoteFSProvider
+	*OSReleaseProvider
+	*SudoProvider
 
 	sudoOnce  sync.Once
 	sudoClone *Client
@@ -209,10 +209,10 @@ func (c *Client) setup(opts ...ClientOption) error {
 		c.Runner = c.options.GetRunner(c.connection)
 		log.InjectLogger(logger, c.Runner)
 
-		c.SudoService = c.options.GetSudoService(c.Runner)
-		c.InitSystemService = c.options.GetInitSystemService(c.Runner)
-		c.RemoteFSService = c.options.GetRemoteFSService(c.Runner)
-		c.PackageManagerService = c.options.GetPackageManagerService(c.Runner)
+		c.SudoProvider = c.options.GetSudoProvider(c.Runner)
+		c.InitSystemProvider = c.options.GetInitSystemProvider(c.Runner)
+		c.RemoteFSProvider = c.options.GetRemoteFSProvider(c.Runner)
+		c.PackageManagerProvider = c.options.GetPackageManagerProvider(c.Runner)
 	})
 	return c.initErr
 }
@@ -341,23 +341,23 @@ func (c *Client) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.
 	return errInteractiveNotSupported
 }
 
-// The service Getters would be available and working via the embedding alrady, but the
+// The provider Getters would be available and working via the embedding already, but the
 // accessors are provided here directly on the Client mainly for discoverability in docs.
 
 // FS returns an fs.FS compatible filesystem interface for accessing files on the host.
 //
 // If the filesystem can't be accessed, a filesystem that returns an error for all operations is returned
-// instead. If you need to handle the error, you can use c.RemoteFSService.GetFS() directly.
+// instead. If you need to handle the error, you can use c.RemoteFSProvider.GetFS() directly.
 func (c *Client) FS() remotefs.FS {
-	return c.RemoteFSService.FS()
+	return c.RemoteFSProvider.FS()
 }
 
 // PackageManager for the host's operating system. This can be used to install or remove packages.
 //
 // If a known package manager can't be detected, a PackageManager that returns an error for all operations is returned.
-// If you need to handle the error, you can use client.PackageManagerService.GetPackageManager() (packagemanager.PackageManager, error) directly.
+// If you need to handle the error, you can use client.PackageManagerProvider.GetPackageManager() (packagemanager.PackageManager, error) directly.
 func (c *Client) PackageManager() packagemanager.PackageManager {
-	return c.PackageManagerService.PackageManager()
+	return c.PackageManagerProvider.PackageManager()
 }
 
 // OS returns the host's operating system version and release information or an error if it can't be determined.

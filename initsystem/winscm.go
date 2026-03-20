@@ -77,7 +77,7 @@ func (c WinSCM) ServiceIsRunning(ctx context.Context, h cmd.ContextRunner, s str
 }
 
 // RegisterWinSCM registers the WinSCM in a repository.
-func RegisterWinSCM(repo *Provider) {
+func RegisterWinSCM(repo *Registry) {
 	repo.Register(func(c cmd.ContextRunner) (ServiceManager, bool) {
 		if !c.IsWindows() {
 			return nil, false

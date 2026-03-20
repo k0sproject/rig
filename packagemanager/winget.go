@@ -12,7 +12,7 @@ func NewWinget(c cmd.ContextRunner) PackageManager {
 }
 
 // RegisterWinget registers the winget (preinstalled on win10+) package manager to a repository.
-func RegisterWinget(repository *Provider) {
+func RegisterWinget(repository *Registry) {
 	repository.Register(func(c cmd.ContextRunner) (PackageManager, bool) {
 		if !c.IsWindows() {
 			return nil, false

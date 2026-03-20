@@ -12,9 +12,9 @@ import (
 var (
 	// ErrNoSudo is returned when no supported sudo method is found.
 	ErrNoSudo = errors.New("no supported sudo method found")
-	// DefaultProvider is the default sudo repository.
-	DefaultProvider = sync.OnceValue(func() *Provider {
-		provider := NewProvider()
+	// DefaultRegistry is the default sudo repository.
+	DefaultRegistry = sync.OnceValue(func() *Registry {
+		provider := NewRegistry()
 		RegisterWindowsNoop(provider)
 		RegisterUID0Noop(provider)
 		RegisterSudo(provider)
@@ -32,10 +32,10 @@ type SudoProvider interface { //nolint:revive // stutter
 // Factory is a factory for sudo runners.
 type Factory = plumbing.Factory[cmd.Runner, cmd.Runner]
 
-// Provider is a repository for sudo runner factories.
-type Provider = plumbing.Provider[cmd.Runner, cmd.Runner]
+// Registry is a repository for sudo runner factories.
+type Registry = plumbing.Provider[cmd.Runner, cmd.Runner]
 
-// NewProvider returns a new sudo repository.
-func NewProvider() *Provider {
+// NewRegistry returns a new sudo repository.
+func NewRegistry() *Registry {
 	return plumbing.NewProvider[cmd.Runner, cmd.Runner](ErrNoSudo)
 }

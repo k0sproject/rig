@@ -34,6 +34,6 @@ func ResolveWindows(conn cmd.SimpleRunner) (*Release, bool) {
 }
 
 // RegisterWindows registers the windows OS release resolver to a provider.
-func RegisterWindows(provider *Provider) {
+func RegisterWindows(provider *Registry) {
 	provider.Register(ResolveWindows)
 }

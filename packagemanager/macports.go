@@ -12,7 +12,7 @@ func NewMacports(c cmd.ContextRunner) PackageManager {
 }
 
 // RegisterMacports registers the macports package manager to a repository.
-func RegisterMacports(repository *Provider) {
+func RegisterMacports(repository *Registry) {
 	repository.Register(func(c cmd.ContextRunner) (PackageManager, bool) {
 		if c.IsWindows() {
 			return nil, false

@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPackageManagerService_SuccessfulInitialization(t *testing.T) {
+func TestPackageManagerProvider_SuccessfulInitialization(t *testing.T) {
 	mr := rigtest.NewMockRunner()
 
 	mr.AddCommand(rigtest.Equal("command -v zypper"), func(a *rigtest.A) error {
@@ -18,7 +18,7 @@ func TestPackageManagerService_SuccessfulInitialization(t *testing.T) {
 	})
 	mr.ErrDefault = errors.New("command not found")
 
-	pms := packagemanager.NewPackageManagerService(packagemanager.DefaultProvider(), mr)
+	pms := packagemanager.NewPackageManagerProvider(packagemanager.DefaultRegistry(), mr)
 
 	pm, err := pms.GetPackageManager()
 	require.NoError(t, err)
@@ -31,11 +31,11 @@ func TestPackageManagerService_SuccessfulInitialization(t *testing.T) {
 	rigtest.ReceivedContains(t, mr, "sample-package")
 }
 
-func TestPackageManagerService_InitializationFailure(t *testing.T) {
+func TestPackageManagerProvider_InitializationFailure(t *testing.T) {
 	mr := rigtest.NewMockRunner()
 	mr.ErrDefault = errors.New("mock error")
 
-	pms := packagemanager.NewPackageManagerService(packagemanager.DefaultProvider(), mr)
+	pms := packagemanager.NewPackageManagerProvider(packagemanager.DefaultRegistry(), mr)
 	t.Run("GetPackageManager", func(t *testing.T) {
 		pm, err := pms.GetPackageManager()
 		require.ErrorIs(t, err, packagemanager.ErrNoPackageManager)

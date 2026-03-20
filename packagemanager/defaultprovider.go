@@ -23,9 +23,9 @@ type PackageManagerProvider interface { //nolint:revive // TODO stutter
 }
 
 var (
-	// DefaultProvider is the default repository of package managers.
-	DefaultProvider = sync.OnceValue(func() *Provider {
-		provider := NewProvider()
+	// DefaultRegistry is the default repository of package managers.
+	DefaultRegistry = sync.OnceValue(func() *Registry {
+		provider := NewRegistry()
 		RegisterApk(provider)
 		RegisterApt(provider)
 		RegisterYum(provider)
@@ -44,10 +44,10 @@ var (
 // Factory is an alias for plumbing.Factory specialized for PackageManager.
 type Factory = plumbing.Factory[cmd.ContextRunner, PackageManager]
 
-// Provider is an alias for plumbing.Provider specialized for PackageManager.
-type Provider = plumbing.Provider[cmd.ContextRunner, PackageManager]
+// Registry is an alias for plumbing.Provider specialized for PackageManager.
+type Registry = plumbing.Provider[cmd.ContextRunner, PackageManager]
 
-// NewProvider creates a new instance of the specialized Provider.
-func NewProvider() *Provider {
+// NewRegistry creates a new instance of the specialized Registry.
+func NewRegistry() *Registry {
 	return plumbing.NewProvider[cmd.ContextRunner, PackageManager](ErrNoPackageManager)
 }

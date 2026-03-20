@@ -34,6 +34,6 @@ func ResolveDarwin(conn cmd.SimpleRunner) (*Release, bool) {
 }
 
 // RegisterDarwin registers the darwin OS release resolver to a provider.
-func RegisterDarwin(provider *Provider) {
+func RegisterDarwin(provider *Registry) {
 	provider.Register(ResolveDarwin)
 }

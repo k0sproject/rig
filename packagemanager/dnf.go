@@ -12,7 +12,7 @@ func NewDnf(c cmd.ContextRunner) PackageManager {
 }
 
 // RegisterDnf registers the dnf package manager to a repository.
-func RegisterDnf(repository *Provider) {
+func RegisterDnf(repository *Registry) {
 	repository.Register(func(c cmd.ContextRunner) (PackageManager, bool) {
 		if c.IsWindows() {
 			return nil, false

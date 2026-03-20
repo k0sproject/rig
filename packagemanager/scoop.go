@@ -12,7 +12,7 @@ func NewScoop(c cmd.ContextRunner) PackageManager {
 }
 
 // RegisterScoop registers the scoop package manager to a repository.
-func RegisterScoop(repository *Provider) {
+func RegisterScoop(repository *Registry) {
 	repository.Register(func(c cmd.ContextRunner) (PackageManager, bool) {
 		if !c.IsWindows() {
 			return nil, false

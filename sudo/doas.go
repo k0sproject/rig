@@ -11,7 +11,7 @@ func Doas(cmd string) string {
 }
 
 // RegisterDoas registers a doas DecorateFunc with the given repository.
-func RegisterDoas(repository *Provider) {
+func RegisterDoas(repository *Registry) {
 	repository.Register(func(c cmd.Runner) (cmd.Runner, bool) {
 		if c.IsWindows() {
 			return nil, false

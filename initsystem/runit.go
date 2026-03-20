@@ -84,7 +84,7 @@ func (i Runit) ServiceLogs(ctx context.Context, h cmd.ContextRunner, s string, l
 }
 
 // RegisterRunit register runit in a repository.
-func RegisterRunit(repo *Provider) {
+func RegisterRunit(repo *Registry) {
 	repo.Register(func(c cmd.ContextRunner) (ServiceManager, bool) {
 		if c.IsWindows() {
 			return nil, false

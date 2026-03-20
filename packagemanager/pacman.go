@@ -12,7 +12,7 @@ func NewPacman(c cmd.ContextRunner) PackageManager {
 }
 
 // RegisterPacman registers the pacman package manager to a repository.
-func RegisterPacman(repository *Provider) {
+func RegisterPacman(repository *Registry) {
 	repository.Register(func(c cmd.ContextRunner) (PackageManager, bool) {
 		if c.IsWindows() {
 			return nil, false

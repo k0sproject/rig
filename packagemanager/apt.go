@@ -19,7 +19,7 @@ func NewApt(c cmd.ContextRunner) PackageManager {
 }
 
 // RegisterApt registers the apt package manager to a repository.
-func RegisterApt(repository *Provider) {
+func RegisterApt(repository *Registry) {
 	repository.Register(func(c cmd.ContextRunner) (PackageManager, bool) {
 		if c.IsWindows() {
 			return nil, false
