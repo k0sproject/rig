@@ -23,9 +23,9 @@ var (
 	})
 )
 
-// SudoProvider returns a new cmd.Runner with elevated privileges based on the
+// SudoFactory returns a new cmd.Runner with elevated privileges based on the
 // given runner.
-type SudoProvider interface { //nolint:revive // stutter
+type SudoFactory interface {
 	Get(runner cmd.Runner) (cmd.Runner, error)
 }
 

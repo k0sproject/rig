@@ -17,8 +17,8 @@ type PackageManager interface {
 	Update(ctx context.Context) error
 }
 
-// PackageManagerProvider returns a package manager implementation from a provider when given a runner.
-type PackageManagerProvider interface { //nolint:revive // TODO stutter
+// PackageManagerFactory returns a package manager implementation from a factory when given a runner.
+type PackageManagerFactory interface {
 	Get(runner cmd.ContextRunner) (PackageManager, error)
 }
 

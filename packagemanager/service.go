@@ -40,9 +40,9 @@ func (p *Provider) PackageManager() PackageManager {
 }
 
 // NewPackageManagerProvider creates a new instance of Provider
-// with the provided PackageManagerProvider.
-func NewPackageManagerProvider(provider PackageManagerProvider, runner cmd.ContextRunner) *Provider {
-	return &Provider{plumbing.NewLazyService[cmd.ContextRunner, PackageManager](provider, runner)}
+// with the provided PackageManagerFactory.
+func NewPackageManagerProvider(factory PackageManagerFactory, runner cmd.ContextRunner) *Provider {
+	return &Provider{plumbing.NewLazyService[cmd.ContextRunner, PackageManager](factory, runner)}
 }
 
 // NullPackageManager is a package manager that always returns an error on

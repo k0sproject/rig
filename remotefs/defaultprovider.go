@@ -9,8 +9,8 @@ import (
 // DefaultRegistry is the default Repository for remote filesystem implementations.
 var DefaultRegistry = sync.OnceValue(NewRegistry)
 
-// RemoteFSProvider is a factory for remote filesystem implementations.
-type RemoteFSProvider interface { //nolint:revive // stutter
+// RemoteFSFactory is a factory for remote filesystem implementations.
+type RemoteFSFactory interface {
 	Get(runner cmd.Runner) (FS, error)
 }
 

@@ -59,8 +59,8 @@ var (
 	ErrNoInitSystem = errors.New("no supported init system found")
 )
 
-// InitSystemProvider is a function that returns a ServiceManager given a runner.
-type InitSystemProvider interface { //nolint:revive // stutter
+// InitSystemFactory is a function that returns a ServiceManager given a runner.
+type InitSystemFactory interface {
 	Get(conn cmd.ContextRunner) (ServiceManager, error)
 }
 

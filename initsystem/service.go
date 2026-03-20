@@ -39,9 +39,9 @@ func (p *Provider) ServiceManager() ServiceManager {
 }
 
 // NewInitSystemProvider creates a new instance of Provider
-// with the provided InitSystemProvider.
-func NewInitSystemProvider(provider InitSystemProvider, runner cmd.ContextRunner) *Provider {
-	return &Provider{plumbing.NewLazyService[cmd.ContextRunner, ServiceManager](provider, runner)}
+// with the provided InitSystemFactory.
+func NewInitSystemProvider(factory InitSystemFactory, runner cmd.ContextRunner) *Provider {
+	return &Provider{plumbing.NewLazyService[cmd.ContextRunner, ServiceManager](factory, runner)}
 }
 
 // NullServiceManager is a service manager that always returns an error on

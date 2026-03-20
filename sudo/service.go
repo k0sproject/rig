@@ -37,8 +37,8 @@ func (p *Provider) SudoRunner() cmd.Runner {
 	return runner
 }
 
-// NewSudoProvider creates a new instance of Provider with the provided SudoProvider
+// NewSudoProvider creates a new instance of Provider with the provided SudoFactory
 // and runner.
-func NewSudoProvider(provider SudoProvider, runner cmd.Runner) *Provider {
-	return &Provider{plumbing.NewLazyService[cmd.Runner, cmd.Runner](provider, runner)}
+func NewSudoProvider(factory SudoFactory, runner cmd.Runner) *Provider {
+	return &Provider{plumbing.NewLazyService[cmd.Runner, cmd.Runner](factory, runner)}
 }

@@ -28,8 +28,8 @@ type Factory = plumbing.Factory[cmd.SimpleRunner, *Release]
 // Registry is a type that can determine the host OS given a runner.
 type Registry = plumbing.Provider[cmd.SimpleRunner, *Release]
 
-// OSReleaseProvider is a factory for OS release information.
-type OSReleaseProvider interface { //nolint:revive // stutter
+// OSReleaseFactory is a factory for OS release information.
+type OSReleaseFactory interface {
 	Get(runner cmd.SimpleRunner) (*Release, error)
 }
 
