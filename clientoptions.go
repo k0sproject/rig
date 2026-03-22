@@ -13,7 +13,7 @@ import (
 	"github.com/k0sproject/rig/v2/sudo"
 )
 
-// ConnectionFactory can create connections. When a connection is not given, the configurer is used
+// ConnectionFactory can create connections. When a connection is not given, the factory is used
 // to build a connection.
 type ConnectionFactory interface {
 	fmt.Stringer
@@ -102,7 +102,7 @@ func (o *ClientOptions) Apply(opts ...ClientOption) {
 // Validate the options.
 func (o *ClientOptions) Validate() error {
 	if o.connection == nil && o.connectionFactory == nil {
-		return fmt.Errorf("%w: no connection or connection configurer provided", protocol.ErrValidationFailed)
+		return fmt.Errorf("%w: no connection or connection factory provided", protocol.ErrValidationFailed)
 	}
 	return nil
 }
@@ -130,14 +130,14 @@ func (o *ClientOptions) GetConnection() (protocol.Connection, error) {
 		conn = o.connection
 	} else {
 		if o.connectionFactory == nil {
-			return nil, fmt.Errorf("%w: no connection or connection configurer provided", protocol.ErrNonRetryable)
+			return nil, fmt.Errorf("%w: no connection or connection factory provided", protocol.ErrNonRetryable)
 		}
-		o.Log().Debug("using client configurer to setup a connection", log.HostAttr(o.connectionFactory), log.KeyComponent, "clientoptions")
+		o.Log().Debug("using connection factory to setup a connection", log.HostAttr(o.connectionFactory), log.KeyComponent, "clientoptions")
 		c, err := o.connectionFactory.Connection()
 		if err != nil {
 			return nil, fmt.Errorf("create connection: %w", err)
 		}
-		o.Log().Debug("using connection received from client configurer", log.HostAttr(c), log.KeyComponent, "clientoptions")
+		o.Log().Debug("using connection received from connection factory", log.HostAttr(c), log.KeyComponent, "clientoptions")
 		conn = c
 	}
 
@@ -178,7 +178,7 @@ func WithRunner(runner cmd.Runner) ClientOption {
 	}
 }
 
-// WithConnectionFactory is a functional option that sets the client configurer to use for connecting.
+// WithConnectionFactory is a functional option that sets the connection factory to use for connecting.
 func WithConnectionFactory(factory ConnectionFactory) ClientOption {
 	return func(o *ClientOptions) {
 		o.connectionFactory = factory

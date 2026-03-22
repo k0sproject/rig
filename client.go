@@ -144,7 +144,7 @@ func (c *ClientWithConfig) UnmarshalYAML(unmarshal func(any) error) error {
 // NewClient returns a new Connection object with the given options.
 //
 // You must use either WithConnection to provide a pre-configured connection
-// or WithConnectionFactory to provide a connection configurer.
+// or WithConnectionFactory to provide a connection factory.
 //
 // An example SSH connection via ssh.Config::
 //
@@ -185,7 +185,7 @@ func (c *Client) setupConnection() error {
 	if err != nil {
 		return fmt.Errorf("get connection: %w", err)
 	}
-	log.Trace(context.Background(), "connection from configurer", log.HostAttr(conn))
+	log.Trace(context.Background(), "connection from factory", log.HostAttr(conn))
 	c.connection = conn
 	return nil
 }
@@ -290,7 +290,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	defer c.mu.Unlock()
 
 	if c.connection == nil {
-		return fmt.Errorf("%w: connection not properly intialized", protocol.ErrNonRetryable)
+		return fmt.Errorf("%w: connection not properly initialized", protocol.ErrNonRetryable)
 	}
 
 	if _, ok := ctx.Deadline(); !ok {

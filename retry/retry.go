@@ -13,7 +13,7 @@ var (
 	ErrPanic = errors.New("panic")
 	// ErrNonRetryable is returned when retrying an operation will not result in a
 	// different outcome.
-	ErrNonRetryable = errors.New("operation can not be completed")
+	ErrNonRetryable = errors.New("operation cannot be completed")
 )
 
 // Options for retry.

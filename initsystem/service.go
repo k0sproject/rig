@@ -10,7 +10,7 @@ import (
 
 // Provider provides a unified interface to interact with different init systems.
 // It ensures that a suitable service manager is lazily initialized and made
-// available for service managament operations. It supports operations like
+// available for service management operations. It supports operations like
 // starting and stopping services.
 type Provider struct {
 	lazy *plumbing.LazyService[cmd.ContextRunner, ServiceManager]
