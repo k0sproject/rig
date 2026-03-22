@@ -6,7 +6,8 @@ import (
 	"github.com/k0sproject/rig/v2/cmd"
 )
 
-// RegisterWindowsNoop registers a noop DecorateFunc with the given repository if the user is root.
+// RegisterWindowsNoop registers a noop DecorateFunc with the given repository if the user is
+// the built-in Administrator or a member of the Administrators group with UAC disabled.
 func RegisterWindowsNoop(repository *Registry) {
 	repository.Register(func(runner cmd.Runner) (cmd.Runner, bool) {
 		if !runner.IsWindows() {
