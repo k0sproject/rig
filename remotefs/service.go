@@ -25,7 +25,7 @@ func (p *Provider) FS() (FS, error) {
 }
 
 // NewRemoteFSProvider creates a new instance of Provider with the
-// provided remotefs RemoteFSFactory and runner.
-func NewRemoteFSProvider(factory RemoteFSFactory, runner cmd.Runner) *Provider {
+// provided Factory and runner.
+func NewRemoteFSProvider(factory Factory, runner cmd.Runner) *Provider {
 	return &Provider{plumbing.NewLazyService[cmd.Runner, FS](factory, runner)}
 }

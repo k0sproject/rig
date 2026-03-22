@@ -17,8 +17,8 @@ type PackageManager interface {
 	Update(ctx context.Context) error
 }
 
-// PackageManagerFactory returns a package manager implementation from a factory when given a runner.
-type PackageManagerFactory interface {
+// ManagerFactory returns a package manager implementation from a factory when given a runner.
+type ManagerFactory interface {
 	Get(runner cmd.ContextRunner) (PackageManager, error)
 }
 

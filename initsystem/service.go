@@ -27,8 +27,8 @@ func (p *Provider) ServiceManager() (ServiceManager, error) {
 }
 
 // NewInitSystemProvider creates a new instance of Provider
-// with the provided InitSystemFactory.
-func NewInitSystemProvider(factory InitSystemFactory, runner cmd.ContextRunner) *Provider {
+// with the provided ServiceManagerFactory.
+func NewInitSystemProvider(factory ServiceManagerFactory, runner cmd.ContextRunner) *Provider {
 	return &Provider{plumbing.NewLazyService[cmd.ContextRunner, ServiceManager](factory, runner)}
 }
 

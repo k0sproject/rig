@@ -43,7 +43,7 @@ type providersContainer struct {
 }
 
 type packageManagerProviderConfig struct {
-	provider packagemanager.PackageManagerFactory
+	provider packagemanager.ManagerFactory
 }
 
 func (p *packageManagerProviderConfig) GetPackageManagerProvider(runner cmd.Runner) *packagemanager.Provider {
@@ -51,7 +51,7 @@ func (p *packageManagerProviderConfig) GetPackageManagerProvider(runner cmd.Runn
 }
 
 type initSystemProviderConfig struct {
-	provider initsystem.InitSystemFactory
+	provider initsystem.ServiceManagerFactory
 }
 
 func (p *initSystemProviderConfig) GetInitSystemProvider(runner cmd.Runner) *initsystem.Provider {
@@ -59,7 +59,7 @@ func (p *initSystemProviderConfig) GetInitSystemProvider(runner cmd.Runner) *ini
 }
 
 type remoteFSProviderConfig struct {
-	provider remotefs.RemoteFSFactory
+	provider remotefs.Factory
 }
 
 func (p *remoteFSProviderConfig) GetRemoteFSProvider(runner cmd.Runner) *remotefs.Provider {
@@ -67,7 +67,7 @@ func (p *remoteFSProviderConfig) GetRemoteFSProvider(runner cmd.Runner) *remotef
 }
 
 type osReleaseProviderConfig struct {
-	provider os.OSReleaseFactory
+	provider os.ReleaseFactory
 }
 
 func (p *osReleaseProviderConfig) GetOSReleaseProvider(runner cmd.Runner) *os.Provider {
@@ -75,7 +75,7 @@ func (p *osReleaseProviderConfig) GetOSReleaseProvider(runner cmd.Runner) *os.Pr
 }
 
 type sudoProviderConfig struct {
-	provider sudo.SudoFactory
+	provider sudo.RunnerFactory
 }
 
 func (p *sudoProviderConfig) GetSudoProvider(runner cmd.Runner) *sudo.Provider {
@@ -186,35 +186,35 @@ func WithConnectionFactory(factory ConnectionFactory) ClientOption {
 }
 
 // WithRemoteFSProvider is a functional option that sets the filesystem provider to use for the connection's RemoteFSProvider.
-func WithRemoteFSProvider(provider remotefs.RemoteFSFactory) ClientOption {
+func WithRemoteFSProvider(provider remotefs.Factory) ClientOption {
 	return func(o *ClientOptions) {
 		o.remoteFSProviderConfig = remoteFSProviderConfig{provider: provider}
 	}
 }
 
 // WithInitSystemProvider is a functional option that sets the init system provider to use for the connection's InitSystemProvider.
-func WithInitSystemProvider(provider initsystem.InitSystemFactory) ClientOption {
+func WithInitSystemProvider(provider initsystem.ServiceManagerFactory) ClientOption {
 	return func(o *ClientOptions) {
 		o.initSystemProviderConfig = initSystemProviderConfig{provider: provider}
 	}
 }
 
 // WithOSReleaseProvider is a functional option that sets the os release provider to use for the connection's OSReleaseProvider.
-func WithOSReleaseProvider(provider os.OSReleaseFactory) ClientOption {
+func WithOSReleaseProvider(provider os.ReleaseFactory) ClientOption {
 	return func(o *ClientOptions) {
 		o.osReleaseProviderConfig = osReleaseProviderConfig{provider: provider}
 	}
 }
 
 // WithPackageManagerProvider is a functional option that sets the package manager provider to use for the connection's PackageManagerProvider.
-func WithPackageManagerProvider(provider packagemanager.PackageManagerFactory) ClientOption {
+func WithPackageManagerProvider(provider packagemanager.ManagerFactory) ClientOption {
 	return func(o *ClientOptions) {
 		o.packageManagerProviderConfig = packageManagerProviderConfig{provider: provider}
 	}
 }
 
 // WithSudoProvider is a functional option that sets the sudo provider to use for the connection's SudoProvider.
-func WithSudoProvider(provider sudo.SudoFactory) ClientOption {
+func WithSudoProvider(provider sudo.RunnerFactory) ClientOption {
 	return func(o *ClientOptions) {
 		o.sudoProviderConfig = sudoProviderConfig{provider: provider}
 	}

@@ -7,26 +7,26 @@ import (
 )
 
 // DefaultRegistry is the default Repository for remote filesystem implementations.
-var DefaultRegistry = sync.OnceValue(NewRegistry)
+var DefaultRegistry = sync.OnceValue(NewDefaultFactory)
 
-// RemoteFSFactory is a factory for remote filesystem implementations.
-type RemoteFSFactory interface {
+// Factory is a factory for remote filesystem implementations.
+type Factory interface {
 	Get(runner cmd.Runner) (FS, error)
 }
 
-// Registry is a factory for remote filesystem implementations.
-type Registry struct{}
+// DefaultFactory is a factory for remote filesystem implementations.
+type DefaultFactory struct{}
 
 // Get returns Windows or Unix FS depending on the remote OS.
 // Currently it never returns an error.
-func (r *Registry) Get(c cmd.Runner) (FS, error) {
+func (r *DefaultFactory) Get(c cmd.Runner) (FS, error) {
 	if c.IsWindows() {
 		return NewWindowsFS(c), nil
 	}
 	return NewPosixFS(c), nil
 }
 
-// NewRegistry returns a new Registry.
-func NewRegistry() *Registry {
-	return &Registry{}
+// NewDefaultFactory returns a new DefaultFactory.
+func NewDefaultFactory() *DefaultFactory {
+	return &DefaultFactory{}
 }

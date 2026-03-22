@@ -25,6 +25,6 @@ func (p *Provider) OSRelease() (*Release, error) {
 
 // NewOSReleaseProvider creates a new instance of Provider with the provided
 // factory and runner.
-func NewOSReleaseProvider(factory OSReleaseFactory, runner cmd.SimpleRunner) *Provider {
+func NewOSReleaseProvider(factory ReleaseFactory, runner cmd.SimpleRunner) *Provider {
 	return &Provider{plumbing.NewLazyService[cmd.SimpleRunner, *Release](factory, runner)}
 }

@@ -59,8 +59,8 @@ var (
 	ErrNoInitSystem = errors.New("no supported init system found")
 )
 
-// InitSystemFactory is a function that returns a ServiceManager given a runner.
-type InitSystemFactory interface {
+// ServiceManagerFactory is a function that returns a ServiceManager given a runner.
+type ServiceManagerFactory interface {
 	Get(conn cmd.ContextRunner) (ServiceManager, error)
 }
 

@@ -23,9 +23,9 @@ var (
 	})
 )
 
-// SudoFactory returns a new cmd.Runner with elevated privileges based on the
+// RunnerFactory returns a new cmd.Runner with elevated privileges based on the
 // given runner.
-type SudoFactory interface {
+type RunnerFactory interface {
 	Get(runner cmd.Runner) (cmd.Runner, error)
 }
 
