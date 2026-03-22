@@ -17,10 +17,8 @@ type PackageManager interface {
 	Update(ctx context.Context) error
 }
 
-// ManagerFactory returns a package manager implementation from a factory when given a runner.
-type ManagerFactory interface {
-	Get(runner cmd.ContextRunner) (PackageManager, error)
-}
+// ManagerProvider is a function that returns a PackageManager given a runner.
+type ManagerProvider func(cmd.ContextRunner) (PackageManager, error)
 
 var (
 	// DefaultRegistry is the default repository of package managers.

@@ -28,10 +28,8 @@ type Factory = plumbing.Factory[cmd.SimpleRunner, *Release]
 // Registry is a type that can determine the host OS given a runner.
 type Registry = plumbing.Provider[cmd.SimpleRunner, *Release]
 
-// ReleaseFactory is a factory for OS release information.
-type ReleaseFactory interface {
-	Get(runner cmd.SimpleRunner) (*Release, error)
-}
+// ReleaseProvider is a function that returns OS release information given a runner.
+type ReleaseProvider func(cmd.SimpleRunner) (*Release, error)
 
 // NewRegistry creates a new OS release registry.
 func NewRegistry() *Registry {

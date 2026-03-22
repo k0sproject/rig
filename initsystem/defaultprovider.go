@@ -59,10 +59,8 @@ var (
 	ErrNoInitSystem = errors.New("no supported init system found")
 )
 
-// ServiceManagerFactory is a function that returns a ServiceManager given a runner.
-type ServiceManagerFactory interface {
-	Get(conn cmd.ContextRunner) (ServiceManager, error)
-}
+// ServiceManagerProvider is a function that returns a ServiceManager given a runner.
+type ServiceManagerProvider func(cmd.ContextRunner) (ServiceManager, error)
 
 // Factory is a type alias for the plumbing.Factory type specialized for initsystem ServiceManagers.
 type Factory = plumbing.Factory[cmd.ContextRunner, ServiceManager]

@@ -18,7 +18,7 @@ func TestPackageManagerProvider_SuccessfulInitialization(t *testing.T) {
 	})
 	mr.ErrDefault = errors.New("command not found")
 
-	pms := packagemanager.NewPackageManagerProvider(packagemanager.DefaultRegistry(), mr)
+	pms := packagemanager.NewPackageManagerProvider(packagemanager.DefaultRegistry().Get, mr)
 
 	pm, err := pms.PackageManager()
 	require.NoError(t, err)
@@ -35,7 +35,7 @@ func TestPackageManagerProvider_InitializationFailure(t *testing.T) {
 	mr := rigtest.NewMockRunner()
 	mr.ErrDefault = errors.New("mock error")
 
-	pms := packagemanager.NewPackageManagerProvider(packagemanager.DefaultRegistry(), mr)
+	pms := packagemanager.NewPackageManagerProvider(packagemanager.DefaultRegistry().Get, mr)
 	t.Run("PackageManager", func(t *testing.T) {
 		pm, err := pms.PackageManager()
 		require.ErrorIs(t, err, packagemanager.ErrNoPackageManager)

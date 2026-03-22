@@ -23,11 +23,9 @@ var (
 	})
 )
 
-// RunnerFactory returns a new cmd.Runner with elevated privileges based on the
-// given runner.
-type RunnerFactory interface {
-	Get(runner cmd.Runner) (cmd.Runner, error)
-}
+// RunnerProvider is a function that returns a cmd.Runner with elevated privileges
+// given a runner.
+type RunnerProvider func(cmd.Runner) (cmd.Runner, error)
 
 // Factory is a factory for sudo runners.
 type Factory = plumbing.Factory[cmd.Runner, cmd.Runner]

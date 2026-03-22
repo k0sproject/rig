@@ -9,10 +9,8 @@ import (
 // DefaultRegistry is the default Repository for remote filesystem implementations.
 var DefaultRegistry = sync.OnceValue(NewDefaultFactory)
 
-// Factory is a factory for remote filesystem implementations.
-type Factory interface {
-	Get(runner cmd.Runner) (FS, error)
-}
+// FSProvider is a function that returns a remote filesystem implementation given a runner.
+type FSProvider func(cmd.Runner) (FS, error)
 
 // DefaultFactory is a factory for remote filesystem implementations.
 type DefaultFactory struct{}
