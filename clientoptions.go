@@ -27,10 +27,10 @@ func defaultConnectionFactory() ConnectionFactory {
 // ClientOptions is a struct that holds the variadic options for the rig package.
 type ClientOptions struct {
 	log.LoggerInjectable
-	connection           protocol.Connection
+	connection        protocol.Connection
 	connectionFactory ConnectionFactory
-	runner               cmd.Runner
-	retryConnection      bool
+	runner            cmd.Runner
+	retryConnection   bool
 	providersContainer
 }
 
@@ -110,10 +110,10 @@ func (o *ClientOptions) Validate() error {
 // Clone returns a copy of the Options struct.
 func (o *ClientOptions) Clone() *ClientOptions {
 	return &ClientOptions{
-		connection:           o.connection,
-		connectionFactory: o.connectionFactory,
-		runner:               o.runner,
-		providersContainer:   o.providersContainer,
+		connection:         o.connection,
+		connectionFactory:  o.connectionFactory,
+		runner:             o.runner,
+		providersContainer: o.providersContainer,
 	}
 }
 
@@ -230,9 +230,9 @@ func WithRetry(retry bool) ClientOption {
 // DefaultClientOptions returns a new Options struct with the default options applied.
 func DefaultClientOptions() *ClientOptions {
 	return &ClientOptions{
-		connectionFactory: defaultConnectionFactory(),
-		providersContainer:   defaultProviders(),
-		retryConnection:      true,
+		connectionFactory:  defaultConnectionFactory(),
+		providersContainer: defaultProviders(),
+		retryConnection:    true,
 	}
 }
 

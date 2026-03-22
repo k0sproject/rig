@@ -52,11 +52,10 @@ import (
 type Client struct {
 	options *ClientOptions
 
-	connectionFactory ConnectionFactory
-	connection           protocol.Connection
-	once                 sync.Once
-	mu                   sync.Mutex
-	initErr              error
+	connection protocol.Connection
+	once       sync.Once
+	mu         sync.Mutex
+	initErr    error
 
 	cmd.Runner
 
@@ -225,7 +224,7 @@ func (c *Client) setup(opts ...ClientOption) error {
 //
 //	service, err := client.Sudo().Service("nginx")
 func (c *Client) Service(name string) (*Service, error) {
-	is, err := c.InitSystemProvider.ServiceManager()
+	is, err := c.ServiceManager()
 	if err != nil {
 		return nil, fmt.Errorf("get service manager: %w", err)
 	}
@@ -236,10 +235,10 @@ func (c *Client) Service(name string) (*Service, error) {
 // something like: `address:port` or `user@address:port`.
 func (c *Client) String() string {
 	if c.connection == nil {
-		if c.connectionFactory == nil {
+		if c.options == nil || c.options.connectionFactory == nil {
 			return "[uninitialized connection]"
 		}
-		return c.connectionFactory.String()
+		return c.options.connectionFactory.String()
 	}
 
 	return c.connection.String()
@@ -259,7 +258,7 @@ func (c *Client) Clone(opts ...ClientOption) *Client {
 // Sudo returns a copy of the connection with a Runner that uses sudo.
 func (c *Client) Sudo() *Client {
 	c.sudoOnce.Do(func() {
-		sudoRunner, err := c.SudoProvider.SudoRunner()
+		sudoRunner, err := c.SudoRunner()
 		if err != nil {
 			sudoRunner = cmd.NewErrorExecutor(err)
 		}
@@ -375,7 +374,7 @@ func (c *Client) PackageManager() packagemanager.PackageManager {
 
 // OS returns the host's operating system version and release information or an error if it can't be determined.
 func (c *Client) OS() (*os.Release, error) {
-	os, err := c.OSReleaseProvider.OSRelease()
+	os, err := c.OSRelease()
 	if err != nil {
 		return nil, fmt.Errorf("get os release: %w", err)
 	}
