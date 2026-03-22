@@ -60,21 +60,21 @@ func (c *CompositeConfig) UnmarshalYAML(unmarshal func(any) error) error {
 }
 
 func (c *CompositeConfig) configuredConfig() (ConnectionFactory, error) {
-	var configurer ConnectionFactory
+	var factory ConnectionFactory
 	count := 0
 
 	if c.WinRM != nil {
-		configurer = c.WinRM
+		factory = c.WinRM
 		count++
 	}
 
 	if c.SSH != nil {
-		configurer = c.SSH
+		factory = c.SSH
 		count++
 	}
 
 	if c.OpenSSH != nil {
-		configurer = c.OpenSSH
+		factory = c.OpenSSH
 		count++
 	}
 
@@ -84,14 +84,14 @@ func (c *CompositeConfig) configuredConfig() (ConnectionFactory, error) {
 		if err != nil {
 			return nil, fmt.Errorf("create localhost connection: %w", err)
 		}
-		configurer = conn
+		factory = conn
 	}
 
 	switch count {
 	case 0:
 		return nil, fmt.Errorf("%w: no protocol configuration", protocol.ErrValidationFailed)
 	case 1:
-		return configurer, nil
+		return factory, nil
 	default:
 		return nil, fmt.Errorf("%w: multiple protocols configured for a single client", protocol.ErrValidationFailed)
 	}
@@ -103,13 +103,13 @@ type validatable interface {
 
 // Validate the configuration.
 func (c *CompositeConfig) Validate() error {
-	configurer, err := c.configuredConfig()
+	factory, err := c.configuredConfig()
 	if err != nil {
 		return err
 	}
-	if v, ok := configurer.(validatable); ok {
+	if v, ok := factory.(validatable); ok {
 		if err := v.Validate(); err != nil {
-			return fmt.Errorf("validate %T: %w", configurer, err)
+			return fmt.Errorf("validate %T: %w", factory, err)
 		}
 	}
 	return nil
