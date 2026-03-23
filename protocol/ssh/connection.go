@@ -421,9 +421,10 @@ func (c *Connection) connectViaBastion(ctx context.Context, dst string, config *
 		}
 		return fmt.Errorf("bastion client connect: %w", err)
 	}
+	c.mu.Lock()
 	c.client = ssh.NewClient(client, chans, reqs)
-
 	c.startKeepalive()
+	c.mu.Unlock()
 
 	return nil
 }
@@ -473,9 +474,10 @@ func (c *Connection) Connect(ctx context.Context) error {
 		}
 		return fmt.Errorf("ssh dial: %w", err)
 	}
+	c.mu.Lock()
 	c.client = clientDirect
-
 	c.startKeepalive()
+	c.mu.Unlock()
 
 	return nil
 }
