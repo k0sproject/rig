@@ -110,6 +110,7 @@ func (o *ClientOptions) Validate() error {
 // Clone returns a copy of the Options struct.
 func (o *ClientOptions) Clone() *ClientOptions {
 	return &ClientOptions{
+		LoggerInjectable:   o.LoggerInjectable,
 		connection:         o.connection,
 		connectionFactory:  o.connectionFactory,
 		runner:             o.runner,
