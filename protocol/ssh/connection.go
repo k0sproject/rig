@@ -40,7 +40,8 @@ type Connection struct {
 	name  string
 
 	isWindows *bool
-	once      sync.Once
+	once sync.Once
+	mu   sync.Mutex
 
 	client *ssh.Client
 
@@ -199,17 +200,18 @@ func (c *Connection) IsWindows() bool {
 	serverVersion := strings.ToLower(string(c.client.ServerVersion()))
 	log.Trace(context.Background(), "checking if host is windows", "server_version", serverVersion)
 
+	boolPtr := func(b bool) *bool { return &b }
 	switch {
 	case strings.Contains(serverVersion, "windows"):
-		c.isWindows = new(true)
+		c.isWindows = boolPtr(true)
 	case isKnownPosix(serverVersion):
-		c.isWindows = new(false)
+		c.isWindows = boolPtr(false)
 	default:
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
 		isWinProc, err := c.StartProcess(ctx, "ver.exe", nil, nil, nil)
-		c.isWindows = new(err == nil && isWinProc.Wait() == nil)
+		c.isWindows = boolPtr(err == nil && isWinProc.Wait() == nil)
 	}
 
 	log.Trace(context.Background(), fmt.Sprintf("host is windows: %t", *c.isWindows))
@@ -416,7 +418,6 @@ func (c *Connection) startKeepalive() {
 			select {
 			case <-ticker.C:
 				if !c.IsConnected() {
-					close(c.done)
 					return
 				}
 			case <-c.done:
@@ -529,7 +530,18 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 
 	session, err := c.client.NewSession()
 	if err != nil {
-		return nil, fmt.Errorf("create ssh session: %w", err)
+		log.Trace(ctx, "ssh session creation failed, attempting reconnect", log.HostAttr(c), log.KeyError, err)
+		c.mu.Lock()
+		c.Disconnect()
+		reconnErr := c.Connect()
+		c.mu.Unlock()
+		if reconnErr != nil {
+			return nil, fmt.Errorf("create ssh session: %w", err)
+		}
+		session, err = c.client.NewSession()
+		if err != nil {
+			return nil, fmt.Errorf("create ssh session: %w", err)
+		}
 	}
 
 	session.Stdin = stdin

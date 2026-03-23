@@ -1,30 +1,56 @@
 package remotefs
 
 import (
+	"errors"
 	"sync"
 
 	"github.com/k0sproject/rig/v2/cmd"
+	"github.com/k0sproject/rig/v2/plumbing"
 )
 
-// DefaultRegistry is the default Repository for remote filesystem implementations.
-var DefaultRegistry = sync.OnceValue(NewDefaultFactory)
+var (
+	// DefaultRegistry is the default registry of remote filesystem implementations.
+	DefaultRegistry = sync.OnceValue(func() *Registry {
+		r := NewRegistry()
+		RegisterWindows(r)
+		RegisterPosix(r)
+		return r
+	})
+
+	// ErrNoFS is returned when no supported remote filesystem implementation is found.
+	ErrNoFS = errors.New("no supported remote filesystem implementation found")
+)
 
 // FSProvider is a function that returns a remote filesystem implementation given a runner.
 type FSProvider func(cmd.Runner) (FS, error)
 
-// DefaultFactory is a factory for remote filesystem implementations.
-type DefaultFactory struct{}
+// Factory is a type alias for plumbing.Factory specialized for FS.
+type Factory = plumbing.Factory[cmd.Runner, FS]
 
-// Get returns Windows or Unix FS depending on the remote OS.
-// Currently it never returns an error.
-func (r *DefaultFactory) Get(c cmd.Runner) (FS, error) {
-	if c.IsWindows() {
-		return NewWindowsFS(c), nil
-	}
-	return NewPosixFS(c), nil
+// Registry is a type alias for plumbing.Provider specialized for FS.
+type Registry = plumbing.Provider[cmd.Runner, FS]
+
+// NewRegistry creates a new Registry.
+func NewRegistry() *Registry {
+	return plumbing.NewProvider[cmd.Runner, FS](ErrNoFS)
 }
 
-// NewDefaultFactory returns a new DefaultFactory.
-func NewDefaultFactory() *DefaultFactory {
-	return &DefaultFactory{}
+// RegisterWindows registers the Windows filesystem implementation.
+func RegisterWindows(r *Registry) {
+	r.Register(func(c cmd.Runner) (FS, bool) {
+		if !c.IsWindows() {
+			return nil, false
+		}
+		return NewWindowsFS(c), true
+	})
+}
+
+// RegisterPosix registers the POSIX filesystem implementation.
+func RegisterPosix(r *Registry) {
+	r.Register(func(c cmd.Runner) (FS, bool) {
+		if c.IsWindows() {
+			return nil, false
+		}
+		return NewPosixFS(c), true
+	})
 }
