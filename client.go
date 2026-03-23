@@ -212,6 +212,7 @@ func (c *Client) setup(opts ...ClientOption) error {
 		c.InitSystemProvider = c.options.GetInitSystemProvider(c.Runner)
 		c.RemoteFSProvider = c.options.GetRemoteFSProvider(c.Runner)
 		c.PackageManagerProvider = c.options.GetPackageManagerProvider(c.Runner)
+		c.OSReleaseProvider = c.options.GetOSReleaseProvider(c.Runner)
 	})
 	return c.initErr
 }
