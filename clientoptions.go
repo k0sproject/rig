@@ -113,6 +113,7 @@ func (o *ClientOptions) Clone() *ClientOptions {
 		connection:         o.connection,
 		connectionFactory:  o.connectionFactory,
 		runner:             o.runner,
+		retryConnection:    o.retryConnection,
 		providersContainer: o.providersContainer,
 	}
 }
