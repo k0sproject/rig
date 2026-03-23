@@ -202,34 +202,44 @@ func (c *Connection) Disconnect() {
 
 // IsWindows is true when the host is running windows.
 func (c *Connection) IsWindows() bool {
+	c.mu.Lock()
 	if c.isWindows != nil {
-		return *c.isWindows
+		result := *c.isWindows
+		c.mu.Unlock()
+		return result
 	}
+	client := c.client
+	c.mu.Unlock()
 
-	if c.client == nil {
+	if client == nil {
 		return false
 	}
 
-	serverVersion := strings.ToLower(string(c.client.ServerVersion()))
+	serverVersion := strings.ToLower(string(client.ServerVersion()))
 	log.Trace(context.Background(), "checking if host is windows", "server_version", serverVersion)
 
 	boolPtr := func(b bool) *bool { return &b }
+	var isWin bool
 	switch {
 	case strings.Contains(serverVersion, "windows"):
-		c.isWindows = boolPtr(true)
+		isWin = true
 	case isKnownPosix(serverVersion):
-		c.isWindows = boolPtr(false)
+		isWin = false
 	default:
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
 		isWinProc, err := c.StartProcess(ctx, "ver.exe", nil, nil, nil)
-		c.isWindows = boolPtr(err == nil && isWinProc.Wait() == nil)
+		isWin = err == nil && isWinProc.Wait() == nil
 	}
 
-	log.Trace(context.Background(), fmt.Sprintf("host is windows: %t", *c.isWindows))
+	log.Trace(context.Background(), fmt.Sprintf("host is windows: %t", isWin))
 
-	return *c.isWindows
+	c.mu.Lock()
+	c.isWindows = boolPtr(isWin)
+	c.mu.Unlock()
+
+	return isWin
 }
 
 func knownhostsCallback(path string, permissive, hash bool) (ssh.HostKeyCallback, error) {
@@ -550,12 +560,14 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 		log.Trace(ctx, "ssh session creation failed, attempting reconnect", log.HostAttr(c), log.KeyError, err)
 		c.mu.Lock()
 		c.disconnect()
-		reconnErr := c.Connect(ctx)
-		client = c.client
 		c.mu.Unlock()
+		reconnErr := c.Connect(ctx)
 		if reconnErr != nil {
 			return nil, fmt.Errorf("reconnect after session creation failure: %w", reconnErr)
 		}
+		c.mu.Lock()
+		client = c.client
+		c.mu.Unlock()
 		session, err = client.NewSession()
 		if err != nil {
 			return nil, fmt.Errorf("create ssh session: %w", err)
