@@ -187,6 +187,7 @@ func (c *Connection) disconnect() {
 		c.done = nil
 	}
 	c.client.Close()
+	c.client = nil
 }
 
 // Disconnect closes the SSH connection.
