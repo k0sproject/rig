@@ -273,11 +273,8 @@ func (c *Client) Sudo() *Client {
 }
 
 func (c *Client) connect(ctx context.Context) error {
-	if conn, ok := c.connection.(protocol.ConnectorWithContext); ok {
-		return conn.Connect(ctx) //nolint:wrapcheck // done below
-	}
 	if conn, ok := c.connection.(protocol.Connector); ok {
-		return conn.Connect() //nolint:wrapcheck // done below
+		return conn.Connect(ctx) //nolint:wrapcheck // done below
 	}
 	return nil
 }
