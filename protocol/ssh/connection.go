@@ -433,7 +433,8 @@ func (c *Connection) startKeepalive() {
 		return
 	}
 
-	c.done = make(chan struct{})
+	done := make(chan struct{})
+	c.done = done
 	go func() {
 		ticker := time.NewTicker(*c.options.KeepAliveInterval)
 		defer ticker.Stop()
@@ -443,7 +444,7 @@ func (c *Connection) startKeepalive() {
 				if !c.IsConnected() {
 					return
 				}
-			case <-c.done:
+			case <-done:
 				return
 			}
 		}
@@ -517,8 +518,7 @@ func (c *Connection) pkeySigner(ctx context.Context, agentSigners []ssh.Signer, 
 		return signer, nil
 	}
 
-	var ppErr *ssh.PassphraseMissingError
-	if errors.As(err, &ppErr) { //nolint:nestif
+	if errors.As(err, new(*ssh.PassphraseMissingError)) { //nolint:nestif
 		c.Log().Debug("key is encrypted", log.KeyFile, path)
 
 		if len(agentSigners) > 0 {
@@ -568,6 +568,9 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 		c.mu.Lock()
 		client = c.client
 		c.mu.Unlock()
+		if client == nil {
+			return nil, errNotConnected
+		}
 		session, err = client.NewSession()
 		if err != nil {
 			return nil, fmt.Errorf("create ssh session: %w", err)
