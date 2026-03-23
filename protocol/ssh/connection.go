@@ -157,10 +157,13 @@ func (c *Connection) IPAddress() string {
 
 // IsConnected returns true if the connection is open.
 func (c *Connection) IsConnected() bool {
-	if c.client == nil || c.client.Conn == nil {
+	c.mu.Lock()
+	client := c.client
+	c.mu.Unlock()
+	if client == nil || client.Conn == nil {
 		return false
 	}
-	_, _, err := c.client.SendRequest("keepalive@rig", true, nil)
+	_, _, err := client.SendRequest("keepalive@rig", true, nil)
 	return err == nil
 }
 
@@ -534,21 +537,26 @@ func (c *Connection) pkeySigner(ctx context.Context, agentSigners []ssh.Signer, 
 // StartProcess executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
 func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) (protocol.Waiter, error) {
-	if c.client == nil {
+	c.mu.Lock()
+	client := c.client
+	c.mu.Unlock()
+
+	if client == nil {
 		return nil, errNotConnected
 	}
 
-	session, err := c.client.NewSession()
+	session, err := client.NewSession()
 	if err != nil {
 		log.Trace(ctx, "ssh session creation failed, attempting reconnect", log.HostAttr(c), log.KeyError, err)
 		c.mu.Lock()
 		c.disconnect()
 		reconnErr := c.Connect(ctx)
+		client = c.client
 		c.mu.Unlock()
 		if reconnErr != nil {
 			return nil, fmt.Errorf("reconnect after session creation failure: %w", reconnErr)
 		}
-		session, err = c.client.NewSession()
+		session, err = client.NewSession()
 		if err != nil {
 			return nil, fmt.Errorf("create ssh session: %w", err)
 		}
@@ -575,7 +583,13 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 
 // ExecInteractive executes a command on the host and passes stdin/stdout/stderr as-is to the session.
 func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
-	session, err := c.client.NewSession()
+	c.mu.Lock()
+	client := c.client
+	c.mu.Unlock()
+	if client == nil {
+		return errNotConnected
+	}
+	session, err := client.NewSession()
 	if err != nil {
 		return fmt.Errorf("ssh new session: %w", err)
 	}
