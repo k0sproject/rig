@@ -31,7 +31,7 @@ func NewLazyService[S any, T any](get func(S) (T, error), source S) *LazyService
 }
 
 // Get retrieves the service value, initializing it if necessary.
-func (s *LazyService[R, T]) Get() (T, error) {
+func (s *LazyService[S, T]) Get() (T, error) {
 	s.once.Do(func() {
 		s.value, s.err = s.get(s.source)
 	})
