@@ -10,7 +10,7 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-func TestClientWithConfigurer(t *testing.T) {
+func TestClientWithConnectionFactory(t *testing.T) {
 	cc := &rig.CompositeConfig{
 		Localhost: true,
 	}

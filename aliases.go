@@ -40,7 +40,7 @@ type OSReleaseProvider = os.Provider
 // SudoProvider is a type alias for sudo.Provider.
 type SudoProvider = sudo.Provider
 
-// GetRemoteFS returns a new remote FS instance from the default remote.FS provider.
+// GetRemoteFS returns a new remote FS instance from the default remote FS registry.
 func GetRemoteFS(runner cmd.Runner) (remotefs.FS, error) {
 	fs, err := remotefs.DefaultRegistry().Get(runner)
 	if err != nil {
@@ -58,7 +58,7 @@ func GetServiceManager(runner cmd.ContextRunner) (initsystem.ServiceManager, err
 	return mgr, nil
 }
 
-// GetPackageManager returns a package manager from the default provider.
+// GetPackageManager returns a package manager from the default package manager registry.
 func GetPackageManager(runner cmd.ContextRunner) (packagemanager.PackageManager, error) {
 	pm, err := packagemanager.DefaultRegistry().Get(runner)
 	if err != nil {
@@ -76,7 +76,7 @@ func GetSudoRunner(runner cmd.Runner) (cmd.Runner, error) {
 	return sudoR, nil
 }
 
-// GetOSRelease returns the remote host's operating system information from the default provider.
+// GetOSRelease returns the remote host's operating system information from the default OS release registry.
 func GetOSRelease(runner cmd.SimpleRunner) (*os.Release, error) {
 	os, err := os.DefaultRegistry().Get(runner)
 	if err != nil {

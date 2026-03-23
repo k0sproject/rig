@@ -146,7 +146,7 @@ func (c *ClientWithConfig) UnmarshalYAML(unmarshal func(any) error) error {
 // You must use either WithConnection to provide a pre-configured connection
 // or WithConnectionFactory to provide a connection factory.
 //
-// An example SSH connection via ssh.Config::
+// An example SSH connection via ssh.Config:
 //
 //	client, err := rig.NewClient(WithConnectionFactory(&ssh.Config{Address: "10.0.0.1"}))
 //
