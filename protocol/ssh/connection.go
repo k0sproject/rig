@@ -429,6 +429,7 @@ func (c *Connection) connectViaBastion(ctx context.Context, dst string, config *
 	return nil
 }
 
+// startKeepalive starts the keepalive goroutine. Caller must hold c.mu.
 func (c *Connection) startKeepalive() {
 	if c.options.KeepAliveInterval == nil {
 		return
