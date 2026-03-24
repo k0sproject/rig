@@ -474,7 +474,11 @@ func (c *Connection) Connect(ctx context.Context) error {
 		return c.connectViaBastion(ctx, dst, config)
 	}
 
-	clientDirect, err := ssh.Dial("tcp", dst, config)
+	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", dst)
+	if err != nil {
+		return fmt.Errorf("ssh dial: %w", err)
+	}
+	ncc, chans, reqs, err := ssh.NewClientConn(conn, dst, config)
 	if err != nil {
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
 			return fmt.Errorf("%w: %w", protocol.ErrNonRetryable, err)
@@ -482,7 +486,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 		return fmt.Errorf("ssh dial: %w", err)
 	}
 	c.mu.Lock()
-	c.client = clientDirect
+	c.client = ssh.NewClient(ncc, chans, reqs)
 	c.startKeepalive()
 	c.mu.Unlock()
 
