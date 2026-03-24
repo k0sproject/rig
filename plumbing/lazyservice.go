@@ -5,7 +5,7 @@ import (
 	"sync"
 )
 
-var _ Service[int] = NewLazyService(NewProvider[int, int](nil).Get, 0)
+var _ Service[int] = (*LazyService[int, int])(nil)
 
 // Service is anything that can be retrieved via Get and that can fail and return an error.
 type Service[T any] interface {
