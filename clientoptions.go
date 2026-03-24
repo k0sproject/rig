@@ -13,82 +13,82 @@ import (
 	"github.com/k0sproject/rig/v2/sudo"
 )
 
-// ConnectionConfigurer can create connections. When a connection is not given, the configurer is used
+// ConnectionFactory can create connections. When a connection is not given, the factory is used
 // to build a connection.
-type ConnectionConfigurer interface {
+type ConnectionFactory interface {
 	fmt.Stringer
 	Connection() (protocol.Connection, error)
 }
 
-func defaultConnectionConfigurer() ConnectionConfigurer {
+func defaultConnectionFactory() ConnectionFactory {
 	return &CompositeConfig{}
 }
 
 // ClientOptions is a struct that holds the variadic options for the rig package.
 type ClientOptions struct {
 	log.LoggerInjectable
-	connection           protocol.Connection
-	connectionConfigurer ConnectionConfigurer
-	runner               cmd.Runner
-	retryConnection      bool
+	connection        protocol.Connection
+	connectionFactory ConnectionFactory
+	runner            cmd.Runner
+	retryConnection   bool
 	providersContainer
 }
 
 type providersContainer struct {
-	packageManagerProvider
-	initSystemProvider
-	remoteFSProvider
-	osReleaseProvider
-	sudoProvider
+	packageManagerProviderConfig
+	initSystemProviderConfig
+	remoteFSProviderConfig
+	osReleaseProviderConfig
+	sudoProviderConfig
 }
 
-type packageManagerProvider struct {
-	provider packagemanager.PackageManagerProvider
+type packageManagerProviderConfig struct {
+	provider packagemanager.ManagerProvider
 }
 
-func (p *packageManagerProvider) GetPackageManagerService(runner cmd.Runner) *packagemanager.Service {
-	return packagemanager.NewPackageManagerService(p.provider, runner)
+func (p *packageManagerProviderConfig) GetPackageManagerProvider(runner cmd.Runner) *packagemanager.Provider {
+	return packagemanager.NewPackageManagerProvider(p.provider, runner)
 }
 
-type initSystemProvider struct {
-	provider initsystem.InitSystemProvider
+type initSystemProviderConfig struct {
+	provider initsystem.ServiceManagerProvider
 }
 
-func (p *initSystemProvider) GetInitSystemService(runner cmd.Runner) *initsystem.Service {
-	return initsystem.NewInitSystemService(p.provider, runner)
+func (p *initSystemProviderConfig) GetInitSystemProvider(runner cmd.Runner) *initsystem.Provider {
+	return initsystem.NewInitSystemProvider(p.provider, runner)
 }
 
-type remoteFSProvider struct {
-	provider remotefs.RemoteFSProvider
+type remoteFSProviderConfig struct {
+	provider remotefs.FSProvider
 }
 
-func (p *remoteFSProvider) GetRemoteFSService(runner cmd.Runner) *remotefs.Service {
-	return remotefs.NewRemoteFSService(p.provider, runner)
+func (p *remoteFSProviderConfig) GetRemoteFSProvider(runner cmd.Runner) *remotefs.Provider {
+	return remotefs.NewRemoteFSProvider(p.provider, runner)
 }
 
-type osReleaseProvider struct {
-	provider os.OSReleaseProvider
+type osReleaseProviderConfig struct {
+	provider os.ReleaseProvider
 }
 
-func (p *osReleaseProvider) GetOSReleaseService(runner cmd.Runner) *os.Service {
-	return os.NewOSReleaseService(p.provider, runner)
+func (p *osReleaseProviderConfig) GetOSReleaseProvider(runner cmd.Runner) *os.Provider {
+	return os.NewOSReleaseProvider(p.provider, runner)
 }
 
-type sudoProvider struct {
-	provider sudo.SudoProvider
+type sudoProviderConfig struct {
+	provider sudo.RunnerProvider
 }
 
-func (p *sudoProvider) GetSudoService(runner cmd.Runner) *sudo.Service {
-	return sudo.NewSudoService(p.provider, runner)
+func (p *sudoProviderConfig) GetSudoProvider(runner cmd.Runner) *sudo.Provider {
+	return sudo.NewSudoProvider(p.provider, runner)
 }
 
 func defaultProviders() providersContainer {
 	return providersContainer{
-		packageManagerProvider: packageManagerProvider{provider: packagemanager.DefaultProvider()},
-		initSystemProvider:     initSystemProvider{provider: initsystem.DefaultProvider()},
-		remoteFSProvider:       remoteFSProvider{provider: remotefs.DefaultProvider()},
-		osReleaseProvider:      osReleaseProvider{provider: os.DefaultProvider()},
-		sudoProvider:           sudoProvider{provider: sudo.DefaultProvider()},
+		packageManagerProviderConfig: packageManagerProviderConfig{provider: packagemanager.DefaultRegistry().Get},
+		initSystemProviderConfig:     initSystemProviderConfig{provider: initsystem.DefaultRegistry().Get},
+		remoteFSProviderConfig:       remoteFSProviderConfig{provider: remotefs.DefaultRegistry().Get},
+		osReleaseProviderConfig:      osReleaseProviderConfig{provider: os.DefaultRegistry().Get},
+		sudoProviderConfig:           sudoProviderConfig{provider: sudo.DefaultRegistry().Get},
 	}
 }
 
@@ -101,8 +101,8 @@ func (o *ClientOptions) Apply(opts ...ClientOption) {
 
 // Validate the options.
 func (o *ClientOptions) Validate() error {
-	if o.connection == nil && o.connectionConfigurer == nil {
-		return fmt.Errorf("%w: no connection or connection configurer provided", protocol.ErrValidationFailed)
+	if o.connection == nil && o.connectionFactory == nil {
+		return fmt.Errorf("%w: no connection or connection factory provided", protocol.ErrValidationFailed)
 	}
 	return nil
 }
@@ -110,10 +110,12 @@ func (o *ClientOptions) Validate() error {
 // Clone returns a copy of the Options struct.
 func (o *ClientOptions) Clone() *ClientOptions {
 	return &ClientOptions{
-		connection:           o.connection,
-		connectionConfigurer: o.connectionConfigurer,
-		runner:               o.runner,
-		providersContainer:   o.providersContainer,
+		LoggerInjectable:   o.LoggerInjectable,
+		connection:         o.connection,
+		connectionFactory:  o.connectionFactory,
+		runner:             o.runner,
+		retryConnection:    o.retryConnection,
+		providersContainer: o.providersContainer,
 	}
 }
 
@@ -122,22 +124,22 @@ func (o *ClientOptions) ShouldRetry() bool {
 	return o.retryConnection
 }
 
-// GetConnection returns the connection to use for the rig client. If no connection is set, it will use the ConnectionConfigurer to create one.
+// GetConnection returns the connection to use for the rig client. If no connection is set, it will use the ConnectionFactory to create one.
 func (o *ClientOptions) GetConnection() (protocol.Connection, error) {
 	var conn protocol.Connection
 	if o.connection != nil {
 		o.Log().Debug("using provided connection", log.HostAttr(o.connection), log.KeyComponent, "clientoptions")
 		conn = o.connection
 	} else {
-		if o.connectionConfigurer == nil {
-			return nil, fmt.Errorf("%w: no connection or connection configurer provided", protocol.ErrAbort)
+		if o.connectionFactory == nil {
+			return nil, fmt.Errorf("%w: no connection or connection factory provided", protocol.ErrNonRetryable)
 		}
-		o.Log().Debug("using client configurer to setup a connection", log.HostAttr(o.connectionConfigurer), log.KeyComponent, "clientoptions")
-		c, err := o.connectionConfigurer.Connection()
+		o.Log().Debug("using connection factory to setup a connection", log.HostAttr(o.connectionFactory), log.KeyComponent, "clientoptions")
+		c, err := o.connectionFactory.Connection()
 		if err != nil {
 			return nil, fmt.Errorf("create connection: %w", err)
 		}
-		o.Log().Debug("using connection received from client configurer", log.HostAttr(c), log.KeyComponent, "clientoptions")
+		o.Log().Debug("using connection received from connection factory", log.HostAttr(c), log.KeyComponent, "clientoptions")
 		conn = c
 	}
 
@@ -164,7 +166,7 @@ func WithLogger(logger log.Logger) ClientOption {
 	}
 }
 
-// WithConnection is a functional option that sets the client to use for connecting instead of getting it from the ConnectionConfigurer.
+// WithConnection is a functional option that sets the client to use for connecting instead of getting it from the ConnectionFactory.
 func WithConnection(conn protocol.Connection) ClientOption {
 	return func(o *ClientOptions) {
 		o.connection = conn
@@ -178,45 +180,45 @@ func WithRunner(runner cmd.Runner) ClientOption {
 	}
 }
 
-// WithConnectionConfigurer is a functional option that sets the client configurer to use for connecting.
-func WithConnectionConfigurer(configurer ConnectionConfigurer) ClientOption {
+// WithConnectionFactory is a functional option that sets the connection factory to use for connecting.
+func WithConnectionFactory(factory ConnectionFactory) ClientOption {
 	return func(o *ClientOptions) {
-		o.connectionConfigurer = configurer
+		o.connectionFactory = factory
 	}
 }
 
-// WithRemoteFSProvider is a functional option that sets the filesystem provider to use for the connection's RemoteFSService.
-func WithRemoteFSProvider(provider remotefs.RemoteFSProvider) ClientOption {
+// WithRemoteFSProvider is a functional option that sets the filesystem provider to use for the connection's RemoteFSProvider.
+func WithRemoteFSProvider(provider remotefs.FSProvider) ClientOption {
 	return func(o *ClientOptions) {
-		o.remoteFSProvider = remoteFSProvider{provider: provider}
+		o.remoteFSProviderConfig = remoteFSProviderConfig{provider: provider}
 	}
 }
 
-// WithInitSystemProvider is a functional option that sets the init system provider to use for the connection's InitSystemService.
-func WithInitSystemProvider(provider initsystem.InitSystemProvider) ClientOption {
+// WithInitSystemProvider is a functional option that sets the init system provider to use for the connection's InitSystemProvider.
+func WithInitSystemProvider(provider initsystem.ServiceManagerProvider) ClientOption {
 	return func(o *ClientOptions) {
-		o.initSystemProvider = initSystemProvider{provider: provider}
+		o.initSystemProviderConfig = initSystemProviderConfig{provider: provider}
 	}
 }
 
-// WithOSReleaseProvider is a functional option that sets the os release provider to use for the connection's OSReleaseService.
-func WithOSReleaseProvider(provider os.OSReleaseProvider) ClientOption {
+// WithOSReleaseProvider is a functional option that sets the os release provider to use for the connection's OSReleaseProvider.
+func WithOSReleaseProvider(provider os.ReleaseProvider) ClientOption {
 	return func(o *ClientOptions) {
-		o.osReleaseProvider = osReleaseProvider{provider: provider}
+		o.osReleaseProviderConfig = osReleaseProviderConfig{provider: provider}
 	}
 }
 
-// WithPackageManagerProvider is a functional option that sets the package manager provider to use for the connection's PackageManagerService.
-func WithPackageManagerProvider(provider packagemanager.PackageManagerProvider) ClientOption {
+// WithPackageManagerProvider is a functional option that sets the package manager provider to use for the connection's PackageManagerProvider.
+func WithPackageManagerProvider(provider packagemanager.ManagerProvider) ClientOption {
 	return func(o *ClientOptions) {
-		o.packageManagerProvider = packageManagerProvider{provider: provider}
+		o.packageManagerProviderConfig = packageManagerProviderConfig{provider: provider}
 	}
 }
 
-// WithSudoProvider is a functional option that sets the sudo provider to use for the connection's SudoService.
-func WithSudoProvider(provider sudo.SudoProvider) ClientOption {
+// WithSudoProvider is a functional option that sets the sudo provider to use for the connection's SudoProvider.
+func WithSudoProvider(provider sudo.RunnerProvider) ClientOption {
 	return func(o *ClientOptions) {
-		o.sudoProvider = sudoProvider{provider: provider}
+		o.sudoProviderConfig = sudoProviderConfig{provider: provider}
 	}
 }
 
@@ -230,9 +232,9 @@ func WithRetry(retry bool) ClientOption {
 // DefaultClientOptions returns a new Options struct with the default options applied.
 func DefaultClientOptions() *ClientOptions {
 	return &ClientOptions{
-		connectionConfigurer: defaultConnectionConfigurer(),
-		providersContainer:   defaultProviders(),
-		retryConnection:      true,
+		connectionFactory:  defaultConnectionFactory(),
+		providersContainer: defaultProviders(),
+		retryConnection:    true,
 	}
 }
 

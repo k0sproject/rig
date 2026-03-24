@@ -11,7 +11,7 @@ func Sudo(cmd string) string {
 }
 
 // RegisterSudo registers a sudo DecorateFunc with the given repository.
-func RegisterSudo(repository *Provider) {
+func RegisterSudo(repository *Registry) {
 	repository.Register(func(c cmd.Runner) (cmd.Runner, bool) {
 		if c.IsWindows() {
 			return nil, false

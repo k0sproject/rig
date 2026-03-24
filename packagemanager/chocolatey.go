@@ -12,7 +12,7 @@ func NewChocolatey(c cmd.ContextRunner) PackageManager {
 }
 
 // RegisterChocolatey registers the chocolatey package manager to a repository.
-func RegisterChocolatey(repository *Provider) {
+func RegisterChocolatey(repository *Registry) {
 	repository.Register(func(c cmd.ContextRunner) (PackageManager, bool) {
 		if !c.IsWindows() {
 			return nil, false

@@ -6,8 +6,9 @@ import (
 	"github.com/k0sproject/rig/v2/cmd"
 )
 
-// RegisterWindowsNoop registers a noop DecorateFunc with the given repository if the user is root.
-func RegisterWindowsNoop(repository *Provider) {
+// RegisterWindowsNoop registers a noop DecorateFunc with the given repository if the user is
+// the built-in Administrator or a member of the Administrators group with UAC disabled.
+func RegisterWindowsNoop(repository *Registry) {
 	repository.Register(func(runner cmd.Runner) (cmd.Runner, bool) {
 		if !runner.IsWindows() {
 			return nil, false
@@ -22,23 +23,14 @@ func RegisterWindowsNoop(repository *Provider) {
 			return runner, true
 		}
 
-		if runner.Exec(`cmd.exe /c 'net user "%USERNAME%" | findstr /B /C:"Local Group Memberships" | findstr /C:"*Administrators"'`) != nil {
-			// user is not in the Administrators group
+		// Check if the current token includes the Administrators group SID.
+		// When UAC is enabled and the session is not elevated, the token is filtered
+		// and will not contain this SID even if the user is a group member.
+		adminSID := `[Security.Principal.SecurityIdentifier]::new([Security.Principal.WellKnownSidType]::BuiltinAdministratorsSid, $null)`
+		if runner.Exec(`if (-not ([Security.Principal.WindowsIdentity]::GetCurrent().Groups -contains `+adminSID+`)) { exit 1 }`, cmd.PS()) != nil {
 			return nil, false
 		}
 
-		out, err = runner.ExecOutput(`reg.exe query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "EnableLUA"`)
-		if err != nil {
-			// failed to query if UAC is enabled
-			return nil, false
-		}
-
-		if strings.Contains(out, "0x0") {
-			// UAC is disabled and the user is in the Administrators group
-			return runner, true
-		}
-
-		// UAC is enabled and user is not 'Administrator'"
-		return nil, false
+		return runner, true
 	})
 }

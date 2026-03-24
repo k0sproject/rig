@@ -10,7 +10,7 @@ func Noop(cmd string) string {
 }
 
 // RegisterUID0Noop registers a noop DecorateFunc with the given repository which can be used when the user is root.
-func RegisterUID0Noop(repository *Provider) {
+func RegisterUID0Noop(repository *Registry) {
 	repository.Register(func(c cmd.Runner) (cmd.Runner, bool) {
 		if c.IsWindows() {
 			return nil, false

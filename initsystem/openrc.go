@@ -88,7 +88,7 @@ func (i OpenRC) ServiceEnvironmentContent(env map[string]string) string {
 }
 
 // RegisterOpenRC registers OpenRC to a repository.
-func RegisterOpenRC(repo *Provider) {
+func RegisterOpenRC(repo *Registry) {
 	repo.Register(func(c cmd.ContextRunner) (ServiceManager, bool) {
 		if c.IsWindows() {
 			return nil, false

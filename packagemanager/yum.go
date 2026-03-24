@@ -11,8 +11,8 @@ func NewYum(c cmd.ContextRunner) PackageManager {
 	return newUniversalPackageManager(c, "yum", "yum", "install -y", "remove -y", "makecache")
 }
 
-// RegisterYum registers the dnf package manager to a repository.
-func RegisterYum(repository *Provider) {
+// RegisterYum registers the yum package manager to a repository. It is skipped when dnf is available, as dnf is preferred.
+func RegisterYum(repository *Registry) {
 	repository.Register(func(runner cmd.ContextRunner) (PackageManager, bool) {
 		if runner.IsWindows() {
 			return nil, false

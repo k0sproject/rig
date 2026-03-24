@@ -52,21 +52,20 @@ import (
 type Client struct {
 	options *ClientOptions
 
-	connectionConfigurer ConnectionConfigurer
-	connection           protocol.Connection
-	once                 sync.Once
-	mu                   sync.Mutex
-	initErr              error
+	connection protocol.Connection
+	once       sync.Once
+	mu         sync.Mutex
+	initErr    error
 
 	cmd.Runner
 
 	log.LoggerInjectable
 
-	*PackageManagerService
-	*InitSystemService
-	*RemoteFSService
-	*OSReleaseService
-	*SudoService
+	*PackageManagerProvider
+	*InitSystemProvider
+	*RemoteFSProvider
+	*OSReleaseProvider
+	*SudoProvider
 
 	sudoOnce  sync.Once
 	sudoClone *Client
@@ -110,7 +109,7 @@ func (c *ClientWithConfig) Setup(opts ...ClientOption) error {
 	if c.Client != nil {
 		return nil
 	}
-	opts = append(opts, WithConnectionConfigurer(&c.ConnectionConfig))
+	opts = append(opts, WithConnectionFactory(&c.ConnectionConfig))
 	client, err := NewClient(opts...)
 	if err != nil {
 		return fmt.Errorf("new client: %w", err)
@@ -145,15 +144,15 @@ func (c *ClientWithConfig) UnmarshalYAML(unmarshal func(any) error) error {
 // NewClient returns a new Connection object with the given options.
 //
 // You must use either WithConnection to provide a pre-configured connection
-// or WithConnectionConfigurer to provide a connection configurer.
+// or WithConnectionFactory to provide a connection factory.
 //
-// An example SSH connection via ssh.Config::
+// An example SSH connection via ssh.Config:
 //
-//	client, err := rig.NewClient(WithConnectionConfigurer(&ssh.Config{Address: "10.0.0.1"}))
+//	client, err := rig.NewClient(WithConnectionFactory(&ssh.Config{Address: "10.0.0.1"}))
 //
 // Using the [CompositeConfig] struct:
 //
-//	client, err := rig.NewClient(WithConnectionConfigurer(&rig.CompositeConfig{SSH: &ssh.Config{...}}))
+//	client, err := rig.NewClient(WithConnectionFactory(&rig.CompositeConfig{SSH: &ssh.Config{...}}))
 //
 // If you want to use a pre-configured connection, you can use WithConnection:
 //
@@ -186,7 +185,7 @@ func (c *Client) setupConnection() error {
 	if err != nil {
 		return fmt.Errorf("get connection: %w", err)
 	}
-	log.Trace(context.Background(), "connection from configurer", log.HostAttr(conn))
+	log.Trace(context.Background(), "connection from factory", log.HostAttr(conn))
 	c.connection = conn
 	return nil
 }
@@ -209,10 +208,11 @@ func (c *Client) setup(opts ...ClientOption) error {
 		c.Runner = c.options.GetRunner(c.connection)
 		log.InjectLogger(logger, c.Runner)
 
-		c.SudoService = c.options.GetSudoService(c.Runner)
-		c.InitSystemService = c.options.GetInitSystemService(c.Runner)
-		c.RemoteFSService = c.options.GetRemoteFSService(c.Runner)
-		c.PackageManagerService = c.options.GetPackageManagerService(c.Runner)
+		c.SudoProvider = c.options.GetSudoProvider(c.Runner)
+		c.InitSystemProvider = c.options.GetInitSystemProvider(c.Runner)
+		c.RemoteFSProvider = c.options.GetRemoteFSProvider(c.Runner)
+		c.PackageManagerProvider = c.options.GetPackageManagerProvider(c.Runner)
+		c.OSReleaseProvider = c.options.GetOSReleaseProvider(c.Runner)
 	})
 	return c.initErr
 }
@@ -225,7 +225,7 @@ func (c *Client) setup(opts ...ClientOption) error {
 //
 //	service, err := client.Sudo().Service("nginx")
 func (c *Client) Service(name string) (*Service, error) {
-	is, err := c.GetServiceManager()
+	is, err := c.ServiceManager()
 	if err != nil {
 		return nil, fmt.Errorf("get service manager: %w", err)
 	}
@@ -236,10 +236,10 @@ func (c *Client) Service(name string) (*Service, error) {
 // something like: `address:port` or `user@address:port`.
 func (c *Client) String() string {
 	if c.connection == nil {
-		if c.connectionConfigurer == nil {
+		if c.options == nil || c.options.connectionFactory == nil {
 			return "[uninitialized connection]"
 		}
-		return c.connectionConfigurer.String()
+		return c.options.connectionFactory.String()
 	}
 
 	return c.connection.String()
@@ -259,8 +259,12 @@ func (c *Client) Clone(opts ...ClientOption) *Client {
 // Sudo returns a copy of the connection with a Runner that uses sudo.
 func (c *Client) Sudo() *Client {
 	c.sudoOnce.Do(func() {
+		sudoRunner, err := c.SudoRunner()
+		if err != nil {
+			sudoRunner = cmd.NewErrorExecutor(err)
+		}
 		c.sudoClone = c.Clone(
-			WithRunner(c.SudoRunner()),
+			WithRunner(sudoRunner),
 			WithConnection(c.connection),
 			WithLogger(log.WithAttrs(c.Log(), log.KeySudo, true)),
 		)
@@ -269,11 +273,8 @@ func (c *Client) Sudo() *Client {
 }
 
 func (c *Client) connect(ctx context.Context) error {
-	if conn, ok := c.connection.(protocol.ConnectorWithContext); ok {
-		return conn.Connect(ctx) //nolint:wrapcheck // done below
-	}
 	if conn, ok := c.connection.(protocol.Connector); ok {
-		return conn.Connect() //nolint:wrapcheck // done below
+		return conn.Connect(ctx) //nolint:wrapcheck // done below
 	}
 	return nil
 }
@@ -287,7 +288,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	defer c.mu.Unlock()
 
 	if c.connection == nil {
-		return fmt.Errorf("%w: connection not properly intialized", protocol.ErrAbort)
+		return fmt.Errorf("%w: connection not properly initialized", protocol.ErrNonRetryable)
 	}
 
 	if _, ok := ctx.Deadline(); !ok {
@@ -306,7 +307,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	err := retry.DoWithContext(ctx, func(ctx context.Context) error {
 		return c.connect(ctx)
 	}, retry.If(
-		func(err error) bool { return !errors.Is(err, protocol.ErrAbort) },
+		func(err error) bool { return !errors.Is(err, protocol.ErrNonRetryable) },
 	))
 	if err != nil {
 		return fmt.Errorf("client connect: %w", err)
@@ -341,28 +342,37 @@ func (c *Client) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.
 	return errInteractiveNotSupported
 }
 
-// The service Getters would be available and working via the embedding alrady, but the
+// The provider Getters would be available and working via the embedding already, but the
 // accessors are provided here directly on the Client mainly for discoverability in docs.
 
 // FS returns an fs.FS compatible filesystem interface for accessing files on the host.
 //
 // If the filesystem can't be accessed, a filesystem that returns an error for all operations is returned
-// instead. If you need to handle the error, you can use c.RemoteFSService.GetFS() directly.
+// instead. If you need to handle the error, you can use c.RemoteFSProvider.FS() directly.
 func (c *Client) FS() remotefs.FS {
-	return c.RemoteFSService.FS()
+	fs, err := c.RemoteFSProvider.FS()
+	if err != nil {
+		errRunner := cmd.NewErrorExecutor(err)
+		return remotefs.NewPosixFS(errRunner)
+	}
+	return fs
 }
 
 // PackageManager for the host's operating system. This can be used to install or remove packages.
 //
 // If a known package manager can't be detected, a PackageManager that returns an error for all operations is returned.
-// If you need to handle the error, you can use client.PackageManagerService.GetPackageManager() (packagemanager.PackageManager, error) directly.
+// If you need to handle the error, you can use client.PackageManagerProvider.PackageManager() directly.
 func (c *Client) PackageManager() packagemanager.PackageManager {
-	return c.PackageManagerService.PackageManager()
+	pm, err := c.PackageManagerProvider.PackageManager()
+	if err != nil {
+		return &packagemanager.NullPackageManager{Err: err}
+	}
+	return pm
 }
 
 // OS returns the host's operating system version and release information or an error if it can't be determined.
 func (c *Client) OS() (*os.Release, error) {
-	os, err := c.GetOSRelease()
+	os, err := c.OSRelease()
 	if err != nil {
 		return nil, fmt.Errorf("get os release: %w", err)
 	}

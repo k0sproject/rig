@@ -9,9 +9,9 @@ import (
 )
 
 var (
-	// DefaultProvider is the default OS release provider.
-	DefaultProvider = sync.OnceValue(func() *Provider {
-		provider := NewProvider()
+	// DefaultRegistry is the default OS release registry.
+	DefaultRegistry = sync.OnceValue(func() *Registry {
+		provider := NewRegistry()
 		provider.Register(ResolveLinux)
 		provider.Register(ResolveWindows)
 		provider.Register(ResolveDarwin)
@@ -25,15 +25,13 @@ var (
 // Factory is a function that returns an OS release based on the provided runner.
 type Factory = plumbing.Factory[cmd.SimpleRunner, *Release]
 
-// Provider is a type that can determine the host OS given a runner.
-type Provider = plumbing.Provider[cmd.SimpleRunner, *Release]
+// Registry is a type that can determine the host OS given a runner.
+type Registry = plumbing.Provider[cmd.SimpleRunner, *Release]
 
-// OSReleaseProvider is a factory for OS release information.
-type OSReleaseProvider interface { //nolint:revive // stutter
-	Get(runner cmd.SimpleRunner) (*Release, error)
-}
+// ReleaseProvider is a function that returns OS release information given a runner.
+type ReleaseProvider func(cmd.SimpleRunner) (*Release, error)
 
-// NewProvider creates a new OS release provider.
-func NewProvider() *Provider {
+// NewRegistry creates a new OS release registry.
+func NewRegistry() *Registry {
 	return plumbing.NewProvider[cmd.SimpleRunner, *Release](ErrNotRecognized)
 }

@@ -12,7 +12,7 @@ func NewZypper(c cmd.ContextRunner) PackageManager {
 }
 
 // RegisterZypper registers the zypper package manager to a repository.
-func RegisterZypper(repository *Provider) {
+func RegisterZypper(repository *Registry) {
 	repository.Register(func(c cmd.ContextRunner) (PackageManager, bool) {
 		if c.IsWindows() {
 			return nil, false

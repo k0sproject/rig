@@ -42,9 +42,9 @@ type ServiceEnvironmentManager interface {
 }
 
 var (
-	// DefaultProvider is the default repository for init systems.
-	DefaultProvider = sync.OnceValue(func() *Provider {
-		provider := NewProvider()
+	// DefaultRegistry is the default repository for init systems.
+	DefaultRegistry = sync.OnceValue(func() *Registry {
+		provider := NewRegistry()
 		RegisterSystemd(provider)
 		RegisterOpenRC(provider)
 		RegisterUpstart(provider)
@@ -59,18 +59,16 @@ var (
 	ErrNoInitSystem = errors.New("no supported init system found")
 )
 
-// InitSystemProvider is a function that returns a ServiceManager given a runner.
-type InitSystemProvider interface { //nolint:revive // stutter
-	Get(conn cmd.ContextRunner) (ServiceManager, error)
-}
+// ServiceManagerProvider is a function that returns a ServiceManager given a runner.
+type ServiceManagerProvider func(cmd.ContextRunner) (ServiceManager, error)
 
 // Factory is a type alias for the plumbing.Factory type specialized for initsystem ServiceManagers.
 type Factory = plumbing.Factory[cmd.ContextRunner, ServiceManager]
 
-// Provider is a type alias for the plumbing.Provider type specialized for initsystem ServiceManagers.
-type Provider = plumbing.Provider[cmd.ContextRunner, ServiceManager]
+// Registry is a type alias for the plumbing.Provider type specialized for initsystem ServiceManagers.
+type Registry = plumbing.Provider[cmd.ContextRunner, ServiceManager]
 
-// NewProvider returns a new Provider.
-func NewProvider() *Provider {
+// NewRegistry returns a new Registry.
+func NewRegistry() *Registry {
 	return plumbing.NewProvider[cmd.ContextRunner, ServiceManager](ErrNoInitSystem)
 }

@@ -109,19 +109,19 @@ func (c *Connection) loadCertificates() error {
 	return nil
 }
 
-func (c *Connection) bastionDialer() (dialFunc, error) {
-	bastion, err := c.Bastion.Connection()
+func (c *Connection) bastionDialer(ctx context.Context) (dialFunc, error) {
+	bastion, err := c.Bastion.Connection() //nolint:contextcheck
 	if err != nil {
 		return nil, fmt.Errorf("create bastion connection: %w", err)
 	}
 	bastionSSH, ok := bastion.(*ssh.Connection)
 	if !ok {
-		return nil, fmt.Errorf("%w: bastion connection is not an SSH connection", protocol.ErrAbort)
+		return nil, fmt.Errorf("%w: bastion connection is not an SSH connection", protocol.ErrNonRetryable)
 	}
-	log.Trace(context.Background(), "connecting to bastion", log.KeyHost, c)
-	if err := bastionSSH.Connect(); err != nil {
+	log.Trace(ctx, "connecting to bastion", log.KeyHost, c)
+	if err := bastionSSH.Connect(ctx); err != nil {
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
-			return nil, fmt.Errorf("%w: bastion connect: %w", protocol.ErrAbort, err)
+			return nil, fmt.Errorf("%w: bastion connect: %w", protocol.ErrNonRetryable, err)
 		}
 		return nil, fmt.Errorf("bastion connect: %w", err)
 	}
@@ -129,9 +129,9 @@ func (c *Connection) bastionDialer() (dialFunc, error) {
 }
 
 // Connect opens the WinRM connection.
-func (c *Connection) Connect() error {
+func (c *Connection) Connect(ctx context.Context) error {
 	if err := c.loadCertificates(); err != nil {
-		return fmt.Errorf("%w: failed to load certificates: %w", protocol.ErrAbort, err)
+		return fmt.Errorf("%w: failed to load certificates: %w", protocol.ErrNonRetryable, err)
 	}
 
 	endpoint := &winrm.Endpoint{
@@ -158,7 +158,7 @@ func (c *Connection) Connect() error {
 	params := winrm.DefaultParameters
 
 	if c.Bastion != nil {
-		dialer, err := c.bastionDialer()
+		dialer, err := c.bastionDialer(ctx)
 		if err != nil {
 			return err
 		}
@@ -237,7 +237,7 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 		return nil, errNotConnected
 	}
 	if len(cmd) > 8191 {
-		return nil, fmt.Errorf("%w: %w: command too long (%d/%d)", protocol.ErrAbort, errInvalidCommand, len(cmd), 8191)
+		return nil, fmt.Errorf("%w: %w: command too long (%d/%d)", protocol.ErrNonRetryable, errInvalidCommand, len(cmd), 8191)
 	}
 
 	shell, err := c.client.CreateShell()

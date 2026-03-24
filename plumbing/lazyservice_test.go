@@ -22,7 +22,7 @@ func (m *mockProvider[T]) Get(_ int) (T, error) {
 
 func TestLazyService(t *testing.T) {
 	mock := &mockProvider[int]{value: 42, err: nil}
-	ls := plumbing.NewLazyService[int, int](mock, 0)
+	ls := plumbing.NewLazyService(mock.Get, 0)
 
 	value, err := ls.Get()
 	require.NoError(t, err)
@@ -38,7 +38,7 @@ func TestLazyService(t *testing.T) {
 func TestLazyServiceWithError(t *testing.T) {
 	expectedErr := errors.New("error")
 	mock := &mockProvider[int]{value: 0, err: expectedErr}
-	ls := plumbing.NewLazyService[int, int](mock, 0)
+	ls := plumbing.NewLazyService(mock.Get, 0)
 
 	_, err := ls.Get()
 	assert.ErrorIs(t, err, expectedErr)

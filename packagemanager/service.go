@@ -9,17 +9,17 @@ import (
 	"github.com/k0sproject/rig/v2/plumbing"
 )
 
-// Service provides a unified interface to interact with different
+// Provider provides a unified interface to interact with different
 // package managers. It ensures that a suitable package manager is lazily initialized
 // and made available for package operations. It supports operations like installation,
 // removal, and updating of packages via the PackageManager interface.
-type Service struct {
+type Provider struct {
 	lazy *plumbing.LazyService[cmd.ContextRunner, PackageManager]
 }
 
-// GetPackageManager returns a PackageManager or an error if the package manager
+// PackageManager returns a PackageManager or an error if the package manager
 // could not be initialized.
-func (p *Service) GetPackageManager() (PackageManager, error) {
+func (p *Provider) PackageManager() (PackageManager, error) {
 	pm, err := p.lazy.Get()
 	if err != nil {
 		return nil, fmt.Errorf("get package manager: %w", err)
@@ -27,22 +27,10 @@ func (p *Service) GetPackageManager() (PackageManager, error) {
 	return pm, nil
 }
 
-// PackageManager provides easy access to the underlying package manager instance.
-// It initializes the package manager if it has not been initialized yet. If the
-// initialization fails, a NullPackageManager instance is returned which will
-// return the initialization error on every operation that is attempted on it.
-func (p *Service) PackageManager() PackageManager {
-	pm, err := p.lazy.Get()
-	if err != nil {
-		return &NullPackageManager{Err: err}
-	}
-	return pm
-}
-
-// NewPackageManagerService creates a new instance of PackageManagerService
-// with the provided PackageManagerProvider.
-func NewPackageManagerService(provider PackageManagerProvider, runner cmd.ContextRunner) *Service {
-	return &Service{plumbing.NewLazyService[cmd.ContextRunner, PackageManager](provider, runner)}
+// NewPackageManagerProvider creates a new instance of Provider
+// with the provided ManagerProvider function.
+func NewPackageManagerProvider(get ManagerProvider, runner cmd.ContextRunner) *Provider {
+	return &Provider{plumbing.NewLazyService(get, runner)}
 }
 
 // NullPackageManager is a package manager that always returns an error on

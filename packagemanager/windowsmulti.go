@@ -83,7 +83,7 @@ func (w *WindowsMultiManager) Update(ctx context.Context) error {
 
 // NewWindowsMultiManager creates a new windows multi package manager.
 func NewWindowsMultiManager(c cmd.ContextRunner) PackageManager {
-	winRepo := NewProvider()
+	winRepo := NewRegistry()
 	RegisterWinget(winRepo)
 	RegisterChocolatey(winRepo)
 	RegisterScoop(winRepo)
@@ -92,7 +92,7 @@ func NewWindowsMultiManager(c cmd.ContextRunner) PackageManager {
 }
 
 // RegisterWindowsMultiManager registers the windows multi package manager to a repository.
-func RegisterWindowsMultiManager(repository *Provider) {
+func RegisterWindowsMultiManager(repository *Registry) {
 	repository.Register(func(c cmd.ContextRunner) (PackageManager, bool) {
 		if !c.IsWindows() {
 			return nil, false

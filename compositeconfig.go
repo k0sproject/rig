@@ -10,7 +10,7 @@ import (
 	"github.com/k0sproject/rig/v2/protocol/winrm"
 )
 
-var _ ConnectionConfigurer = (*CompositeConfig)(nil)
+var _ ConnectionFactory = (*CompositeConfig)(nil)
 
 // CompositeConfig is a composite configuration of all the protocols supported out of the box by rig.
 // It is intended to be embedded into host structs that are unmarshaled from configuration files.
@@ -59,22 +59,22 @@ func (c *CompositeConfig) UnmarshalYAML(unmarshal func(any) error) error {
 	return nil
 }
 
-func (c *CompositeConfig) configuredConfig() (ConnectionConfigurer, error) {
-	var configurer ConnectionConfigurer
+func (c *CompositeConfig) configuredConfig() (ConnectionFactory, error) {
+	var factory ConnectionFactory
 	count := 0
 
 	if c.WinRM != nil {
-		configurer = c.WinRM
+		factory = c.WinRM
 		count++
 	}
 
 	if c.SSH != nil {
-		configurer = c.SSH
+		factory = c.SSH
 		count++
 	}
 
 	if c.OpenSSH != nil {
-		configurer = c.OpenSSH
+		factory = c.OpenSSH
 		count++
 	}
 
@@ -84,14 +84,14 @@ func (c *CompositeConfig) configuredConfig() (ConnectionConfigurer, error) {
 		if err != nil {
 			return nil, fmt.Errorf("create localhost connection: %w", err)
 		}
-		configurer = conn
+		factory = conn
 	}
 
 	switch count {
 	case 0:
 		return nil, fmt.Errorf("%w: no protocol configuration", protocol.ErrValidationFailed)
 	case 1:
-		return configurer, nil
+		return factory, nil
 	default:
 		return nil, fmt.Errorf("%w: multiple protocols configured for a single client", protocol.ErrValidationFailed)
 	}
@@ -103,13 +103,13 @@ type validatable interface {
 
 // Validate the configuration.
 func (c *CompositeConfig) Validate() error {
-	configurer, err := c.configuredConfig()
+	factory, err := c.configuredConfig()
 	if err != nil {
 		return err
 	}
-	if v, ok := configurer.(validatable); ok {
+	if v, ok := factory.(validatable); ok {
 		if err := v.Validate(); err != nil {
-			return fmt.Errorf("validate %T: %w", configurer, err)
+			return fmt.Errorf("validate %T: %w", factory, err)
 		}
 	}
 	return nil

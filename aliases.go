@@ -16,33 +16,33 @@ import (
 // easier to consume them without importing more packages.
 
 var (
-	// ErrAbort is returned when retrying an action will not yield a different outcome.
-	// An alias of protocol.ErrAbort for easier access without importing subpackages.
-	ErrAbort = protocol.ErrAbort
+	// ErrNonRetryable is returned when retrying an action will not yield a different outcome.
+	// An alias of protocol.ErrNonRetryable for easier access without importing subpackages.
+	ErrNonRetryable = protocol.ErrNonRetryable
 
 	// ErrValidationFailed is returned when a validation check fails.
 	// An alias of protocol.ErrValidationFailed for easier access without importing subpackages.
 	ErrValidationFailed = protocol.ErrValidationFailed
 )
 
-// PackageManagerService is a type alias for packagemanager.Service.
-type PackageManagerService = packagemanager.Service
+// PackageManagerProvider is a type alias for packagemanager.Provider.
+type PackageManagerProvider = packagemanager.Provider
 
-// InitSystemService is a type alias for initsystem.Service.
-type InitSystemService = initsystem.Service
+// InitSystemProvider is a type alias for initsystem.Provider.
+type InitSystemProvider = initsystem.Provider
 
-// RemoteFSService is a type alias for remotefs.Service.
-type RemoteFSService = remotefs.Service
+// RemoteFSProvider is a type alias for remotefs.Provider.
+type RemoteFSProvider = remotefs.Provider
 
-// OSReleaseService is a type alias for os.Service.
-type OSReleaseService = os.Service
+// OSReleaseProvider is a type alias for os.Provider.
+type OSReleaseProvider = os.Provider
 
-// SudoService is a type alias for sudo.Service.
-type SudoService = sudo.Service
+// SudoProvider is a type alias for sudo.Provider.
+type SudoProvider = sudo.Provider
 
-// GetRemoteFS returns a new remote FS instance from the default remote.FS provider.
+// GetRemoteFS returns a new remote FS instance from the default remote FS registry.
 func GetRemoteFS(runner cmd.Runner) (remotefs.FS, error) {
-	fs, err := remotefs.DefaultProvider().Get(runner)
+	fs, err := remotefs.DefaultRegistry().Get(runner)
 	if err != nil {
 		return nil, fmt.Errorf("get FS: %w", err)
 	}
@@ -51,16 +51,16 @@ func GetRemoteFS(runner cmd.Runner) (remotefs.FS, error) {
 
 // GetServiceManager returns a ServiceManager for the current system from the default init system providers.
 func GetServiceManager(runner cmd.ContextRunner) (initsystem.ServiceManager, error) {
-	mgr, err := initsystem.DefaultProvider().Get(runner)
+	mgr, err := initsystem.DefaultRegistry().Get(runner)
 	if err != nil {
 		return nil, fmt.Errorf("get service manager: %w", err)
 	}
 	return mgr, nil
 }
 
-// GetPackageManager returns a package manager from the default provider.
+// GetPackageManager returns a package manager from the default package manager registry.
 func GetPackageManager(runner cmd.ContextRunner) (packagemanager.PackageManager, error) {
-	pm, err := packagemanager.DefaultProvider().Get(runner)
+	pm, err := packagemanager.DefaultRegistry().Get(runner)
 	if err != nil {
 		return nil, fmt.Errorf("get package manager: %w", err)
 	}
@@ -69,16 +69,16 @@ func GetPackageManager(runner cmd.ContextRunner) (packagemanager.PackageManager,
 
 // GetSudoRunner returns a new runner that uses sudo to execute commands.
 func GetSudoRunner(runner cmd.Runner) (cmd.Runner, error) {
-	sudoR, err := sudo.DefaultProvider().Get(runner)
+	sudoR, err := sudo.DefaultRegistry().Get(runner)
 	if err != nil {
 		return nil, fmt.Errorf("get sudo runner: %w", err)
 	}
 	return sudoR, nil
 }
 
-// GetOSRelease returns the remote host's operating system information from the default provider.
+// GetOSRelease returns the remote host's operating system information from the default OS release registry.
 func GetOSRelease(runner cmd.SimpleRunner) (*os.Release, error) {
-	os, err := os.DefaultProvider().Get(runner)
+	os, err := os.DefaultRegistry().Get(runner)
 	if err != nil {
 		return nil, fmt.Errorf("get os release: %w", err)
 	}

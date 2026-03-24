@@ -41,6 +41,7 @@ type Connection struct {
 
 	isWindows *bool
 	once      sync.Once
+	mu        sync.Mutex
 
 	client *ssh.Client
 
@@ -103,27 +104,33 @@ func init() {
 
 // Dial initiates a connection to the addr from the remote host.
 func (c *Connection) Dial(network, address string) (net.Conn, error) {
-	conn, err := c.client.Dial(network, address)
+	c.mu.Lock()
+	client := c.client
+	c.mu.Unlock()
+	if client == nil {
+		return nil, errNotConnected
+	}
+	conn, err := client.Dial(network, address)
 	if err != nil {
 		return nil, fmt.Errorf("ssh dial: %w", err)
 	}
 	return conn, nil
 }
 
-func (c *Connection) keypathsFromConfig() []string {
-	log.Trace(context.Background(), "trying to get a keyfile path from ssh config", log.KeyHost, c)
+func (c *Connection) keypathsFromConfig(ctx context.Context) []string {
+	log.Trace(ctx, "trying to get a keyfile path from ssh config", log.KeyHost, c)
 	idf := slices.Compact(c.sshConfig.IdentityFile)
 
 	if len(idf) > 0 {
-		log.Trace(context.Background(), fmt.Sprintf("detected %d identity file paths from ssh config", len(idf)), log.KeyFile, idf)
+		log.Trace(ctx, fmt.Sprintf("detected %d identity file paths from ssh config", len(idf)), log.KeyFile, idf)
 		return idf
 	}
-	log.Trace(context.Background(), "no identity file paths found in ssh config")
+	log.Trace(ctx, "no identity file paths found in ssh config")
 	return []string{}
 }
 
 // SetDefaults sets various default values.
-func (c *Connection) SetDefaults() {
+func (c *Connection) SetDefaults(ctx context.Context) {
 	c.once.Do(func() {
 		c.Port = c.sshConfig.Port
 
@@ -132,10 +139,10 @@ func (c *Connection) SetDefaults() {
 			c.Address = c.sshConfig.Hostname
 		}
 
-		for _, p := range c.keypathsFromConfig() {
+		for _, p := range c.keypathsFromConfig(ctx) {
 			expanded, err := homedir.ExpandFile(p)
 			if err != nil {
-				log.Trace(context.Background(), "expand and validate", log.KeyFile, p, log.KeyError, err)
+				log.Trace(ctx, "expand and validate", log.KeyFile, p, log.KeyError, err)
 				continue
 			}
 			c.Log().Debug("using identity file", log.KeyFile, expanded)
@@ -156,10 +163,13 @@ func (c *Connection) IPAddress() string {
 
 // IsConnected returns true if the connection is open.
 func (c *Connection) IsConnected() bool {
-	if c.client == nil || c.client.Conn == nil {
+	c.mu.Lock()
+	client := c.client
+	c.mu.Unlock()
+	if client == nil || client.Conn == nil {
 		return false
 	}
-	_, _, err := c.client.SendRequest("keepalive@rig", true, nil)
+	_, _, err := client.SendRequest("keepalive@rig", true, nil)
 	return err == nil
 }
 
@@ -175,79 +185,100 @@ func (c *Connection) String() string {
 	return c.name
 }
 
-// Disconnect closes the SSH connection.
-func (c *Connection) Disconnect() {
+// disconnect performs the actual disconnect. Caller must hold c.mu or ensure
+// single-threaded access (e.g. during initial connect/disconnect lifecycle).
+func (c *Connection) disconnect() {
 	if c.client == nil {
 		return
 	}
-	if c.options.KeepAliveInterval != nil {
+	if c.options.KeepAliveInterval != nil && c.done != nil {
 		close(c.done)
+		c.done = nil
 	}
 	c.client.Close()
+	c.client = nil
+}
+
+// Disconnect closes the SSH connection.
+func (c *Connection) Disconnect() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.disconnect()
 }
 
 // IsWindows is true when the host is running windows.
 func (c *Connection) IsWindows() bool {
+	c.mu.Lock()
 	if c.isWindows != nil {
-		return *c.isWindows
+		result := *c.isWindows
+		c.mu.Unlock()
+		return result
 	}
+	client := c.client
+	c.mu.Unlock()
 
-	if c.client == nil {
+	if client == nil {
 		return false
 	}
 
-	serverVersion := strings.ToLower(string(c.client.ServerVersion()))
+	serverVersion := strings.ToLower(string(client.ServerVersion()))
 	log.Trace(context.Background(), "checking if host is windows", "server_version", serverVersion)
 
+	boolPtr := func(b bool) *bool { return &b }
+	var isWin bool
 	switch {
 	case strings.Contains(serverVersion, "windows"):
-		c.isWindows = new(true)
+		isWin = true
 	case isKnownPosix(serverVersion):
-		c.isWindows = new(false)
+		isWin = false
 	default:
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
 		isWinProc, err := c.StartProcess(ctx, "ver.exe", nil, nil, nil)
-		c.isWindows = new(err == nil && isWinProc.Wait() == nil)
+		isWin = err == nil && isWinProc.Wait() == nil
 	}
 
-	log.Trace(context.Background(), fmt.Sprintf("host is windows: %t", *c.isWindows))
+	log.Trace(context.Background(), fmt.Sprintf("host is windows: %t", isWin))
 
-	return *c.isWindows
+	c.mu.Lock()
+	c.isWindows = boolPtr(isWin)
+	c.mu.Unlock()
+
+	return isWin
 }
 
 func knownhostsCallback(path string, permissive, hash bool) (ssh.HostKeyCallback, error) {
 	cb, err := hostkey.KnownHostsFileCallback(path, permissive, hash)
 	if err != nil {
-		return nil, fmt.Errorf("%w: create host key validator: %w", protocol.ErrAbort, err)
+		return nil, fmt.Errorf("%w: create host key validator: %w", protocol.ErrNonRetryable, err)
 	}
 	return cb, nil
 }
 
-func isPermissive(c *Connection) bool {
+func isPermissive(ctx context.Context, c *Connection) bool {
 	if c.sshConfig.StrictHostKeyChecking.IsFalse() {
-		log.Trace(context.Background(), "config StrictHostkeyChecking is set to 'no'", log.KeyHost, c)
+		log.Trace(ctx, "config StrictHostkeyChecking is set to 'no'", log.KeyHost, c)
 		return true
 	}
 
 	return false
 }
 
-func shouldHash(c *Connection) bool {
+func shouldHash(ctx context.Context, c *Connection) bool {
 	if c.sshConfig.HashKnownHosts.IsTrue() {
-		log.Trace(context.Background(), "config HashKnownHosts is set", log.KeyHost, c)
+		log.Trace(ctx, "config HashKnownHosts is set", log.KeyHost, c)
 		return true
 	}
 	return false
 }
 
-func (c *Connection) hostkeyCallback() (ssh.HostKeyCallback, error) {
+func (c *Connection) hostkeyCallback(ctx context.Context) (ssh.HostKeyCallback, error) {
 	knownHostsMU.Lock()
 	defer knownHostsMU.Unlock()
 
-	permissive := isPermissive(c)
-	hash := shouldHash(c)
+	permissive := isPermissive(ctx, c)
+	hash := shouldHash(ctx, c)
 
 	if path, ok := hostkey.KnownHostsPathFromEnv(); ok {
 		if path == "" {
@@ -260,7 +291,7 @@ func (c *Connection) hostkeyCallback() (ssh.HostKeyCallback, error) {
 	var khPath string
 
 	for _, f := range c.sshConfig.UserKnownHostsFile {
-		log.Trace(context.Background(), "trying known_hosts file from ssh config", log.KeyHost, c, log.KeyFile, f)
+		log.Trace(ctx, "trying known_hosts file from ssh config", log.KeyHost, c, log.KeyFile, f)
 		exp, err := homedir.Expand(f)
 		if err == nil {
 			khPath = exp
@@ -269,11 +300,11 @@ func (c *Connection) hostkeyCallback() (ssh.HostKeyCallback, error) {
 	}
 
 	if khPath != "" {
-		log.Trace(context.Background(), "using known_hosts file", log.KeyHost, c, log.KeyFile, khPath)
+		log.Trace(ctx, "using known_hosts file", log.KeyHost, c, log.KeyFile, khPath)
 		return knownhostsCallback(khPath, permissive, hash)
 	}
 
-	return nil, fmt.Errorf("%w: no known_hosts file found", protocol.ErrAbort)
+	return nil, fmt.Errorf("%w: no known_hosts file found", protocol.ErrNonRetryable)
 }
 
 // mergeSigners combines key-file signers and agent signers, deduplicating by
@@ -298,12 +329,12 @@ func mergeSigners(keySigners, agentSigners []ssh.Signer) []ssh.Signer {
 	return out
 }
 
-func (c *Connection) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
+func (c *Connection) clientConfig(ctx context.Context) (*ssh.ClientConfig, error) { //nolint:cyclop
 	config := &ssh.ClientConfig{
 		User: c.User,
 	}
 
-	hkc, err := c.hostkeyCallback()
+	hkc, err := c.hostkeyCallback(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -312,17 +343,17 @@ func (c *Connection) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
 	var agentSigners []ssh.Signer
 	agentClient, err := agent.NewClient()
 	if err != nil {
-		log.Trace(context.Background(), "failed to get ssh agent client", log.ErrorAttr(err))
+		log.Trace(ctx, "failed to get ssh agent client", log.ErrorAttr(err))
 	} else {
 		c.Log().Debug("using ssh agent")
 		agentSigners, err = agentClient.Signers()
 		if err != nil {
-			log.Trace(context.Background(), "failed to list signers from ssh agent", log.ErrorAttr(err))
+			log.Trace(ctx, "failed to list signers from ssh agent", log.ErrorAttr(err))
 		}
 	}
 
 	if len(c.AuthMethods) > 0 {
-		log.Trace(context.Background(), "using passed-in auth methods", "count", len(c.AuthMethods))
+		log.Trace(ctx, "using passed-in auth methods", "count", len(c.AuthMethods))
 		config.Auth = c.AuthMethods
 		return config, nil
 	}
@@ -331,22 +362,22 @@ func (c *Connection) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
 	for _, keyPath := range c.keyPaths {
 		keyPath, err := homedir.Expand(keyPath)
 		if err != nil {
-			log.Trace(context.Background(), "expand keypath", log.FileAttr(keyPath), log.ErrorAttr(err))
+			log.Trace(ctx, "expand keypath", log.FileAttr(keyPath), log.ErrorAttr(err))
 			continue
 		}
 		if cached, ok := signerCache.Load(keyPath); ok {
 			switch v := cached.(type) {
 			case ssh.Signer:
-				log.Trace(context.Background(), "using cached signer", log.FileAttr(keyPath))
+				log.Trace(ctx, "using cached signer", log.FileAttr(keyPath))
 				keySigners = append(keySigners, v)
 			case error:
-				log.Trace(context.Background(), "already discarded key", log.FileAttr(keyPath), log.ErrorAttr(v))
+				log.Trace(ctx, "already discarded key", log.FileAttr(keyPath), log.ErrorAttr(v))
 			default:
-				log.Trace(context.Background(), fmt.Sprintf("unexpected type %T for cached signer for %s", cached, keyPath))
+				log.Trace(ctx, fmt.Sprintf("unexpected type %T for cached signer for %s", cached, keyPath))
 			}
 			continue
 		}
-		signer, err := c.pkeySigner(agentSigners, keyPath)
+		signer, err := c.pkeySigner(ctx, agentSigners, keyPath)
 		if err != nil {
 			c.Log().Debug("failed to obtain a signer for identity", log.KeyFile, keyPath, log.ErrorAttr(err))
 			signerCache.Store(keyPath, err)
@@ -363,25 +394,25 @@ func (c *Connection) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
 	}
 
 	if len(config.Auth) == 0 {
-		return nil, fmt.Errorf("%w: no usable authentication method found", protocol.ErrAbort)
+		return nil, fmt.Errorf("%w: no usable authentication method found", protocol.ErrNonRetryable)
 	}
 
 	return config, nil
 }
 
-func (c *Connection) connectViaBastion(dst string, config *ssh.ClientConfig) error {
-	bastion, err := c.Bastion.Connection()
+func (c *Connection) connectViaBastion(ctx context.Context, dst string, config *ssh.ClientConfig) error {
+	bastion, err := c.Bastion.Connection() //nolint:contextcheck
 	if err != nil {
 		return fmt.Errorf("create bastion connection: %w", err)
 	}
 	bastionSSH, ok := bastion.(*Connection)
 	if !ok {
-		return fmt.Errorf("%w: bastion connection is not an SSH connection", protocol.ErrAbort)
+		return fmt.Errorf("%w: bastion connection is not an SSH connection", protocol.ErrNonRetryable)
 	}
 	c.Log().Debug("connecting to bastion", log.HostAttr(c), "bastion", bastionSSH)
-	if err := bastionSSH.Connect(); err != nil {
+	if err := bastionSSH.Connect(ctx); err != nil {
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
-			return fmt.Errorf("%w: bastion connect: %w", protocol.ErrAbort, err)
+			return fmt.Errorf("%w: bastion connect: %w", protocol.ErrNonRetryable, err)
 		}
 		return err
 	}
@@ -391,24 +422,28 @@ func (c *Connection) connectViaBastion(dst string, config *ssh.ClientConfig) err
 	}
 	client, chans, reqs, err := ssh.NewClientConn(bconn, dst, config)
 	if err != nil {
+		_ = bconn.Close()
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
-			return fmt.Errorf("%w: bastion client connect: %w", protocol.ErrAbort, err)
+			return fmt.Errorf("%w: bastion client connect: %w", protocol.ErrNonRetryable, err)
 		}
 		return fmt.Errorf("bastion client connect: %w", err)
 	}
+	c.mu.Lock()
 	c.client = ssh.NewClient(client, chans, reqs)
-
 	c.startKeepalive()
+	c.mu.Unlock()
 
 	return nil
 }
 
+// startKeepalive starts the keepalive goroutine. Caller must hold c.mu.
 func (c *Connection) startKeepalive() {
 	if c.options.KeepAliveInterval == nil {
 		return
 	}
 
-	c.done = make(chan struct{})
+	done := make(chan struct{})
+	c.done = done
 	go func() {
 		ticker := time.NewTicker(*c.options.KeepAliveInterval)
 		defer ticker.Stop()
@@ -416,10 +451,9 @@ func (c *Connection) startKeepalive() {
 			select {
 			case <-ticker.C:
 				if !c.IsConnected() {
-					close(c.done)
 					return
 				}
-			case <-c.done:
+			case <-done:
 				return
 			}
 		}
@@ -427,37 +461,43 @@ func (c *Connection) startKeepalive() {
 }
 
 // Connect opens the SSH connection.
-func (c *Connection) Connect() error {
-	c.SetDefaults()
+func (c *Connection) Connect(ctx context.Context) error {
+	c.SetDefaults(ctx)
 
-	config, err := c.clientConfig()
+	config, err := c.clientConfig(ctx)
 	if err != nil {
-		return fmt.Errorf("%w: create config: %w", protocol.ErrAbort, err)
+		return fmt.Errorf("%w: create config: %w", protocol.ErrNonRetryable, err)
 	}
 
 	dst := net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
 
 	if c.Bastion != nil {
-		return c.connectViaBastion(dst, config)
+		return c.connectViaBastion(ctx, dst, config)
 	}
 
-	clientDirect, err := ssh.Dial("tcp", dst, config)
+	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", dst)
 	if err != nil {
+		return fmt.Errorf("ssh dial: %w", err)
+	}
+	ncc, chans, reqs, err := ssh.NewClientConn(conn, dst, config)
+	if err != nil {
+		_ = conn.Close()
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
-			return fmt.Errorf("%w: %w", protocol.ErrAbort, err)
+			return fmt.Errorf("%w: %w", protocol.ErrNonRetryable, err)
 		}
 		return fmt.Errorf("ssh dial: %w", err)
 	}
-	c.client = clientDirect
-
+	c.mu.Lock()
+	c.client = ssh.NewClient(ncc, chans, reqs)
 	c.startKeepalive()
+	c.mu.Unlock()
 
 	return nil
 }
 
 func (c *Connection) pubkeySigner(agentSigners []ssh.Signer, key ssh.PublicKey) (ssh.Signer, error) {
 	if len(agentSigners) == 0 {
-		return nil, fmt.Errorf("%w: signer not found for public key", protocol.ErrAbort)
+		return nil, fmt.Errorf("%w: signer not found for public key", protocol.ErrNonRetryable)
 	}
 
 	for _, s := range agentSigners {
@@ -467,23 +507,23 @@ func (c *Connection) pubkeySigner(agentSigners []ssh.Signer, key ssh.PublicKey) 
 		}
 	}
 
-	return nil, fmt.Errorf("%w: the provided key is a public key and is not known by agent", protocol.ErrAbort)
+	return nil, fmt.Errorf("%w: the provided key is a public key and is not known by agent", protocol.ErrNonRetryable)
 }
 
-func (c *Connection) pkeySigner(agentSigners []ssh.Signer, path string) (ssh.Signer, error) {
+func (c *Connection) pkeySigner(ctx context.Context, agentSigners []ssh.Signer, path string) (ssh.Signer, error) {
 	path, err := homedir.ExpandFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("expand keyfile path: %w", err)
 	}
-	log.Trace(context.Background(), "checking identity file", log.KeyFile, path)
+	log.Trace(ctx, "checking identity file", log.KeyFile, path)
 	key, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("%w: read identity file %s: %w", protocol.ErrAbort, path, err)
+		return nil, fmt.Errorf("%w: read identity file %s: %w", protocol.ErrNonRetryable, path, err)
 	}
 
 	pubKey, _, _, _, err := ssh.ParseAuthorizedKey(key)
 	if err == nil {
-		log.Trace(context.Background(), "file is a public key", log.KeyFile, path)
+		log.Trace(ctx, "file is a public key", log.KeyFile, path)
 		return c.pubkeySigner(agentSigners, pubKey)
 	}
 
@@ -493,43 +533,63 @@ func (c *Connection) pkeySigner(agentSigners []ssh.Signer, path string) (ssh.Sig
 		return signer, nil
 	}
 
-	var ppErr *ssh.PassphraseMissingError
-	if errors.As(err, &ppErr) { //nolint:nestif
+	if errors.As(err, new(*ssh.PassphraseMissingError)) { //nolint:nestif
 		c.Log().Debug("key is encrypted", log.KeyFile, path)
 
 		if len(agentSigners) > 0 {
-			if signer, err := c.pkeySigner(agentSigners, path+".pub"); err == nil {
+			if signer, err := c.pkeySigner(ctx, agentSigners, path+".pub"); err == nil {
 				return signer, nil
 			}
 		}
 
 		if c.PasswordCallback != nil {
-			log.Trace(context.Background(), "asking for a password to decrypt key", log.HostAttr(c), log.KeyFile, path)
+			log.Trace(ctx, "asking for a password to decrypt key", log.HostAttr(c), log.KeyFile, path)
 			pass, err := c.PasswordCallback()
 			if err != nil {
-				return nil, fmt.Errorf("%w: failed to get password: %w", protocol.ErrAbort, err)
+				return nil, fmt.Errorf("%w: failed to get password: %w", protocol.ErrNonRetryable, err)
 			}
 			signer, err := ssh.ParsePrivateKeyWithPassphrase(key, []byte(pass))
 			if err != nil {
-				return nil, fmt.Errorf("%w: encrypted key %s decoding failed: %w", protocol.ErrAbort, path, err)
+				return nil, fmt.Errorf("%w: encrypted key %s decoding failed: %w", protocol.ErrNonRetryable, path, err)
 			}
 			return signer, nil
 		}
 	}
 
-	return nil, fmt.Errorf("%w: can't parse keyfile: %s: %w", protocol.ErrAbort, path, err)
+	return nil, fmt.Errorf("%w: can't parse keyfile: %s: %w", protocol.ErrNonRetryable, path, err)
 }
 
 // StartProcess executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
 func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) (protocol.Waiter, error) {
-	if c.client == nil {
+	c.mu.Lock()
+	client := c.client
+	c.mu.Unlock()
+
+	if client == nil {
 		return nil, errNotConnected
 	}
 
-	session, err := c.client.NewSession()
+	session, err := client.NewSession()
 	if err != nil {
-		return nil, fmt.Errorf("create ssh session: %w", err)
+		log.Trace(ctx, "ssh session creation failed, attempting reconnect", log.HostAttr(c), log.KeyError, err)
+		c.mu.Lock()
+		c.disconnect()
+		c.mu.Unlock()
+		reconnErr := c.Connect(ctx)
+		if reconnErr != nil {
+			return nil, fmt.Errorf("reconnect after session creation failure: %w", reconnErr)
+		}
+		c.mu.Lock()
+		client = c.client
+		c.mu.Unlock()
+		if client == nil {
+			return nil, errNotConnected
+		}
+		session, err = client.NewSession()
+		if err != nil {
+			return nil, fmt.Errorf("create ssh session: %w", err)
+		}
 	}
 
 	session.Stdin = stdin
@@ -553,7 +613,13 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 
 // ExecInteractive executes a command on the host and passes stdin/stdout/stderr as-is to the session.
 func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
-	session, err := c.client.NewSession()
+	c.mu.Lock()
+	client := c.client
+	c.mu.Unlock()
+	if client == nil {
+		return errNotConnected
+	}
+	session, err := client.NewSession()
 	if err != nil {
 		return fmt.Errorf("ssh new session: %w", err)
 	}

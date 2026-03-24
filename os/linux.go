@@ -32,6 +32,6 @@ func ResolveLinux(conn cmd.SimpleRunner) (*Release, bool) {
 }
 
 // RegisterLinux registers the linux OS release resolver to a provider.
-func RegisterLinux(provider *Provider) {
+func RegisterLinux(provider *Registry) {
 	provider.Register(ResolveLinux)
 }

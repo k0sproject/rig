@@ -2,20 +2,24 @@ package rig_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/k0sproject/rig/v2"
+	"github.com/k0sproject/rig/v2/cmd"
+	"github.com/k0sproject/rig/v2/packagemanager"
+	"github.com/k0sproject/rig/v2/remotefs"
 	"github.com/k0sproject/rig/v2/rigtest"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v2"
 )
 
-func TestClientWithConfigurer(t *testing.T) {
+func TestClientWithConnectionFactory(t *testing.T) {
 	cc := &rig.CompositeConfig{
 		Localhost: true,
 	}
 	conn, err := rig.NewClient(
-		rig.WithConnectionConfigurer(cc),
+		rig.WithConnectionFactory(cc),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, conn)
@@ -56,6 +60,49 @@ func TestClientLogging(t *testing.T) {
 	t.Log(logger.Messages())
 }
 
+func TestClientFSErrorFallback(t *testing.T) {
+	conn := rigtest.NewMockConnection()
+	mockErr := errors.New("mock fs error")
+
+	client, err := rig.NewClient(
+		rig.WithConnection(conn),
+		rig.WithRemoteFSProvider(func(_ cmd.Runner) (remotefs.FS, error) {
+			return nil, mockErr
+		}),
+	)
+	require.NoError(t, err)
+	require.NoError(t, client.Connect(context.Background()))
+
+	fs := client.FS()
+	require.NotNil(t, fs)
+
+	_, err = fs.Open("test")
+	require.Error(t, err)
+
+	_, err = client.RemoteFSProvider.FS()
+	require.ErrorIs(t, err, mockErr)
+}
+
+func TestClientPackageManagerErrorFallback(t *testing.T) {
+	conn := rigtest.NewMockConnection()
+	mockErr := errors.New("mock pm error")
+
+	client, err := rig.NewClient(
+		rig.WithConnection(conn),
+		rig.WithPackageManagerProvider(func(_ cmd.ContextRunner) (packagemanager.PackageManager, error) {
+			return nil, mockErr
+		}),
+	)
+	require.NoError(t, err)
+	require.NoError(t, client.Connect(context.Background()))
+
+	pm := client.PackageManager()
+	require.NotNil(t, pm)
+
+	err = pm.Install(context.Background(), "test-package")
+	require.ErrorIs(t, err, mockErr)
+}
+
 type testConfig struct {
 	Hosts []*testHost `yaml:"hosts"`
 }
@@ -71,7 +118,7 @@ func (th *testHost) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	if err := unmarshal(h); err != nil {
 		return err
 	}
-	conn, err := rig.NewClient(rig.WithConnectionConfigurer(&h.ClientConfig))
+	conn, err := rig.NewClient(rig.WithConnectionFactory(&h.ClientConfig))
 	if err != nil {
 		return err
 	}

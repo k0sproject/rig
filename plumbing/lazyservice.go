@@ -5,40 +5,35 @@ import (
 	"sync"
 )
 
-var _ Service[int] = NewLazyService[int, int](NewProvider[int, int](nil), 0)
+var _ Service[int] = (*LazyService[int, int])(nil)
 
 // Service is anything that can be retrieved via Get and that can fail and return an error.
 type Service[T any] interface {
 	Get() (T, error)
 }
 
-// providers return a value of type T or an error given a source S.
-type provider[S any, T any] interface {
-	Get(source S) (T, error)
-}
-
-// LazyService is a generic lazy-initializer for a provider that can take a different types
-// of parameter.
+// LazyService is a generic lazy-initializer that calls a provider function once
+// and memoizes the result.
 type LazyService[S any, T any] struct {
-	once     sync.Once
-	provider provider[S, T]
-	source   S
-	value    T
-	err      error
+	once   sync.Once
+	get    func(S) (T, error)
+	source S
+	value  T
+	err    error
 }
 
-// NewLazyService creates a new instance of Service with the given provider.
-func NewLazyService[S any, T any](p provider[S, T], source S) *LazyService[S, T] {
+// NewLazyService creates a new instance of LazyService with the given provider function.
+func NewLazyService[S any, T any](get func(S) (T, error), source S) *LazyService[S, T] {
 	return &LazyService[S, T]{
-		provider: p,
-		source:   source,
+		get:    get,
+		source: source,
 	}
 }
 
 // Get retrieves the service value, initializing it if necessary.
-func (s *LazyService[R, T]) Get() (T, error) {
+func (s *LazyService[S, T]) Get() (T, error) {
 	s.once.Do(func() {
-		s.value, s.err = s.provider.Get(s.source)
+		s.value, s.err = s.get(s.source)
 	})
 	return s.value, s.err
 }
