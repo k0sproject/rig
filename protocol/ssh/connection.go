@@ -422,6 +422,7 @@ func (c *Connection) connectViaBastion(ctx context.Context, dst string, config *
 	}
 	client, chans, reqs, err := ssh.NewClientConn(bconn, dst, config)
 	if err != nil {
+		_ = bconn.Close()
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
 			return fmt.Errorf("%w: bastion client connect: %w", protocol.ErrNonRetryable, err)
 		}
@@ -480,6 +481,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 	}
 	ncc, chans, reqs, err := ssh.NewClientConn(conn, dst, config)
 	if err != nil {
+		_ = conn.Close()
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
 			return fmt.Errorf("%w: %w", protocol.ErrNonRetryable, err)
 		}
