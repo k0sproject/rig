@@ -104,7 +104,13 @@ func init() {
 
 // Dial initiates a connection to the addr from the remote host.
 func (c *Connection) Dial(network, address string) (net.Conn, error) {
-	conn, err := c.client.Dial(network, address)
+	c.mu.Lock()
+	client := c.client
+	c.mu.Unlock()
+	if client == nil {
+		return nil, errNotConnected
+	}
+	conn, err := client.Dial(network, address)
 	if err != nil {
 		return nil, fmt.Errorf("ssh dial: %w", err)
 	}
