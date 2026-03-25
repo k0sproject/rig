@@ -303,13 +303,16 @@ func (c *Connection) IsConnected() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if !c.DisableMultiplexing {
-		if controlPath == "" {
-			// Control path not known (e.g. set via ssh_config -F); skip probe
-			// to avoid incorrectly marking a live connection as disconnected.
-			return true
+		var args []string
+		if controlPath != "" {
+			args = make([]string, 0, 4+len(c.args()))
+			args = append(args, "-O", "check", "-S", controlPath)
+		} else {
+			// ControlPath comes from ssh_config (-F); let ssh resolve it from options.
+			args = make([]string, 0, 2+len(c.Options.ToArgs())+len(c.args()))
+			args = append(args, c.Options.ToArgs()...)
+			args = append(args, "-O", "check")
 		}
-		args := make([]string, 0, 4+len(c.args()))
-		args = append(args, "-O", "check", "-S", controlPath)
 		args = append(args, c.args()...)
 		if exec.CommandContext(ctx, "ssh", args...).Run() != nil {
 			c.controlMutex.Lock()

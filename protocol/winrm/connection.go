@@ -95,7 +95,7 @@ func (c *Connection) IsConnected() bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	proc, err := c.StartProcess(ctx, "exit 0", nil, nil, nil)
+	proc, err := c.StartProcess(ctx, "cmd.exe /c exit 0", nil, nil, nil)
 	if err != nil {
 		return false
 	}
