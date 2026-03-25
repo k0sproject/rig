@@ -38,6 +38,7 @@ type Connection struct {
 	Config               `yaml:",inline"`
 
 	isConnected  bool
+	controlPath  string
 	controlMutex sync.Mutex
 
 	isWindows *bool
@@ -197,6 +198,9 @@ func (c *Connection) Connect(ctx context.Context) error {
 	}
 
 	c.isConnected = true
+	if cp, ok := c.Options["ControlPath"].(string); ok {
+		c.controlPath = cp
+	}
 	log.Trace(ctx, "started ssh multipliexing control master", log.KeyHost, c)
 
 	return nil
@@ -210,13 +214,12 @@ func (c *Connection) closeControl() error {
 		return nil
 	}
 
-	controlPath, ok := c.Options["ControlPath"].(string)
-	if !ok {
+	if c.controlPath == "" {
 		return ErrControlPathNotSet
 	}
 
 	args := make([]string, 0, 4+len(c.args())+1)
-	args = append(args, "-O", "exit", "-S", controlPath)
+	args = append(args, "-O", "exit", "-S", c.controlPath)
 	args = append(args, c.args()...)
 	args = append(args, c.userhost())
 
@@ -288,25 +291,27 @@ func (c *Connection) IsConnected() bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	var alive bool
 	if !c.DisableMultiplexing {
-		controlPath, ok := c.Options["ControlPath"].(string)
-		if ok {
-			args := make([]string, 0, 4+len(c.args()))
-			args = append(args, "-O", "check", "-S", controlPath)
-			args = append(args, c.args()...)
-			alive = exec.CommandContext(ctx, "ssh", args...).Run() == nil
+		if c.controlPath == "" {
+			// Control path not known (e.g. set via ssh_config -F); skip probe
+			// to avoid incorrectly marking a live connection as disconnected.
+			return true
 		}
-	} else {
-		proc, err := c.StartProcess(ctx, "exit 0", nil, nil, nil)
-		if err == nil {
-			alive = proc.Wait() == nil
+		args := make([]string, 0, 4+len(c.args()))
+		args = append(args, "-O", "check", "-S", c.controlPath)
+		args = append(args, c.args()...)
+		if exec.CommandContext(ctx, "ssh", args...).Run() != nil {
+			c.isConnected = false
+			return false
 		}
+		return true
 	}
-	if !alive {
+	proc, err := c.StartProcess(ctx, "exit 0", nil, nil, nil)
+	if err != nil || proc.Wait() != nil {
 		c.isConnected = false
+		return false
 	}
-	return alive
+	return true
 }
 
 // Disconnect disconnects from the remote host. If multiplexing is enabled, this will close the control master.
