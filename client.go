@@ -401,9 +401,10 @@ func (c *Client) Protocol() string {
 	return c.connection.Protocol()
 }
 
-// ProtocolName returns the specific protocol implementation name:
-// "SSH", "OpenSSH", "WinRM", or "Local". Use this for logging or
-// diagnostics where the distinction between native SSH and OpenSSH matters.
+// ProtocolName returns the specific protocol implementation name, such as
+// "SSH", "OpenSSH", "WinRM", or "Local". Use this for logging or diagnostics
+// where the distinction between native SSH and OpenSSH matters. Custom or
+// test implementations may return other values.
 func (c *Client) ProtocolName() string {
 	if c.connection == nil {
 		return "uninitialized"

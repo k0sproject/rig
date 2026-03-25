@@ -54,15 +54,18 @@ type Connection interface {
 	// Both the native SSH and OpenSSH implementations return "SSH".
 	// Custom or test implementations may return other values.
 	Protocol() string
-	// ProtocolName returns the specific implementation name: "SSH", "OpenSSH",
-	// "WinRM", or "Local". Use this for logging or diagnostics where the
-	// distinction between native SSH and OpenSSH matters.
+	// ProtocolName returns the specific implementation name, such as "SSH",
+	// "OpenSSH", "WinRM", or "Local". Use this for logging or diagnostics
+	// where the distinction between native SSH and OpenSSH matters. Custom
+	// or test implementations may return other values.
 	ProtocolName() string
 	// IsConnected returns true if the connection is currently active.
-	// All implementations perform an active liveness probe (e.g. SSH keepalive,
-	// ssh -O check for OpenSSH multiplexing, or a no-op command for WinRM).
-	// Localhost always returns true. Callers should be aware this may block
-	// up to a timeout (typically 10s) and may cause side-effects on the remote.
+	// Built-in implementations attempt an active liveness probe where
+	// possible (e.g. SSH keepalive, ssh -O check for OpenSSH multiplexing,
+	// or a no-op command for WinRM), but some implementations may skip the
+	// probe or always return true (e.g. Localhost). Callers should be aware
+	// this may block up to a timeout (typically 10s) and may cause
+	// side-effects on the remote.
 	IsConnected() bool
 	IPAddress() string
 	ProcessStarter
