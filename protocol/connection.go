@@ -50,7 +50,17 @@ type InteractiveExecer interface {
 // Connection is the minimum interface for protocol implementations.
 type Connection interface {
 	fmt.Stringer
+	// Protocol returns the protocol family: "SSH", "WinRM", or "Local".
+	// Both the native SSH and OpenSSH implementations return "SSH".
 	Protocol() string
+	// ProtocolName returns the specific implementation name: "SSH", "OpenSSH",
+	// "WinRM", or "Local". Use this for logging or diagnostics where the
+	// distinction between native SSH and OpenSSH matters.
+	ProtocolName() string
+	// IsConnected returns true if the connection is currently active.
+	// For SSH, this sends a real keepalive probe. For other protocols,
+	// it reflects whether the connection has been established and not closed.
+	IsConnected() bool
 	IPAddress() string
 	ProcessStarter
 	WindowsChecker

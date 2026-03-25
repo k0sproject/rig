@@ -54,8 +54,13 @@ func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
 	return c, nil
 }
 
-// Protocol returns the protocol name, "WinRM".
+// Protocol returns the protocol family, "WinRM".
 func (c *Connection) Protocol() string {
+	return "WinRM"
+}
+
+// ProtocolName returns the implementation name, "WinRM".
+func (c *Connection) ProtocolName() string {
 	return "WinRM"
 }
 
@@ -76,6 +81,21 @@ func (c *Connection) String() string {
 // IsWindows always returns true on winrm.
 func (c *Connection) IsWindows() bool {
 	return true
+}
+
+// IsConnected returns true if the WinRM connection is alive by running a no-op
+// command. WinRM is stateless HTTP so the only real liveness test is a probe.
+func (c *Connection) IsConnected() bool {
+	if c.client == nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	proc, err := c.StartProcess(ctx, "exit 0", nil, nil, nil)
+	if err != nil {
+		return false
+	}
+	return proc.Wait() == nil
 }
 
 func (c *Connection) loadCertificates() error {

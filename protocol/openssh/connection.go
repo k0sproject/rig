@@ -24,6 +24,13 @@ var (
 	errNotConnected = errors.New("not connected")
 )
 
+// isHostKeyError reports whether ssh stderr output indicates a host key
+// verification failure. These are fatal and should not be retried.
+func isHostKeyError(stderr string) bool {
+	return strings.Contains(stderr, "Host key verification failed") ||
+		strings.Contains(stderr, "REMOTE HOST IDENTIFICATION HAS CHANGED")
+}
+
 // Connection is a rig.Connection implementation that uses the system openssh client "ssh" to connect to remote hosts.
 // The connection is by default multiplexec over a control master, so that subsequent connections don't need to re-authenticate.
 type Connection struct {
@@ -44,8 +51,13 @@ func NewConnection(cfg Config) (*Connection, error) {
 	return &Connection{Config: cfg}, nil
 }
 
-// Protocol returns the protocol name.
+// Protocol returns the protocol family, "SSH".
 func (c *Connection) Protocol() string {
+	return "SSH"
+}
+
+// ProtocolName returns the implementation name, "OpenSSH".
+func (c *Connection) ProtocolName() string {
 	return "OpenSSH"
 }
 
@@ -140,8 +152,17 @@ func (c *Connection) Connect(ctx context.Context) error {
 	}
 
 	if c.DisableMultiplexing {
-		// just run a noop command to check connectivity
-		if _, err := c.StartProcess(ctx, "exit 0", nil, nil, nil); err != nil {
+		// Run a noop to check connectivity. Capture stderr to detect host key failures.
+		errBuf := bytes.NewBuffer(nil)
+		proc, err := c.StartProcess(ctx, "exit 0", nil, nil, errBuf)
+		if err == nil {
+			err = proc.Wait()
+		}
+		if err != nil {
+			errOut := errBuf.String()
+			if isHostKeyError(errOut) {
+				return fmt.Errorf("%w: host key verification failed: %w (%s)", protocol.ErrNonRetryable, err, errOut)
+			}
 			return fmt.Errorf("failed to connect: %w", err)
 		}
 		c.isConnected = true
@@ -175,7 +196,11 @@ func (c *Connection) Connect(ctx context.Context) error {
 	log.Trace(ctx, "starting ssh control master", log.KeyHost, c, log.KeyCommand, strings.Join(args, " "))
 	if err := cmd.Run(); err != nil {
 		c.isConnected = false
-		return fmt.Errorf("failed to start ssh multiplexing control master: %w (%s)", err, errBuf.String())
+		errOut := errBuf.String()
+		if isHostKeyError(errOut) {
+			return fmt.Errorf("%w: host key verification failed: %w (%s)", protocol.ErrNonRetryable, err, errOut)
+		}
+		return fmt.Errorf("failed to start ssh multiplexing control master: %w (%s)", err, errOut)
 	}
 
 	c.isConnected = true
@@ -261,9 +286,29 @@ func (c *Connection) String() string {
 	return c.name
 }
 
-// IsConnected returns true if the connection is connected.
+// IsConnected returns true if the connection is alive. For multiplexed
+// connections this probes the control master via ssh -O check. For
+// non-multiplexed connections it runs a no-op command over a fresh session.
 func (c *Connection) IsConnected() bool {
-	return c.isConnected
+	if !c.isConnected {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if !c.DisableMultiplexing {
+		controlPath, ok := c.Options["ControlPath"].(string)
+		if !ok {
+			return false
+		}
+		args := []string{"-O", "check", "-S", controlPath}
+		args = append(args, c.args()...)
+		return exec.CommandContext(ctx, "ssh", args...).Run() == nil
+	}
+	proc, err := c.StartProcess(ctx, "exit 0", nil, nil, nil)
+	if err != nil {
+		return false
+	}
+	return proc.Wait() == nil
 }
 
 // Disconnect disconnects from the remote host. If multiplexing is enabled, this will close the control master.

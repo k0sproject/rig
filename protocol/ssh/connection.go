@@ -151,8 +151,13 @@ func (c *Connection) SetDefaults(ctx context.Context) {
 	})
 }
 
-// Protocol returns the protocol name, "SSH".
+// Protocol returns the protocol family, "SSH".
 func (c *Connection) Protocol() string {
+	return "SSH"
+}
+
+// ProtocolName returns the implementation name, "SSH".
+func (c *Connection) ProtocolName() string {
 	return "SSH"
 }
 
