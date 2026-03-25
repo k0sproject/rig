@@ -379,12 +379,37 @@ func (c *Client) OS() (*os.Release, error) {
 	return os, nil
 }
 
-// Protocol returns the protocol used to connect to the host.
+// IsConnected returns true if the underlying connection is currently active.
+// This delegates to the protocol connection's IsConnected, which may perform
+// an active liveness probe (e.g. ssh -O check for OpenSSH multiplexed sessions,
+// or a no-op command for WinRM/non-multiplexed SSH) and may block up to a timeout.
+func (c *Client) IsConnected() bool {
+	if c.connection == nil {
+		return false
+	}
+	return c.connection.IsConnected()
+}
+
+// Protocol returns the protocol family used to connect to the host,
+// such as "SSH", "WinRM", or "Local". Both the native SSH and OpenSSH
+// implementations return "SSH". Custom or test implementations may
+// return other values.
 func (c *Client) Protocol() string {
 	if c.connection == nil {
 		return "uninitialized"
 	}
 	return c.connection.Protocol()
+}
+
+// ProtocolName returns the specific protocol implementation name, such as
+// "SSH", "OpenSSH", "WinRM", or "Local". Use this for logging or diagnostics
+// where the distinction between native SSH and OpenSSH matters. Custom or
+// test implementations may return other values.
+func (c *Client) ProtocolName() string {
+	if c.connection == nil {
+		return "uninitialized"
+	}
+	return c.connection.ProtocolName()
 }
 
 // Address returns the address of the host.

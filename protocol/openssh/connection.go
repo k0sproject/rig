@@ -24,6 +24,13 @@ var (
 	errNotConnected = errors.New("not connected")
 )
 
+// isHostKeyError reports whether ssh stderr output indicates a host key
+// verification failure. These are fatal and should not be retried.
+func isHostKeyError(stderr string) bool {
+	return strings.Contains(stderr, "Host key verification failed") ||
+		strings.Contains(stderr, "REMOTE HOST IDENTIFICATION HAS CHANGED")
+}
+
 // Connection is a rig.Connection implementation that uses the system openssh client "ssh" to connect to remote hosts.
 // The connection is by default multiplexec over a control master, so that subsequent connections don't need to re-authenticate.
 type Connection struct {
@@ -31,6 +38,7 @@ type Connection struct {
 	Config               `yaml:",inline"`
 
 	isConnected  bool
+	controlPath  string
 	controlMutex sync.Mutex
 
 	isWindows *bool
@@ -44,8 +52,13 @@ func NewConnection(cfg Config) (*Connection, error) {
 	return &Connection{Config: cfg}, nil
 }
 
-// Protocol returns the protocol name.
+// Protocol returns the protocol family, "SSH".
 func (c *Connection) Protocol() string {
+	return "SSH"
+}
+
+// ProtocolName returns the implementation name, "OpenSSH".
+func (c *Connection) ProtocolName() string {
 	return "OpenSSH"
 }
 
@@ -135,20 +148,33 @@ func (c *Connection) args() []string {
 
 // Connect connects to the remote host. If multiplexing is enabled, this will start a control master. If multiplexing is disabled, this will just run a noop command to check connectivity.
 func (c *Connection) Connect(ctx context.Context) error {
+	c.controlMutex.Lock()
 	if c.isConnected {
+		c.controlMutex.Unlock()
 		return nil
 	}
 
 	if c.DisableMultiplexing {
-		// just run a noop command to check connectivity
-		if _, err := c.StartProcess(ctx, "exit 0", nil, nil, nil); err != nil {
+		c.controlMutex.Unlock()
+		// Run a noop to check connectivity. Capture stderr to detect host key failures.
+		errBuf := bytes.NewBuffer(nil)
+		proc, err := c.StartProcess(ctx, "exit 0", nil, nil, errBuf)
+		if err == nil {
+			err = proc.Wait()
+		}
+		if err != nil {
+			errOut := errBuf.String()
+			if isHostKeyError(errOut) {
+				return fmt.Errorf("%w: host key verification failed: %w (%s)", protocol.ErrNonRetryable, err, errOut)
+			}
 			return fmt.Errorf("failed to connect: %w", err)
 		}
+		c.controlMutex.Lock()
 		c.isConnected = true
+		c.controlMutex.Unlock()
 		return nil
 	}
 
-	c.controlMutex.Lock()
 	defer c.controlMutex.Unlock()
 
 	opts := c.Options.Copy()
@@ -162,24 +188,24 @@ func (c *Connection) Connect(ctx context.Context) error {
 	args = append(args, c.args()...)
 
 	cmd := exec.CommandContext(ctx, "ssh", args...)
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("create stderr pipe: %w", err)
-	}
-	defer stderr.Close()
 	errBuf := bytes.NewBuffer(nil)
-	go func() {
-		_, _ = io.Copy(errBuf, stderr)
-	}()
+	cmd.Stderr = errBuf
 
 	log.Trace(ctx, "starting ssh control master", log.KeyHost, c, log.KeyCommand, strings.Join(args, " "))
 	if err := cmd.Run(); err != nil {
 		c.isConnected = false
-		return fmt.Errorf("failed to start ssh multiplexing control master: %w (%s)", err, errBuf.String())
+		errOut := errBuf.String()
+		if isHostKeyError(errOut) {
+			return fmt.Errorf("%w: host key verification failed: %w (%s)", protocol.ErrNonRetryable, err, errOut)
+		}
+		return fmt.Errorf("failed to start ssh multiplexing control master: %w (%s)", err, errOut)
 	}
 
 	c.isConnected = true
-	log.Trace(ctx, "started ssh multipliexing control master", log.KeyHost, c)
+	if cp, ok := c.Options["ControlPath"].(string); ok {
+		c.controlPath = cp
+	}
+	log.Trace(ctx, "started ssh multiplexing control master", log.KeyHost, c)
 
 	return nil
 }
@@ -192,15 +218,13 @@ func (c *Connection) closeControl() error {
 		return nil
 	}
 
-	controlPath, ok := c.Options["ControlPath"].(string)
-	if !ok {
+	if c.controlPath == "" {
 		return ErrControlPathNotSet
 	}
 
-	args := make([]string, 0, 4+len(c.args())+1)
-	args = append(args, "-O", "exit", "-S", controlPath)
+	args := make([]string, 0, 4+len(c.args()))
+	args = append(args, "-O", "exit", "-S", c.controlPath)
 	args = append(args, c.args()...)
-	args = append(args, c.userhost())
 
 	log.Trace(context.Background(), "closing ssh multiplexing control master", log.KeyHost, c)
 	cmd := exec.Command("ssh", args...) //nolint:noctx // cleanup code path, no context available
@@ -214,7 +238,10 @@ func (c *Connection) closeControl() error {
 
 // StartProcess executes a command on the remote host, streaming stdin, stdout and stderr.
 func (c *Connection) StartProcess(ctx context.Context, cmdStr string, stdin io.Reader, stdout, stderr io.Writer) (protocol.Waiter, error) {
-	if !c.DisableMultiplexing && !c.isConnected {
+	c.controlMutex.Lock()
+	connected := c.isConnected
+	c.controlMutex.Unlock()
+	if !c.DisableMultiplexing && !connected {
 		return nil, errNotConnected
 	}
 
@@ -261,16 +288,57 @@ func (c *Connection) String() string {
 	return c.name
 }
 
-// IsConnected returns true if the connection is connected.
+// IsConnected returns true if the connection is alive. For multiplexed
+// connections this probes the control master via ssh -O check. For
+// non-multiplexed connections it runs a no-op command over a fresh session.
 func (c *Connection) IsConnected() bool {
-	return c.isConnected
+	c.controlMutex.Lock()
+	connected := c.isConnected
+	controlPath := c.controlPath
+	c.controlMutex.Unlock()
+
+	if !connected {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if !c.DisableMultiplexing {
+		var args []string
+		if controlPath != "" {
+			args = make([]string, 0, 4+len(c.args()))
+			args = append(args, "-O", "check", "-S", controlPath)
+		} else {
+			// ControlPath comes from ssh_config (-F); let ssh resolve it from options.
+			args = make([]string, 0, 2+len(c.Options.ToArgs())+len(c.args()))
+			args = append(args, c.Options.ToArgs()...)
+			args = append(args, "-O", "check")
+		}
+		args = append(args, c.args()...)
+		if exec.CommandContext(ctx, "ssh", args...).Run() != nil {
+			c.controlMutex.Lock()
+			c.isConnected = false
+			c.controlMutex.Unlock()
+			return false
+		}
+		return true
+	}
+	proc, err := c.StartProcess(ctx, "exit 0", nil, nil, nil)
+	if err != nil || proc.Wait() != nil {
+		c.controlMutex.Lock()
+		c.isConnected = false
+		c.controlMutex.Unlock()
+		return false
+	}
+	return true
 }
 
 // Disconnect disconnects from the remote host. If multiplexing is enabled, this will close the control master.
-// If multiplexing is disabled, this will do nothing.
+// If multiplexing is disabled, this marks the connection as disconnected.
 func (c *Connection) Disconnect() {
 	if c.DisableMultiplexing {
-		// nothing to do
+		c.controlMutex.Lock()
+		c.isConnected = false
+		c.controlMutex.Unlock()
 		return
 	}
 

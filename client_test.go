@@ -103,6 +103,40 @@ func TestClientPackageManagerErrorFallback(t *testing.T) {
 	require.ErrorIs(t, err, mockErr)
 }
 
+func TestClientReconnect(t *testing.T) {
+	conn := rigtest.NewMockConnection()
+	conn.AddCommandOutput(rigtest.Match("echo hello"), "hello")
+
+	client, err := rig.NewClient(rig.WithConnection(conn))
+	require.NoError(t, err)
+
+	require.NoError(t, client.Connect(context.Background()))
+	require.True(t, client.IsConnected())
+
+	out, err := client.ExecOutput("echo hello")
+	require.NoError(t, err)
+	require.Equal(t, "hello", out)
+
+	client.Disconnect()
+	require.False(t, client.IsConnected())
+
+	require.NoError(t, client.Connect(context.Background()))
+	require.True(t, client.IsConnected())
+
+	out, err = client.ExecOutput("echo hello")
+	require.NoError(t, err)
+	require.Equal(t, "hello", out)
+}
+
+func TestClientProtocolName(t *testing.T) {
+	conn := rigtest.NewMockConnection()
+	client, err := rig.NewClient(rig.WithConnection(conn))
+	require.NoError(t, err)
+
+	require.Equal(t, "mock", client.Protocol())
+	require.Equal(t, "mock", client.ProtocolName())
+}
+
 type testConfig struct {
 	Hosts []*testHost `yaml:"hosts"`
 }

@@ -26,8 +26,13 @@ func NewConnection() (*Connection, error) {
 	return &Connection{}, nil
 }
 
-// Protocol returns the protocol name, "Local".
+// Protocol returns the protocol family, "Local".
 func (c *Connection) Protocol() string {
+	return "Local"
+}
+
+// ProtocolName returns the implementation name, "Local".
+func (c *Connection) ProtocolName() string {
 	return "Local"
 }
 
@@ -44,6 +49,11 @@ func (c *Connection) String() string {
 // IsWindows is true when running on a windows host.
 func (c *Connection) IsWindows() bool {
 	return runtime.GOOS == "windows"
+}
+
+// IsConnected always returns true for localhost — there is no connection to lose.
+func (c *Connection) IsConnected() bool {
+	return true
 }
 
 // StartProcess executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
