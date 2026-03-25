@@ -58,8 +58,10 @@ type Connection interface {
 	// distinction between native SSH and OpenSSH matters.
 	ProtocolName() string
 	// IsConnected returns true if the connection is currently active.
-	// For SSH, this sends a real keepalive probe. For other protocols,
-	// it reflects whether the connection has been established and not closed.
+	// All implementations perform an active liveness probe (e.g. SSH keepalive,
+	// ssh -O check for OpenSSH multiplexing, or a no-op command for WinRM).
+	// Localhost always returns true. Callers should be aware this may block
+	// up to a timeout (typically 10s) and may cause side-effects on the remote.
 	IsConnected() bool
 	IPAddress() string
 	ProcessStarter

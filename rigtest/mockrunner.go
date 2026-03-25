@@ -107,11 +107,11 @@ func NewMockRunner() *MockRunner {
 // MockConnection is a mock client. It can be used to simulate a client in tests.
 type MockConnection struct {
 	log.LoggerInjectable
-	commands    []string
+	commands []string
 	*MockStarter
-	Windows     bool
-	mu          sync.Mutex
-	connected   bool
+	Windows   bool
+	mu        sync.Mutex
+	connected bool
 }
 
 // NewMockConnection creates a new mock connection.
@@ -157,9 +157,15 @@ func (m *MockConnection) IsWindows() bool { return m.Windows }
 // String returns the string representation of the client.
 func (m *MockConnection) String() string { return "mockclient" }
 
+const mockProtocol = "mock"
+
 // Protocol returns the protocol of the client.
-func (m *MockConnection) Protocol() string     { return "mock" }
-func (m *MockConnection) ProtocolName() string { return "mock" }
+func (m *MockConnection) Protocol() string { return mockProtocol }
+
+// ProtocolName returns the protocol name of the client.
+func (m *MockConnection) ProtocolName() string { return mockProtocol }
+
+// IsConnected returns true if the client is connected.
 func (m *MockConnection) IsConnected() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()

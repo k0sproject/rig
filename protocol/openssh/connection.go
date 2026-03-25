@@ -183,15 +183,8 @@ func (c *Connection) Connect(ctx context.Context) error {
 	args = append(args, c.args()...)
 
 	cmd := exec.CommandContext(ctx, "ssh", args...)
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("create stderr pipe: %w", err)
-	}
-	defer stderr.Close()
 	errBuf := bytes.NewBuffer(nil)
-	go func() {
-		_, _ = io.Copy(errBuf, stderr)
-	}()
+	cmd.Stderr = errBuf
 
 	log.Trace(ctx, "starting ssh control master", log.KeyHost, c, log.KeyCommand, strings.Join(args, " "))
 	if err := cmd.Run(); err != nil {
@@ -300,7 +293,8 @@ func (c *Connection) IsConnected() bool {
 		if !ok {
 			return false
 		}
-		args := []string{"-O", "check", "-S", controlPath}
+		args := make([]string, 0, 4+len(c.args()))
+		args = append(args, "-O", "check", "-S", controlPath)
 		args = append(args, c.args()...)
 		return exec.CommandContext(ctx, "ssh", args...).Run() == nil
 	}
