@@ -380,8 +380,9 @@ func (c *Client) OS() (*os.Release, error) {
 }
 
 // IsConnected returns true if the underlying connection is currently active.
-// For SSH this sends a real keepalive probe; for other protocols it reflects
-// whether Connect has been called and Disconnect has not.
+// This delegates to the protocol connection's IsConnected, which may perform
+// an active liveness probe (e.g. ssh -O check for OpenSSH multiplexed sessions,
+// or a no-op command for WinRM/non-multiplexed SSH) and may block up to a timeout.
 func (c *Client) IsConnected() bool {
 	if c.connection == nil {
 		return false

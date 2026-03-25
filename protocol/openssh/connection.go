@@ -288,21 +288,25 @@ func (c *Connection) IsConnected() bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	var alive bool
 	if !c.DisableMultiplexing {
 		controlPath, ok := c.Options["ControlPath"].(string)
-		if !ok {
-			return false
+		if ok {
+			args := make([]string, 0, 4+len(c.args()))
+			args = append(args, "-O", "check", "-S", controlPath)
+			args = append(args, c.args()...)
+			alive = exec.CommandContext(ctx, "ssh", args...).Run() == nil
 		}
-		args := make([]string, 0, 4+len(c.args()))
-		args = append(args, "-O", "check", "-S", controlPath)
-		args = append(args, c.args()...)
-		return exec.CommandContext(ctx, "ssh", args...).Run() == nil
+	} else {
+		proc, err := c.StartProcess(ctx, "exit 0", nil, nil, nil)
+		if err == nil {
+			alive = proc.Wait() == nil
+		}
 	}
-	proc, err := c.StartProcess(ctx, "exit 0", nil, nil, nil)
-	if err != nil {
-		return false
+	if !alive {
+		c.isConnected = false
 	}
-	return proc.Wait() == nil
+	return alive
 }
 
 // Disconnect disconnects from the remote host. If multiplexing is enabled, this will close the control master.
