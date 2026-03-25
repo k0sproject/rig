@@ -390,9 +390,10 @@ func (c *Client) IsConnected() bool {
 	return c.connection.IsConnected()
 }
 
-// Protocol returns the protocol family used to connect to the host:
-// "SSH", "WinRM", or "Local". Both the native SSH and OpenSSH
-// implementations return "SSH".
+// Protocol returns the protocol family used to connect to the host,
+// such as "SSH", "WinRM", or "Local". Both the native SSH and OpenSSH
+// implementations return "SSH". Custom or test implementations may
+// return other values.
 func (c *Client) Protocol() string {
 	if c.connection == nil {
 		return "uninitialized"
