@@ -37,6 +37,7 @@ type Connection struct {
 	key    []byte
 	cert   []byte
 
+	mu     sync.Mutex
 	client *winrm.Client
 }
 
@@ -86,7 +87,10 @@ func (c *Connection) IsWindows() bool {
 // IsConnected returns true if the WinRM connection is alive by running a no-op
 // command. WinRM is stateless HTTP so the only real liveness test is a probe.
 func (c *Connection) IsConnected() bool {
-	if c.client == nil {
+	c.mu.Lock()
+	connected := c.client != nil
+	c.mu.Unlock()
+	if !connected {
 		return false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -198,14 +202,18 @@ func (c *Connection) Connect(ctx context.Context) error {
 		return fmt.Errorf("create winrm client: %w", err)
 	}
 
+	c.mu.Lock()
 	c.client = client
+	c.mu.Unlock()
 
 	return nil
 }
 
 // Disconnect closes the WinRM connection.
 func (c *Connection) Disconnect() {
+	c.mu.Lock()
 	c.client = nil
+	c.mu.Unlock()
 }
 
 type command struct {
@@ -253,14 +261,17 @@ func (c *command) Close() error {
 // StartProcess executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
 func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) (protocol.Waiter, error) {
-	if c.client == nil {
+	c.mu.Lock()
+	client := c.client
+	c.mu.Unlock()
+	if client == nil {
 		return nil, errNotConnected
 	}
 	if len(cmd) > 8191 {
 		return nil, fmt.Errorf("%w: %w: command too long (%d/%d)", protocol.ErrNonRetryable, errInvalidCommand, len(cmd), 8191)
 	}
 
-	shell, err := c.client.CreateShell()
+	shell, err := client.CreateShell()
 	if err != nil {
 		return nil, fmt.Errorf("create shell: %w", err)
 	}
@@ -312,10 +323,16 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 
 // ExecInteractive executes a command on the host and passes stdin/stdout/stderr as-is to the session.
 func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
+	c.mu.Lock()
+	client := c.client
+	c.mu.Unlock()
+	if client == nil {
+		return errNotConnected
+	}
 	if cmd == "" {
 		cmd = "cmd.exe"
 	}
-	_, err := c.client.RunWithContextWithInput(context.Background(), cmd, stdout, stderr, stdin)
+	_, err := client.RunWithContextWithInput(context.Background(), cmd, stdout, stderr, stdin)
 	if err != nil {
 		return fmt.Errorf("execute command in interactive mode: %w", err)
 	}

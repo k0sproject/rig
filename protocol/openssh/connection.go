@@ -165,7 +165,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 		if err != nil {
 			errOut := errBuf.String()
 			if isHostKeyError(errOut) {
-				return fmt.Errorf("%w: host key verification failed: %v (%s)", protocol.ErrNonRetryable, err, errOut)
+				return fmt.Errorf("%w: host key verification failed: %w (%s)", protocol.ErrNonRetryable, err, errOut)
 			}
 			return fmt.Errorf("failed to connect: %w", err)
 		}
@@ -196,7 +196,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 		c.isConnected = false
 		errOut := errBuf.String()
 		if isHostKeyError(errOut) {
-			return fmt.Errorf("%w: host key verification failed: %v (%s)", protocol.ErrNonRetryable, err, errOut)
+			return fmt.Errorf("%w: host key verification failed: %w (%s)", protocol.ErrNonRetryable, err, errOut)
 		}
 		return fmt.Errorf("failed to start ssh multiplexing control master: %w (%s)", err, errOut)
 	}
@@ -205,7 +205,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 	if cp, ok := c.Options["ControlPath"].(string); ok {
 		c.controlPath = cp
 	}
-	log.Trace(ctx, "started ssh multipliexing control master", log.KeyHost, c)
+	log.Trace(ctx, "started ssh multiplexing control master", log.KeyHost, c)
 
 	return nil
 }
@@ -294,7 +294,7 @@ func (c *Connection) String() string {
 func (c *Connection) IsConnected() bool {
 	c.controlMutex.Lock()
 	connected := c.isConnected
-	cp := c.controlPath
+	controlPath := c.controlPath
 	c.controlMutex.Unlock()
 
 	if !connected {
@@ -303,13 +303,13 @@ func (c *Connection) IsConnected() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if !c.DisableMultiplexing {
-		if cp == "" {
+		if controlPath == "" {
 			// Control path not known (e.g. set via ssh_config -F); skip probe
 			// to avoid incorrectly marking a live connection as disconnected.
 			return true
 		}
 		args := make([]string, 0, 4+len(c.args()))
-		args = append(args, "-O", "check", "-S", cp)
+		args = append(args, "-O", "check", "-S", controlPath)
 		args = append(args, c.args()...)
 		if exec.CommandContext(ctx, "ssh", args...).Run() != nil {
 			c.controlMutex.Lock()
@@ -330,10 +330,12 @@ func (c *Connection) IsConnected() bool {
 }
 
 // Disconnect disconnects from the remote host. If multiplexing is enabled, this will close the control master.
-// If multiplexing is disabled, this will do nothing.
+// If multiplexing is disabled, this marks the connection as disconnected.
 func (c *Connection) Disconnect() {
 	if c.DisableMultiplexing {
-		// nothing to do
+		c.controlMutex.Lock()
+		c.isConnected = false
+		c.controlMutex.Unlock()
 		return
 	}
 
