@@ -130,15 +130,17 @@ func (c *ClientWithConfig) Connect(ctx context.Context, opts ...ClientOption) er
 	return c.Client.Connect(ctx)
 }
 
-// UnmarshalYAML implements the yaml.Unmarshaler interface, it unmarshals and
-// sets up a connection from a YAML configuration.
+// UnmarshalYAML implements the yaml.Unmarshaler interface. It unmarshals the
+// connection configuration but defers client setup to [ClientWithConfig.Connect]
+// or an explicit [ClientWithConfig.Setup] call, so that options (logger, retry
+// policy, etc.) passed at connect time are not silently ignored.
 func (c *ClientWithConfig) UnmarshalYAML(unmarshal func(any) error) error {
 	type configuredConnection ClientWithConfig
 	conn := (*configuredConnection)(c)
 	if err := unmarshal(conn); err != nil {
 		return fmt.Errorf("unmarshal client config: %w", err)
 	}
-	return c.Setup()
+	return nil
 }
 
 // NewClient returns a new Connection object with the given options.
