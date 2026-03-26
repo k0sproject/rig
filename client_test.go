@@ -244,7 +244,8 @@ func TestConfiguredConnectionConnectOptsApplied(t *testing.T) {
 
 	require.NoError(t, conn.Connect(context.Background(), rig.WithRunner(mock)))
 
-	_, _ = conn.ExecOutput("echo hello")
+	_, err = conn.ExecOutput("echo hello")
+	require.NoError(t, err)
 
 	rigtest.ReceivedEqual(t, mock, "echo hello", "WithRunner option passed to Connect was not applied")
 }

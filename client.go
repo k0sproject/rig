@@ -127,7 +127,10 @@ func (c *ClientWithConfig) Connect(ctx context.Context, opts ...ClientOption) er
 	if err := c.Setup(opts...); err != nil { //nolint:contextcheck // it's the trace logger
 		return err
 	}
-	return c.Client.Connect(ctx)
+	c.mu.Lock()
+	client := c.Client
+	c.mu.Unlock()
+	return client.Connect(ctx)
 }
 
 // UnmarshalYAML implements the yaml.Unmarshaler interface. It unmarshals the
