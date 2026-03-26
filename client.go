@@ -137,6 +137,9 @@ func (c *ClientWithConfig) Connect(ctx context.Context, opts ...ClientOption) er
 // connection configuration but defers client setup to [ClientWithConfig.Connect]
 // or an explicit [ClientWithConfig.Setup] call, so that options (logger, retry
 // policy, etc.) passed at connect time are not silently ignored.
+// If an existing client is present (e.g. when unmarshaling into a previously
+// connected instance), it is disconnected and the client is reset so that the
+// new configuration takes effect on the next Connect or Setup call.
 func (c *ClientWithConfig) UnmarshalYAML(unmarshal func(any) error) error {
 	type configuredConnection ClientWithConfig
 	conn := (*configuredConnection)(c)
