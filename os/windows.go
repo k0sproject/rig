@@ -2,6 +2,7 @@ package os
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/k0sproject/rig/v2/cmd"
 	ps "github.com/k0sproject/rig/v2/powershell"
@@ -26,11 +27,17 @@ func ResolveWindows(conn cmd.SimpleRunner) (*Release, bool) {
 	if err := json.Unmarshal([]byte(output), &winver); err != nil {
 		return nil, false
 	}
-	return &Release{
+	release := &Release{
 		ID:      "windows",
 		Name:    winver.Caption,
 		Version: winver.Version,
-	}, true
+	}
+
+	if arch, err := conn.ExecOutput(ps.Cmd("$env:PROCESSOR_ARCHITECTURE")); err == nil {
+		release.arch = strings.TrimSpace(arch)
+	}
+
+	return release, true
 }
 
 // RegisterWindows registers the windows OS release resolver to a provider.

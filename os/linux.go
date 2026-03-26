@@ -2,6 +2,7 @@ package os
 
 import (
 	"context"
+	"strings"
 
 	"github.com/k0sproject/rig/v2/cmd"
 	"github.com/k0sproject/rig/v2/kv"
@@ -26,6 +27,10 @@ func ResolveLinux(conn cmd.SimpleRunner) (*Release, bool) {
 	if err := decoder.Decode(version); err != nil {
 		log.Trace(context.Background(), "linux os resolver: execreader returned an error", log.HostAttr(conn), log.ErrorAttr(err))
 		return nil, false
+	}
+
+	if arch, err := conn.ExecOutput("uname -m"); err == nil {
+		version.arch = strings.TrimSpace(arch)
 	}
 
 	return version, true
