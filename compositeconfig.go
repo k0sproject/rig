@@ -13,7 +13,8 @@ import (
 var _ ConnectionFactory = (*CompositeConfig)(nil)
 
 // LocalhostConfig is a bool-valued type that also accepts the v0.x YAML form
-// "localhost:\n  enabled: true" for backward compatibility.
+// "localhost:\n  enabled: true" for backward compatibility. To assign a bool
+// variable, use an explicit cast: LocalhostConfig(b).
 type LocalhostConfig bool
 
 // UnmarshalYAML implements yaml.Unmarshaler, accepting both:
@@ -22,6 +23,7 @@ type LocalhostConfig bool
 //	localhost:                (v0.x form)
 //	  enabled: true
 func (l *LocalhostConfig) UnmarshalYAML(unmarshal func(any) error) error {
+	*l = false
 	var b bool
 	if err := unmarshal(&b); err == nil {
 		*l = LocalhostConfig(b)
