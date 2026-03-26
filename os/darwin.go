@@ -2,6 +2,7 @@ package os
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/k0sproject/rig/v2/cmd"
 )
@@ -26,11 +27,17 @@ func ResolveDarwin(conn cmd.SimpleRunner) (*Release, bool) {
 		name = fmt.Sprintf("%s %s", n, version)
 	}
 
-	return &Release{
+	release := &Release{
 		ID:      "darwin",
 		Version: version,
 		Name:    name,
-	}, true
+	}
+
+	if arch, err := conn.ExecOutput("uname -m"); err == nil {
+		release.arch = strings.TrimSpace(arch)
+	}
+
+	return release, true
 }
 
 // RegisterDarwin registers the darwin OS release resolver to a provider.
