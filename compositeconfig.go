@@ -1,6 +1,7 @@
 package rig
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/k0sproject/rig/v2/protocol"
@@ -12,51 +13,49 @@ import (
 
 var _ ConnectionFactory = (*CompositeConfig)(nil)
 
+// LocalhostConfig is a bool-valued type that also accepts the v0.x YAML form
+// "localhost:\n  enabled: true" for backward compatibility. To assign a bool
+// variable, use an explicit cast: LocalhostConfig(b).
+type LocalhostConfig bool
+
+// UnmarshalYAML implements yaml.Unmarshaler, accepting both:
+//
+//	localhost: true           (current form)
+//	localhost:                (v0.x form)
+//	  enabled: true
+func (l *LocalhostConfig) UnmarshalYAML(unmarshal func(any) error) error {
+	*l = false
+	var b bool
+	if err := unmarshal(&b); err == nil {
+		*l = LocalhostConfig(b)
+		return nil
+	}
+	var m map[string]any
+	if err := unmarshal(&m); err != nil {
+		return errors.Join(fmt.Errorf("%w: localhost must be a bool or {enabled: bool}", protocol.ErrValidationFailed), err)
+	}
+	for k := range m {
+		if k != "enabled" {
+			return fmt.Errorf("%w: localhost mapping has unknown key %q (only 'enabled' is allowed)", protocol.ErrValidationFailed, k)
+		}
+	}
+	if v, ok := m["enabled"]; ok {
+		b, ok := v.(bool)
+		if !ok {
+			return fmt.Errorf("%w: localhost 'enabled' must be a bool, got %T", protocol.ErrValidationFailed, v)
+		}
+		*l = LocalhostConfig(b)
+	}
+	return nil
+}
+
 // CompositeConfig is a composite configuration of all the protocols supported out of the box by rig.
 // It is intended to be embedded into host structs that are unmarshaled from configuration files.
 type CompositeConfig struct {
 	SSH       *ssh.Config     `yaml:"ssh,omitempty"`
 	WinRM     *winrm.Config   `yaml:"winRM,omitempty"`
 	OpenSSH   *openssh.Config `yaml:"openSSH,omitempty"`
-	Localhost bool            `yaml:"localhost,omitempty"`
-}
-
-type oldLocalhost struct {
-	Enabled bool `yaml:"enabled"`
-}
-
-// intermediary structure for handling both the old v0.x and the new format
-// for localhost.
-type compositeConfigIntermediary struct {
-	SSH       *ssh.Config     `yaml:"ssh,omitempty"`
-	WinRM     *winrm.Config   `yaml:"winRM,omitempty"`
-	OpenSSH   *openssh.Config `yaml:"openSSH,omitempty"`
-	Localhost any             `yaml:"localhost,omitempty"`
-}
-
-// UnmarshalYAML implements the yaml.Unmarshaler interface.
-func (c *CompositeConfig) UnmarshalYAML(unmarshal func(any) error) error {
-	var intermediary compositeConfigIntermediary
-	if err := unmarshal(&intermediary); err != nil {
-		return err
-	}
-
-	c.SSH = intermediary.SSH
-	c.WinRM = intermediary.WinRM
-	c.OpenSSH = intermediary.OpenSSH
-
-	if intermediary.Localhost != nil {
-		switch v := intermediary.Localhost.(type) {
-		case bool:
-			c.Localhost = v
-		case oldLocalhost:
-			c.Localhost = v.Enabled
-		default:
-			return fmt.Errorf("unmarshal localhost - invalid type %T: %w", v, protocol.ErrValidationFailed)
-		}
-	}
-
-	return nil
+	Localhost LocalhostConfig `yaml:"localhost,omitempty"`
 }
 
 func (c *CompositeConfig) configuredConfig() (ConnectionFactory, error) {
