@@ -102,20 +102,28 @@ type ClientWithConfig struct {
 	*Client          `yaml:"-"`
 }
 
-// Setup allows applying options to the connection to configure subcomponents.
-func (c *ClientWithConfig) Setup(opts ...ClientOption) error {
+// setupAndGet atomically initializes the client (if not already done) and
+// returns it. Holding the lock across both operations prevents a concurrent
+// UnmarshalYAML from setting c.Client = nil between initialization and use.
+func (c *ClientWithConfig) setupAndGet(opts ...ClientOption) (*Client, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.Client != nil {
-		return nil
+		return c.Client, nil
 	}
 	opts = append(opts, WithConnectionFactory(&c.ConnectionConfig))
 	client, err := NewClient(opts...)
 	if err != nil {
-		return fmt.Errorf("new client: %w", err)
+		return nil, fmt.Errorf("new client: %w", err)
 	}
 	c.Client = client
-	return nil
+	return client, nil
+}
+
+// Setup allows applying options to the connection to configure subcomponents.
+func (c *ClientWithConfig) Setup(opts ...ClientOption) error {
+	_, err := c.setupAndGet(opts...)
+	return err
 }
 
 // Connect to the host. Unlike in [Client.Connect], the Connect method here
@@ -124,12 +132,10 @@ func (c *ClientWithConfig) Setup(opts ...ClientOption) error {
 // be calling [NewClient] to create the [ClientWithConfig] instance when
 // unmarshalling from a configuration file.
 func (c *ClientWithConfig) Connect(ctx context.Context, opts ...ClientOption) error {
-	if err := c.Setup(opts...); err != nil { //nolint:contextcheck // it's the trace logger
+	client, err := c.setupAndGet(opts...) //nolint:contextcheck // it's the trace logger
+	if err != nil {
 		return err
 	}
-	c.mu.Lock()
-	client := c.Client
-	c.mu.Unlock()
 	return client.Connect(ctx)
 }
 
