@@ -29,15 +29,23 @@ func (l *LocalhostConfig) UnmarshalYAML(unmarshal func(any) error) error {
 		*l = LocalhostConfig(b)
 		return nil
 	}
-	var old struct {
-		Enabled bool `yaml:"enabled"`
+	var m map[string]any
+	if err := unmarshal(&m); err != nil {
+		return fmt.Errorf("%w: localhost must be a bool or {enabled: bool}: %v", protocol.ErrValidationFailed, err)
 	}
-	if err := unmarshal(&old); err == nil {
-		*l = LocalhostConfig(old.Enabled)
-		return nil
-	} else {
-		return fmt.Errorf("%w: localhost must be a bool or {enabled: bool}: %w", protocol.ErrValidationFailed, err)
+	for k := range m {
+		if k != "enabled" {
+			return fmt.Errorf("%w: localhost mapping has unknown key %q (only 'enabled' is allowed)", protocol.ErrValidationFailed, k)
+		}
 	}
+	if v, ok := m["enabled"]; ok {
+		b, ok := v.(bool)
+		if !ok {
+			return fmt.Errorf("%w: localhost 'enabled' must be a bool, got %T", protocol.ErrValidationFailed, v)
+		}
+		*l = LocalhostConfig(b)
+	}
+	return nil
 }
 
 // CompositeConfig is a composite configuration of all the protocols supported out of the box by rig.
