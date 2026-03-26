@@ -140,6 +140,9 @@ func (c *ClientWithConfig) UnmarshalYAML(unmarshal func(any) error) error {
 	if err := unmarshal(conn); err != nil {
 		return fmt.Errorf("unmarshal client config: %w", err)
 	}
+	c.mu.Lock()
+	c.Client = nil
+	c.mu.Unlock()
 	return nil
 }
 

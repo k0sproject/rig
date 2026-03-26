@@ -219,3 +219,32 @@ func TestConfiguredConnectionUnmarshal(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "hello", out)
 }
+
+// TestConfiguredConnectionConnectOptsApplied is a regression test verifying that
+// options passed to Connect() after YAML unmarshal are actually applied.
+// Previously, UnmarshalYAML called Setup() eagerly, causing a subsequent
+// Connect(ctx, opts...) to skip Setup() and silently ignore those options.
+func TestConfiguredConnectionConnectOptsApplied(t *testing.T) {
+	hostConfig := map[string]any{
+		"localhost": true,
+	}
+	mainConfig := map[string]any{
+		"hosts": []map[string]any{hostConfig},
+	}
+	yamlContent, err := yaml.Marshal(mainConfig)
+	require.NoError(t, err)
+
+	testConfig := &testConfigConfigured{}
+	require.NoError(t, yaml.Unmarshal(yamlContent, testConfig))
+	require.Len(t, testConfig.Hosts, 1)
+	conn := testConfig.Hosts[0]
+
+	mock := rigtest.NewMockRunner()
+	mock.AddCommand(rigtest.Equal("echo hello"), func(a *rigtest.A) error { return nil })
+
+	require.NoError(t, conn.Connect(context.Background(), rig.WithRunner(mock)))
+
+	_, _ = conn.ExecOutput("echo hello")
+
+	rigtest.ReceivedEqual(t, mock, "echo hello", "WithRunner option passed to Connect was not applied")
+}
