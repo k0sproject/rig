@@ -1,6 +1,7 @@
 package rig
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/k0sproject/rig/v2/protocol"
@@ -31,7 +32,7 @@ func (l *LocalhostConfig) UnmarshalYAML(unmarshal func(any) error) error {
 	}
 	var m map[string]any
 	if err := unmarshal(&m); err != nil {
-		return fmt.Errorf("%w: localhost must be a bool or {enabled: bool}: %v", protocol.ErrValidationFailed, err)
+		return errors.Join(fmt.Errorf("%w: localhost must be a bool or {enabled: bool}", protocol.ErrValidationFailed), err)
 	}
 	for k := range m {
 		if k != "enabled" {
