@@ -102,20 +102,28 @@ type ClientWithConfig struct {
 	*Client          `yaml:"-"`
 }
 
-// Setup allows applying options to the connection to configure subcomponents.
-func (c *ClientWithConfig) Setup(opts ...ClientOption) error {
+// setupAndGet atomically initializes the client (if not already done) and
+// returns it. Holding the lock across both operations prevents a concurrent
+// UnmarshalYAML from setting c.Client = nil between initialization and use.
+func (c *ClientWithConfig) setupAndGet(opts ...ClientOption) (*Client, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.Client != nil {
-		return nil
+		return c.Client, nil
 	}
 	opts = append(opts, WithConnectionFactory(&c.ConnectionConfig))
 	client, err := NewClient(opts...)
 	if err != nil {
-		return fmt.Errorf("new client: %w", err)
+		return nil, fmt.Errorf("new client: %w", err)
 	}
 	c.Client = client
-	return nil
+	return client, nil
+}
+
+// Setup allows applying options to the connection to configure subcomponents.
+func (c *ClientWithConfig) Setup(opts ...ClientOption) error {
+	_, err := c.setupAndGet(opts...)
+	return err
 }
 
 // Connect to the host. Unlike in [Client.Connect], the Connect method here
@@ -124,21 +132,34 @@ func (c *ClientWithConfig) Setup(opts ...ClientOption) error {
 // be calling [NewClient] to create the [ClientWithConfig] instance when
 // unmarshalling from a configuration file.
 func (c *ClientWithConfig) Connect(ctx context.Context, opts ...ClientOption) error {
-	if err := c.Setup(opts...); err != nil { //nolint:contextcheck // it's the trace logger
+	client, err := c.setupAndGet(opts...) //nolint:contextcheck // it's the trace logger
+	if err != nil {
 		return err
 	}
-	return c.Client.Connect(ctx)
+	return client.Connect(ctx)
 }
 
-// UnmarshalYAML implements the yaml.Unmarshaler interface, it unmarshals and
-// sets up a connection from a YAML configuration.
+// UnmarshalYAML implements the yaml.Unmarshaler interface. It unmarshals the
+// connection configuration but defers client setup to [ClientWithConfig.Connect]
+// or an explicit [ClientWithConfig.Setup] call, so that options (logger, retry
+// policy, etc.) passed at connect time are not silently ignored.
+// If an existing client is present (e.g. when unmarshaling into a previously
+// connected instance), it is disconnected and the client is reset so that the
+// new configuration takes effect on the next Connect or Setup call.
 func (c *ClientWithConfig) UnmarshalYAML(unmarshal func(any) error) error {
 	type configuredConnection ClientWithConfig
 	conn := (*configuredConnection)(c)
 	if err := unmarshal(conn); err != nil {
 		return fmt.Errorf("unmarshal client config: %w", err)
 	}
-	return c.Setup()
+	c.mu.Lock()
+	old := c.Client
+	c.Client = nil
+	c.mu.Unlock()
+	if old != nil {
+		old.Disconnect()
+	}
+	return nil
 }
 
 // NewClient returns a new Connection object with the given options.
