@@ -35,8 +35,9 @@ func (l *LocalhostConfig) UnmarshalYAML(unmarshal func(any) error) error {
 	if err := unmarshal(&old); err == nil {
 		*l = LocalhostConfig(old.Enabled)
 		return nil
+	} else {
+		return fmt.Errorf("%w: localhost must be a bool or {enabled: bool}: %w", protocol.ErrValidationFailed, err)
 	}
-	return fmt.Errorf("%w: localhost must be a bool or {enabled: bool}", protocol.ErrValidationFailed)
 }
 
 // CompositeConfig is a composite configuration of all the protocols supported out of the box by rig.
