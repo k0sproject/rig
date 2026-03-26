@@ -613,6 +613,32 @@ func (s *PosixFS) Hostname() (string, error) {
 	return out, nil
 }
 
+// MachineID returns the unique machine ID from /etc/machine-id.
+func (s *PosixFS) MachineID() (string, error) {
+	out, err := s.ExecOutput("cat /etc/machine-id")
+	if err != nil {
+		return "", fmt.Errorf("machine-id: %w", err)
+	}
+	if out == "" {
+		return "", ErrEmptyMachineID
+	}
+	return out, nil
+}
+
+// SystemTime returns the current UTC time on the remote host.
+// Note: date +%s is not POSIX but is supported on GNU coreutils, busybox, and macOS.
+func (s *PosixFS) SystemTime() (time.Time, error) {
+	out, err := s.ExecOutput("date -u +%s")
+	if err != nil {
+		return time.Time{}, fmt.Errorf("system time: %w", err)
+	}
+	secs, err := strconv.ParseInt(out, 10, 64)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("system time: parse %q: %w", out, err)
+	}
+	return time.Unix(secs, 0), nil
+}
+
 // LongHostname returns the FQDN of the host.
 func (s *PosixFS) LongHostname() (string, error) {
 	out, err := s.ExecOutput("hostname -f 2> /dev/null")

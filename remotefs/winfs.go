@@ -334,6 +334,31 @@ func (s *WinFS) Hostname() (string, error) {
 	return out, nil
 }
 
+// MachineID returns the unique machine ID from the Windows registry.
+func (s *WinFS) MachineID() (string, error) {
+	out, err := s.ExecOutput("(Get-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Cryptography' -Name MachineGuid).MachineGuid", cmd.PS())
+	if err != nil {
+		return "", fmt.Errorf("machine-id: %w", err)
+	}
+	if out == "" {
+		return "", ErrEmptyMachineID
+	}
+	return out, nil
+}
+
+// SystemTime returns the current UTC time on the remote host.
+func (s *WinFS) SystemTime() (time.Time, error) {
+	out, err := s.ExecOutput("[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()", cmd.PS())
+	if err != nil {
+		return time.Time{}, fmt.Errorf("system time: %w", err)
+	}
+	secs, err := strconv.ParseInt(out, 10, 64)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("system time: parse %q: %w", out, err)
+	}
+	return time.Unix(secs, 0), nil
+}
+
 // LongHostname resolves the FQDN (long) hostname.
 func (s *WinFS) LongHostname() (string, error) {
 	out, err := s.ExecOutput("([System.Net.Dns]::GetHostByName(($env:COMPUTERNAME))).Hostname", cmd.PS())
