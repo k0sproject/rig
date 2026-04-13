@@ -23,8 +23,8 @@ var (
 	_          fs.FS = (*PosixFS)(nil)
 	_          FS    = (*PosixFS)(nil)
 	errInvalid       = errors.New("invalid")
-	statCmdGNU       = "env -i LC_ALL=C stat -c '%%#f %%s %%.9Y //%%n//' -- %s 2> /dev/null"
-	statCmdBSD       = "env -i LC_ALL=C stat -f '%%#p %%z %%Fm //%%N//' -- %s 2> /dev/null"
+	statCmdGNU       = `env -i PATH="$PATH" LC_ALL=C stat -c '%%#f %%s %%.9Y //%%n//' -- %s 2> /dev/null`
+	statCmdBSD       = `env -i PATH="$PATH" LC_ALL=C stat -f '%%#p %%z %%Fm //%%N//' -- %s 2> /dev/null`
 )
 
 const (
@@ -73,7 +73,7 @@ func (s *PosixFS) secChtimes(name string, atime, mtime int64) error {
 	for i, t := range [2]int64{atime, mtime} {
 		ts := int64ToTime(t)
 		utc := ts.UTC()
-		cmd := fmt.Sprintf("[ -e %[3]s ] && env -i LC_ALL=C TZ=UTC touch -%[1]c -d @%[2]d -- %[3]s",
+		cmd := fmt.Sprintf(`[ -e %[3]s ] && env -i PATH="$PATH" LC_ALL=C TZ=UTC touch -%[1]c -d @%[2]d -- %[3]s`,
 			accessOrMod[i],
 			utc.Unix(),
 			shellescape.Quote(name),
@@ -91,10 +91,12 @@ func (s *PosixFS) nsecChtimes(name string, atime, mtime int64) error {
 	mtimeTS := int64ToTime(mtime)
 	utcA := atimeTS.UTC()
 	utcM := mtimeTS.UTC()
-	cmd := fmt.Sprintf("[ -e %[3]s ] && env -i LC_ALL=C TZ=UTC touch -a -d %[1]s -m -d %[2]s -- %[3]s",
-		fmt.Sprintf("%s.%09d", utcA.Format("2006-01-02T15:04:05"), utcA.Nanosecond()),
-		fmt.Sprintf("%s.%09d", utcM.Format("2006-01-02T15:04:05"), utcM.Nanosecond()),
-		shellescape.Quote(name),
+	escapedName := shellescape.Quote(name)
+	cmd := fmt.Sprintf(`[ -e %s ] && env -i PATH="$PATH" LC_ALL=C TZ=UTC touch -a -d %s.%09d -m -d %s.%09d -- %s`,
+		escapedName,
+		utcA.Format("2006-01-02T15:04:05"), utcA.Nanosecond(),
+		utcM.Format("2006-01-02T15:04:05"), utcM.Nanosecond(),
+		escapedName,
 	)
 	if err := s.Exec(cmd); err != nil {
 		return fmt.Errorf("touch (ns) %s: %w", name, err)
