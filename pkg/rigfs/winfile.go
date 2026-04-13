@@ -218,7 +218,7 @@ func (f *winFile) open(flags int) error {
 		return f.pathErr(OpOpen, err)
 	}
 	if resp.Err != "" {
-		return f.pathErr(OpOpen, fmt.Errorf("remote error: %s", resp.Err)) //nolint:goerr113
+		return f.pathErr(OpOpen, fmt.Errorf("remote error: %s", resp.Err)) //nolint:err113
 	}
 
 	return nil

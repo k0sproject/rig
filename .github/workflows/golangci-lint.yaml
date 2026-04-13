@@ -5,17 +5,22 @@ on:
       - main
       - release-*
     paths:
-      - '**.go'
-      - 'go.mod'
-      - 'go.sum'
+      - "**.go"
+      - go.mod
+      - go.sum
+      - .github/workflows/golangci-lint.yaml
   pull_request:
     branches:
       - main
       - release-*
     paths:
-      - '**.go'
-      - 'go.mod'
-      - 'go.sum'
+      - "**.go"
+      - go.mod
+      - go.sum
+      - .github/workflows/golangci-lint.yaml
+
+permissions:
+  pull-requests: read
 
 jobs:
   lint:
@@ -48,9 +53,9 @@ jobs:
         run: go mod tidy -v && git diff --exit-code
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
         with:
-          version: latest
+          version: v2.11.4
           skip-cache: true
-          only-new-issues: false
+          only-new-issues: true
           args: --verbose
