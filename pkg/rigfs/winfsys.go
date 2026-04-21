@@ -53,7 +53,7 @@ func (fsys *WinFsys) Stat(name string) (fs.FileInfo, error) {
 		if strings.Contains(fi.Err, "does not exist") {
 			return nil, &fs.PathError{Op: OpStat, Path: name, Err: fs.ErrNotExist}
 		}
-		return nil, &fs.PathError{Op: OpStat, Path: name, Err: fmt.Errorf("stat: %v", fi.Err)} //nolint:goerr113
+		return nil, &fs.PathError{Op: OpStat, Path: name, Err: fmt.Errorf("stat: %v", fi.Err)} //nolint:err113
 	}
 	return fi, nil
 }

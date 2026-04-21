@@ -428,7 +428,7 @@ func (c Linux) Stat(h Host, path string, opts ...exec.Option) (*FileInfo, error)
 
 	fields := strings.SplitN(out, "|", 4)
 	if len(fields) != 4 {
-		err = fmt.Errorf("failed to stat %s: unrecognized output: %s", path, out) //nolint:goerr113
+		err = fmt.Errorf("failed to stat %s: unrecognized output: %s", path, out) //nolint:err113
 		return nil, err
 	}
 
