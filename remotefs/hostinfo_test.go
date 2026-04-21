@@ -25,7 +25,7 @@ func TestPosixMachineID(t *testing.T) {
 		mr.AddCommandOutput(rigtest.Equal("cat /etc/machine-id"), "")
 		fs := remotefs.NewPosixFS(mr)
 		_, err := fs.MachineID()
-		require.Error(t, err)
+		require.ErrorIs(t, err, remotefs.ErrEmptyMachineID)
 	})
 
 	t.Run("command fails", func(t *testing.T) {
@@ -73,7 +73,7 @@ func TestWindowsMachineID(t *testing.T) {
 		mr.AddCommandOutput(rigtest.HasPrefix("powershell.exe"), "")
 		fs := remotefs.NewWindowsFS(mr)
 		_, err := fs.MachineID()
-		require.Error(t, err)
+		require.ErrorIs(t, err, remotefs.ErrEmptyMachineID)
 	})
 }
 
