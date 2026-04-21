@@ -117,11 +117,11 @@ func (m *Service) Disable(ctx context.Context) error {
 
 // ScriptPath returns the path to the service script.
 func (m *Service) ScriptPath(ctx context.Context) (string, error) {
-	path, err := m.initsys.ServiceScriptPath(ctx, m.runner, m.name)
+	scriptPath, err := m.initsys.ServiceScriptPath(ctx, m.runner, m.name)
 	if err != nil {
 		return "", fmt.Errorf("failed to get service script path: %w", err)
 	}
-	return path, nil
+	return scriptPath, nil
 }
 
 // IsRunning returns true if the service is running.
@@ -169,7 +169,7 @@ func (m *Service) SetEnvironment(ctx context.Context, env map[string]string) err
 		return fmt.Errorf("create environment directory for service '%s': %w", m.name, err)
 	}
 	content := envManager.ServiceEnvironmentContent(env)
-	if err := m.fs.WriteFile(envPath, []byte(content), 0o644); err != nil {
+	if err := m.fs.WriteFile(envPath, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("write environment file for service '%s': %w", m.name, err)
 	}
 	if reloader, ok := m.initsys.(initsystem.ServiceManagerReloader); ok {

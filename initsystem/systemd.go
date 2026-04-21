@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -88,20 +89,25 @@ func (i Systemd) ServiceEnvironmentPath(ctx context.Context, h cmd.ContextRunner
 		return "", err
 	}
 	dn := path.Dir(sp)
-	return path.Join(dn, s+"service.d", "env.conf"), nil
+	return path.Join(dn, s+".service.d", "env.conf"), nil
 }
 
 // ServiceEnvironmentContent returns a formatted string for a service environment override file.
 func (i Systemd) ServiceEnvironmentContent(env map[string]string) string {
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
 	var b strings.Builder
 	b.Grow(10 + (len(env) * 30))
 	b.WriteString("[Service]\n")
-	for k, v := range env {
+	for _, k := range keys {
 		b.WriteString("Environment=")
-		b.WriteString(shellescape.Quote(k + "=" + v))
+		b.WriteString(shellescape.Quote(k + "=" + env[k]))
 		b.WriteByte('\n')
 	}
-
 	return b.String()
 }
 
