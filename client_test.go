@@ -264,6 +264,22 @@ func TestWithOSIDOverride(t *testing.T) {
 		require.Equal(t, "Detected OS", release.Name)
 		require.Equal(t, []string{"family"}, release.IDLike)
 	})
+
+	t.Run("nil release from provider", func(t *testing.T) {
+		conn := rigtest.NewMockConnection()
+		client, err := rig.NewClient(
+			rig.WithConnection(conn),
+			rig.WithOSReleaseProvider(func(_ cmd.SimpleRunner) (*os.Release, error) {
+				return nil, nil
+			}),
+			rig.WithOSIDOverride("override-id"),
+		)
+		require.NoError(t, err)
+		require.NoError(t, client.Connect(context.Background()))
+
+		_, err = client.OS()
+		require.Error(t, err)
+	})
 }
 
 // TestConfiguredConnectionConnectOptsApplied is a regression test verifying that
