@@ -208,6 +208,29 @@ func WithOSReleaseProvider(provider os.ReleaseProvider) ClientOption {
 	}
 }
 
+// WithOSIDOverride is a functional option that overrides the OS ID reported by the
+// host's detected [os.Release]. Detection still runs normally; only the ID field of
+// the result is replaced. IDLike from actual detection is preserved so callers can
+// still inspect the distro family. This is useful when the detected ID does not match
+// any known configurer but a compatible one is known (e.g. an unsupported derivative
+// of a supported distro).
+func WithOSIDOverride(id string) ClientOption {
+	return func(o *ClientOptions) {
+		original := o.osReleaseProviderConfig.provider
+		o.osReleaseProviderConfig = osReleaseProviderConfig{
+			provider: func(runner cmd.SimpleRunner) (*os.Release, error) {
+				release, err := original(runner)
+				if err != nil {
+					return nil, err
+				}
+				override := *release
+				override.ID = id
+				return &override, nil
+			},
+		}
+	}
+}
+
 // WithPackageManagerProvider is a functional option that sets the package manager provider to use for the connection's PackageManagerProvider.
 func WithPackageManagerProvider(provider packagemanager.ManagerProvider) ClientOption {
 	return func(o *ClientOptions) {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/k0sproject/rig/v2"
 	"github.com/k0sproject/rig/v2/cmd"
+	"github.com/k0sproject/rig/v2/os"
 	"github.com/k0sproject/rig/v2/packagemanager"
 	"github.com/k0sproject/rig/v2/remotefs"
 	"github.com/k0sproject/rig/v2/rigtest"
@@ -218,6 +219,32 @@ func TestConfiguredConnectionUnmarshal(t *testing.T) {
 	out, err := conn.ExecOutput("echo hello")
 	require.NoError(t, err)
 	require.Equal(t, "hello", out)
+}
+
+func TestWithOSIDOverride(t *testing.T) {
+	conn := rigtest.NewMockConnection()
+
+	detectedRelease := &os.Release{
+		ID:     "detected-os",
+		Name:   "Detected OS",
+		IDLike: []string{"family"},
+	}
+
+	client, err := rig.NewClient(
+		rig.WithConnection(conn),
+		rig.WithOSReleaseProvider(func(_ cmd.SimpleRunner) (*os.Release, error) {
+			return detectedRelease, nil
+		}),
+		rig.WithOSIDOverride("override-id"),
+	)
+	require.NoError(t, err)
+	require.NoError(t, client.Connect(context.Background()))
+
+	release, err := client.OS()
+	require.NoError(t, err)
+	require.Equal(t, "override-id", release.ID)
+	require.Equal(t, "Detected OS", release.Name)
+	require.Equal(t, []string{"family"}, release.IDLike)
 }
 
 // TestConfiguredConnectionConnectOptsApplied is a regression test verifying that
