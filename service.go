@@ -4,10 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
+	"path"
 
 	"github.com/k0sproject/rig/v2/cmd"
 	"github.com/k0sproject/rig/v2/initsystem"
 )
+
+// serviceFS is the subset of remotefs.FS that Service uses for SetEnvironment.
+type serviceFS interface {
+	MkdirAll(path string, perm fs.FileMode) error
+	WriteFile(path string, data []byte, perm fs.FileMode) error
+}
 
 type serviceState int
 
@@ -23,6 +31,7 @@ type Service struct {
 	runner  cmd.ContextRunner
 	name    string
 	initsys initsystem.ServiceManager
+	fs      serviceFS
 }
 
 // Name returns the name of the service.
@@ -108,11 +117,11 @@ func (m *Service) Disable(ctx context.Context) error {
 
 // ScriptPath returns the path to the service script.
 func (m *Service) ScriptPath(ctx context.Context) (string, error) {
-	path, err := m.initsys.ServiceScriptPath(ctx, m.runner, m.name)
+	scriptPath, err := m.initsys.ServiceScriptPath(ctx, m.runner, m.name)
 	if err != nil {
 		return "", fmt.Errorf("failed to get service script path: %w", err)
 	}
-	return path, nil
+	return scriptPath, nil
 }
 
 // IsRunning returns true if the service is running.
@@ -120,7 +129,12 @@ func (m *Service) IsRunning(ctx context.Context) bool {
 	return m.initsys.ServiceIsRunning(ctx, m.runner, m.name)
 }
 
-var errLogReaderNotSupported = errors.New("init system provider does not implement log reader")
+var (
+	errLogReaderNotSupported    = errors.New("init system provider does not implement log reader")
+	errEnvManagerNotSupported   = errors.New("init system provider does not support service environment management")
+	errDaemonReloadNotSupported = errors.New("init system provider does not support daemon-reload")
+	errServiceFSNotAvailable    = errors.New("service has no filesystem access; use client.Service() instead of GetService()")
+)
 
 // Logs returns latest log lines for the service.
 func (m *Service) Logs(ctx context.Context, lines int) ([]string, error) {
@@ -134,6 +148,49 @@ func (m *Service) Logs(ctx context.Context, lines int) ([]string, error) {
 		return nil, fmt.Errorf("get logs: %w", err)
 	}
 	return rows, nil
+}
+
+// SetEnvironment writes environment variable overrides for the service and triggers a daemon-reload
+// if the init system requires it (e.g. systemd). The init system determines the file path and format;
+// any existing content is replaced.
+func (m *Service) SetEnvironment(ctx context.Context, env map[string]string) error {
+	envManager, ok := m.initsys.(initsystem.ServiceEnvironmentManager)
+	if !ok {
+		return errEnvManagerNotSupported
+	}
+	if m.fs == nil {
+		return errServiceFSNotAvailable
+	}
+	envPath, err := envManager.ServiceEnvironmentPath(ctx, m.runner, m.name)
+	if err != nil {
+		return fmt.Errorf("get environment path for service '%s': %w", m.name, err)
+	}
+	if err := m.fs.MkdirAll(path.Dir(envPath), 0o755); err != nil {
+		return fmt.Errorf("create environment directory for service '%s': %w", m.name, err)
+	}
+	content := envManager.ServiceEnvironmentContent(env)
+	if err := m.fs.WriteFile(envPath, []byte(content), 0o600); err != nil {
+		return fmt.Errorf("write environment file for service '%s': %w", m.name, err)
+	}
+	if reloader, ok := m.initsys.(initsystem.ServiceManagerReloader); ok {
+		if err := reloader.DaemonReload(ctx, m.runner); err != nil {
+			return fmt.Errorf("daemon-reload after setting environment for service '%s': %w", m.name, err)
+		}
+	}
+	return nil
+}
+
+// DaemonReload triggers a daemon-reload on the init system, if supported. This is useful after
+// manually writing service unit files outside of rig. Enable and Disable call this automatically.
+func (m *Service) DaemonReload(ctx context.Context) error {
+	reloader, ok := m.initsys.(initsystem.ServiceManagerReloader)
+	if !ok {
+		return errDaemonReloadNotSupported
+	}
+	if err := reloader.DaemonReload(ctx, m.runner); err != nil {
+		return fmt.Errorf("daemon-reload: %w", err)
+	}
+	return nil
 }
 
 // GetService returns a manager for a single service using an auto-detected service manager implementation from the default providers.

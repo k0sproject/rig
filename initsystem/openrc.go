@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"sort"
 	"strings"
 
 	"github.com/k0sproject/rig/v2/cmd"
 	"github.com/k0sproject/rig/v2/sh"
+	"github.com/k0sproject/rig/v2/sh/shellescape"
 )
 
 // OpenRC is found on some linux systems, often installed on Alpine for example.
@@ -78,12 +80,19 @@ func (i OpenRC) ServiceEnvironmentPath(_ context.Context, _ cmd.ContextRunner, s
 
 // ServiceEnvironmentContent returns a formatted string for a service environment override file.
 func (i OpenRC) ServiceEnvironmentContent(env map[string]string) string {
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
 	var b strings.Builder
 	b.Grow(len(env) * 24)
-	for k, v := range env {
-		_, _ = fmt.Fprintf(&b, "export %s=%s\n", k, v)
+	for _, k := range keys {
+		b.WriteString("export ")
+		b.WriteString(shellescape.Quote(k + "=" + env[k]))
+		b.WriteByte('\n')
 	}
-
 	return b.String()
 }
 

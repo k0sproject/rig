@@ -3,7 +3,7 @@ package initsystem
 import (
 	"context"
 	"fmt"
-	"path"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -81,27 +81,29 @@ func (i Systemd) ServiceScriptPath(ctx context.Context, h cmd.ContextRunner, s s
 	return strings.TrimSpace(out), nil
 }
 
-// ServiceEnvironmentPath returns a path to an environment override file path.
-func (i Systemd) ServiceEnvironmentPath(ctx context.Context, h cmd.ContextRunner, s string) (string, error) {
-	sp, err := i.ServiceScriptPath(ctx, h, s)
-	if err != nil {
-		return "", err
-	}
-	dn := path.Dir(sp)
-	return path.Join(dn, s+"service.d", "env.conf"), nil
+// ServiceEnvironmentPath returns the drop-in environment override path for the service.
+// Drop-ins always go under /etc/systemd/system/ regardless of where the unit file is
+// installed, so that overrides survive package updates and are always writable.
+func (i Systemd) ServiceEnvironmentPath(_ context.Context, _ cmd.ContextRunner, s string) (string, error) {
+	return "/etc/systemd/system/" + s + ".service.d/env.conf", nil
 }
 
 // ServiceEnvironmentContent returns a formatted string for a service environment override file.
 func (i Systemd) ServiceEnvironmentContent(env map[string]string) string {
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
 	var b strings.Builder
 	b.Grow(10 + (len(env) * 30))
 	b.WriteString("[Service]\n")
-	for k, v := range env {
+	for _, k := range keys {
 		b.WriteString("Environment=")
-		b.WriteString(shellescape.Quote(k + "=" + v))
+		b.WriteString(shellescape.Quote(k + "=" + env[k]))
 		b.WriteByte('\n')
 	}
-
 	return b.String()
 }
 

@@ -250,7 +250,7 @@ func (c *Client) Service(name string) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get service manager: %w", err)
 	}
-	return &Service{runner: c.Runner, initsys: is, name: name}, nil
+	return &Service{runner: c.Runner, initsys: is, name: name, fs: c.FS()}, nil
 }
 
 // String returns a printable representation of the connection, which will usually look
