@@ -13,11 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// uploadFS is a minimal FS stub for Upload tests. Only OpenFile and Sha256 are
-// implemented; everything else panics if called.
+// uploadFS is a minimal FS stub for Upload tests. Only the methods called by
+// Upload are implemented; everything else panics if called.
 type uploadFS struct {
-	capturedPerm fs.FileMode
-	written      []byte
+	capturedPerm    fs.FileMode
+	capturedChmod   fs.FileMode
+	chmodCalled     bool
+	written         []byte
 }
 
 func (f *uploadFS) OpenFile(_ string, _ int, perm fs.FileMode) (remotefs.File, error) {
@@ -29,6 +31,12 @@ func (f *uploadFS) Sha256(_ string) (string, error) {
 	h := sha256.New()
 	h.Write(f.written)
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func (f *uploadFS) Chmod(_ string, mode fs.FileMode) error {
+	f.chmodCalled = true
+	f.capturedChmod = mode
+	return nil
 }
 
 // FS interface stubs — not exercised by Upload.
@@ -45,7 +53,6 @@ func (f *uploadFS) WriteFile(_ string, _ []byte, _ fs.FileMode) error       { pa
 func (f *uploadFS) FileExist(_ string) bool                                 { panic("not implemented") }
 func (f *uploadFS) LookPath(_ string) (string, error)                       { panic("not implemented") }
 func (f *uploadFS) Join(_ ...string) string                                 { panic("not implemented") }
-func (f *uploadFS) Chmod(_ string, _ fs.FileMode) error                     { panic("not implemented") }
 func (f *uploadFS) Chown(_ string, _, _ int) error                          { panic("not implemented") }
 func (f *uploadFS) Chtimes(_ string, _, _ int64) error                      { panic("not implemented") }
 func (f *uploadFS) Touch(_ string) error                                    { panic("not implemented") }
@@ -93,10 +100,15 @@ func writeTempFile(t *testing.T, content string, mode fs.FileMode) string {
 
 func TestUploadUsesLocalPermByDefault(t *testing.T) {
 	src := writeTempFile(t, "hello", 0o755)
-	mfs := &uploadFS{}
 
+	// Stat after creation to get the actual mode (Windows normalises POSIX bits).
+	stat, err := os.Stat(src)
+	require.NoError(t, err)
+
+	mfs := &uploadFS{}
 	require.NoError(t, remotefs.Upload(mfs, src, "/remote/dst"))
-	require.Equal(t, fs.FileMode(0o755), mfs.capturedPerm)
+	require.Equal(t, stat.Mode(), mfs.capturedPerm)
+	require.False(t, mfs.chmodCalled, "Chmod should not be called without WithPermissions")
 }
 
 func TestUploadWithPermissions(t *testing.T) {
@@ -105,22 +117,17 @@ func TestUploadWithPermissions(t *testing.T) {
 
 	require.NoError(t, remotefs.Upload(mfs, src, "/remote/dst", remotefs.WithPermissions(0o755)))
 	require.Equal(t, fs.FileMode(0o755), mfs.capturedPerm)
+	require.True(t, mfs.chmodCalled, "Chmod should be called with WithPermissions")
+	require.Equal(t, fs.FileMode(0o755), mfs.capturedChmod)
 }
 
 func TestUploadChecksumMismatch(t *testing.T) {
 	src := writeTempFile(t, "hello", 0o644)
-
-	badFS := &uploadFS{}
-	// Corrupt the stored data after write so Sha256 disagrees.
-	origOpen := badFS.OpenFile
-	_ = origOpen // unused but documents intent
-
-	corruptFS := &corruptUploadFS{uploadFS: uploadFS{}}
-	err := remotefs.Upload(corruptFS, src, "/remote/dst")
+	err := remotefs.Upload(&corruptUploadFS{uploadFS: uploadFS{}}, src, "/remote/dst")
 	require.ErrorIs(t, err, remotefs.ErrChecksumMismatch)
 }
 
-// corruptUploadFS returns a wrong sha256 to simulate a corrupted upload.
+// corruptUploadFS simulates a checksum mismatch by returning an incorrect sha256 digest.
 type corruptUploadFS struct {
 	uploadFS
 }

@@ -21,8 +21,9 @@ type uploadOptions struct {
 	hasPerm bool
 }
 
-// WithPermissions sets the file mode for the uploaded file. If not set, the
-// local file's mode is used.
+// WithPermissions sets the file mode for the uploaded file. If not set, the local
+// file's mode is used. The mode is applied both at creation time and via Chmod after
+// a successful upload, so it takes effect even when the destination file already exists.
 func WithPermissions(mode fs.FileMode) UploadOption {
 	return func(o *uploadOptions) {
 		o.perm = mode
@@ -58,7 +59,6 @@ func Upload(fsys FS, src, dst string, opts ...UploadOption) error {
 	if err != nil {
 		return fmt.Errorf("open remote file for upload: %w", err)
 	}
-	defer remote.Close()
 
 	localReader := io.TeeReader(local, shasum)
 	if _, err := remote.CopyFrom(localReader); err != nil {
@@ -76,6 +76,12 @@ func Upload(fsys FS, src, dst string, opts ...UploadOption) error {
 
 	if remoteSum != hex.EncodeToString(shasum.Sum(nil)) {
 		return ErrChecksumMismatch
+	}
+
+	if options.hasPerm {
+		if err := fsys.Chmod(dst, options.perm); err != nil {
+			return fmt.Errorf("chmod uploaded file: %w", err)
+		}
 	}
 
 	return nil
