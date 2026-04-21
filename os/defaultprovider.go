@@ -13,6 +13,7 @@ var (
 	DefaultRegistry = sync.OnceValue(func() *Registry {
 		provider := NewRegistry()
 		provider.Register(ResolveLinux)
+		provider.Register(ResolveLinuxCompat)
 		provider.Register(ResolveWindows)
 		provider.Register(ResolveDarwin)
 		return provider
