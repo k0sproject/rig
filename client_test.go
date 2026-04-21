@@ -222,29 +222,48 @@ func TestConfiguredConnectionUnmarshal(t *testing.T) {
 }
 
 func TestWithOSIDOverride(t *testing.T) {
-	conn := rigtest.NewMockConnection()
-
 	detectedRelease := &os.Release{
 		ID:     "detected-os",
 		Name:   "Detected OS",
 		IDLike: []string{"family"},
 	}
+	releaseProvider := func(_ cmd.SimpleRunner) (*os.Release, error) {
+		return detectedRelease, nil
+	}
 
-	client, err := rig.NewClient(
-		rig.WithConnection(conn),
-		rig.WithOSReleaseProvider(func(_ cmd.SimpleRunner) (*os.Release, error) {
-			return detectedRelease, nil
-		}),
-		rig.WithOSIDOverride("override-id"),
-	)
-	require.NoError(t, err)
-	require.NoError(t, client.Connect(context.Background()))
+	t.Run("override after provider", func(t *testing.T) {
+		conn := rigtest.NewMockConnection()
+		client, err := rig.NewClient(
+			rig.WithConnection(conn),
+			rig.WithOSReleaseProvider(releaseProvider),
+			rig.WithOSIDOverride("override-id"),
+		)
+		require.NoError(t, err)
+		require.NoError(t, client.Connect(context.Background()))
 
-	release, err := client.OS()
-	require.NoError(t, err)
-	require.Equal(t, "override-id", release.ID)
-	require.Equal(t, "Detected OS", release.Name)
-	require.Equal(t, []string{"family"}, release.IDLike)
+		release, err := client.OS()
+		require.NoError(t, err)
+		require.Equal(t, "override-id", release.ID)
+		require.Equal(t, "Detected OS", release.Name)
+		require.Equal(t, []string{"family"}, release.IDLike)
+	})
+
+	t.Run("override before provider", func(t *testing.T) {
+		conn := rigtest.NewMockConnection()
+		client, err := rig.NewClient(
+			rig.WithConnection(conn),
+			rig.WithOSIDOverride("override-id"),
+			rig.WithOSReleaseProvider(releaseProvider),
+		)
+		require.NoError(t, err)
+		require.NoError(t, client.Connect(context.Background()))
+
+		release, err := client.OS()
+		require.NoError(t, err)
+		require.Equal(t, "override-id", release.ID)
+		require.Equal(t, "Detected OS", release.Name)
+		require.Equal(t, []string{"family"}, release.IDLike)
+	})
 }
 
 // TestConfiguredConnectionConnectOptsApplied is a regression test verifying that
