@@ -1,9 +1,14 @@
 package remotefs
 
 import (
+	"errors"
 	"io"
 	"io/fs"
+	"time"
 )
+
+// ErrEmptyMachineID is returned by MachineID when the host returns an empty value.
+var ErrEmptyMachineID = errors.New("machine-id: empty")
 
 // FS is a filesystem on the remote host.
 type FS interface {
@@ -46,6 +51,8 @@ type OS interface { //nolint:interfacebloat // intentionally large interface
 	Rename(oldpath, newpath string) error
 	Hostname() (string, error)
 	LongHostname() (string, error)
+	MachineID() (string, error)
+	SystemTime() (time.Time, error)
 	TempDir() string
 	UserCacheDir() string
 	UserConfigDir() string
