@@ -10,13 +10,7 @@ import (
 )
 
 func TestSystemdServiceEnvironmentPath(t *testing.T) {
-	mr := rigtest.NewMockRunner()
-	mr.AddCommandOutput(
-		rigtest.Equal(`systemctl show -p FragmentPath mysvc.service | cut '-d"="' -f2`),
-		"/etc/systemd/system/mysvc.service\n",
-	)
-
-	got, err := initsystem.Systemd{}.ServiceEnvironmentPath(context.Background(), mr, "mysvc")
+	got, err := initsystem.Systemd{}.ServiceEnvironmentPath(context.Background(), rigtest.NewMockRunner(), "mysvc")
 	require.NoError(t, err)
 	require.Equal(t, "/etc/systemd/system/mysvc.service.d/env.conf", got)
 }
@@ -46,11 +40,19 @@ func TestOpenRCServiceEnvironmentPath(t *testing.T) {
 }
 
 func TestOpenRCServiceEnvironmentContent(t *testing.T) {
-	env := map[string]string{
-		"ZEBRA": "last",
-		"ALPHA": "first",
-		"MANGO": "middle",
-	}
-	content := initsystem.OpenRC{}.ServiceEnvironmentContent(env)
-	require.Equal(t, "export ALPHA=first\nexport MANGO=middle\nexport ZEBRA=last\n", content)
+	t.Run("keys are sorted", func(t *testing.T) {
+		env := map[string]string{
+			"ZEBRA": "last",
+			"ALPHA": "first",
+			"MANGO": "middle",
+		}
+		content := initsystem.OpenRC{}.ServiceEnvironmentContent(env)
+		require.Equal(t, "export ALPHA=first\nexport MANGO=middle\nexport ZEBRA=last\n", content)
+	})
+
+	t.Run("values with spaces are quoted", func(t *testing.T) {
+		env := map[string]string{"KEY": "hello world"}
+		content := initsystem.OpenRC{}.ServiceEnvironmentContent(env)
+		require.Equal(t, "export 'KEY=hello world'\n", content)
+	})
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/k0sproject/rig/v2/cmd"
 	"github.com/k0sproject/rig/v2/sh"
+	"github.com/k0sproject/rig/v2/sh/shellescape"
 )
 
 // OpenRC is found on some linux systems, often installed on Alpine for example.
@@ -88,7 +89,9 @@ func (i OpenRC) ServiceEnvironmentContent(env map[string]string) string {
 	var b strings.Builder
 	b.Grow(len(env) * 24)
 	for _, k := range keys {
-		_, _ = fmt.Fprintf(&b, "export %s=%s\n", k, env[k])
+		b.WriteString("export ")
+		b.WriteString(shellescape.Quote(k + "=" + env[k]))
+		b.WriteByte('\n')
 	}
 	return b.String()
 }
