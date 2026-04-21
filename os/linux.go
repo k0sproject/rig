@@ -419,7 +419,7 @@ const busyboxDateTimeLayout = "2006-01-02 15:04:05"
 
 // Stat gets file / directory information
 func (c Linux) Stat(h Host, path string, opts ...exec.Option) (*FileInfo, error) {
-	cmd := `env -i LC_ALL=C stat -c '%s|%y|%a|%F' -- ` + shellescape.Quote(path)
+	cmd := `env -i PATH="$PATH" LC_ALL=C stat -c '%s|%y|%a|%F' -- ` + shellescape.Quote(path)
 
 	out, err := h.ExecOutput(cmd, opts...)
 	if err != nil {
@@ -469,13 +469,13 @@ func (c Linux) Touch(h Host, path string, ts time.Time, opts ...exec.Option) err
 	// to detect BusyBox touch and if it's not BusyBox go on with the
 	// full-precision GNU format instead.
 	if !utc.Equal(utc.Truncate(time.Second)) {
-		out, err := h.ExecOutput("env -i LC_ALL=C TZ=UTC touch --help 2>&1", exec.HideOutput(), exec.HideCommand())
+		out, err := h.ExecOutput(`env -i PATH="$PATH" LC_ALL=C TZ=UTC touch --help 2>&1`, exec.HideOutput(), exec.HideCommand())
 		if err != nil || !strings.Contains(out, "BusyBox") {
 			format = gnuCoreutilsDateTimeLayout
 		}
 	}
 
-	cmd := fmt.Sprintf("env -i LC_ALL=C TZ=UTC touch -m -d %s -- %s",
+	cmd := fmt.Sprintf(`env -i PATH="$PATH" LC_ALL=C TZ=UTC touch -m -d %s -- %s`,
 		shellescape.Quote(utc.Format(format)),
 		shellescape.Quote(path),
 	)
