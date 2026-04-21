@@ -20,11 +20,14 @@ import (
 )
 
 var (
-	_          fs.FS = (*PosixFS)(nil)
-	_          FS    = (*PosixFS)(nil)
-	errInvalid       = errors.New("invalid")
-	statCmdGNU       = `env -i PATH="$PATH" LC_ALL=C stat -c '%%#f %%s %%.9Y //%%n//' -- %s 2> /dev/null`
-	statCmdBSD       = `env -i PATH="$PATH" LC_ALL=C stat -f '%%#p %%z %%Fm //%%N//' -- %s 2> /dev/null`
+	_                 fs.FS = (*PosixFS)(nil)
+	_                 FS    = (*PosixFS)(nil)
+	errInvalid              = errors.New("invalid")
+	errNoDownloadTool       = errors.New("neither curl nor wget is available on the remote host")
+	errGrepFailed           = errors.New("grep failed")
+	errTestFailed           = errors.New("test failed")
+	statCmdGNU              = `env -i PATH="$PATH" LC_ALL=C stat -c '%%#f %%s %%.9Y //%%n//' -- %s 2> /dev/null`
+	statCmdBSD              = `env -i PATH="$PATH" LC_ALL=C stat -f '%%#p %%z %%Fm //%%N//' -- %s 2> /dev/null`
 )
 
 const (
@@ -296,11 +299,18 @@ func (s *PosixFS) Sha256(name string) (string, error) {
 	return sha, nil
 }
 
-// Touch creates a new empty file at path or updates the timestamp of an existing file to the current time.
-func (s *PosixFS) Touch(name string) error {
-	err := s.Exec(sh.Command("touch", "--", name))
-	if err != nil {
+// Touch creates a new empty file at path or updates the timestamps of an existing file.
+// Without ts, both access and modification times are set to the current time. When ts is
+// supplied, both times are set to the first timestamp provided.
+func (s *PosixFS) Touch(name string, ts ...time.Time) error {
+	if err := s.Exec(sh.Command("touch", "--", name)); err != nil {
 		return fmt.Errorf("touch %s: %w", name, err)
+	}
+	if len(ts) > 0 {
+		t := ts[0]
+		if err := s.Chtimes(name, t.UnixNano(), t.UnixNano()); err != nil {
+			return fmt.Errorf("touch %s: %w", name, err)
+		}
 	}
 	return nil
 }
@@ -338,15 +348,94 @@ func (s *PosixFS) Chmod(name string, mode fs.FileMode) error {
 	return nil
 }
 
-// Chown changes the numeric uid and gid of the named file.
-func (s *PosixFS) Chown(name string, uid, gid int) error {
-	if err := s.Exec(fmt.Sprintf("chown %d:%d %s", uid, gid, shellescape.Quote(name))); err != nil {
+// Chown changes the ownership of the named file. The owner parameter follows
+// the standard chown format: "user", "user:group", or ":group".
+func (s *PosixFS) Chown(name string, owner string) error {
+	if err := s.Exec(sh.Command("chown", "--", owner, name)); err != nil {
 		if isNotExist(err) {
 			return PathError("chown", name, fs.ErrNotExist)
 		}
 		return fmt.Errorf("chown %s: %w", name, err)
 	}
 	return nil
+}
+
+// DownloadURL downloads the contents of url to dst. It prefers curl when available
+// and falls back to wget. Returns a descriptive error if neither is available.
+func (s *PosixFS) DownloadURL(url, dst string) error {
+	if _, err := s.LookPath("curl"); err == nil {
+		if err := s.Exec(sh.Command("curl", "-sSLf", "-o", dst, "--", url)); err != nil {
+			return fmt.Errorf("download %s: %w", url, err)
+		}
+		return nil
+	}
+	if _, err := s.LookPath("wget"); err == nil {
+		if err := s.Exec(sh.Command("wget", "-qO", dst, "--", url)); err != nil {
+			return fmt.Errorf("download %s: %w", url, err)
+		}
+		return nil
+	}
+	return fmt.Errorf("download %s: %w", url, errNoDownloadTool)
+}
+
+// FileContains reports whether the file at path contains the given substring.
+// Returns a not-exist error if the file does not exist.
+func (s *PosixFS) FileContains(name, substr string) (bool, error) {
+	out, err := s.ExecOutput(
+		sh.Command("sh", "-c", `grep -qF -- "$1" "$2" >/dev/null 2>&1; printf '%s' "$?"`, "sh", substr, name),
+		cmd.HideOutput(),
+	)
+	if err != nil {
+		return false, fmt.Errorf("file-contains %s: %w", name, err)
+	}
+	status, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		return false, fmt.Errorf("file-contains %s: parse grep status %q: %w", name, out, err)
+	}
+	switch status {
+	case 0:
+		return true, nil
+	case 1:
+		return false, nil
+	default:
+		testOut, testErr := s.ExecOutput(
+			sh.Command("sh", "-c", `test -e -- "$1" >/dev/null 2>&1; printf '%s' "$?"`, "sh", name),
+			cmd.HideOutput(),
+		)
+		if testErr != nil {
+			return false, fmt.Errorf("file-contains %s: check existence: %w", name, testErr)
+		}
+		testStatus, err := strconv.Atoi(strings.TrimSpace(testOut))
+		if err != nil {
+			return false, fmt.Errorf("file-contains %s: parse test status %q: %w", name, testOut, err)
+		}
+		switch testStatus {
+		case 0:
+			return false, fmt.Errorf("file-contains %s: %w (exit %d)", name, errGrepFailed, status)
+		case 1:
+			return false, PathError("file-contains", name, fs.ErrNotExist)
+		default:
+			return false, fmt.Errorf("file-contains %s: %w (exit %d)", name, errTestFailed, testStatus)
+		}
+	}
+}
+
+// IsContainer reports whether the remote host is running inside a container
+// (Docker, Podman, LXC, nspawn, etc.).
+func (s *PosixFS) IsContainer() (bool, error) {
+	if s.FileExist("/.dockerenv") {
+		return true, nil
+	}
+	if s.FileExist("/run/.containerenv") {
+		return true, nil
+	}
+	out, err := s.ExecOutput(sh.Command("cat", "/proc/1/cgroup"), cmd.HideOutput())
+	if err == nil {
+		if strings.Contains(out, "docker") || strings.Contains(out, "lxc") || strings.Contains(out, "kubepods") {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // Open opens the named file for reading.

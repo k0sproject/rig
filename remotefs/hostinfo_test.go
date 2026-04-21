@@ -2,6 +2,7 @@ package remotefs_test
 
 import (
 	"errors"
+	"io/fs"
 	"testing"
 	"time"
 
@@ -96,4 +97,232 @@ func TestWindowsSystemTime(t *testing.T) {
 		_, err := fs.SystemTime()
 		require.Error(t, err)
 	})
+}
+
+// PosixFS
+
+func TestPosixDownloadURL(t *testing.T) {
+	t.Run("curl", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandOutput(rigtest.Equal("command -v curl"), "/usr/bin/curl")
+		mr.AddCommandSuccess(rigtest.HasPrefix("curl"))
+		f := remotefs.NewPosixFS(mr)
+		require.NoError(t, f.DownloadURL("http://example.com/file", "/tmp/file"))
+	})
+
+	t.Run("wget fallback", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandFailure(rigtest.Equal("command -v curl"), errors.New("not found"))
+		mr.AddCommandOutput(rigtest.Equal("command -v wget"), "/usr/bin/wget")
+		mr.AddCommandSuccess(rigtest.HasPrefix("wget"))
+		f := remotefs.NewPosixFS(mr)
+		require.NoError(t, f.DownloadURL("http://example.com/file", "/tmp/file"))
+	})
+
+	t.Run("neither available", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandFailure(rigtest.Equal("command -v curl"), errors.New("not found"))
+		mr.AddCommandFailure(rigtest.Equal("command -v wget"), errors.New("not found"))
+		f := remotefs.NewPosixFS(mr)
+		err := f.DownloadURL("http://example.com/file", "/tmp/file")
+		require.Error(t, err)
+	})
+}
+
+func TestPosixFileContains(t *testing.T) {
+	t.Run("match", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandOutput(rigtest.Contains("grep -qF"), "0")
+		f := remotefs.NewPosixFS(mr)
+		ok, err := f.FileContains("/tmp/file", "needle")
+		require.NoError(t, err)
+		require.True(t, ok)
+	})
+
+	t.Run("no match", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandOutput(rigtest.Contains("grep -qF"), "1")
+		f := remotefs.NewPosixFS(mr)
+		ok, err := f.FileContains("/tmp/file", "needle")
+		require.NoError(t, err)
+		require.False(t, ok)
+	})
+
+	t.Run("file not exist", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandOutput(rigtest.Contains("grep -qF"), "2")
+		mr.AddCommandOutput(rigtest.Contains("test -e"), "1")
+		f := remotefs.NewPosixFS(mr)
+		ok, err := f.FileContains("/tmp/file", "needle")
+		require.ErrorIs(t, err, fs.ErrNotExist)
+		require.False(t, ok)
+	})
+
+	t.Run("read error", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandOutput(rigtest.Contains("grep -qF"), "2")
+		mr.AddCommandOutput(rigtest.Contains("test -e"), "0")
+		f := remotefs.NewPosixFS(mr)
+		ok, err := f.FileContains("/tmp/file", "needle")
+		require.Error(t, err)
+		require.False(t, ok)
+	})
+}
+
+func TestPosixIsContainer(t *testing.T) {
+	t.Run("dockerenv", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandSuccess(rigtest.Contains("/.dockerenv"))
+		f := remotefs.NewPosixFS(mr)
+		ok, err := f.IsContainer()
+		require.NoError(t, err)
+		require.True(t, ok)
+	})
+
+	t.Run("containerenv", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandFailure(rigtest.Contains("/.dockerenv"), errors.New("not found"))
+		mr.AddCommandSuccess(rigtest.Contains(".containerenv"))
+		f := remotefs.NewPosixFS(mr)
+		ok, err := f.IsContainer()
+		require.NoError(t, err)
+		require.True(t, ok)
+	})
+
+	t.Run("cgroup docker", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandFailure(rigtest.Contains("/.dockerenv"), errors.New("not found"))
+		mr.AddCommandFailure(rigtest.Contains(".containerenv"), errors.New("not found"))
+		mr.AddCommandOutput(rigtest.Contains("/proc/1/cgroup"), "12:devices:/docker/abc123")
+		f := remotefs.NewPosixFS(mr)
+		ok, err := f.IsContainer()
+		require.NoError(t, err)
+		require.True(t, ok)
+	})
+
+	t.Run("not container", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandFailure(rigtest.Contains("/.dockerenv"), errors.New("not found"))
+		mr.AddCommandFailure(rigtest.Contains(".containerenv"), errors.New("not found"))
+		mr.AddCommandOutput(rigtest.Contains("/proc/1/cgroup"), "11:devices:/init.scope")
+		f := remotefs.NewPosixFS(mr)
+		ok, err := f.IsContainer()
+		require.NoError(t, err)
+		require.False(t, ok)
+	})
+}
+
+func TestPosixTouch(t *testing.T) {
+	t.Run("no timestamp", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandSuccess(rigtest.HasPrefix("touch"))
+		f := remotefs.NewPosixFS(mr)
+		require.NoError(t, f.Touch("/tmp/file"))
+	})
+
+	t.Run("with timestamp", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		// Initial touch creates/updates the file.
+		mr.AddCommandSuccess(rigtest.HasPrefix("touch -- "))
+		// initTouch probes touch --help; returning "BusyBox" triggers secChtimes
+		// (the simpler path that sets atime/mtime individually without creating a
+		// temp file, which would require mocking a complex stat/create/remove chain).
+		mr.AddCommandOutput(rigtest.Equal("touch --help 2>&1"), "BusyBox v1.35")
+		// secChtimes issues two touch commands: one for atime (-a) and one for mtime (-m).
+		mr.AddCommandSuccess(rigtest.Contains("TZ=UTC touch"))
+		f := remotefs.NewPosixFS(mr)
+		ts := time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC)
+		require.NoError(t, f.Touch("/tmp/file", ts))
+	})
+}
+
+// WinFS — PS commands are base64-encoded so we match by powershell.exe prefix.
+
+func TestWindowsDownloadURL(t *testing.T) {
+	t.Run("ok", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.Windows = true
+		mr.AddCommandSuccess(rigtest.HasPrefix("powershell.exe"))
+		f := remotefs.NewWindowsFS(mr)
+		require.NoError(t, f.DownloadURL("http://example.com/file", `C:\tmp\file`))
+	})
+
+	t.Run("failure", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.Windows = true
+		mr.AddCommandFailure(rigtest.HasPrefix("powershell.exe"), errors.New("exit 1"))
+		f := remotefs.NewWindowsFS(mr)
+		err := f.DownloadURL("http://example.com/file", `C:\tmp\file`)
+		require.Error(t, err)
+	})
+}
+
+func TestWindowsFileContains(t *testing.T) {
+	t.Run("match", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.Windows = true
+		mr.AddCommandOutput(rigtest.HasPrefix("powershell.exe"), "MATCH")
+		f := remotefs.NewWindowsFS(mr)
+		ok, err := f.FileContains(`C:\tmp\file`, "needle")
+		require.NoError(t, err)
+		require.True(t, ok)
+	})
+
+	t.Run("no match", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.Windows = true
+		mr.AddCommandOutput(rigtest.HasPrefix("powershell.exe"), "NO_MATCH")
+		f := remotefs.NewWindowsFS(mr)
+		ok, err := f.FileContains(`C:\tmp\file`, "needle")
+		require.NoError(t, err)
+		require.False(t, ok)
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.Windows = true
+		mr.AddCommandOutput(rigtest.HasPrefix("powershell.exe"), "NOT_FOUND")
+		f := remotefs.NewWindowsFS(mr)
+		ok, err := f.FileContains(`C:\tmp\file`, "needle")
+		require.ErrorIs(t, err, fs.ErrNotExist)
+		require.False(t, ok)
+	})
+
+	t.Run("script error", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.Windows = true
+		mr.AddCommandOutput(rigtest.HasPrefix("powershell.exe"), "ERROR:access denied")
+		f := remotefs.NewWindowsFS(mr)
+		ok, err := f.FileContains(`C:\tmp\file`, "needle")
+		require.Error(t, err)
+		require.False(t, ok)
+	})
+}
+
+func TestWindowsTouch(t *testing.T) {
+	t.Run("no timestamp", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.Windows = true
+		mr.AddCommandSuccess(rigtest.HasPrefix("powershell.exe"))
+		f := remotefs.NewWindowsFS(mr)
+		require.NoError(t, f.Touch(`C:\tmp\file`))
+	})
+
+	t.Run("with timestamp", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.Windows = true
+		mr.AddCommandSuccess(rigtest.HasPrefix("powershell.exe"))
+		f := remotefs.NewWindowsFS(mr)
+		ts := time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC)
+		require.NoError(t, f.Touch(`C:\tmp\file`, ts))
+	})
+}
+
+func TestWindowsIsContainer(t *testing.T) {
+	mr := rigtest.NewMockRunner()
+	mr.Windows = true
+	f := remotefs.NewWindowsFS(mr)
+	ok, err := f.IsContainer()
+	require.ErrorIs(t, err, remotefs.ErrNotSupported)
+	require.False(t, ok)
 }
