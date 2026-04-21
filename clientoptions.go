@@ -1,6 +1,7 @@
 package rig
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/k0sproject/rig/v2/cmd"
@@ -12,6 +13,8 @@ import (
 	"github.com/k0sproject/rig/v2/remotefs"
 	"github.com/k0sproject/rig/v2/sudo"
 )
+
+var errNilOSRelease = errors.New("os release provider returned nil release without error")
 
 // ConnectionFactory can create connections. When a connection is not given, the factory is used
 // to build a connection.
@@ -67,11 +70,29 @@ func (p *remoteFSProviderConfig) GetRemoteFSProvider(runner cmd.Runner) *remotef
 }
 
 type osReleaseProviderConfig struct {
-	provider os.ReleaseProvider
+	provider   os.ReleaseProvider
+	idOverride string
 }
 
 func (p *osReleaseProviderConfig) GetOSReleaseProvider(runner cmd.Runner) *os.Provider {
-	return os.NewOSReleaseProvider(p.provider, runner)
+	provider := p.provider
+	if p.idOverride != "" {
+		idOverride := p.idOverride
+		original := p.provider
+		provider = func(r cmd.SimpleRunner) (*os.Release, error) {
+			release, err := original(r)
+			if err != nil {
+				return nil, err
+			}
+			if release == nil {
+				return nil, errNilOSRelease
+			}
+			result := *release
+			result.ID = idOverride
+			return &result, nil
+		}
+	}
+	return os.NewOSReleaseProvider(provider, runner)
 }
 
 type sudoProviderConfig struct {
@@ -204,7 +225,19 @@ func WithInitSystemProvider(provider initsystem.ServiceManagerProvider) ClientOp
 // WithOSReleaseProvider is a functional option that sets the os release provider to use for the connection's OSReleaseProvider.
 func WithOSReleaseProvider(provider os.ReleaseProvider) ClientOption {
 	return func(o *ClientOptions) {
-		o.osReleaseProviderConfig = osReleaseProviderConfig{provider: provider}
+		o.osReleaseProviderConfig.provider = provider
+	}
+}
+
+// WithOSIDOverride is a functional option that overrides the OS ID reported by the
+// host's detected [os.Release]. Detection still runs normally; only the ID field of
+// the result is replaced. IDLike from actual detection is preserved so callers can
+// still inspect the distro family. This is useful when the detected ID does not match
+// any known configurer but a compatible one is known (e.g. an unsupported derivative
+// of a supported distro).
+func WithOSIDOverride(id string) ClientOption {
+	return func(o *ClientOptions) {
+		o.idOverride = id
 	}
 }
 
