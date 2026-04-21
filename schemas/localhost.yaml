@@ -1,0 +1,13 @@
+$defs:
+  Localhost:
+    additionalProperties: false
+    properties:
+      enabled:
+        description: Enabled must be true for the connection to be valid
+        type: boolean
+    required:
+      - enabled
+    type: object
+$id: https://github.com/k0sproject/rig/localhost
+$ref: '#/$defs/Localhost'
+$schema: https://json-schema.org/draft/2020-12/schema
