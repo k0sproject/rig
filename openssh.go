@@ -2,6 +2,7 @@ package rig
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,13 @@ import (
 
 // ErrControlPathNotSet is returned when the controlpath is not set when disconnecting from a multiplexed connection
 var ErrControlPathNotSet = errors.New("controlpath not set")
+
+// isHostKeyError reports whether ssh stderr output indicates a host key
+// verification failure. These are fatal and should not be retried.
+func isHostKeyError(stderr string) bool {
+	return strings.Contains(stderr, "Host key verification failed") ||
+		strings.Contains(stderr, "REMOTE HOST IDENTIFICATION HAS CHANGED")
+}
 
 // OpenSSH is a rig.Connection implementation that uses the system openssh client "ssh" to connect to remote hosts.
 // The connection is multiplexec over a control master, so that subsequent connections don't need to re-authenticate.
@@ -177,7 +185,19 @@ func (c *OpenSSH) Connect() error {
 	}
 
 	if c.DisableMultiplexing {
-		if err := c.Exec("exit 0", exec.StreamOutput()); err != nil {
+		// Run a noop to check connectivity. Capture stderr to detect host key failures.
+		args := c.Options.ToArgs()
+		args = append(args, "-o", "BatchMode=yes")
+		args = append(args, c.args()...)
+		args = append(args, "--", "exit 0")
+		cmd := goexec.Command("ssh", args...) //nolint:noctx // Connect has no context in v0.x
+		var errBuf bytes.Buffer
+		cmd.Stderr = &errBuf
+		if err := cmd.Run(); err != nil {
+			errOut := errBuf.String()
+			if isHostKeyError(errOut) {
+				return fmt.Errorf("%w: host key verification failed: %w (%s)", ErrCantConnect, err, errOut)
+			}
 			return fmt.Errorf("failed to connect: %w", err)
 		}
 		c.isConnected = true
@@ -197,14 +217,19 @@ func (c *OpenSSH) Connect() error {
 	args = append(args, c.args()...)
 
 	cmd := goexec.Command("ssh", args...)
+	var errBuf bytes.Buffer
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = io.MultiWriter(os.Stderr, &errBuf)
 	cmd.Stdin = os.Stdin
 
 	log.Debugf("%s: starting ssh control master", c)
 	err := cmd.Run()
 	if err != nil {
 		c.isConnected = false
+		errOut := errBuf.String()
+		if isHostKeyError(errOut) {
+			return fmt.Errorf("%w: host key verification failed: %w (%s)", ErrCantConnect, err, errOut)
+		}
 		return fmt.Errorf("failed to start ssh multiplexing control master: %w", err)
 	}
 
