@@ -3,12 +3,14 @@ package remotefs
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -414,6 +416,64 @@ try {
 		return fmt.Errorf("download %s: %w", url, err)
 	}
 	return nil
+}
+
+// RoundTrip implements http.RoundTripper by executing the request via Invoke-WebRequest on the remote host.
+func (s *WinFS) RoundTrip(req *http.Request) (*http.Response, error) {
+	headerLines := make([]string, 0, len(req.Header))
+	for k, vals := range req.Header {
+		headerLines = append(headerLines, "  "+ps.SingleQuote(k)+"="+ps.SingleQuote(strings.Join(vals, ", ")))
+	}
+	headerScript := ""
+	if len(headerLines) > 0 {
+		headerScript = "$params['Headers']=@{\n" + strings.Join(headerLines, "\n") + "\n}"
+	}
+
+	bodyScript := ""
+	if req.Body != nil {
+		data, err := io.ReadAll(req.Body)
+		if err != nil {
+			return nil, fmt.Errorf("http round-trip %s: read body: %w", req.URL, err)
+		}
+		bodyScript = "$params['Body']=[Convert]::FromBase64String(" + ps.SingleQuote(base64.StdEncoding.EncodeToString(data)) + ")"
+	}
+
+	script := fmt.Sprintf(`$ProgressPreference='SilentlyContinue'
+$ErrorActionPreference='Stop'
+function ConvertTo-RawResponse($code,$desc,$hdrs,$body){
+  $crlf=[char]13+[char]10
+  $head="HTTP/1.1 $code $desc"+$crlf
+  $hdrs.GetEnumerator()|ForEach-Object{$head+="$($_.Key): $(@($_.Value) -join ',')" +$crlf}
+  $head+=$crlf
+  $hb=[Text.Encoding]::ASCII.GetBytes($head)
+  $out=[byte[]]::new($hb.Length+$body.Length)
+  [Buffer]::BlockCopy($hb,0,$out,0,$hb.Length)
+  [Buffer]::BlockCopy($body,0,$out,$hb.Length,$body.Length)
+  [Convert]::ToBase64String($out)
+}
+$params=@{Uri=%s;Method=%s;UseBasicParsing=$true;ErrorAction='Stop'}
+%s
+%s
+try{
+  $r=Invoke-WebRequest @params
+  $b=if($r.PSObject.Properties['RawContentStream']){$r.RawContentStream.ToArray()}else{[byte[]]$r.Content}
+  ConvertTo-RawResponse ([int]$r.StatusCode) $r.StatusDescription $r.Headers $b
+}catch [System.Net.WebException]{
+  if($_.Exception.Response -ne $null){
+    $er=$_.Exception.Response
+    $ms=New-Object System.IO.MemoryStream
+    $er.GetResponseStream().CopyTo($ms)
+    $eh=@{}
+    $er.Headers.AllKeys|ForEach-Object{$eh[$_]=$er.Headers[$_]}
+    ConvertTo-RawResponse ([int]$er.StatusCode) $er.StatusDescription $eh $ms.ToArray()
+  }else{Write-Error $_.Exception.Message;exit 1}
+}catch{Write-Error $_.Exception.Message;exit 1}`, ps.SingleQuote(req.URL.String()), ps.SingleQuote(req.Method), headerScript, bodyScript)
+
+	out, err := s.ExecOutputContext(req.Context(), script, cmd.PS())
+	if err != nil {
+		return nil, fmt.Errorf("http round-trip %s: %w", req.URL, err)
+	}
+	return parseRawHTTPResponse(out, req)
 }
 
 // FileContains reports whether the file at path contains the given substring.

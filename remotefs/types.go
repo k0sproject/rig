@@ -17,6 +17,7 @@ type FS interface {
 	fs.ReadFileFS
 	fs.ReadDirFS
 	OS
+	HTTPTransport
 	Opener
 	Sha256summer
 }
@@ -52,7 +53,6 @@ type OS interface { //nolint:interfacebloat // intentionally large interface
 	Truncate(path string, size int64) error
 	Getenv(key string) string
 	Rename(oldpath, newpath string) error
-	DownloadURL(url, dst string) error
 	FileContains(path, substr string) (bool, error)
 	IsContainer() (bool, error)
 	Hostname() (string, error)

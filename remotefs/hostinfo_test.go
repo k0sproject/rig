@@ -1,6 +1,8 @@
 package remotefs_test
 
 import (
+	"context"
+	"encoding/base64"
 	"errors"
 	"io/fs"
 	"testing"
@@ -470,4 +472,55 @@ func TestWindowsChownVariantsNotSupported(t *testing.T) {
 	require.ErrorIs(t, f.ChownInt("/tmp/file", 1000, 2000), remotefs.ErrNotSupported)
 	require.ErrorIs(t, f.ChownTree("/tmp", "root"), remotefs.ErrNotSupported)
 	require.ErrorIs(t, f.ChownTreeInt("/tmp", 0, 0), remotefs.ErrNotSupported)
+}
+
+func TestPosixHTTPStatus(t *testing.T) {
+	t.Run("200", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandOutput(rigtest.Equal("command -v curl"), "/usr/bin/curl")
+		resp200 := base64.StdEncoding.EncodeToString([]byte("HTTP/1.1 200 OK\r\n\r\n"))
+		mr.AddCommandOutput(rigtest.Contains("--http1.1"), resp200)
+		f := remotefs.NewPosixFS(mr)
+		code, err := remotefs.HTTPStatus(context.Background(), f, "http://example.com/health")
+		require.NoError(t, err)
+		require.Equal(t, 200, code)
+	})
+	t.Run("503", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandOutput(rigtest.Equal("command -v curl"), "/usr/bin/curl")
+		resp503 := base64.StdEncoding.EncodeToString([]byte("HTTP/1.1 503 Service Unavailable\r\n\r\n"))
+		mr.AddCommandOutput(rigtest.Contains("--http1.1"), resp503)
+		f := remotefs.NewPosixFS(mr)
+		code, err := remotefs.HTTPStatus(context.Background(), f, "http://example.com/health")
+		require.NoError(t, err)
+		require.Equal(t, 503, code)
+	})
+	t.Run("curl unavailable", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandFailure(rigtest.Equal("command -v curl"), errors.New("not found"))
+		f := remotefs.NewPosixFS(mr)
+		_, err := remotefs.HTTPStatus(context.Background(), f, "http://example.com/health")
+		require.Error(t, err)
+	})
+}
+
+func TestWindowsHTTPStatus(t *testing.T) {
+	t.Run("200", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.Windows = true
+		resp200 := base64.StdEncoding.EncodeToString([]byte("HTTP/1.1 200 OK\r\n\r\n"))
+		mr.AddCommandOutput(rigtest.HasPrefix("powershell.exe"), resp200)
+		f := remotefs.NewWindowsFS(mr)
+		code, err := remotefs.HTTPStatus(context.Background(), f, "http://example.com/health")
+		require.NoError(t, err)
+		require.Equal(t, 200, code)
+	})
+	t.Run("failure", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.Windows = true
+		mr.AddCommandFailure(rigtest.HasPrefix("powershell.exe"), errors.New("exit 1"))
+		f := remotefs.NewWindowsFS(mr)
+		_, err := remotefs.HTTPStatus(context.Background(), f, "http://example.com/health")
+		require.Error(t, err)
+	})
 }
