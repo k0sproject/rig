@@ -381,9 +381,24 @@ func (s *WinFS) Chmod(name string, mode fs.FileMode) error {
 	return nil
 }
 
-// Chown changes the ownership of the named file. On windows it returns an error.
+// Chown changes the ownership of the named file. On Windows it returns an error.
 func (s *WinFS) Chown(name string, _ string) error {
 	return fmt.Errorf("chown %s: %w", name, ErrNotSupported)
+}
+
+// ChownInt changes the ownership using numeric uid and gid. On Windows it returns an error.
+func (s *WinFS) ChownInt(name string, _, _ int) error {
+	return fmt.Errorf("chown %s: %w", name, ErrNotSupported)
+}
+
+// ChownTree recursively changes the ownership. On Windows it returns an error.
+func (s *WinFS) ChownTree(name string, _ string) error {
+	return fmt.Errorf("chown -R %s: %w", name, ErrNotSupported)
+}
+
+// ChownTreeInt recursively changes the ownership using numeric uid and gid. On Windows it returns an error.
+func (s *WinFS) ChownTreeInt(name string, _, _ int) error {
+	return fmt.Errorf("chown -R %s: %w", name, ErrNotSupported)
 }
 
 // DownloadURL downloads the contents of url to dst using Invoke-WebRequest.

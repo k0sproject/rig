@@ -54,6 +54,9 @@ func (f *uploadFS) FileExist(_ string) bool                                 { pa
 func (f *uploadFS) LookPath(_ string) (string, error)                       { panic("not implemented") }
 func (f *uploadFS) Join(_ ...string) string                                 { panic("not implemented") }
 func (f *uploadFS) Chown(_ string, _ string) error                          { panic("not implemented") }
+func (f *uploadFS) ChownInt(_ string, _, _ int) error                       { panic("not implemented") }
+func (f *uploadFS) ChownTree(_ string, _ string) error                      { panic("not implemented") }
+func (f *uploadFS) ChownTreeInt(_ string, _, _ int) error                   { panic("not implemented") }
 func (f *uploadFS) Chtimes(_ string, _, _ int64) error                      { panic("not implemented") }
 func (f *uploadFS) Touch(_ string, _ ...time.Time) error                    { panic("not implemented") }
 func (f *uploadFS) Truncate(_ string, _ int64) error                        { panic("not implemented") }

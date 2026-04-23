@@ -44,6 +44,9 @@ type OS interface { //nolint:interfacebloat // intentionally large interface
 	Join(elem ...string) string
 	Chmod(path string, mode fs.FileMode) error
 	Chown(path string, owner string) error
+	ChownInt(path string, uid, gid int) error
+	ChownTree(path string, owner string) error
+	ChownTreeInt(path string, uid, gid int) error
 	Chtimes(path string, atime, mtime int64) error
 	Touch(path string, ts ...time.Time) error
 	Truncate(path string, size int64) error
