@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/k0sproject/rig/v2/powershell"
 	"github.com/k0sproject/rig/v2/remotefs"
 	"github.com/k0sproject/rig/v2/rigtest"
 	"github.com/stretchr/testify/require"
@@ -470,4 +471,39 @@ func TestWindowsChownVariantsNotSupported(t *testing.T) {
 	require.ErrorIs(t, f.ChownInt("/tmp/file", 1000, 2000), remotefs.ErrNotSupported)
 	require.ErrorIs(t, f.ChownTree("/tmp", "root"), remotefs.ErrNotSupported)
 	require.ErrorIs(t, f.ChownTreeInt("/tmp", 0, 0), remotefs.ErrNotSupported)
+}
+
+func TestPosixCreateTemp(t *testing.T) {
+	t.Run("with prefix", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandOutput(rigtest.Equal("echo ${TMPDIR:-/tmp}"), "/tmp")
+		mr.AddCommandOutput(rigtest.Contains("mktemp"), "/tmp/rig-abc123")
+		f := remotefs.NewPosixFS(mr)
+		path, err := f.CreateTemp("", "rig-")
+		require.NoError(t, err)
+		require.Equal(t, "/tmp/rig-abc123", path)
+		require.NoError(t, mr.Received(rigtest.Contains("mktemp -- /tmp/rig-XXXXXX")))
+	})
+	t.Run("failure", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandFailure(rigtest.Contains("mktemp"), errors.New("permission denied"))
+		f := remotefs.NewPosixFS(mr)
+		_, err := f.CreateTemp("/srv", "rig-")
+		require.Error(t, err)
+	})
+}
+
+func TestWindowsCreateTemp(t *testing.T) {
+	t.Run("ok", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.Windows = true
+		// Stub TempDir's TEMP lookup first (exact match), then the CreateTemp script (broad prefix).
+		// PS commands are base64-encoded so the exact match distinguishes the two calls.
+		mr.AddCommandOutput(rigtest.Equal(powershell.Cmd("[System.Environment]::GetEnvironmentVariable('TEMP')")), `C:\Windows\Temp`)
+		mr.AddCommandOutput(rigtest.HasPrefix("powershell.exe"), `C:\Windows\Temp\rig-abc123.tmp`)
+		f := remotefs.NewWindowsFS(mr)
+		path, err := f.CreateTemp("", "rig-")
+		require.NoError(t, err)
+		require.Equal(t, "C:/Windows/Temp/rig-abc123.tmp", path)
+	})
 }

@@ -696,9 +696,22 @@ func (s *PosixFS) MkdirTemp(dir, prefix string) (string, error) {
 	if dir == "" {
 		dir = s.TempDir()
 	}
-	out, err := s.ExecOutput(sh.Command("mktemp", "-d", s.Join(dir, prefix+"XXXXXX")))
+	out, err := s.ExecOutput(sh.Command("mktemp", "-d", "--", s.Join(dir, prefix+"XXXXXX")))
 	if err != nil {
 		return "", fmt.Errorf("mkdir temp %s: %w", dir, err)
+	}
+	return out, nil
+}
+
+// CreateTemp creates a new temporary file in the directory dir with a name beginning with prefix
+// and returns the path of the new file. If dir is empty, TempDir() is used.
+func (s *PosixFS) CreateTemp(dir, prefix string) (string, error) {
+	if dir == "" {
+		dir = s.TempDir()
+	}
+	out, err := s.ExecOutput(sh.Command("mktemp", "--", s.Join(dir, prefix+"XXXXXX")))
+	if err != nil {
+		return "", fmt.Errorf("create temp %s: %w", dir, err)
 	}
 	return out, nil
 }

@@ -38,6 +38,7 @@ type OS interface { //nolint:interfacebloat // intentionally large interface
 	Mkdir(path string, perm fs.FileMode) error
 	MkdirAll(path string, perm fs.FileMode) error
 	MkdirTemp(dir, prefix string) (string, error)
+	CreateTemp(dir, prefix string) (string, error)
 	WriteFile(path string, data []byte, perm fs.FileMode) error
 	FileExist(path string) bool
 	LookPath(cmd string) (string, error)

@@ -180,6 +180,27 @@ func (s *WinFS) MkdirTemp(dir, prefix string) (string, error) {
 	return toSlashes(path), nil
 }
 
+// CreateTemp creates a new temporary file in the directory dir with a name beginning with prefix
+// and returns the path of the new file. If dir is empty, TempDir() is used.
+func (s *WinFS) CreateTemp(dir, prefix string) (string, error) {
+	if dir == "" {
+		dir = s.TempDir()
+	}
+
+	// Use FileMode.CreateNew inside a PS retry loop so creation is atomic and never clobbers
+	// an existing file, matching os.CreateTemp semantics.
+	script := fmt.Sprintf(
+		`$dir = %s; $prefix = %s; for ($i = 0; $i -lt 10000; $i++) { $name = $prefix + ([System.IO.Path]::GetRandomFileName() -replace '\.', '') + '.tmp'; $path = [System.IO.Path]::Combine($dir, $name); try { $f = [System.IO.File]::Open($path, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None); $f.Close(); Write-Output $path; return } catch [System.IO.IOException] { if (-not (Test-Path -LiteralPath $path)) { throw } } }; throw 'create temp: too many retries'`,
+		ps.DoubleQuotePath(dir),
+		ps.SingleQuote(prefix),
+	)
+	out, err := s.ExecOutput(script, cmd.PS())
+	if err != nil {
+		return "", fmt.Errorf("create temp %s: %w", dir, err)
+	}
+	return toSlashes(out), nil
+}
+
 type opener interface {
 	open(flags int) error
 }

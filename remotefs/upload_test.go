@@ -49,6 +49,7 @@ func (f *uploadFS) RemoveAll(_ string) error                                { pa
 func (f *uploadFS) Mkdir(_ string, _ fs.FileMode) error                     { panic("not implemented") }
 func (f *uploadFS) MkdirAll(_ string, _ fs.FileMode) error                  { panic("not implemented") }
 func (f *uploadFS) MkdirTemp(_, _ string) (string, error)                   { panic("not implemented") }
+func (f *uploadFS) CreateTemp(_, _ string) (string, error)                  { panic("not implemented") }
 func (f *uploadFS) WriteFile(_ string, _ []byte, _ fs.FileMode) error       { panic("not implemented") }
 func (f *uploadFS) FileExist(_ string) bool                                 { panic("not implemented") }
 func (f *uploadFS) LookPath(_ string) (string, error)                       { panic("not implemented") }
