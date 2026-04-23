@@ -686,6 +686,22 @@ func (s *PosixFS) Join(elem ...string) string {
 	return path.Join(elem...)
 }
 
+// Dir returns all but the last element of path, typically the path's directory.
+func (s *PosixFS) Dir(p string) string {
+	return path.Dir(p)
+}
+
+// Base returns the last element of path.
+func (s *PosixFS) Base(p string) string {
+	return path.Base(p)
+}
+
+// CommandExist reports whether the named command is available on the remote host.
+func (s *PosixFS) CommandExist(name string) bool {
+	_, err := s.LookPath(name)
+	return err == nil
+}
+
 // Getenv returns the value of the environment variable named by the key.
 func (s *PosixFS) Getenv(key string) string {
 	out, err := s.ExecOutput(fmt.Sprintf("echo ${%s}", key), cmd.HideOutput())

@@ -60,6 +60,9 @@ type OS interface { //nolint:interfacebloat // intentionally large interface
 	UserCacheDir() string
 	UserConfigDir() string
 	UserHomeDir() string
+	Dir(path string) string
+	Base(path string) string
+	CommandExist(name string) bool
 }
 
 // Opener is a file opener interface, modeled after stdlib's OS package.

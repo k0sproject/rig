@@ -326,3 +326,94 @@ func TestWindowsIsContainer(t *testing.T) {
 	require.ErrorIs(t, err, remotefs.ErrNotSupported)
 	require.False(t, ok)
 }
+
+func TestPosixDir(t *testing.T) {
+	f := remotefs.NewPosixFS(rigtest.NewMockRunner())
+	require.Equal(t, "/foo/bar", f.Dir("/foo/bar/baz"))
+	require.Equal(t, "/foo", f.Dir("/foo/bar"))
+	require.Equal(t, "/", f.Dir("/foo"))
+	require.Equal(t, ".", f.Dir("foo"))
+	require.Equal(t, ".", f.Dir(""))
+}
+
+func TestPosixBase(t *testing.T) {
+	f := remotefs.NewPosixFS(rigtest.NewMockRunner())
+	require.Equal(t, "baz", f.Base("/foo/bar/baz"))
+	require.Equal(t, "bar", f.Base("/foo/bar"))
+	require.Equal(t, "foo", f.Base("/foo"))
+	require.Equal(t, "foo", f.Base("foo"))
+}
+
+func TestPosixCommandExist(t *testing.T) {
+	t.Run("found", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandOutput(rigtest.Equal("command -v curl"), "/usr/bin/curl")
+		f := remotefs.NewPosixFS(mr)
+		require.True(t, f.CommandExist("curl"))
+	})
+	t.Run("not found", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandFailure(rigtest.Equal("command -v curl"), errors.New("not found"))
+		f := remotefs.NewPosixFS(mr)
+		require.False(t, f.CommandExist("curl"))
+	})
+}
+
+func TestWindowsDir(t *testing.T) {
+	mr := rigtest.NewMockRunner()
+	mr.Windows = true
+	f := remotefs.NewWindowsFS(mr)
+	require.Equal(t, `C:\foo\bar`, f.Dir(`C:\foo\bar\baz`))
+	require.Equal(t, `C:\foo`, f.Dir(`C:\foo\bar`))
+	require.Equal(t, `C:\`, f.Dir(`C:\foo`))
+	require.Equal(t, `C:\`, f.Dir(`C:\`))
+	require.Equal(t, ".", f.Dir("foo"))
+	require.Equal(t, ".", f.Dir(""))
+	require.Equal(t, `\`, f.Dir(`\`))
+	require.Equal(t, `/`, f.Dir(`/`))
+	// forward slashes preserved
+	require.Equal(t, "C:/foo", f.Dir("C:/foo/bar"))
+	require.Equal(t, "C:/", f.Dir("C:/foo"))
+	require.Equal(t, "C:/", f.Dir("C:/"))
+}
+
+func TestWindowsBase(t *testing.T) {
+	mr := rigtest.NewMockRunner()
+	mr.Windows = true
+	f := remotefs.NewWindowsFS(mr)
+	require.Equal(t, "baz", f.Base(`C:\foo\bar\baz`))
+	require.Equal(t, "bar", f.Base(`C:\foo\bar`))
+	require.Equal(t, "foo", f.Base(`C:\foo`))
+	require.Equal(t, "foo", f.Base("foo"))
+	require.Equal(t, ".", f.Base(""))
+	require.Equal(t, `\`, f.Base(`\`))
+	require.Equal(t, `\`, f.Base(`\\`))
+	require.Equal(t, `/`, f.Base(`/`))
+	// drive roots
+	require.Equal(t, `C:\`, f.Base(`C:\`))
+	require.Equal(t, `C:/`, f.Base(`C:/`))
+}
+
+func TestWindowsCommandExist(t *testing.T) {
+	t.Run("found", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.Windows = true
+		mr.AddCommandOutput(rigtest.HasPrefix("powershell.exe"), `C:\Windows\System32\curl.exe`)
+		f := remotefs.NewWindowsFS(mr)
+		require.True(t, f.CommandExist("curl"))
+	})
+	t.Run("not found via error", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.Windows = true
+		mr.AddCommandFailure(rigtest.HasPrefix("powershell.exe"), errors.New("not found"))
+		f := remotefs.NewWindowsFS(mr)
+		require.False(t, f.CommandExist("curl"))
+	})
+	t.Run("not found via empty output", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.Windows = true
+		mr.AddCommandOutput(rigtest.HasPrefix("powershell.exe"), "")
+		f := remotefs.NewWindowsFS(mr)
+		require.False(t, f.CommandExist("curl"))
+	})
+}
