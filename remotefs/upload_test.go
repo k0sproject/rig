@@ -70,6 +70,9 @@ func (f *uploadFS) TempDir() string                                         { pa
 func (f *uploadFS) UserCacheDir() string                                    { panic("not implemented") }
 func (f *uploadFS) UserConfigDir() string                                   { panic("not implemented") }
 func (f *uploadFS) UserHomeDir() string                                     { panic("not implemented") }
+func (f *uploadFS) Dir(_ string) string                                     { panic("not implemented") }
+func (f *uploadFS) Base(_ string) string                                    { panic("not implemented") }
+func (f *uploadFS) CommandExist(_ string) bool                              { panic("not implemented") }
 
 // uploadFile is a minimal File stub that captures written bytes.
 type uploadFile struct {

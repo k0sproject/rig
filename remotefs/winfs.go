@@ -260,16 +260,85 @@ func (s *WinFS) FileExist(name string) bool {
 
 // LookPath checks if a command exists on the host.
 func (s *WinFS) LookPath(name string) (string, error) {
-	path, err := s.ExecOutput(fmt.Sprintf("Get-Command %s -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source", ps.DoubleQuotePath(name)), cmd.PS())
+	out, err := s.ExecOutput(fmt.Sprintf("Get-Command %s -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source", ps.DoubleQuotePath(name)), cmd.PS())
 	if err != nil {
 		return "", fmt.Errorf("lookpath %s: %w", name, err)
 	}
-	return toSlashes(path), nil
+	for line := range strings.SplitSeq(out, "\n") {
+		if p := toSlashes(strings.TrimSpace(line)); p != "" {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("lookpath %s: %w", name, fs.ErrNotExist)
 }
 
 // Join joins any number of path elements into a single path, adding a separating slash if necessary.
 func (s *WinFS) Join(elem ...string) string {
 	return strings.Join(elem, "\\")
+}
+
+// winTrimPath strips trailing separators from p and identifies paths that have
+// no further components to split, returning them as a ready-to-return value.
+// Returns (trimmed, shortCircuit): when shortCircuit is non-empty the caller
+// should return it directly without further processing. shortCircuit is set for:
+//   - empty input ("") → "."
+//   - separator-only input ("\" or "/") → the leading separator character
+//   - bare drive root ("C:\") → the drive letter plus its separator ("C:\")
+func winTrimPath(p string) (trimmed, shortCircuit string) {
+	trimmed = strings.TrimRight(p, "/\\")
+	if trimmed == "" {
+		if p == "" {
+			return "", "."
+		}
+		return "", string(p[0]) // separator-only path is a root
+	}
+	// Bare drive letter after stripping a trailing separator ("C:" from "C:\") is a root.
+	if len(trimmed) == 2 && trimmed[1] == ':' && len(p) > len(trimmed) {
+		return "", trimmed + string(p[len(trimmed)]) // preserve the separator style
+	}
+	return trimmed, ""
+}
+
+// Dir returns all but the last element of path, typically the path's directory.
+// Both forward and backward slashes are recognised as separators.
+func (s *WinFS) Dir(path string) string {
+	trimmed, shortCircuit := winTrimPath(path)
+	if shortCircuit != "" {
+		return shortCircuit
+	}
+	idx := strings.LastIndexAny(trimmed, "/\\")
+	if idx < 0 {
+		return "."
+	}
+	dir := trimmed[:idx]
+	// "C:\foo" or "C:/foo" splits into dir="C:" — restore the root separator.
+	if len(dir) == 2 && dir[1] == ':' {
+		return dir + string(trimmed[idx])
+	}
+	if dir == "" {
+		return string(trimmed[idx])
+	}
+	return dir
+}
+
+// Base returns the last element of path.
+// Both forward and backward slashes are recognised as separators.
+func (s *WinFS) Base(path string) string {
+	trimmed, shortCircuit := winTrimPath(path)
+	if shortCircuit != "" {
+		return shortCircuit
+	}
+	idx := strings.LastIndexAny(trimmed, "/\\")
+	if idx < 0 {
+		return trimmed
+	}
+	return trimmed[idx+1:]
+}
+
+// CommandExist reports whether the named command is available on the remote host.
+func (s *WinFS) CommandExist(name string) bool {
+	_, err := s.LookPath(name)
+	return err == nil
 }
 
 // Touch creates a new file with the given name if it does not exist.
