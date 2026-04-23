@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -435,6 +436,112 @@ try {
 		return fmt.Errorf("download %s: %w", url, err)
 	}
 	return nil
+}
+
+// winHeaderScript builds the PowerShell $params['Headers'] assignment from an http.Header map.
+// Header["Host"] is always skipped (ignored in net/http client requests); host is injected when
+// non-empty. Returns errInvalidHeader if any key, value, or host contains CR, LF, or NUL.
+func winHeaderScript(header http.Header, host string) (string, error) {
+	lines := make([]string, 0, len(header)+1)
+	for name, vals := range header {
+		if strings.EqualFold(name, "Host") {
+			continue
+		}
+		if strings.ContainsAny(name, "\r\n\x00") {
+			return "", fmt.Errorf("%w: %q", errInvalidHeader, name)
+		}
+		sep := ", "
+		if strings.EqualFold(name, "Cookie") {
+			sep = "; "
+		}
+		joined := strings.Join(vals, sep)
+		if strings.ContainsAny(joined, "\r\n\x00") {
+			return "", fmt.Errorf("%w: %q", errInvalidHeader, name)
+		}
+		lines = append(lines, "  "+ps.SingleQuote(name)+"="+ps.SingleQuote(joined))
+	}
+	if host != "" {
+		if strings.ContainsAny(host, "\r\n\x00") {
+			return "", fmt.Errorf("%w: host %q", errInvalidHeader, host)
+		}
+		lines = append(lines, "  "+ps.SingleQuote("Host")+"="+ps.SingleQuote(host))
+	}
+	if len(lines) == 0 {
+		return "", nil
+	}
+	return "$params['Headers']=@{\n" + strings.Join(lines, "\n") + "\n}", nil
+}
+
+// RoundTrip implements http.RoundTripper by executing the request via Invoke-WebRequest on the remote host.
+func (s *WinFS) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req == nil {
+		return nil, errNilRequest
+	}
+	if req.URL == nil {
+		return nil, errNilRequestURL
+	}
+	if req.Body != nil && req.Body != http.NoBody {
+		defer req.Body.Close()
+	}
+	if err := validateRoundTripURL(req.URL); err != nil {
+		return nil, fmt.Errorf("http round-trip %s: %w", req.URL.Redacted(), err)
+	}
+	method := req.Method
+	if method == "" {
+		method = http.MethodGet
+	}
+	headerScript, err := winHeaderScript(req.Header, req.Host)
+	if err != nil {
+		return nil, fmt.Errorf("http round-trip %s: %w", req.URL.Redacted(), err)
+	}
+
+	var execOpts []cmd.ExecOption
+	bodyScript := ""
+	if req.Body != nil && req.Body != http.NoBody {
+		execOpts = append(execOpts, cmd.Stdin(req.Body))
+		bodyScript = `$ms=[IO.MemoryStream]::new()
+[Console]::OpenStandardInput().CopyTo($ms)
+$params['Body']=$ms.ToArray()
+$ms.Dispose()`
+	}
+
+	script := fmt.Sprintf(`$ProgressPreference='SilentlyContinue'
+$ErrorActionPreference='Stop'
+function ConvertTo-RawResponse($code,$desc,$hdrs,$body){
+  $crlf=[char]13+[char]10
+  $head="HTTP/1.1 $code $desc"+$crlf
+  if($hdrs.PSObject.Properties['AllKeys']){$hdrs.AllKeys|ForEach-Object{$key=$_;if($key -ne 'Transfer-Encoding' -and $key -ne 'Content-Length'){$hdrs.GetValues($key)|ForEach-Object{$head+="${key}: $_"+$crlf}}}}else{$hdrs.GetEnumerator()|ForEach-Object{$key=$_.Key;if($key -ne 'Transfer-Encoding' -and $key -ne 'Content-Length'){@($_.Value)|ForEach-Object{$head+="${key}: $_"+$crlf}}}}
+  $head+="Content-Length: "+$body.Length+$crlf
+  $head+=$crlf
+  $hb=[Text.Encoding]::GetEncoding(28591).GetBytes($head)
+  $out=[byte[]]::new($hb.Length+$body.Length)
+  [Buffer]::BlockCopy($hb,0,$out,0,$hb.Length)
+  [Buffer]::BlockCopy($body,0,$out,$hb.Length,$body.Length)
+  [Convert]::ToBase64String($out)
+}
+$params=@{Uri=%s;Method=%s;UseBasicParsing=$true;ErrorAction='Stop';MaximumRedirection=0}
+%s
+%s
+try{
+  $r=Invoke-WebRequest @params
+  $b=if($r.PSObject.Properties['RawContentStream']){$r.RawContentStream.ToArray()}elseif($r.PSObject.Properties['BaseResponse']){$ms2=New-Object System.IO.MemoryStream;$r.BaseResponse.GetResponseStream().CopyTo($ms2);$ms2.ToArray()}else{[byte[]]$r.Content}
+  ConvertTo-RawResponse ([int]$r.StatusCode) $r.StatusDescription $r.Headers $b
+}catch [System.Net.WebException]{
+  if($_.Exception.Response -ne $null){
+    $er=$_.Exception.Response
+    $ms=New-Object System.IO.MemoryStream
+    $er.GetResponseStream().CopyTo($ms)
+    $eh=@{}
+    $er.Headers.AllKeys|ForEach-Object{$eh[$_]=$er.Headers[$_]}
+    ConvertTo-RawResponse ([int]$er.StatusCode) $er.StatusDescription $eh $ms.ToArray()
+  }else{Write-Error $_.Exception.Message;exit 1}
+}catch{Write-Error $_.Exception.Message;exit 1}`, ps.SingleQuote(req.URL.String()), ps.SingleQuote(method), headerScript, bodyScript)
+
+	out, err := s.ExecOutputContext(req.Context(), script, append(execOpts, cmd.PS(), cmd.HideOutput(), cmd.HideCommand())...)
+	if err != nil {
+		return nil, fmt.Errorf("http round-trip %s: %w", req.URL.Redacted(), err)
+	}
+	return parseRawHTTPResponse(out, req)
 }
 
 // FileContains reports whether the file at path contains the given substring.
