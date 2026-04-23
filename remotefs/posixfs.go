@@ -360,6 +360,42 @@ func (s *PosixFS) Chown(name string, owner string) error {
 	return nil
 }
 
+// ChownInt changes the ownership of the named file using numeric uid and gid.
+func (s *PosixFS) ChownInt(name string, uid, gid int) error {
+	owner := fmt.Sprintf("%d:%d", uid, gid)
+	if err := s.Exec(sh.Command("chown", "--", owner, name)); err != nil {
+		if isNotExist(err) {
+			return PathError("chown", name, fs.ErrNotExist)
+		}
+		return fmt.Errorf("chown %s: %w", name, err)
+	}
+	return nil
+}
+
+// ChownTree recursively changes the ownership of path and all its contents.
+// The owner parameter follows the standard chown format: "user", "user:group", or ":group".
+func (s *PosixFS) ChownTree(name string, owner string) error {
+	if err := s.Exec(sh.Command("chown", "-R", "--", owner, name)); err != nil {
+		if isNotExist(err) {
+			return PathError("chown -R", name, fs.ErrNotExist)
+		}
+		return fmt.Errorf("chown -R %s: %w", name, err)
+	}
+	return nil
+}
+
+// ChownTreeInt recursively changes the ownership of path and all its contents using numeric uid and gid.
+func (s *PosixFS) ChownTreeInt(name string, uid, gid int) error {
+	owner := fmt.Sprintf("%d:%d", uid, gid)
+	if err := s.Exec(sh.Command("chown", "-R", "--", owner, name)); err != nil {
+		if isNotExist(err) {
+			return PathError("chown -R", name, fs.ErrNotExist)
+		}
+		return fmt.Errorf("chown -R %s: %w", name, err)
+	}
+	return nil
+}
+
 // DownloadURL downloads the contents of url to dst. It prefers curl when available
 // and falls back to wget. Returns a descriptive error if neither is available.
 func (s *PosixFS) DownloadURL(url, dst string) error {

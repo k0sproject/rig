@@ -417,3 +417,57 @@ func TestWindowsCommandExist(t *testing.T) {
 		require.False(t, f.CommandExist("curl"))
 	})
 }
+
+func TestPosixChownInt(t *testing.T) {
+	t.Run("ok", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandSuccess(rigtest.Contains("chown -- 1000:2000"))
+		f := remotefs.NewPosixFS(mr)
+		require.NoError(t, f.ChownInt("/tmp/file", 1000, 2000))
+	})
+	t.Run("not exist", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandFailure(rigtest.Contains("chown -- 1000:2000"), errors.New("No such file or directory"))
+		f := remotefs.NewPosixFS(mr)
+		require.ErrorIs(t, f.ChownInt("/tmp/file", 1000, 2000), fs.ErrNotExist)
+	})
+}
+
+func TestPosixChownTree(t *testing.T) {
+	t.Run("ok", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandSuccess(rigtest.Contains("chown -R -- root:root"))
+		f := remotefs.NewPosixFS(mr)
+		require.NoError(t, f.ChownTree("/srv", "root:root"))
+	})
+	t.Run("not exist", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandFailure(rigtest.Contains("chown -R -- root:root"), errors.New("No such file or directory"))
+		f := remotefs.NewPosixFS(mr)
+		require.ErrorIs(t, f.ChownTree("/srv", "root:root"), fs.ErrNotExist)
+	})
+}
+
+func TestPosixChownTreeInt(t *testing.T) {
+	t.Run("ok", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandSuccess(rigtest.Contains("chown -R -- 0:0"))
+		f := remotefs.NewPosixFS(mr)
+		require.NoError(t, f.ChownTreeInt("/srv", 0, 0))
+	})
+	t.Run("not exist", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandFailure(rigtest.Contains("chown -R -- 0:0"), errors.New("No such file or directory"))
+		f := remotefs.NewPosixFS(mr)
+		require.ErrorIs(t, f.ChownTreeInt("/srv", 0, 0), fs.ErrNotExist)
+	})
+}
+
+func TestWindowsChownVariantsNotSupported(t *testing.T) {
+	mr := rigtest.NewMockRunner()
+	mr.Windows = true
+	f := remotefs.NewWindowsFS(mr)
+	require.ErrorIs(t, f.ChownInt("/tmp/file", 1000, 2000), remotefs.ErrNotSupported)
+	require.ErrorIs(t, f.ChownTree("/tmp", "root"), remotefs.ErrNotSupported)
+	require.ErrorIs(t, f.ChownTreeInt("/tmp", 0, 0), remotefs.ErrNotSupported)
+}
