@@ -23,7 +23,9 @@ var (
 	_ fs.FS = (*WinFS)(nil)
 	_ FS    = (*WinFS)(nil)
 	// ErrNotSupported is returned when a function is not supported on Windows.
-	ErrNotSupported = errors.New("not supported on windows")
+	ErrNotSupported     = errors.New("not supported on windows")
+	errScriptError      = errors.New("script error")
+	errUnexpectedOutput = errors.New("unexpected output")
 )
 
 // WinFS is a fs.FS implemen{.
@@ -271,9 +273,16 @@ func (s *WinFS) Join(elem ...string) string {
 }
 
 // Touch creates a new file with the given name if it does not exist.
-// If the file exists, the access and modification times are set to the current time.
-func (s *WinFS) Touch(name string) error {
-	if err := s.Exec(fmt.Sprintf("Get-Item %[1]s -ErrorAction SilentlyContinue | Set-ItemProperty -Name LastWriteTime -Value (Get-Date); if (!$?) { New-Item %[1]s -ItemType File }", name), cmd.PS()); err != nil {
+// Without ts, the file's modification time is set to the current time. When ts
+// is supplied, the file's modification time is set to the first timestamp provided.
+func (s *WinFS) Touch(name string, ts ...time.Time) error {
+	value := "(Get-Date).ToUniversalTime()"
+	if len(ts) > 0 {
+		value = fmt.Sprintf("[DateTime]::Parse(%s).ToUniversalTime()", ps.SingleQuote(ts[0].UTC().Format("2006-01-02T15:04:05.999Z")))
+	}
+	quotedName := ps.DoubleQuotePath(name)
+	script := fmt.Sprintf("if (!(Test-Path -LiteralPath %[1]s)) { [System.IO.File]::Create(%[1]s).Close() }; $f = Get-Item -LiteralPath %[1]s; $f.LastWriteTime = %[2]s", quotedName, value)
+	if err := s.Exec(script, cmd.PS()); err != nil {
 		return fmt.Errorf("touch %s: %w", name, err)
 	}
 	return nil
@@ -303,9 +312,64 @@ func (s *WinFS) Chmod(name string, mode fs.FileMode) error {
 	return nil
 }
 
-// Chown changes the numeric uid and gid of the named file. On windows it returns an error.
-func (s *WinFS) Chown(name string, _, _ int) error {
+// Chown changes the ownership of the named file. On windows it returns an error.
+func (s *WinFS) Chown(name string, _ string) error {
 	return fmt.Errorf("chown %s: %w", name, ErrNotSupported)
+}
+
+// DownloadURL downloads the contents of url to dst using Invoke-WebRequest.
+func (s *WinFS) DownloadURL(url, dst string) error {
+	script := fmt.Sprintf(`$ProgressPreference='SilentlyContinue'
+try {
+  Invoke-WebRequest -Uri %s -OutFile %s -UseBasicParsing -ErrorAction Stop | Out-Null
+} catch {
+  Write-Error $_.Exception.Message
+  exit 1
+}`, ps.SingleQuote(url), ps.DoubleQuotePath(dst))
+	if err := s.Exec(script, cmd.PS()); err != nil {
+		return fmt.Errorf("download %s: %w", url, err)
+	}
+	return nil
+}
+
+// FileContains reports whether the file at path contains the given substring.
+// Returns a not-exist error if the file does not exist.
+func (s *WinFS) FileContains(name, substr string) (bool, error) {
+	script := fmt.Sprintf(`
+$ErrorActionPreference='Stop'
+try {
+  if (-not (Test-Path -LiteralPath %s)) {
+    Write-Output 'NOT_FOUND'
+  } elseif (Select-String -Quiet -SimpleMatch -Pattern %s -LiteralPath %s) {
+    Write-Output 'MATCH'
+  } else {
+    Write-Output 'NO_MATCH'
+  }
+} catch {
+  Write-Output ('ERROR:' + $_.Exception.Message)
+}`, ps.DoubleQuotePath(name), ps.SingleQuote(substr), ps.DoubleQuotePath(name))
+	out, err := s.ExecOutput(script, cmd.PS())
+	if err != nil {
+		return false, fmt.Errorf("file-contains %s: %w", name, err)
+	}
+	switch status := strings.TrimSpace(out); {
+	case status == "MATCH":
+		return true, nil
+	case status == "NO_MATCH":
+		return false, nil
+	case status == "NOT_FOUND":
+		return false, PathError("file-contains", name, fs.ErrNotExist)
+	case strings.HasPrefix(status, "ERROR:"):
+		return false, fmt.Errorf("file-contains %s: %w: %s", name, errScriptError, strings.TrimPrefix(status, "ERROR:"))
+	default:
+		return false, fmt.Errorf("file-contains %s: %w: %q", name, errUnexpectedOutput, status)
+	}
+}
+
+// IsContainer reports whether the host is running inside a container.
+// Container detection is not supported on Windows.
+func (s *WinFS) IsContainer() (bool, error) {
+	return false, ErrNotSupported
 }
 
 // Truncate changes the size of the named file.

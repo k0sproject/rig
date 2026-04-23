@@ -43,12 +43,15 @@ type OS interface { //nolint:interfacebloat // intentionally large interface
 	LookPath(cmd string) (string, error)
 	Join(elem ...string) string
 	Chmod(path string, mode fs.FileMode) error
-	Chown(path string, uid, gid int) error
+	Chown(path string, owner string) error
 	Chtimes(path string, atime, mtime int64) error
-	Touch(path string) error
+	Touch(path string, ts ...time.Time) error
 	Truncate(path string, size int64) error
 	Getenv(key string) string
 	Rename(oldpath, newpath string) error
+	DownloadURL(url, dst string) error
+	FileContains(path, substr string) (bool, error)
+	IsContainer() (bool, error)
 	Hostname() (string, error)
 	LongHostname() (string, error)
 	MachineID() (string, error)

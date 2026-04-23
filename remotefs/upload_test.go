@@ -53,12 +53,15 @@ func (f *uploadFS) WriteFile(_ string, _ []byte, _ fs.FileMode) error       { pa
 func (f *uploadFS) FileExist(_ string) bool                                 { panic("not implemented") }
 func (f *uploadFS) LookPath(_ string) (string, error)                       { panic("not implemented") }
 func (f *uploadFS) Join(_ ...string) string                                 { panic("not implemented") }
-func (f *uploadFS) Chown(_ string, _, _ int) error                          { panic("not implemented") }
+func (f *uploadFS) Chown(_ string, _ string) error                          { panic("not implemented") }
 func (f *uploadFS) Chtimes(_ string, _, _ int64) error                      { panic("not implemented") }
-func (f *uploadFS) Touch(_ string) error                                    { panic("not implemented") }
+func (f *uploadFS) Touch(_ string, _ ...time.Time) error                    { panic("not implemented") }
 func (f *uploadFS) Truncate(_ string, _ int64) error                        { panic("not implemented") }
 func (f *uploadFS) Getenv(_ string) string                                  { panic("not implemented") }
 func (f *uploadFS) Rename(_, _ string) error                                { panic("not implemented") }
+func (f *uploadFS) DownloadURL(_ string, _ string) error                    { panic("not implemented") }
+func (f *uploadFS) FileContains(_ string, _ string) (bool, error)           { panic("not implemented") }
+func (f *uploadFS) IsContainer() (bool, error)                              { panic("not implemented") }
 func (f *uploadFS) Hostname() (string, error)                               { panic("not implemented") }
 func (f *uploadFS) LongHostname() (string, error)                           { panic("not implemented") }
 func (f *uploadFS) MachineID() (string, error)                              { panic("not implemented") }
