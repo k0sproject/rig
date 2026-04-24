@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"path"
 	"strconv"
@@ -24,6 +25,7 @@ var (
 	_                 FS    = (*PosixFS)(nil)
 	errInvalid              = errors.New("invalid")
 	errNoDownloadTool       = errors.New("neither curl nor wget is available on the remote host")
+	errCurlRequired         = errors.New("curl is not available on the remote host")
 	errGrepFailed           = errors.New("grep failed")
 	errTestFailed           = errors.New("test failed")
 	statCmdGNU              = `env -i PATH="$PATH" LC_ALL=C stat -c '%%#f %%s %%.9Y //%%n//' -- %s 2> /dev/null`
@@ -412,6 +414,37 @@ func (s *PosixFS) DownloadURL(url, dst string) error {
 		return nil
 	}
 	return fmt.Errorf("download %s: %w", url, errNoDownloadTool)
+}
+
+// RoundTrip implements http.RoundTripper by executing the request via curl on the remote host.
+// Requires curl; returns an error if curl is not available.
+func (s *PosixFS) RoundTrip(req *http.Request) (*http.Response, error) {
+	if _, err := s.LookPath("curl"); err != nil {
+		return nil, fmt.Errorf("http round-trip %s: %w", req.URL, errCurlRequired)
+	}
+	args := []string{"curl", "-si", "--http1.1", "--raw", "-H", "Expect:"}
+	if req.Method == http.MethodHead {
+		args = append(args, "-I")
+	} else {
+		args = append(args, "-X", req.Method)
+	}
+	for k, vals := range req.Header {
+		for _, v := range vals {
+			args = append(args, "-H", k+": "+v)
+		}
+	}
+	var execOpts []cmd.ExecOption
+	if req.Body != nil {
+		args = append(args, "--data-binary", "@-")
+		execOpts = append(execOpts, cmd.Stdin(req.Body))
+	}
+	curlCmd := sh.CommandBuilder(sh.Command(args[0], args[1:]...)).Raw(`-o "$_t"`).Raw("--").Arg(req.URL.String())
+	script := `_t=$(mktemp) && ` + curlCmd.String() + ` && base64 < "$_t"; _e=$?; rm -f "$_t" 2>/dev/null; exit "$_e"`
+	out, err := s.ExecOutputContext(req.Context(), script, append(execOpts, cmd.HideOutput())...)
+	if err != nil {
+		return nil, fmt.Errorf("http round-trip %s: %w", req.URL, err)
+	}
+	return parseRawHTTPResponse(out, req)
 }
 
 // FileContains reports whether the file at path contains the given substring.
