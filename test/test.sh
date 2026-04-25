@@ -234,10 +234,18 @@ rig_test_regular_user() {
   }
 
   ssh "$@" root@127.0.0.1 sh -euxC - <<EOF
-    groupadd --system rig-wheel
-    useradd -d /var/lib/rigtest-user -G rig-wheel -p '*' rigtest-user
-    mkdir -p /var/lib/rigtest-user/
-    cp -r /root/.ssh /var/lib/rigtest-user/.
+    if command -v groupadd >/dev/null 2>&1; then
+      groupadd --system rig-wheel
+      useradd -d /var/lib/rigtest-user -G rig-wheel -p '*' rigtest-user
+      passwd -d rigtest-user || true
+    else
+      addgroup -S rig-wheel
+      addgroup -S rigtest-user
+      adduser -D -h /var/lib/rigtest-user -G rig-wheel rigtest-user
+      passwd -u rigtest-user || true
+    fi
+    mkdir -p /var/lib/rigtest-user/.ssh
+    cp /root/.ssh/authorized_keys /var/lib/rigtest-user/.ssh/
     chown -R rigtest-user:rigtest-user /var/lib/rigtest-user/
     [ ! -d /etc/sudoers.d/ ] || {
       echo '%rig-wheel ALL=(ALL)NOPASSWD:ALL' >/etc/sudoers.d/rig-wheel

@@ -1,70 +1,71 @@
+version: "2"
 run:
-  timeout: 8m
-
-  skip-dirs-use-default: false
-  skip-files:
-    - ".*\\.gen\\.go"
-    - examples/*
-    - test/*
   tests: false
   allow-parallel-runners: true
-
 linters:
-  enable-all: true
+  default: all
   disable:
-    - exhaustivestruct
+    - depguard
+    - dogsled
+    - embeddedstructfieldcheck
     - exhaustruct
     - forbidigo
+    - funcorder
     - gochecknoglobals
     - gochecknoinits
     - godot
     - godox
-    - golint
-    - interfacer
+    - goheader
     - ireturn
-    - maligned
+    - lll
+    - mnd
     - nlreturn
+    - noinlineerr
     - paralleltest
-    - scopelint
+    - tagalign
+    - tagliatelle
     - tparallel
     - wsl
-    - tagliatelle
-    - structcheck
-    - nosnakecase
-    - deadcode
-    - varcheck
-    - ifshort
-    - goheader
-    - dogsled
-    - lll
-    - gomnd
-    - depguard
-    - tagalign
-
-linters-settings:
-  funlen:
-    lines: 100
-    statements: 75
-  varnamelen:
-    max-distance: 10
-    ignore-decls:
-      - w http.ResponseWriter
-      - r *http.Request
-      - i int
-      - n int
-      - p []byte
-      - mu sync.Mutex
-      - wg sync.WaitGroup
-      - h Host
-  cyclop:
-    max-complexity: 12
-
+    - wsl_v5
+  settings:
+    funlen:
+      lines: 100
+      statements: 75
+    varnamelen:
+      max-distance: 10
+      ignore-decls:
+        - w http.ResponseWriter
+        - r *http.Request
+        - i int
+        - n int
+        - p []byte
+        - mu sync.Mutex
+        - wg sync.WaitGroup
+        - h Host
+    cyclop:
+      max-complexity: 12
+  exclusions:
+    generated: lax
+    presets:
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 issues:
-  include:
-    - EXC0002
-    - EXC0012
-    - EXC0013
-    - EXC0014
-    - EXC0015
   max-issues-per-linter: 0
   max-same-issues: 0
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

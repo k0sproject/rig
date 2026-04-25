@@ -274,8 +274,8 @@ func (f *PosixFile) Seek(offset int64, whence int) (int64, error) {
 }
 
 var (
-	statCmdGNU = "env -i LC_ALL=C stat -c '%%#f %%s %%.9Y //%%n//' -- %s 2> /dev/null"
-	statCmdBSD = "env -i LC_ALL=C stat -f '%%#p %%z %%Fm //%%N//' -- %s 2> /dev/null"
+	statCmdGNU = `env -i PATH="$PATH" LC_ALL=C stat -c '%%#f %%s %%.9Y //%%n//' -- %s 2> /dev/null`
+	statCmdBSD = `env -i PATH="$PATH" LC_ALL=C stat -f '%%#p %%z %%Fm //%%N//' -- %s 2> /dev/null`
 )
 
 func (fsys *PosixFsys) initStat() error {
@@ -469,7 +469,7 @@ func (fsys *PosixFsys) Touch(name string) error {
 func (fsys *PosixFsys) secTouchT(name string, t time.Time) error {
 	utc := t.UTC()
 	// most touches support giving the timestamp as @unixtime
-	cmd := fmt.Sprintf("env -i LC_ALL=C TZ=UTC touch -m -d @%d -- %s",
+	cmd := fmt.Sprintf(`env -i PATH="$PATH" LC_ALL=C TZ=UTC touch -m -d @%d -- %s`,
 		utc.Unix(),
 		shellescape.Quote(name),
 	)
@@ -482,10 +482,8 @@ func (fsys *PosixFsys) secTouchT(name string, t time.Time) error {
 // nanosecond precision touch for stats that support it
 func (fsys *PosixFsys) nsecTouchT(name string, t time.Time) error {
 	utc := t.UTC()
-	cmd := fmt.Sprintf("env -i LC_ALL=C TZ=UTC touch -m -d %s -- %s",
-		shellescape.Quote(
-			fmt.Sprintf("%s.%09d", utc.Format("2006-01-02T15:04:05"), t.Nanosecond()),
-		),
+	cmd := fmt.Sprintf(`env -i PATH="$PATH" LC_ALL=C TZ=UTC touch -m -d %s.%09d -- %s`,
+		utc.Format("2006-01-02T15:04:05"), t.Nanosecond(),
 		shellescape.Quote(name),
 	)
 	if err := fsys.conn.Exec(cmd, fsys.opts...); err != nil {
