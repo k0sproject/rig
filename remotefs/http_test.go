@@ -213,3 +213,126 @@ func TestWinRoundTripWithRequestBody(t *testing.T) {
 	require.Equal(t, 201, resp.StatusCode)
 	require.Contains(t, decodePSScript(mr.LastCommand()), "OpenStandardInput")
 }
+
+func TestRoundTripURLValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		req  func() *http.Request
+	}{
+		{"unsupported scheme", func() *http.Request {
+			req, _ := http.NewRequest(http.MethodGet, "ftp://example.com/", nil)
+			return req
+		}},
+		{"missing host", func() *http.Request {
+			req, _ := http.NewRequest(http.MethodGet, "http://example.com/", nil)
+			req.URL.Host = ""
+			return req
+		}},
+		{"userinfo in URL", func() *http.Request {
+			req, _ := http.NewRequest(http.MethodGet, "http://user:pass@example.com/", nil)
+			return req
+		}},
+		{"CR in URL host", func() *http.Request {
+			req, _ := http.NewRequest(http.MethodGet, "http://example.com/", nil)
+			req.URL.Host = "example.com\r"
+			return req
+		}},
+		{"LF in URL host", func() *http.Request {
+			req, _ := http.NewRequest(http.MethodGet, "http://example.com/", nil)
+			req.URL.Host = "example.com\n"
+			return req
+		}},
+		{"NUL in URL host", func() *http.Request {
+			req, _ := http.NewRequest(http.MethodGet, "http://example.com/", nil)
+			req.URL.Host = "example.com\x00"
+			return req
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Posix: validateRoundTripURL runs before requireHTTPTools, so no tool stubs needed.
+			mr := rigtest.NewMockRunner()
+			f := remotefs.NewPosixFS(mr)
+			_, err := f.RoundTrip(tc.req())
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestCurlHeaderSanitization(t *testing.T) {
+	okResp := base64.StdEncoding.EncodeToString([]byte("HTTP/1.1 200 OK\r\n\r\n"))
+
+	stubTools := func(mr *rigtest.MockRunner) {
+		mr.AddCommandOutput(rigtest.Equal("command -v curl"), "/usr/bin/curl")
+		mr.AddCommandOutput(rigtest.Equal("command -v base64"), "/usr/bin/base64")
+	}
+
+	t.Run("CR in header name rejected", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		stubTools(mr)
+		f := remotefs.NewPosixFS(mr)
+		req, _ := http.NewRequest(http.MethodGet, "http://example.com/", nil)
+		req.Header["X-Bad\rName"] = []string{"value"}
+		_, err := f.RoundTrip(req)
+		require.Error(t, err)
+	})
+
+	t.Run("LF in header value rejected", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		stubTools(mr)
+		f := remotefs.NewPosixFS(mr)
+		req, _ := http.NewRequest(http.MethodGet, "http://example.com/", nil)
+		req.Header["X-Custom"] = []string{"val\nue"}
+		_, err := f.RoundTrip(req)
+		require.Error(t, err)
+	})
+
+	t.Run("NUL in header value rejected", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		stubTools(mr)
+		f := remotefs.NewPosixFS(mr)
+		req, _ := http.NewRequest(http.MethodGet, "http://example.com/", nil)
+		req.Header["X-Custom"] = []string{"val\x00ue"}
+		_, err := f.RoundTrip(req)
+		require.Error(t, err)
+	})
+
+	t.Run("req.Host injected as Host header", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		stubTools(mr)
+		mr.AddCommandOutput(rigtest.Contains("--http1.1"), okResp)
+		f := remotefs.NewPosixFS(mr)
+		req, _ := http.NewRequest(http.MethodGet, "http://example.com/", nil)
+		req.Host = "override.example.com"
+		resp, err := f.RoundTrip(req)
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		require.Contains(t, mr.LastCommand(), "Host: override.example.com")
+	})
+
+	t.Run("Host in req.Header is skipped", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		stubTools(mr)
+		mr.AddCommandOutput(rigtest.Contains("--http1.1"), okResp)
+		f := remotefs.NewPosixFS(mr)
+		req, _ := http.NewRequest(http.MethodGet, "http://example.com/", nil)
+		req.Header.Set("Host", "should-not-appear.example.com")
+		resp, err := f.RoundTrip(req)
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		require.NotContains(t, mr.LastCommand(), "should-not-appear.example.com")
+	})
+
+	t.Run("Cookie values joined with semicolon", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		stubTools(mr)
+		mr.AddCommandOutput(rigtest.Contains("--http1.1"), okResp)
+		f := remotefs.NewPosixFS(mr)
+		req, _ := http.NewRequest(http.MethodGet, "http://example.com/", nil)
+		req.Header["Cookie"] = []string{"a=1", "b=2"}
+		resp, err := f.RoundTrip(req)
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		require.Contains(t, mr.LastCommand(), "Cookie: a=1; b=2")
+	})
+}
