@@ -22,9 +22,9 @@ var (
 // DecorateFunc is a function that takes a string and returns a decorated string.
 type DecorateFunc func(string) string
 
-// Formatter is an interface that can format commands.
+// Formatter is an interface that can format commands by applying decorators.
 type Formatter interface {
-	Command(cmd string) string
+	Format(cmd string) string
 }
 
 // WindowsChecker is implemented by types that can check if the underlying host OS is Windows.
@@ -59,7 +59,7 @@ type Runner interface {
 	WindowsChecker
 	SimpleRunner
 	ContextRunner
-	Formatter
+	Proc(cmd string) *Proc
 	// ProcessStarter is included to allow runners to accept another runner as their connection for chaining.
 	protocol.ProcessStarter
 }
