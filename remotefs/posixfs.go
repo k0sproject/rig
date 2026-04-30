@@ -421,6 +421,18 @@ func (s *PosixFS) DownloadURL(url, dst string) error {
 	return fmt.Errorf("download %s: %w", url, errNoDownloadTool)
 }
 
+// headerKeyExists reports whether h contains a key matching name, case-insensitively.
+// http.Header keys assigned directly to the map may not be canonical, so
+// http.Header.Get (which only looks up canonical keys) can miss them.
+func headerKeyExists(h http.Header, name string) bool {
+	for k := range h {
+		if strings.EqualFold(k, name) {
+			return true
+		}
+	}
+	return false
+}
+
 // curlHeaderArgs builds the -H flag list for curl from an http.Header map.
 // Header["Host"] is always skipped (ignored in net/http client requests); host is injected
 // when non-empty. Returns errInvalidHeader if any key or value contains CR, LF, or NUL.
@@ -476,7 +488,7 @@ func (s *PosixFS) requireHTTPTools() error {
 // if the request headers contain invalid values.
 func buildCurlArgs(req *http.Request) ([]string, []cmd.ExecOption, error) {
 	args := []string{"curl", "-si", "--http1.1", "--raw"}
-	if req.Header.Get("Expect") == "" {
+	if !headerKeyExists(req.Header, "Expect") {
 		args = append(args, "-H", "Expect:")
 	}
 	method := req.Method
@@ -497,6 +509,9 @@ func buildCurlArgs(req *http.Request) ([]string, []cmd.ExecOption, error) {
 	var execOpts []cmd.ExecOption
 	if hasBody {
 		args = append(args, "--data-binary", "@-")
+		if !headerKeyExists(req.Header, "Content-Type") {
+			args = append(args, "-H", "Content-Type:")
+		}
 		execOpts = append(execOpts, cmd.Stdin(req.Body))
 	}
 	return args, execOpts, nil

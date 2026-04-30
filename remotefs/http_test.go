@@ -96,6 +96,31 @@ func TestPosixRoundTripWithRequestBody(t *testing.T) {
 
 	require.Equal(t, 201, resp.StatusCode)
 	require.Contains(t, mr.LastCommand(), "--data-binary")
+	// curl adds Content-Type: application/x-www-form-urlencoded for --data-binary when none is set;
+	// we suppress it so callers get the same default-free behavior as net/http.
+	require.Contains(t, mr.LastCommand(), "Content-Type:")
+}
+
+func TestPosixRoundTripBodyWithContentType(t *testing.T) {
+	rawResp := "HTTP/1.1 200 OK\r\n\r\n"
+	encoded := base64.StdEncoding.EncodeToString([]byte(rawResp))
+
+	mr := rigtest.NewMockRunner()
+	mr.AddCommandOutput(rigtest.Equal("command -v curl"), "/usr/bin/curl")
+	mr.AddCommandOutput(rigtest.Equal("command -v base64"), "/usr/bin/base64")
+	mr.AddCommandOutput(rigtest.Contains("--http1.1"), encoded)
+	f := remotefs.NewPosixFS(mr)
+
+	req, err := http.NewRequest(http.MethodPost, "http://example.com/api", strings.NewReader(`{"key":"val"}`))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := f.RoundTrip(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	require.Equal(t, 200, resp.StatusCode)
+	require.Contains(t, mr.LastCommand(), "Content-Type: application/json")
 }
 
 func TestPosixRoundTripCurlUnavailable(t *testing.T) {
