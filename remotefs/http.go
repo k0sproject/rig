@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-const maxRawResponseSize = 32 * 1024 * 1024 // 32 MiB encoded (~24 MiB decoded)
+const maxEncodedResponseSize = 32 * 1024 * 1024 // base64-encoded limit (~24 MiB decoded)
 
 var (
 	errNilRequest        = errors.New("net/http: nil Request")
@@ -78,7 +78,7 @@ func HTTPStatus(ctx context.Context, t http.RoundTripper, url string) (int, erro
 // 100 Continue responses are consumed and discarded; all other responses are returned as-is.
 func parseRawHTTPResponse(encoded string, req *http.Request) (*http.Response, error) {
 	cleaned := strings.NewReplacer("\r", "", "\n", "").Replace(strings.TrimSpace(encoded))
-	if len(cleaned) > maxRawResponseSize {
+	if len(cleaned) > maxEncodedResponseSize {
 		return nil, fmt.Errorf("%w (%d bytes)", errResponseTooLarge, len(cleaned))
 	}
 	raw, err := base64.StdEncoding.DecodeString(cleaned)
