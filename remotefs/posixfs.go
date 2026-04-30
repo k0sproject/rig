@@ -445,6 +445,9 @@ func curlHeaderArgs(header http.Header, host string) ([]string, error) {
 		if strings.ContainsAny(name, "\r\n\x00") {
 			return nil, fmt.Errorf("%w: %q", errInvalidHeader, name)
 		}
+		if len(vals) == 0 {
+			continue
+		}
 		if strings.EqualFold(name, "Cookie") {
 			joined := strings.Join(vals, "; ")
 			if strings.ContainsAny(joined, "\r\n\x00") {

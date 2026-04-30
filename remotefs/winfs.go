@@ -450,6 +450,9 @@ func winHeaderScript(header http.Header, host string) (string, error) {
 		if strings.ContainsAny(name, "\r\n\x00") {
 			return "", fmt.Errorf("%w: %q", errInvalidHeader, name)
 		}
+		if len(vals) == 0 {
+			continue
+		}
 		sep := ", "
 		if strings.EqualFold(name, "Cookie") {
 			sep = "; "
