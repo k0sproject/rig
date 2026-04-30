@@ -60,12 +60,18 @@ func NewExecutor(conn protocol.ProcessStarter, decorators ...DecorateFunc) *Exec
 	}
 }
 
-// Command returns the command string decorated with the runner's decorators.
-func (r *Executor) Command(cmd string) string {
+// Format returns the command string decorated with the runner's global decorators.
+func (r *Executor) Format(cmd string) string {
 	for _, decorator := range r.decorators {
 		cmd = decorator(cmd)
 	}
 	return cmd
+}
+
+// Proc returns a Proc bound to this runner for the given command.
+// Set Stdin, Stdout, Stderr on the returned Proc before calling Start or Run.
+func (r *Executor) Proc(cmd string) *Proc {
+	return &Proc{runner: r, command: cmd}
 }
 
 // IsWindows returns true if the host is running Windows.
@@ -196,7 +202,7 @@ func (r *Executor) Start(ctx context.Context, command string, opts ...ExecOption
 	execOpts := Build(opts...)
 	r.InjectLoggerTo(execOpts) //nolint:contextcheck // uses trace logger which takes context
 
-	cmd := r.Command(execOpts.Command(command))
+	cmd := r.Format(execOpts.Format(command))
 	if r.IsWindows() {
 		// we don't know if the default shell is cmd or powershell, so to make sure commands
 		// without a shell prefix go consistently go through the same shell, we default to running
@@ -321,7 +327,7 @@ func (r *Executor) ExecScanner(command string, opts ...ExecOption) *bufio.Scanne
 // StartProcess calls the connection's StartProcess method. This is done to satisfy the
 // connection interface and thus allow chaining of runners.
 func (r *Executor) StartProcess(ctx context.Context, command string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (protocol.Waiter, error) {
-	waiter, err := r.connection.StartProcess(ctx, r.Command(command), stdin, stdout, stderr)
+	waiter, err := r.connection.StartProcess(ctx, r.Format(command), stdin, stdout, stderr)
 	if err != nil {
 		return nil, fmt.Errorf("runner start process: %w", err)
 	}

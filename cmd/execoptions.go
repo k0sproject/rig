@@ -48,8 +48,8 @@ type ExecOptions struct {
 	redactMask    string
 }
 
-// Command returns the command string with all decorators applied.
-func (o *ExecOptions) Command(cmd string) string {
+// Format returns the command string with all per-call decorators applied.
+func (o *ExecOptions) Format(cmd string) string {
 	for _, decorator := range o.decorateFuncs {
 		cmd = decorator(cmd)
 	}

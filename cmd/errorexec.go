@@ -26,8 +26,13 @@ func NewErrorExecutor(err error) *ErrorExecutor {
 	return &ErrorExecutor{Err: err}
 }
 
-// Command returns the command string as is.
-func (r *ErrorExecutor) Command(cmd string) string { return cmd }
+// Format returns the command string as is.
+func (r *ErrorExecutor) Format(cmd string) string { return cmd }
+
+// Proc returns a Proc bound to this executor for the given command.
+func (r *ErrorExecutor) Proc(cmd string) *Proc {
+	return &Proc{runner: r, command: cmd}
+}
 
 // IsWindows returns false.
 func (r *ErrorExecutor) IsWindows() bool { return false }
