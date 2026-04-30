@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/k0sproject/rig/v2/cmd"
@@ -24,6 +26,8 @@ var (
 	_                 FS    = (*PosixFS)(nil)
 	errInvalid              = errors.New("invalid")
 	errNoDownloadTool       = errors.New("neither curl nor wget is available on the remote host")
+	errCurlRequired         = errors.New("curl is not available on the remote host")
+	errBase64Required       = errors.New("base64 is not available on the remote host")
 	errGrepFailed           = errors.New("grep failed")
 	errTestFailed           = errors.New("test failed")
 	statCmdGNU              = `env -i PATH="$PATH" LC_ALL=C stat -c '%%#f %%s %%.9Y //%%n//' -- %s 2> /dev/null`
@@ -44,6 +48,9 @@ type PosixFS struct {
 	statCmd   *string
 	chtimesFn func(name string, atime, mtime int64) error
 	timeTrunc time.Duration
+
+	httpToolsOnce sync.Once
+	httpToolsErr  error
 }
 
 // NewPosixFS returns a fs.FS implementation for a remote filesystem that uses POSIX commands for access.
@@ -412,6 +419,135 @@ func (s *PosixFS) DownloadURL(url, dst string) error {
 		return nil
 	}
 	return fmt.Errorf("download %s: %w", url, errNoDownloadTool)
+}
+
+// headerKeyExists reports whether h contains a key matching name, case-insensitively.
+// http.Header keys assigned directly to the map may not be canonical, so
+// http.Header.Get (which only looks up canonical keys) can miss them.
+func headerKeyExists(h http.Header, name string) bool {
+	for k := range h {
+		if strings.EqualFold(k, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// curlHeaderArgs builds the -H flag list for curl from an http.Header map.
+// Header["Host"] is always skipped (ignored in net/http client requests); host is injected
+// when non-empty. Returns errInvalidHeader if any key or value contains CR, LF, or NUL.
+func curlHeaderArgs(header http.Header, host string) ([]string, error) {
+	args := make([]string, 0, (len(header)+1)*2)
+	for name, vals := range header {
+		if strings.EqualFold(name, "Host") {
+			continue
+		}
+		if strings.ContainsAny(name, "\r\n\x00") {
+			return nil, fmt.Errorf("%w: %q", errInvalidHeader, name)
+		}
+		if len(vals) == 0 {
+			continue
+		}
+		if strings.EqualFold(name, "Cookie") {
+			joined := strings.Join(vals, "; ")
+			if strings.ContainsAny(joined, "\r\n\x00") {
+				return nil, fmt.Errorf("%w: %q", errInvalidHeader, name)
+			}
+			args = append(args, "-H", name+": "+joined)
+		} else {
+			for _, v := range vals {
+				if strings.ContainsAny(v, "\r\n\x00") {
+					return nil, fmt.Errorf("%w: %q", errInvalidHeader, name)
+				}
+				args = append(args, "-H", name+": "+v)
+			}
+		}
+	}
+	if host != "" {
+		if strings.ContainsAny(host, "\r\n\x00") {
+			return nil, fmt.Errorf("%w: %q", errInvalidHeader, "Host")
+		}
+		args = append(args, "-H", "Host: "+host)
+	}
+	return args, nil
+}
+
+func (s *PosixFS) requireHTTPTools() error {
+	s.httpToolsOnce.Do(func() {
+		if _, err := s.LookPath("curl"); err != nil {
+			s.httpToolsErr = fmt.Errorf("%w: %w", errCurlRequired, err)
+			return
+		}
+		if _, err := s.LookPath("base64"); err != nil {
+			s.httpToolsErr = fmt.Errorf("%w: %w", errBase64Required, err)
+		}
+	})
+	return s.httpToolsErr
+}
+
+// buildCurlArgs constructs the curl arguments and execution options for the request.
+// It does not verify that curl or base64 are available; callers are expected to
+// perform any required tool checks before invoking it. It returns an error only
+// if the request headers contain invalid values.
+func buildCurlArgs(req *http.Request) ([]string, []cmd.ExecOption, error) {
+	args := []string{"curl", "-si", "--http1.1", "--raw"}
+	if !headerKeyExists(req.Header, "Expect") {
+		args = append(args, "-H", "Expect:")
+	}
+	method := req.Method
+	if method == "" {
+		method = http.MethodGet
+	}
+	hasBody := req.Body != nil && req.Body != http.NoBody
+	if method == http.MethodHead && !hasBody {
+		args = append(args, "-I")
+	} else {
+		args = append(args, "-X", method)
+	}
+	headerArgs, err := curlHeaderArgs(req.Header, req.Host)
+	if err != nil {
+		return nil, nil, err
+	}
+	args = append(args, headerArgs...)
+	var execOpts []cmd.ExecOption
+	if hasBody {
+		args = append(args, "--data-binary", "@-")
+		if !headerKeyExists(req.Header, "Content-Type") {
+			args = append(args, "-H", "Content-Type:")
+		}
+		execOpts = append(execOpts, cmd.Stdin(req.Body))
+	}
+	return args, execOpts, nil
+}
+
+// RoundTrip implements http.RoundTripper by executing the request via curl on the remote host.
+func (s *PosixFS) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req == nil {
+		return nil, errNilRequest
+	}
+	if req.URL == nil {
+		return nil, errNilRequestURL
+	}
+	if req.Body != nil && req.Body != http.NoBody {
+		defer req.Body.Close()
+	}
+	if err := validateRoundTripURL(req.URL); err != nil {
+		return nil, fmt.Errorf("http round-trip %s: %w", req.URL.Redacted(), err)
+	}
+	if err := s.requireHTTPTools(); err != nil {
+		return nil, fmt.Errorf("http round-trip %s: %w", req.URL.Redacted(), err)
+	}
+	args, execOpts, err := buildCurlArgs(req)
+	if err != nil {
+		return nil, fmt.Errorf("http round-trip %s: %w", req.URL.Redacted(), err)
+	}
+	curlCmd := sh.CommandBuilder(sh.Command(args[0], args[1:]...)).Raw("--").Arg(req.URL.String())
+	script := `_t=$(mktemp "${TMPDIR:-/tmp}/rigXXXXXX") && ` + curlCmd.String() + ` > "$_t" && base64 < "$_t"; _e=$?; rm -f "$_t" 2>/dev/null; exit "$_e"`
+	out, err := s.ExecOutputContext(req.Context(), script, append(execOpts, cmd.HideOutput(), cmd.HideCommand())...)
+	if err != nil {
+		return nil, fmt.Errorf("http round-trip %s: %w", req.URL.Redacted(), err)
+	}
+	return parseRawHTTPResponse(out, req)
 }
 
 // FileContains reports whether the file at path contains the given substring.
