@@ -239,7 +239,7 @@ func TestPosixTouch(t *testing.T) {
 	})
 }
 
-// WinFS — PS commands are base64-encoded so we match by powershell.exe prefix.
+// WinFS — PS commands match by powershell.exe prefix (simple scripts use -Command, complex ones use -EncodedCommand).
 
 func TestWindowsDownloadURL(t *testing.T) {
 	t.Run("ok", func(t *testing.T) {
@@ -533,7 +533,7 @@ func TestWindowsCreateTemp(t *testing.T) {
 		mr := rigtest.NewMockRunner()
 		mr.Windows = true
 		// Stub TempDir's TEMP lookup first (exact match), then the CreateTemp script (broad prefix).
-		// PS commands are base64-encoded so the exact match distinguishes the two calls.
+		// The exact match on powershell.Cmd(...) distinguishes the two calls regardless of encoding.
 		mr.AddCommandOutput(rigtest.Equal(powershell.Cmd("[System.Environment]::GetEnvironmentVariable('TEMP')")), `C:\Windows\Temp`)
 		mr.AddCommandOutput(rigtest.HasPrefix("powershell.exe"), `C:\Windows\Temp\rig-abc123.tmp`)
 		f := remotefs.NewWindowsFS(mr)

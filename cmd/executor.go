@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"unicode/utf16"
 
 	"github.com/k0sproject/rig/v2/log"
 	"github.com/k0sproject/rig/v2/protocol"
@@ -172,6 +173,21 @@ func isExe(cmd string) bool {
 	return strings.HasSuffix(firstWord, ".exe")
 }
 
+func decodeUTF16LE(encoded string) (string, error) {
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return "", err
+	}
+	if len(raw)%2 != 0 {
+		return "", fmt.Errorf("odd byte length in UTF-16LE payload")
+	}
+	words := make([]uint16, len(raw)/2)
+	for i := range words {
+		words[i] = uint16(raw[i*2]) | uint16(raw[i*2+1])<<8
+	}
+	return string(utf16.Decode(words)), nil
+}
+
 func decodeEncoded(cmd string) string {
 	if !strings.Contains(cmd, "powershell") {
 		return cmd
@@ -179,10 +195,9 @@ func decodeEncoded(cmd string) string {
 
 	parts := strings.Split(cmd, " ")
 	for i, p := range parts {
-		if p == "-E" || p == "-EncodedCommand" && len(parts) > i+1 {
-			decoded, err := base64.StdEncoding.DecodeString(parts[i+1])
-			if err == nil {
-				parts[i+1] = strings.ReplaceAll(string(decoded), "\x00", "")
+		if (p == "-E" || p == "-EncodedCommand") && i+1 < len(parts) {
+			if plain, err := decodeUTF16LE(parts[i+1]); err == nil {
+				parts[i+1] = plain
 			}
 		}
 	}
