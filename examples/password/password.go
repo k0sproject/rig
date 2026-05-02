@@ -1,3 +1,4 @@
+// package main example shows how to use a key password provider
 package main
 
 import (
@@ -6,12 +7,8 @@ import (
 	"syscall"
 
 	"github.com/k0sproject/rig"
-	"golang.org/x/crypto/ssh/terminal"
+	"golang.org/x/crypto/ssh/terminal" //nolint:staticcheck
 )
-
-/*
-	This example shows how to use a key password provider
-*/
 
 func main() {
 	user := flag.String("user", "root", "SSH User")
@@ -23,7 +20,7 @@ func main() {
 			Address: *host,
 			PasswordCallback: func() (string, error) {
 				fmt.Println("Enter password:")
-				pass, err := terminal.ReadPassword(int(syscall.Stdin))
+				pass, err := terminal.ReadPassword(syscall.Stdin)
 				return string(pass), err
 			},
 		},

@@ -18,8 +18,8 @@ const PipeIsBeingClosed = "The pipe is being closed."
 // CompressedCmd creates a scriptlet that will decompress and execute a gzipped script to both avoid
 // command line length limits and to reduce data transferred
 func CompressedCmd(psCmd string) string {
-	var trimmed []string //nolint:prealloc
-	lines := strings.Split(psCmd, "\n")
+	var trimmed []string
+	lines := strings.Split(psCmd, "\n") //nolint:modernize
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if len(line) == 0 || line[0] == '#' {
@@ -53,9 +53,11 @@ func EncodeCmd(psCmd string) string {
 	}
 	// 2 byte chars to make PowerShell happy
 	wideCmd := ""
+	var wideCmdSb56 strings.Builder
 	for _, b := range []byte(psCmd) {
-		wideCmd += string(b) + "\x00"
+		wideCmdSb56.WriteString(string(b) + "\x00")
 	}
+	wideCmd += wideCmdSb56.String()
 
 	// Base64 encode the command
 	input := []uint8(wideCmd)
@@ -67,7 +69,7 @@ func Cmd(psCmd string) string {
 	encodedCmd := EncodeCmd(psCmd)
 
 	// Create the powershell.exe command line to execute the script
-	return fmt.Sprintf("powershell.exe -NonInteractive -ExecutionPolicy Unrestricted -NoP -E %s", encodedCmd)
+	return "powershell.exe -NonInteractive -ExecutionPolicy Unrestricted -NoP -E " + encodedCmd
 }
 
 // SingleQuote quotes and escapes a string in a format that is accepted by powershell scriptlets
@@ -78,7 +80,7 @@ func SingleQuote(v string) string {
 	for _, rune := range v {
 		switch rune {
 		case '\n', '\r', '\t', '\v', '\f', '\a', '\b', '\'', '`', '\x00':
-			_, _ = buf.WriteString(fmt.Sprintf("`%c", rune))
+			_, _ = fmt.Fprintf(&buf, "`%c", rune)
 		default:
 			_, _ = buf.WriteRune(rune)
 		}

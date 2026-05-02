@@ -69,7 +69,7 @@ type sudofn func(string) string
 //	  }
 //	  output, err := h.ExecOutput("echo hello")
 //	}
-type Connection struct {
+type Connection struct { //nolint:recvcheck
 	// Connection configuration for WinRM targets
 	WinRM *WinRM `yaml:"winRM,omitempty" json:"winRM,omitempty"`
 	// Connection configuration for SSH targets

@@ -42,6 +42,7 @@ linters:
         - mu sync.Mutex
         - wg sync.WaitGroup
         - h Host
+        - h *Host
     cyclop:
       max-complexity: 12
   exclusions:

@@ -12,6 +12,7 @@ import (
 	ps "github.com/k0sproject/rig/pkg/powershell"
 )
 
+// ResolveFunc anonymous function for os specific resolvers
 type ResolveFunc func(*Connection) (OSVersion, error)
 
 var (
@@ -115,13 +116,14 @@ func unquote(s string) string {
 	return s
 }
 
-func ParseOSReleaseFile(s string, version *OSVersion) error {
+// ParseOSReleaseFile reads the contents of the os release file and updates the version object
+func ParseOSReleaseFile(s string, version *OSVersion) error { //nolint:cyclop
 	scanner := bufio.NewScanner(strings.NewReader(s))
 	for scanner.Scan() {
 		fields := strings.SplitN(scanner.Text(), "=", 2)
 		switch fields[0] {
 		case "":
-		        // Empty line in the file - unexpected but may happen
+			// Empty line in the file - unexpected but may happen
 		case "ID":
 			version.ID = unquote(fields[1])
 		case "ID_LIKE":

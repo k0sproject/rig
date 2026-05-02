@@ -1,3 +1,4 @@
+// package main example for configuring logging
 package main
 
 import (
@@ -14,10 +15,10 @@ func main() {
 	log.Errorf("Testing ERROR level logging: %s", "Hello")
 
 	c := &rig.Localhost{Enabled: true}
-	c.Exec("echo Hello, world", exec.StreamOutput())
+	c.Exec("echo Hello, world", exec.StreamOutput()) //nolint:errcheck
 
 	log.Infof("testing without HideOutput()")
-	c.Exec("ls")
+	c.Exec("ls") //nolint:errcheck
 	log.Infof("testing with HideOutput()")
-	c.Exec("ls", exec.HideOutput())
+	c.Exec("ls", exec.HideOutput()) //nolint:errcheck
 }

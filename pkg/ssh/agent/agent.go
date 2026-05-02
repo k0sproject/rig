@@ -23,7 +23,7 @@ func NewClient() (agent.Agent, error) {
 		return nil, fmt.Errorf("%w: SSH_AUTH_SOCK is not set", ErrSSHAgent)
 	}
 	log.Debugf("using SSH_AUTH_SOCK=%s", sshAgentSock)
-	sshAgent, err := net.Dial("unix", sshAgentSock)
+	sshAgent, err := net.Dial("unix", sshAgentSock) //nolint:gosec,noctx
 	if err != nil {
 		return nil, fmt.Errorf("%w: can't connect to ssh agent: %w", ErrSSHAgent, err)
 	}

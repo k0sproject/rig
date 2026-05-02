@@ -1,5 +1,4 @@
 //go:build !windows
-// +build !windows
 
 package rig
 
@@ -48,14 +47,14 @@ func captureSignals(stdin io.Writer, session *ssh.Session) func() {
 
 func termSizeWNCH() []byte {
 	size := make([]byte, 16)
-	fd := int(os.Stdin.Fd())
+	fd := int(os.Stdin.Fd()) //nolint:gosec
 	rows, cols, err := term.GetSize(fd)
 	if err != nil {
 		binary.BigEndian.PutUint32(size, 40)
 		binary.BigEndian.PutUint32(size[4:], 80)
 	} else {
-		binary.BigEndian.PutUint32(size, uint32(cols))
-		binary.BigEndian.PutUint32(size[4:], uint32(rows))
+		binary.BigEndian.PutUint32(size, uint32(cols))     //nolint:gosec
+		binary.BigEndian.PutUint32(size[4:], uint32(rows)) //nolint:gosec
 	}
 
 	return size

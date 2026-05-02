@@ -280,7 +280,7 @@ var (
 
 func (fsys *PosixFsys) initStat() error {
 	if fsys.statCmd == nil {
-		var opts []exec.Option
+		var opts []exec.Option //nolint:prealloc
 		copy(opts, fsys.opts)
 		opts = append(opts, exec.HideOutput())
 		out, err := fsys.conn.ExecOutput("stat --help 2>&1", opts...)
@@ -409,8 +409,8 @@ func (fsys *PosixFsys) multiStat(names ...string) ([]fs.FileInfo, error) {
 			}
 			return nil, fmt.Errorf("stat %s: %w", names, err)
 		}
-		lines := strings.Split(out, "\n")
-		for _, line := range lines {
+		lines := strings.SplitSeq(out, "\n")
+		for line := range lines {
 			if line == "" {
 				continue
 			}
@@ -442,7 +442,7 @@ func (fsys *PosixFsys) Stat(name string) (fs.FileInfo, error) {
 
 // Sha256 returns the sha256 checksum of the file at path
 func (fsys *PosixFsys) Sha256(name string) (string, error) {
-	out, err := fsys.conn.ExecOutput(fmt.Sprintf("sha256sum -b %s", shellescape.Quote(name)), fsys.opts...)
+	out, err := fsys.conn.ExecOutput("sha256sum -b "+shellescape.Quote(name), fsys.opts...)
 	if err != nil {
 		if isNotExist(err) {
 			return "", &fs.PathError{Op: "sha256sum", Path: name, Err: fs.ErrNotExist}
@@ -458,7 +458,7 @@ func (fsys *PosixFsys) Sha256(name string) (string, error) {
 
 // Touch creates a new empty file at path or updates the timestamp of an existing file to the current time
 func (fsys *PosixFsys) Touch(name string) error {
-	err := fsys.conn.Exec(fmt.Sprintf("touch %s", shellescape.Quote(name)), fsys.opts...)
+	err := fsys.conn.Exec("touch "+shellescape.Quote(name), fsys.opts...)
 	if err != nil {
 		return fmt.Errorf("touch %s: %w", name, err)
 	}
@@ -647,7 +647,7 @@ func (fsys *PosixFsys) ReadDir(name string) ([]fs.DirEntry, error) {
 
 // Remove deletes the named file or (empty) directory.
 func (fsys *PosixFsys) Remove(name string) error {
-	if err := fsys.conn.Exec(fmt.Sprintf("rm -f %s", shellescape.Quote(name)), fsys.opts...); err != nil {
+	if err := fsys.conn.Exec("rm -f "+shellescape.Quote(name), fsys.opts...); err != nil {
 		return fmt.Errorf("delete %s: %w", name, err)
 	}
 	return nil
@@ -659,7 +659,7 @@ func isNotExist(err error) bool {
 
 // RemoveAll removes path and any children it contains.
 func (fsys *PosixFsys) RemoveAll(name string) error {
-	if err := fsys.conn.Exec(fmt.Sprintf("rm -rf %s", shellescape.Quote(name)), fsys.opts...); err != nil {
+	if err := fsys.conn.Exec("rm -rf "+shellescape.Quote(name), fsys.opts...); err != nil {
 		return fmt.Errorf("remove all %s: %w", name, err)
 	}
 	return nil

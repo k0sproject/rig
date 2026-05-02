@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -74,7 +75,7 @@ type PasswordCallback func() (secret string, err error)
 var agentSignerSource = func() ([]ssh.Signer, error) {
 	a, err := agent.NewClient()
 	if err != nil {
-		return nil, err
+		return nil, err //nolint:wrapcheck
 	}
 	return a.Signers()
 }
@@ -202,13 +203,7 @@ func (c *SSH) initGlobalDefaults() {
 
 func findUniq(a, b []string) (string, bool) {
 	for _, s := range a {
-		found := false
-		for _, t := range b {
-			if s == t {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(b, s)
 		if !found {
 			return s, true
 		}
@@ -289,7 +284,7 @@ func (c *SSH) getConfigAll(key string) []string {
 // String returns the connection's printable name
 func (c *SSH) String() string {
 	if c.name == "" {
-		c.name = fmt.Sprintf("[ssh] %s", net.JoinHostPort(c.Address, strconv.Itoa(c.Port)))
+		c.name = "[ssh] " + net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
 	}
 
 	return c.name
@@ -449,7 +444,7 @@ func (c *SSH) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
 		}
 	}
 
-	if len(c.AuthMethods) > 0 {
+	if len(c.AuthMethods) > 0 { //nolint:nestif
 		// Caller has taken explicit control of auth; use their methods as-is and
 		// skip default key-path / agent-based auth processing. This is an
 		// override ("exclusive") mode and represents a behavioral change from
@@ -692,9 +687,7 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error { //nolint:gocognit,cy
 
 	var wg sync.WaitGroup
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		if execOpts.Writer == nil {
 			outputScanner := bufio.NewScanner(stdout)
 
@@ -712,13 +705,11 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error { //nolint:gocognit,cy
 				execOpts.LogErrorf("%s: failed to stream stdout: %v", c, err)
 			}
 		}
-	}()
+	})
 
 	var errors []string
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		outputScanner := bufio.NewScanner(stderr)
 
 		for outputScanner.Scan() {
@@ -732,7 +723,7 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error { //nolint:gocognit,cy
 		if err := outputScanner.Err(); err != nil {
 			execOpts.LogErrorf("%s: %s", c, err.Error())
 		}
-	}()
+	})
 
 	err = session.Wait()
 	wg.Wait()
@@ -759,7 +750,7 @@ func (c *SSH) ExecInteractive(cmd string) error {
 	session.Stdout = os.Stdout
 	session.Stderr = os.Stderr
 
-	fd := int(os.Stdin.Fd())
+	fd := int(os.Stdin.Fd()) //nolint:gosec
 	old, err := term.MakeRaw(fd)
 	if err != nil {
 		return fmt.Errorf("%w: make local terminal raw: %w", ErrOS, err)
@@ -838,7 +829,7 @@ func ParseSSHPrivateKey(key []byte, callback PasswordCallback) ([]ssh.AuthMethod
 // DefaultPasswordCallback is a default implementation for PasswordCallback
 func DefaultPasswordCallback() (string, error) {
 	fmt.Print("Enter passphrase: ")
-	pass, err := term.ReadPassword(int(os.Stdin.Fd()))
+	pass, err := term.ReadPassword(int(os.Stdin.Fd())) //nolint:gosec
 	fmt.Println()
 	if err != nil {
 		return "", fmt.Errorf("failed to read password: %w", err)
