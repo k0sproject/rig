@@ -66,7 +66,7 @@ func (p *printer) stringify(field reflect.Value) (string, bool) {
 	if field.Kind() == reflect.String {
 		return quote(field.String()), true
 	}
-	if field.Kind() == reflect.Ptr && field.Elem().Kind() == reflect.String {
+	if field.Kind() == reflect.Pointer && field.Elem().Kind() == reflect.String {
 		return quote(field.Elem().String()), true
 	}
 	if field.CanInterface() {
@@ -251,7 +251,7 @@ func (p *printer) dump() string { //nolint:cyclop
 		sb.WriteRune('\n')
 	}
 	for _, key := range keys {
-		if key == "Host" {
+		if key == keyHostCanonical {
 			continue
 		}
 		keyinfo, ok := knownKeys[key]

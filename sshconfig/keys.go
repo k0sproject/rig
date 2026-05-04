@@ -36,6 +36,13 @@ const (
 	// these are here for making the list below easier to read.
 	noTilde = false
 	noEnv   = false
+
+	keyHostCanonical      = "Host"
+	keyMatchCanonical     = "Match"
+	keyIncludeCanonical   = "Include"
+	keyKbdInteractiveAuth = "KbdInteractiveAuthentication"
+	keyMatchLower         = "match"
+	keyIncludeLower       = "include"
 )
 
 var knownKeys = map[string]keyInfo{
@@ -61,9 +68,9 @@ var knownKeys = map[string]keyInfo{
 	"rsaauthentication":       {"", (*Setter).ignore, nil, noTokens, noTilde, noEnv},
 
 	// config structuring keys
-	fkHost:    {"Host", (*Setter).setHost, (*printer).stringer, noTokens, noTilde, noEnv},
-	"match":   {"Match", nil, nil, noTokens, noTilde, noEnv},
-	"include": {"Include", nil, nil, noTokens, noTilde, noEnv},
+	fkHost:          {keyHostCanonical, (*Setter).setHost, (*printer).stringer, noTokens, noTilde, noEnv},
+	keyMatchLower:   {keyMatchCanonical, nil, nil, noTokens, noTilde, noEnv},
+	keyIncludeLower: {keyIncludeCanonical, nil, nil, noTokens, noTilde, noEnv},
 
 	"addkeystoagent":                   {"AddKeysToAgent", (*Setter).setAddKeysToAgentOption, (*printer).stringer, noTokens, noTilde, noEnv},
 	"addressfamily":                    {"AddressFamily", enum("any", "inet", "inet6"), (*printer).stringer, noTokens, noTilde, noEnv},
@@ -115,10 +122,10 @@ var knownKeys = map[string]keyInfo{
 	"identityfile":                     {"IdentityFile", (*Setter).appendPathList, (*printer).stringerslice, tokenset1, true, noEnv},
 	"ignoreunknown":                    {"IgnoreUnknown", (*Setter).setStringSlice, (*printer).stringerslice, noTokens, noTilde, noEnv},
 	"ipqos":                            {"IPQoS", (*Setter).setIPQoSOption, (*printer).stringerslice, noTokens, noTilde, noEnv},
-	"challengeresponseauthentication":  {"KbdInteractiveAuthentication", (*Setter).setBool, (*printer).boolean, noTokens, noTilde, noEnv}, // alias
-	"skeyauthentication":               {"KbdInteractiveAuthentication", (*Setter).setBool, (*printer).boolean, noTokens, noTilde, noEnv}, // alias
-	"tisauthentication":                {"KbdInteractiveAuthentication", (*Setter).setBool, (*printer).boolean, noTokens, noTilde, noEnv}, // alias
-	"kbdinteractiveauthentication":     {"KbdInteractiveAuthentication", (*Setter).setBool, (*printer).boolean, noTokens, noTilde, noEnv},
+	"challengeresponseauthentication":  {keyKbdInteractiveAuth, (*Setter).setBool, (*printer).boolean, noTokens, noTilde, noEnv}, // alias
+	"skeyauthentication":               {keyKbdInteractiveAuth, (*Setter).setBool, (*printer).boolean, noTokens, noTilde, noEnv}, // alias
+	"tisauthentication":                {keyKbdInteractiveAuth, (*Setter).setBool, (*printer).boolean, noTokens, noTilde, noEnv}, // alias
+	"kbdinteractiveauthentication":     {keyKbdInteractiveAuth, (*Setter).setBool, (*printer).boolean, noTokens, noTilde, noEnv},
 	"kbdinteractivedevices":            {"KbdInteractiveDevices", (*Setter).setStringSliceCSV, (*printer).stringercsv, noTokens, noTilde, noEnv},
 	"kexalgorithms":                    {"KexAlgorithms", preloadedDefaultsSetter(defaultList("KexAlgorithms")), (*printer).stringercsv, noTokens, noTilde, noEnv},
 	"knownhostscommand":                {"KnownHostsCommand", (*Setter).setString, (*printer).stringer, tokenset2, noTilde, noEnv},

@@ -119,7 +119,7 @@ func (s *Setter) initHost() {
 func getElem(obj any) (reflect.Value, error) {
 	objVal := reflect.ValueOf(obj)
 
-	if objVal.Kind() != reflect.Ptr {
+	if objVal.Kind() != reflect.Pointer {
 		return reflect.Value{}, fmt.Errorf("%w: object is not a pointer", errInvalidObject)
 	}
 
@@ -199,8 +199,8 @@ func (s *Setter) get(key string, expectedKinds ...reflect.Kind) (reflect.Value, 
 		return reflect.Value{}, fmt.Errorf("%w: field %q is not settable", errInvalidObject, key)
 	}
 
-	isPtr := field.Kind() == reflect.Ptr
-	expectsPtr := len(expectedKinds) > 0 && expectedKinds[0] == reflect.Ptr
+	isPtr := field.Kind() == reflect.Pointer
+	expectsPtr := len(expectedKinds) > 0 && expectedKinds[0] == reflect.Pointer
 
 	if isPtr && !expectsPtr {
 		if field.IsNil() {
@@ -283,7 +283,7 @@ func (s *Setter) setBool(key string, values ...string) error {
 	value := reflect.ValueOf(bval)
 	field, err := s.get(key, value.Kind())
 	if err != nil {
-		if field, err := s.get(key, reflect.Ptr, reflect.Bool); err == nil {
+		if field, err := s.get(key, reflect.Pointer, reflect.Bool); err == nil {
 			if !field.IsNil() {
 				return nil
 			}
@@ -323,7 +323,7 @@ func (s *Setter) setInt(key string, values ...string) error {
 	if err != nil {
 		return err
 	}
-	if field.Kind() == reflect.Ptr {
+	if field.Kind() == reflect.Pointer {
 		if !field.IsNil() {
 			return nil
 		}
@@ -367,7 +367,7 @@ func (s *Setter) setUint(key string, values ...string) error {
 	if err != nil {
 		return err
 	}
-	if field.Kind() == reflect.Ptr {
+	if field.Kind() == reflect.Pointer {
 		if !field.IsNil() {
 			return nil
 		}
@@ -406,7 +406,7 @@ func (s *Setter) setDuration(key string, values ...string) error { //nolint:cycl
 		}
 	}
 
-	field, err := s.get(key, reflect.Ptr, reflect.Int64)
+	field, err := s.get(key, reflect.Pointer, reflect.Int64)
 	if err != nil {
 		if f, err := s.get(key, reflect.Int64); err == nil {
 			field = f
@@ -419,7 +419,7 @@ func (s *Setter) setDuration(key string, values ...string) error { //nolint:cycl
 
 	durationType := reflect.TypeFor[time.Duration]()
 	switch {
-	case field.Kind() == reflect.Ptr:
+	case field.Kind() == reflect.Pointer:
 		if field.Type().Elem() != durationType {
 			return fmt.Errorf("%w: field must be a pointer to a duration", errInvalidField)
 		}
@@ -432,7 +432,7 @@ func (s *Setter) setDuration(key string, values ...string) error { //nolint:cycl
 		return nil
 	}
 
-	if field.Kind() == reflect.Ptr {
+	if field.Kind() == reflect.Pointer {
 		durPtr := reflect.New(durationType)
 		durPtr.Elem().Set(reflect.ValueOf(dur))
 		field.Set(durPtr)
@@ -984,7 +984,7 @@ func (s *Setter) Reset(key string) error {
 		return fmt.Errorf("%w: field %q is not found", errFieldNotFound, key)
 	}
 	// Set a pointer to nil and a non-pointer to zero value.
-	if field.Kind() == reflect.Ptr {
+	if field.Kind() == reflect.Pointer {
 		field.Set(reflect.New(field.Type().Elem()))
 	} else {
 		field.Set(reflect.Zero(field.Type()))
@@ -1146,7 +1146,7 @@ func (s *Setter) expandToken(token string) (string, error) { //nolint:cyclop
 		}
 		return username(), nil
 	case "%H":
-		for _, field := range []string{"HostkeyAlias", "Hostname", "Host"} {
+		for _, field := range []string{"HostkeyAlias", "Hostname", keyHostCanonical} {
 			if f, err := s.get(field, reflect.String); err == nil && f.Len() > 0 {
 				return f.String(), nil
 			}
@@ -1239,7 +1239,7 @@ func (s *Setter) ExpandString(key string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("%w: field %q is not found", errFieldNotFound, key)
 	}
-	if field.Kind() == reflect.Ptr {
+	if field.Kind() == reflect.Pointer {
 		if field.IsNil() {
 			return "", fmt.Errorf("%w: field %q is nil", errInvalidField, key)
 		}

@@ -122,13 +122,13 @@ func getSupportedKinds() []reflect.Kind {
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
 		reflect.Float32, reflect.Float64,
 		reflect.Slice,
-		reflect.Ptr,
+		reflect.Pointer,
 	}
 }
 
 func (ra *reflectAssigner) setup() error {
 	val := reflect.ValueOf(ra.obj)
-	if val.Kind() != reflect.Ptr || val.IsNil() {
+	if val.Kind() != reflect.Pointer || val.IsNil() {
 		return fmt.Errorf("%w: object must be a non-nil pointer", ErrInvalidObject)
 	}
 
@@ -274,7 +274,7 @@ func (ra *reflectAssigner) assignField(info fieldInfo, value string) error { //n
 			return fmt.Errorf("parse float: %w", err)
 		}
 		field.SetFloat(f)
-	case reflect.Ptr:
+	case reflect.Pointer:
 		if err := ra.assignPtr(info, value); err != nil {
 			return fmt.Errorf("assign ptr: %w", err)
 		}

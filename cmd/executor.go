@@ -24,11 +24,14 @@ var (
 	_ ContextRunner = (*Executor)(nil)
 	_ Formatter     = (*Executor)(nil)
 	_ fmt.Stringer  = (*Executor)(nil)
+)
 
-	// DisableRedact will disable all redaction of sensitive data.
-	DisableRedact = false
+// DisableRedact will disable all redaction of sensitive data.
+var DisableRedact = false
 
-	errInternal = errors.New("internal error")
+var (
+	errInternal       = errors.New("internal error")
+	errOddUTF16Length = errors.New("odd byte length in UTF-16LE payload")
 )
 
 // Executor is an Runner that runs commands on a host.
@@ -176,10 +179,10 @@ func isExe(cmd string) bool {
 func decodeUTF16LE(encoded string) (string, error) {
 	raw, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("decode base64: %w", err)
 	}
 	if len(raw)%2 != 0 {
-		return "", fmt.Errorf("odd byte length in UTF-16LE payload")
+		return "", errOddUTF16Length
 	}
 	words := make([]uint16, len(raw)/2)
 	for i := range words {

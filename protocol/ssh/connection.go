@@ -635,7 +635,7 @@ func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr
 	var input io.Reader
 
 	if inF, ok := stdin.(*os.File); ok {
-		fd := int(os.Stdin.Fd()) //nolint:gosec // G115: os.Stdin.Fd() always returns valid int
+		fd := int(os.Stdin.Fd())
 		old, err := term.MakeRaw(fd)
 		if err != nil {
 			return fmt.Errorf("make local terminal raw: %w", err)
@@ -718,7 +718,7 @@ func ParseSSHPrivateKey(key []byte, callback PasswordCallback) ([]ssh.AuthMethod
 // DefaultPasswordCallback is a default implementation for PasswordCallback.
 func DefaultPasswordCallback() (string, error) {
 	fmt.Print("Enter passphrase: ")
-	pass, err := term.ReadPassword(int(os.Stdin.Fd())) //nolint:gosec // G115: os.Stdin.Fd() always returns valid int
+	pass, err := term.ReadPassword(int(os.Stdin.Fd()))
 	fmt.Println()
 	if err != nil {
 		return "", fmt.Errorf("failed to read password: %w", err)
