@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"strings"
+	"unicode/utf16"
 )
 
 // PipeHasEnded string is used during the base64+sha265 upload process.
@@ -27,9 +28,12 @@ func CompressedCmd(psCmd string) string {
 	}
 	cmd := strings.Join(trimmed, "\n")
 	var b bytes.Buffer
-	w, _ := gzip.NewWriterLevel(&b, gzip.BestCompression)
-	_, _ = w.Write([]byte(cmd))
-	_ = w.Close()
+	w, err := gzip.NewWriterLevel(&b, gzip.BestCompression)
+	if err != nil {
+		panic(err) // BestCompression level is always valid
+	}
+	_, _ = w.Write([]byte(cmd))   //nolint:errcheck // write to bytes.Buffer never fails
+	_ = w.Close()                  //nolint:errcheck // close on memory buffer never fails
 	scriptlet := `$z="` + base64.StdEncoding.EncodeToString(b.Bytes()) + `"
 $d=[Convert]::FromBase64String($z)
 Set-Alias NO New-Object
@@ -44,28 +48,41 @@ Invoke-Expression "function s(){$u}"; s`
 	return Cmd(scriptlet)
 }
 
-// EncodeCmd base64-encodes a string in a way that is accepted by PowerShell -EncodedCommand.
-func EncodeCmd(psCmd string) string {
-	if !strings.Contains(psCmd, "begin {") {
-		psCmd = "$ProgressPreference='SilentlyContinue'; " + psCmd
+// withProgressPreference prepends the $ProgressPreference suppressor unless the
+// script already uses a begin block (handles it itself). The check is
+// case-insensitive ("Begin {", "BEGIN{", etc.) to match PowerShell's own
+// keyword handling.
+func withProgressPreference(psCmd string) string {
+	lower := strings.ToLower(psCmd)
+	if strings.Contains(lower, "begin{") || strings.Contains(lower, "begin {") {
+		return psCmd
 	}
-	// 2 byte chars to make PowerShell happy
-	var wideCmd strings.Builder
-	for _, b := range []byte(psCmd) {
-		wideCmd.WriteString(string(b) + "\x00")
-	}
-
-	// Base64 encode the command
-	input := []uint8(wideCmd.String())
-	return base64.StdEncoding.EncodeToString(input)
+	return "$ProgressPreference='SilentlyContinue'; " + psCmd
 }
 
-// Cmd builds a command-line for executing a complex command or script as an EncodedCommand through powershell.
-func Cmd(psCmd string) string {
-	encodedCmd := EncodeCmd(psCmd)
+// EncodeCmd base64-encodes a string as UTF-16LE in a way that is accepted by
+// PowerShell -EncodedCommand.
+func EncodeCmd(psCmd string) string {
+	psCmd = withProgressPreference(psCmd)
+	words := utf16.Encode([]rune(psCmd))
+	buf := make([]byte, len(words)*2)
+	for i, w := range words {
+		buf[i*2] = byte(w)
+		buf[i*2+1] = byte(w >> 8)
+	}
+	return base64.StdEncoding.EncodeToString(buf)
+}
 
-	// Create the powershell.exe command line to execute the script
-	return "powershell.exe -NonInteractive -ExecutionPolicy Unrestricted -NoP -E " + encodedCmd
+// Cmd builds a command-line for executing a PowerShell command or script.
+// Scripts that contain newlines, double-quotes, or cmd.exe metacharacters
+// are passed via -EncodedCommand to avoid shell expansion; simple one-liners
+// are passed via -Command so they remain readable in logs.
+// cmd.exe metacharacters guarded: " % ! ^ & | < >
+func Cmd(psCmd string) string {
+	if strings.ContainsAny(psCmd, "\n\r\"%!^&|<>") {
+		return "powershell.exe -NonInteractive -ExecutionPolicy Unrestricted -NoP -E " + EncodeCmd(psCmd)
+	}
+	return "powershell.exe -NonInteractive -ExecutionPolicy Unrestricted -NoP -Command \"" + withProgressPreference(psCmd) + "\""
 }
 
 // SingleQuote quotes and escapes a string in a format that is accepted by powershell scriptlets
@@ -89,7 +106,7 @@ func SingleQuote(v string) string {
 
 // DoubleQuote adds double quotes around a string and escapes any double quotes inside.
 func DoubleQuote(v string) string {
-	if v[0] == '"' && v[len(v)-1] == '"' {
+	if len(v) > 0 && v[0] == '"' && v[len(v)-1] == '"' {
 		// already quoted
 		return v
 	}
