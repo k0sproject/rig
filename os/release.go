@@ -12,31 +12,38 @@ var ErrArchNotDetected = errors.New("architecture not detected")
 // ErrUnrecognizedArch is returned by Arch when the raw architecture string is not a known value.
 var ErrUnrecognizedArch = errors.New("unrecognized architecture")
 
+const (
+	archAmd64 = "amd64"
+	archArm64 = "arm64"
+	archArm   = "arm"
+	arch386   = "386"
+)
+
 // archNormalize maps raw uname -m / PROCESSOR_ARCHITECTURE values to GOARCH
 // strings matching the architecture tokens used in k0s release binaries.
 var archNormalize = map[string]string{
 	// Linux / macOS uname -m outputs
-	"x86_64":   "amd64",
-	"aarch64":  "arm64",
-	"arm64":    "arm64", // macOS Apple Silicon
-	"armv8l":   "arm",
-	"armv7l":   "arm",
-	"armv6l":   "arm",
-	"armv5tel": "arm",
-	"aarch32":  "arm",
-	"arm32":    "arm",
-	"armhfp":   "arm",
-	"arm-32":   "arm",
-	"i386":     "386",
-	"i686":     "386",
+	"x86_64":   archAmd64,
+	"aarch64":  archArm64,
+	"arm64":    archArm64, // macOS Apple Silicon
+	"armv8l":   archArm,
+	"armv7l":   archArm,
+	"armv6l":   archArm,
+	"armv5tel": archArm,
+	"aarch32":  archArm,
+	"arm32":    archArm,
+	"armhfp":   archArm,
+	"arm-32":   archArm,
+	"i386":     arch386,
+	"i686":     arch386,
 	// Windows PROCESSOR_ARCHITECTURE values
-	"AMD64":   "amd64",
-	"X86_64":  "amd64",
-	"ARM64":   "arm64",
-	"AARCH64": "arm64",
-	"x86":     "386",
-	"X86":     "386",
-	"I386":    "386",
+	"AMD64":   archAmd64,
+	"X86_64":  archAmd64,
+	"ARM64":   archArm64,
+	"AARCH64": archArm64,
+	"x86":     arch386,
+	"X86":     arch386,
+	"I386":    arch386,
 }
 
 // Release describes host operating system version information.

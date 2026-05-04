@@ -365,11 +365,11 @@ func (p *treeParser) parseTree(reader io.Reader, root *node, includes map[string
 			continue
 		}
 		switch key {
-		case "host", "match":
+		case "host", keyMatchLower:
 			newNode := newNode(key, values, currNode.Path(), row)
 			root.AddChild(newNode)
 			currNode = newNode
-		case "include":
+		case keyIncludeLower:
 			for _, value := range values {
 				value = filepath.Clean(value)
 				if slices.Contains(strings.Split(value, string(os.PathSeparator)), "..") {

@@ -291,7 +291,7 @@ func (p *Parser) apply(setter *Setter) error {
 		setter.applyingDefaults(path == "__default__")
 
 		switch key {
-		case "include":
+		case keyIncludeLower:
 			// just keep on iterating, the tree parser has already included the file as just another beanch
 			continue
 		case fkHost:
@@ -303,7 +303,7 @@ func (p *Parser) apply(setter *Setter) error {
 				// Not for this host, skip the block.
 				p.iter.Skip()
 			}
-		case "match":
+		case keyMatchLower:
 			match, err := setter.matchesMatch(values...)
 			if err != nil {
 				return fmt.Errorf("can't process Match directive %q in %s:%d: %w", values, path, row, err)

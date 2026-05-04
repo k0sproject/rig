@@ -50,7 +50,7 @@ func captureSignals(stdin io.Writer, session *ssh.Session) func() {
 
 func termSizeWNCH() []byte {
 	size := make([]byte, 16)
-	fd := int(os.Stdin.Fd()) //nolint:gosec // G115: os.Stdin.Fd() always returns valid int
+	fd := int(os.Stdin.Fd())
 	rows, cols, err := term.GetSize(fd)
 	if err != nil {
 		binary.BigEndian.PutUint32(size, 40)
