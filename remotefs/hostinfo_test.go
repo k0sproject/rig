@@ -543,6 +543,54 @@ func TestWindowsCreateTemp(t *testing.T) {
 	})
 }
 
+func TestPosixInitStat(t *testing.T) {
+	// initStat selects between GNU and BSD stat by inspecting "stat --help 2>&1".
+	// GNU mode uses "stat -c", BSD mode uses "stat -f".
+	cases := []struct {
+		name    string
+		helpOut string
+		wantGNU bool
+	}{
+		{
+			name:    "GNU coreutils (--format=)",
+			helpOut: "Usage: stat [OPTION]... FILE...\n      --format=FORMAT",
+			wantGNU: true,
+		},
+		{
+			name:    "uutils (--format without =)",
+			helpOut: "Usage: stat [OPTIONS] <file>\n      --format <FORMAT>   use the specified FORMAT instead of the default",
+			wantGNU: true,
+		},
+		{
+			name:    "BusyBox",
+			helpOut: "BusyBox v1.35.0 multi-call binary.",
+			wantGNU: true,
+		},
+		{
+			name:    "BSD stat",
+			helpOut: "stat: illegal option -- -\nusage: stat [-FlLnqrsx] [-f format] [-t timefmt] [file ...]",
+			wantGNU: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mr := rigtest.NewMockRunner()
+			mr.AddCommandOutput(rigtest.Equal("stat --help 2>&1"), tc.helpOut)
+			// Trigger initStat via Stat; ignore the ErrNotExist result.
+			f := remotefs.NewPosixFS(mr)
+			_, _ = f.Stat("/tmp/file")
+			if tc.wantGNU {
+				require.NoError(t, mr.Received(rigtest.Contains("stat -c")), "expected GNU stat format (-c)")
+				require.NoError(t, mr.NotReceived(rigtest.Contains("stat -f")), "unexpected BSD stat format (-f)")
+			} else {
+				require.NoError(t, mr.Received(rigtest.Contains("stat -f")), "expected BSD stat format (-f)")
+				require.NoError(t, mr.NotReceived(rigtest.Contains("stat -c")), "unexpected GNU stat format (-c)")
+			}
+		})
+	}
+}
+
 func TestPosixCreateTemp(t *testing.T) {
 	t.Run("with prefix", func(t *testing.T) {
 		mr := rigtest.NewMockRunner()

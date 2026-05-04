@@ -66,7 +66,7 @@ func (s *PosixFS) initStat() error {
 	if err != nil {
 		return fmt.Errorf("can't access stat command: %w", err)
 	}
-	if strings.Contains(out, "BusyBox") || strings.Contains(out, "--format=") {
+	if strings.Contains(out, "BusyBox") || strings.Contains(out, "--format") {
 		s.statCmd = &statCmdGNU
 		s.timeTrunc = time.Second
 	} else {
