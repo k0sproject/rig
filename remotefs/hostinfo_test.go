@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io/fs"
 	"testing"
 	"time"
@@ -608,6 +609,35 @@ func TestPosixCreateTemp(t *testing.T) {
 		f := remotefs.NewPosixFS(mr)
 		_, err := f.CreateTemp("/srv", "rig-")
 		require.Error(t, err)
+	})
+}
+
+func TestWindowsRename(t *testing.T) {
+	const src = `C:\src\file.txt`
+	const dst = `C:\dst\file.txt`
+	// Move-Item uses double-quoted paths, which forces powershell.Cmd into
+	// -EncodedCommand mode. Build the expected command the same way WinFS.Rename does.
+	renameCmd := powershell.Cmd(fmt.Sprintf("Move-Item -Force -LiteralPath %s -Destination %s",
+		powershell.DoubleQuotePath(src), powershell.DoubleQuotePath(dst)))
+
+	t.Run("uses Force and LiteralPath", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.Windows = true
+		mr.AddCommandSuccess(rigtest.Equal(renameCmd))
+		f := remotefs.NewWindowsFS(mr)
+		require.NoError(t, f.Rename(src, dst))
+		require.NoError(t, mr.Received(rigtest.Equal(renameCmd)))
+	})
+
+	t.Run("error includes both paths", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.Windows = true
+		mr.AddCommandFailure(rigtest.HasPrefix("powershell.exe"), errors.New("access denied"))
+		f := remotefs.NewWindowsFS(mr)
+		err := f.Rename(src, dst)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), src)
+		require.Contains(t, err.Error(), dst)
 	})
 }
 
