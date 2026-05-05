@@ -389,13 +389,15 @@ func (s *WinFS) Chtimes(name string, atime, mtime int64) error {
 	return nil
 }
 
-// Chmod changes the mode of the named file to mode. On Windows, only the 0200 bit (owner writable) of mode is used; it controls whether the file's read-only attribute is set or cleared.
+// Chmod changes the mode of the named file to mode. On Windows, only the 0200
+// bit (owner writable) of mode is used: if set, the read-only attribute is
+// cleared (attrib -R); if unset, it is set (attrib +R).
 func (s *WinFS) Chmod(name string, mode fs.FileMode) error {
 	var attribSign string
 	if mode&0o200 != 0 {
-		attribSign = "+"
+		attribSign = "-" // owner-write set → clear read-only
 	} else {
-		attribSign = "-"
+		attribSign = "+" // owner-write not set → set read-only
 	}
 	if err := s.Exec(fmt.Sprintf("attrib %sR %s", attribSign, ps.DoubleQuotePath(name))); err != nil {
 		return fmt.Errorf("chmod %s: %w", name, err)
