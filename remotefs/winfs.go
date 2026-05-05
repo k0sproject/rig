@@ -647,10 +647,10 @@ func (s *WinFS) LongHostname() (string, error) {
 	return out, nil
 }
 
-// Rename renames (moves) oldpath to newpath.
+// Rename renames (moves) oldpath to newpath, overwriting newpath if it exists.
 func (s *WinFS) Rename(oldpath, newpath string) error {
-	if err := s.Exec(fmt.Sprintf("Move-Item -Path %s -Destination %s", ps.DoubleQuotePath(oldpath), ps.DoubleQuotePath(newpath)), cmd.PS()); err != nil {
-		return fmt.Errorf("rename %s: %w", oldpath, err)
+	if err := s.Exec(fmt.Sprintf("Move-Item -Force -LiteralPath %s -Destination %s", ps.DoubleQuotePath(oldpath), ps.DoubleQuotePath(newpath)), cmd.PS()); err != nil {
+		return fmt.Errorf("rename %s -> %s: %w", oldpath, newpath, err)
 	}
 	return nil
 }
