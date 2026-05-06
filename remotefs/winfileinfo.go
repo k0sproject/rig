@@ -52,12 +52,16 @@ func (fi *winFileInfo) Size() int64 {
 	return fi.Length
 }
 
-// Mode returns the file mode bits.
+// Mode returns the file mode bits, including fs.ModeDir for directories.
 func (fi *winFileInfo) Mode() fs.FileMode {
-	if fi.IsReadOnly {
-		return 0o555
+	var mode fs.FileMode
+	if fi.IsDir() {
+		mode |= fs.ModeDir
 	}
-	return 0o777
+	if fi.IsReadOnly {
+		return mode | 0o555
+	}
+	return mode | 0o777
 }
 
 // ModTime returns the modification time.
