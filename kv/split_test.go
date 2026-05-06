@@ -66,10 +66,42 @@ func TestSplitS(t *testing.T) {
 			wantErr:   false,
 		},
 		{
+			name:      "Separator in quoted value",
+			input:     `key="a=b"`,
+			separator: '=',
+			wantKey:   "key",
+			wantValue: "a=b",
+			wantErr:   false,
+		},
+		{
+			name:      "Separator in single-quoted value",
+			input:     `key='a=b'`,
+			separator: '=',
+			wantKey:   "key",
+			wantValue: "a=b",
+			wantErr:   false,
+		},
+		{
+			name:      "Multiple separators",
+			input:     "key=a=b=c",
+			separator: '=',
+			wantKey:   "key",
+			wantValue: "a=b=c",
+			wantErr:   false,
+		},
+		{
 			name:      "No separator",
 			input:     "justakey",
 			separator: '=',
 			wantErr:   true,
+		},
+		{
+			name:      "Empty key with multiple separators",
+			input:     "=a=b",
+			separator: '=',
+			wantKey:   "",
+			wantValue: "a=b",
+			wantErr:   false,
 		},
 	}
 
