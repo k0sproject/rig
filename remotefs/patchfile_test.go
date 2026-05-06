@@ -287,6 +287,15 @@ func TestPatchFileWithCreate(t *testing.T) {
 		require.Equal(t, fs.FileMode(0o600), f.writtenPerm)
 	})
 
+	t.Run("strips type bits from WithCreate perm", func(t *testing.T) {
+		f := &patchFS{statErr: &fs.PathError{Op: "stat", Path: "/new", Err: fs.ErrNotExist}}
+		err := remotefs.PatchFile(f, "/new", []remotefs.Patch{
+			remotefs.AppendIfMissing("hello"),
+		}, remotefs.WithCreate(fs.ModeDir|0o755))
+		require.NoError(t, err)
+		require.Equal(t, fs.FileMode(0o755), f.writtenPerm, "type bits must be stripped from WithCreate perm")
+	})
+
 	t.Run("errors when missing without WithCreate", func(t *testing.T) {
 		f := &patchFS{statErr: &fs.PathError{Op: "stat", Path: "/new", Err: fs.ErrNotExist}}
 		err := remotefs.PatchFile(f, "/new", []remotefs.Patch{
@@ -400,17 +409,19 @@ func TestPatchFileNotRegularFile(t *testing.T) {
 }
 
 func TestPatchFileSymlinkAllowed(t *testing.T) {
-	// Symlinks must not be rejected by the IsRegular check. BSD stat reports
-	// ModeSymlink for symlinks; PatchFile should still proceed.
+	// Symlinks must not be rejected by the type check. BSD stat reports
+	// ModeSymlink | 0o777 for symlinks; PatchFile should proceed but must use
+	// 0o600 instead of the meaningless 0o777 symlink permission.
 	f := &patchFS{
 		content:  []byte("FOO=old\n"),
-		statMode: fs.ModeSymlink | 0o644,
+		statMode: fs.ModeSymlink | 0o777,
 	}
 	err := remotefs.PatchFile(f, "/etc/env", []remotefs.Patch{
 		remotefs.ReplaceOrAppend(remotefs.ByPrefix("FOO="), "FOO=new"),
 	})
 	require.NoError(t, err)
 	require.Equal(t, "FOO=new\n", f.writtenStr())
+	require.Equal(t, fs.FileMode(0o600), f.writtenPerm, "symlink perm 0o777 must be replaced with safe 0o600")
 }
 
 func TestPatchFileNoWriteOnIdenticalContent(t *testing.T) {

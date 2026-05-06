@@ -229,7 +229,7 @@ type patchOptions struct {
 func WithCreate(perm fs.FileMode) PatchOption {
 	return func(o *patchOptions) {
 		o.create = true
-		o.perm = perm
+		o.perm = perm.Perm() // strip any type or special bits
 	}
 }
 
@@ -254,7 +254,14 @@ func statAndRead(fsys FS, path string, opts *patchOptions) (fs.FileMode, []byte,
 		if err != nil {
 			return 0, nil, fmt.Errorf("patch-file %s: %w", path, err)
 		}
-		return info.Mode().Perm(), content, nil
+		perm := info.Mode().Perm()
+		if info.Mode().Type() == fs.ModeSymlink {
+			// BSD stat reports symlink permissions as 0o777, which are
+			// meaningless. Use a safe private default; on GNU/Linux stat
+			// follows the link so this branch is never reached.
+			perm = 0o600
+		}
+		return perm, content, nil
 	case errors.Is(statErr, fs.ErrNotExist):
 		if !opts.create {
 			return 0, nil, fmt.Errorf("patch-file %s: %w", path, statErr)
@@ -273,7 +280,10 @@ func statAndRead(fsys FS, path string, opts *patchOptions) (fs.FileMode, []byte,
 // rejected with ErrNotRegularFile.
 //
 // If path is a symlink, the link itself is replaced by the rewritten file; the
-// symlink target is not modified.
+// symlink target is not modified. On platforms where stat follows symlinks (GNU
+// Linux), the target's permission bits are preserved. On platforms where stat
+// reports the link itself (BSD), symlink permissions are meaningless (0o777), so
+// the replacement file is created with 0o600 instead.
 //
 // CRLF handling: if the original file contains any CR+LF sequence, the entire
 // output is written with CR+LF line endings. Files with mixed line endings are
