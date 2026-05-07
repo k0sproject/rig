@@ -16,6 +16,7 @@ import (
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
 	rigos "github.com/k0sproject/rig/os"
+	ps "github.com/k0sproject/rig/pkg/powershell"
 	"github.com/k0sproject/rig/pkg/rigfs"
 	"github.com/mattn/go-shellwords"
 )
@@ -317,7 +318,7 @@ func (c *Connection) discoverSudo() {
 	// present and not deny-only, which correctly identifies an effectively elevated session.
 	// SSH sessions always give Administrators group members a full elevated token regardless
 	// of UAC; WinRM does too for domain accounts or when LocalAccountTokenFilterPolicy=1.
-	isAdmin := `powershell -NoProfile -Command "if (-not (New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { exit 1 }"`
+	isAdmin := ps.Cmd(`if (-not (New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { exit 1 }`)
 	if c.Exec(isAdmin) == nil {
 		c.sudofunc = sudoWindows
 	}
