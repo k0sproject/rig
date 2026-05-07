@@ -3,6 +3,7 @@ package initsystem
 import (
 	"context"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -115,6 +116,19 @@ func (i Systemd) ServiceLogs(ctx context.Context, h cmd.ContextRunner, s string,
 	}
 
 	return strings.Split(out, "\n"), nil
+}
+
+// StreamServiceLogs streams service logs to w using journalctl -f, until ctx is cancelled.
+func (i Systemd) StreamServiceLogs(ctx context.Context, h cmd.ContextRunner, s string, w io.Writer) error {
+	err := h.ExecContext(ctx, sh.Command("journalctl", "-f", "-u", s), cmd.Stdout(w))
+	if err != nil {
+		if ctx.Err() != nil {
+			// Context was cancelled, which is expected. Don't return the error.
+			return nil //nolint:nilerr // context cancellation is not an error condition
+		}
+		return fmt.Errorf("stream logs: %w", err)
+	}
+	return nil
 }
 
 // RegisterSystemd registers systemd into a repository.

@@ -1,8 +1,10 @@
 package rig
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"io/fs"
 	"testing"
 
@@ -321,9 +323,51 @@ func TestServiceRestart(t *testing.T) {
 	})
 }
 
+// mockLogStreamer implements ServiceManager + ServiceManagerLogStreamer.
+type mockLogStreamer struct {
+	mockBasicManager
+	output string
+	err    error
+}
+
+func (m *mockLogStreamer) StreamServiceLogs(_ context.Context, _ cmd.ContextRunner, _ string, w io.Writer) error {
+	if m.err != nil {
+		return m.err
+	}
+	_, _ = w.Write([]byte(m.output))
+	return nil
+}
+
+func TestServiceStreamLogs(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("delegates to streamer and writes output", func(t *testing.T) {
+		mgr := &mockLogStreamer{output: "log line\n"}
+		svc := &Service{runner: rigtest.NewMockRunner(), name: "svc", initsys: mgr}
+		var buf bytes.Buffer
+		require.NoError(t, svc.StreamLogs(ctx, &buf))
+		require.Equal(t, "log line\n", buf.String())
+	})
+
+	t.Run("propagates streamer error", func(t *testing.T) {
+		streamErr := errors.New("stream error")
+		mgr := &mockLogStreamer{err: streamErr}
+		svc := &Service{runner: rigtest.NewMockRunner(), name: "svc", initsys: mgr}
+		err := svc.StreamLogs(ctx, io.Discard)
+		require.ErrorIs(t, err, streamErr)
+	})
+
+	t.Run("not supported", func(t *testing.T) {
+		svc := &Service{runner: rigtest.NewMockRunner(), name: "svc", initsys: &mockBasicManager{}}
+		err := svc.StreamLogs(ctx, io.Discard)
+		require.ErrorIs(t, err, errLogStreamerNotSupported)
+	})
+}
+
 // Ensure initsystem.ServiceEnvironmentManager is satisfied by types implementing it.
 var _ initsystem.ServiceEnvironmentManager = (*mockEnvManager)(nil)
 var _ initsystem.ServiceManagerReloader = (*mockReloadEnvManager)(nil)
 var _ initsystem.ServiceManager = (*mockBasicManager)(nil)
 var _ initsystem.ServiceManager = (*mockLifecycleManager)(nil)
 var _ initsystem.ServiceManagerRestarter = (*mockNativeRestarter)(nil)
+var _ initsystem.ServiceManagerLogStreamer = (*mockLogStreamer)(nil)
