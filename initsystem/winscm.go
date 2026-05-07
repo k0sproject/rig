@@ -54,6 +54,9 @@ func (c WinSCM) EnableService(ctx context.Context, h cmd.ContextRunner, s string
 }
 
 // ServiceLogs returns the logs for a service.
+// ServiceLogs returns Service Control Manager lifecycle events for the service from the System
+// event log (start, stop, crash). This reflects SCM control events only, not the service's own
+// application output. Services that write to a file or a separate event log source are not covered.
 func (c WinSCM) ServiceLogs(ctx context.Context, h cmd.ContextRunner, s string, lines int) ([]string, error) {
 	command := fmt.Sprintf(`Get-EventLog -LogName System -Source "Service Control Manager" -Newest %[1]d | Where-Object {$_.Message -like "*%s*"} | Select-Object -Property TimeGenerated, Message -First %[1]d`, lines, s)
 	out, err := h.ExecOutputContext(ctx, command, cmd.PS())
