@@ -1,7 +1,9 @@
 package remotefs_test
 
 import (
+	"context"
 	"errors"
+	"io"
 	"io/fs"
 	"path"
 	"testing"
@@ -49,8 +51,9 @@ func (o *atomicOS) Chtimes(_ string, _, _ int64) error     { panic("not implemen
 func (o *atomicOS) Touch(_ string, _ ...time.Time) error   { panic("not implemented") }
 func (o *atomicOS) Truncate(_ string, _ int64) error       { panic("not implemented") }
 func (o *atomicOS) Getenv(_ string) string                 { panic("not implemented") }
-func (o *atomicOS) FileContains(_, _ string) (bool, error) { panic("not implemented") }
-func (o *atomicOS) IsContainer() (bool, error)             { panic("not implemented") }
+func (o *atomicOS) FileContains(_, _ string) (bool, error)                 { panic("not implemented") }
+func (o *atomicOS) Follow(_ context.Context, _ string, _ io.Writer) error  { panic("not implemented") }
+func (o *atomicOS) IsContainer() (bool, error)                             { panic("not implemented") }
 func (o *atomicOS) Hostname() (string, error)              { panic("not implemented") }
 func (o *atomicOS) LongHostname() (string, error)          { panic("not implemented") }
 func (o *atomicOS) MachineID() (string, error)             { panic("not implemented") }

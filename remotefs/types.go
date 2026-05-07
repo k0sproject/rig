@@ -1,6 +1,7 @@
 package remotefs
 
 import (
+	"context"
 	"errors"
 	"io"
 	"io/fs"
@@ -55,6 +56,7 @@ type OS interface { //nolint:interfacebloat // intentionally large interface
 	Getenv(key string) string
 	Rename(oldpath, newpath string) error
 	FileContains(path, substr string) (bool, error)
+	Follow(ctx context.Context, path string, w io.Writer) error
 	IsContainer() (bool, error)
 	Hostname() (string, error)
 	LongHostname() (string, error)

@@ -1,7 +1,9 @@
 package remotefs_test
 
 import (
+	"context"
 	"errors"
+	"io"
 	"io/fs"
 	"net/http"
 	"path"
@@ -73,6 +75,7 @@ func (f *patchFS) Touch(_ string, _ ...time.Time) error                    { pan
 func (f *patchFS) Truncate(_ string, _ int64) error                        { panic("not implemented") }
 func (f *patchFS) Getenv(_ string) string                                  { panic("not implemented") }
 func (f *patchFS) FileContains(_, _ string) (bool, error)                  { panic("not implemented") }
+func (f *patchFS) Follow(_ context.Context, _ string, _ io.Writer) error   { panic("not implemented") }
 func (f *patchFS) IsContainer() (bool, error)                              { panic("not implemented") }
 func (f *patchFS) Hostname() (string, error)                               { panic("not implemented") }
 func (f *patchFS) LongHostname() (string, error)                           { panic("not implemented") }

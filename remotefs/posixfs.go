@@ -3,6 +3,7 @@ package remotefs
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -590,6 +591,19 @@ func (s *PosixFS) FileContains(name, substr string) (bool, error) {
 			return false, fmt.Errorf("file-contains %s: %w (exit %d)", name, errTestFailed, testStatus)
 		}
 	}
+}
+
+// Follow streams new content appended to path to w until ctx is cancelled.
+// Cancelling ctx is the expected way to stop following and does not return an error.
+func (s *PosixFS) Follow(ctx context.Context, path string, w io.Writer) error {
+	err := s.ExecContext(ctx, sh.Command("tail", "-f", path), cmd.Stdout(w))
+	if err != nil && ctx.Err() != nil {
+		return nil //nolint:nilerr // context cancellation is the expected stop signal
+	}
+	if err != nil {
+		return fmt.Errorf("follow %s: %w", path, err)
+	}
+	return nil
 }
 
 // IsContainer reports whether the remote host is running inside a container
