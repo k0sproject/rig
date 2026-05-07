@@ -320,7 +320,7 @@ func (c *Connection) discoverSudo() {
 	// of UAC; WinRM does too for domain accounts or when LocalAccountTokenFilterPolicy=1.
 	isAdmin := ps.Cmd(`if (-not (New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { exit 1 }`)
 	if c.Exec(isAdmin) == nil {
-		c.sudofunc = sudoWindows
+		c.SetSudofn(sudoWindows)
 	}
 }
 
