@@ -90,40 +90,46 @@ func TestStreamServiceLogsError(t *testing.T) {
 	}
 }
 
-func TestSystemdStreamServiceLogsCommand(t *testing.T) {
-	mr := rigtest.NewMockRunner()
-	mr.AddCommandSuccess(rigtest.Contains("journalctl"))
-
-	_ = initsystem.Systemd{}.StreamServiceLogs(context.Background(), mr, "mysvc", io.Discard)
-
-	require.NoError(t, mr.Received(rigtest.Contains("journalctl -f -u mysvc")))
-}
-
-func TestUpstartStreamServiceLogsCommand(t *testing.T) {
-	mr := rigtest.NewMockRunner()
-	mr.AddCommandSuccess(rigtest.Contains("tail"))
-
-	_ = initsystem.Upstart{}.StreamServiceLogs(context.Background(), mr, "mysvc", io.Discard)
-
-	require.NoError(t, mr.Received(rigtest.Contains("/var/log/upstart/mysvc.log")))
-}
-
-func TestRunitStreamServiceLogsCommand(t *testing.T) {
-	mr := rigtest.NewMockRunner()
-	mr.AddCommandSuccess(rigtest.Contains("tail"))
-
-	_ = initsystem.Runit{}.StreamServiceLogs(context.Background(), mr, "mysvc", io.Discard)
-
-	require.NoError(t, mr.Received(rigtest.Contains("/var/log/mysvc/current")))
-}
-
-func TestLaunchdStreamServiceLogsCommand(t *testing.T) {
-	mr := rigtest.NewMockRunner()
-	mr.AddCommandSuccess(rigtest.Contains("log stream"))
-
-	_ = initsystem.Launchd{}.StreamServiceLogs(context.Background(), mr, "mysvc", io.Discard)
-
-	require.NoError(t, mr.Received(rigtest.Contains("mysvc")))
+func TestStreamServiceLogsCommand(t *testing.T) {
+	cases := []struct {
+		name     string
+		streamer initsystem.ServiceManagerLogStreamer
+		setup    rigtest.CommandMatcher
+		expect   rigtest.CommandMatcher
+	}{
+		{
+			name:     "Systemd",
+			streamer: initsystem.Systemd{},
+			setup:    rigtest.Contains("journalctl"),
+			expect:   rigtest.Contains("journalctl -f -u mysvc"),
+		},
+		{
+			name:     "Upstart",
+			streamer: initsystem.Upstart{},
+			setup:    rigtest.Contains("tail"),
+			expect:   rigtest.Contains("/var/log/upstart/mysvc.log"),
+		},
+		{
+			name:     "Runit",
+			streamer: initsystem.Runit{},
+			setup:    rigtest.Contains("tail"),
+			expect:   rigtest.Contains("/var/log/mysvc/current"),
+		},
+		{
+			name:     "Launchd",
+			streamer: initsystem.Launchd{},
+			setup:    rigtest.Contains("log stream"),
+			expect:   rigtest.Contains("mysvc"),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mr := rigtest.NewMockRunner()
+			mr.AddCommandSuccess(tc.setup)
+			_ = tc.streamer.StreamServiceLogs(context.Background(), mr, "mysvc", io.Discard)
+			require.NoError(t, mr.Received(tc.expect))
+		})
+	}
 }
 
 // Compile-time checks.

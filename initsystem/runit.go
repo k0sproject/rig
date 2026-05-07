@@ -87,15 +87,7 @@ func (i Runit) ServiceLogs(ctx context.Context, h cmd.ContextRunner, s string, l
 // StreamServiceLogs streams service logs to w by following /var/log/<service>/current, until ctx is cancelled.
 // It's not guaranteed that the log file exists or that the service logs to this file.
 func (i Runit) StreamServiceLogs(ctx context.Context, h cmd.ContextRunner, s string, w io.Writer) error {
-	err := h.ExecContext(ctx, sh.Command("tail", "-f", "/var/log/"+s+"/current"), cmd.Stdout(w))
-	if err != nil {
-		if ctx.Err() != nil {
-			// Context was cancelled, which is expected. Don't return the error.
-			return nil //nolint:nilerr // context cancellation is not an error condition
-		}
-		return fmt.Errorf("stream logs: %w", err)
-	}
-	return nil
+	return streamToWriter(ctx, h, s, sh.Command("tail", "-f", "/var/log/"+s+"/current"), w)
 }
 
 // RegisterRunit register runit in a repository.
