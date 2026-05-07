@@ -24,7 +24,7 @@ var (
 // The separator is not included in the key or value.
 // If the input string has a syntax error such as mismatched quotes or no delimiter, the error will be of type kv.ErrSyntax.
 func SplitRune(s string, separator rune) (key string, value string, err error) { //nolint:cyclop
-	var inSingleQuotes, inDoubleQuotes, isEscaped bool
+	var inSingleQuotes, inDoubleQuotes, isEscaped, separatorSeen bool
 
 	sb, ok := builderPool.Get().(*strings.Builder)
 	if !ok {
@@ -61,10 +61,13 @@ func SplitRune(s string, separator rune) (key string, value string, err error) {
 				isEscaped = false
 			}
 		case separator:
-			if !inSingleQuotes && !inDoubleQuotes && !isEscaped {
+			if !inSingleQuotes && !inDoubleQuotes && !isEscaped && !separatorSeen {
+				separatorSeen = true
 				key = sb.String()
 				sb.Reset()
 				sb.Grow(len(s) - len(key))
+			} else {
+				sb.WriteRune(currentChar)
 			}
 			isEscaped = false
 		default:
@@ -77,7 +80,7 @@ func SplitRune(s string, separator rune) (key string, value string, err error) {
 		return "", "", fmt.Errorf("%w: mismatched quotes in %q", ErrSyntax, s)
 	}
 
-	if len(key) == 0 {
+	if !separatorSeen {
 		return "", "", fmt.Errorf("%w: no separator found in %q", ErrSyntax, s)
 	}
 	return key, sb.String(), nil

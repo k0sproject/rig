@@ -446,6 +446,9 @@ func (d *Decoder) Decode(obj any) (err error) { //nolint:cyclop
 			return fmt.Errorf("read: %w", readErr)
 		}
 
+		if len(line) > 0 && line[len(line)-1] == d.rdelim {
+			line = line[:len(line)-1]
+		}
 		line = strings.TrimSpace(line)
 
 		if len(line) == 0 {
