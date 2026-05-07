@@ -19,6 +19,6 @@ func RegisterWindowsNoop(repository *Registry) {
 		if runner.Exec(isAdminCmd, cmd.PS()) != nil {
 			return nil, false
 		}
-		return runner, true
+		return cmd.NewExecutor(runner, Noop), true
 	})
 }

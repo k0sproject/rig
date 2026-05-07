@@ -13,6 +13,7 @@ func TestRegisterWindowsNoop(t *testing.T) {
 	t.Run("elevated session registers noop runner", func(t *testing.T) {
 		mr := rigtest.NewMockRunner()
 		mr.Windows = true
+		mr.ErrDefault = errors.New("unexpected command")
 		mr.AddCommandSuccess(rigtest.HasPrefix("powershell.exe"))
 
 		registry := sudo.NewRegistry()
@@ -21,6 +22,7 @@ func TestRegisterWindowsNoop(t *testing.T) {
 		runner, err := registry.Get(mr)
 		require.NoError(t, err)
 		require.NotNil(t, runner)
+		require.NoError(t, mr.NotReceived(rigtest.Contains("whoami")))
 	})
 
 	t.Run("non-elevated session skips registration", func(t *testing.T) {
