@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"time"
 
 	"github.com/k0sproject/rig/v2/cmd"
 	"github.com/k0sproject/rig/v2/initsystem"
@@ -66,25 +67,32 @@ func (m *Service) Restart(ctx context.Context) error {
 		if err := restarter.RestartService(ctx, m.runner, m.name); err != nil {
 			return fmt.Errorf("failed to restart service '%s': %w", m.name, err)
 		}
+		return m.waitState(ctx, serviceStateStarted)
 	}
 	if err := m.Stop(ctx); err != nil {
 		return fmt.Errorf("failed to stop service '%s' for restart: %w", m.name, err)
 	}
 	if err := m.Start(ctx); err != nil {
-		return fmt.Errorf("failed to restart service '%s: %w", m.name, err)
+		return fmt.Errorf("failed to restart service '%s': %w", m.name, err)
 	}
 	return nil
 }
 
+const serviceStatePollInterval = 500 * time.Millisecond
+
 func (m *Service) waitState(ctx context.Context, state serviceState) error {
+	ticker := time.NewTicker(serviceStatePollInterval)
+	defer ticker.Stop()
 	for {
+		running := m.initsys.ServiceIsRunning(ctx, m.runner, m.name)
+		wantRunning := state == serviceStateStarted
+		if running == wantRunning {
+			return nil
+		}
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("service '%s' did not reach the desired state: %w", m.name, ctx.Err())
-		default:
-			if m.initsys.ServiceIsRunning(ctx, m.runner, m.name) == (state == serviceStateStarted) {
-				return nil
-			}
+		case <-ticker.C:
 		}
 	}
 }
