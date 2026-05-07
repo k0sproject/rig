@@ -78,11 +78,15 @@ func (m *Service) Restart(ctx context.Context) error {
 	return nil
 }
 
-const serviceStatePollInterval = 500 * time.Millisecond
+const (
+	serviceStatePollMinInterval = 100 * time.Millisecond
+	serviceStatePollMaxInterval = 1000 * time.Millisecond
+)
 
 func (m *Service) waitState(ctx context.Context, state serviceState) error {
-	ticker := time.NewTicker(serviceStatePollInterval)
-	defer ticker.Stop()
+	delay := serviceStatePollMinInterval
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
 	for {
 		running := m.initsys.ServiceIsRunning(ctx, m.runner, m.name)
 		wantRunning := state == serviceStateStarted
@@ -92,7 +96,12 @@ func (m *Service) waitState(ctx context.Context, state serviceState) error {
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("service '%s' did not reach the desired state: %w", m.name, ctx.Err())
-		case <-ticker.C:
+		case <-timer.C:
+			delay *= 2
+			if delay > serviceStatePollMaxInterval {
+				delay = serviceStatePollMaxInterval
+			}
+			timer.Reset(delay)
 		}
 	}
 }
