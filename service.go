@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"time"
 
 	"github.com/k0sproject/rig/v2/cmd"
 	"github.com/k0sproject/rig/v2/initsystem"
@@ -66,25 +67,41 @@ func (m *Service) Restart(ctx context.Context) error {
 		if err := restarter.RestartService(ctx, m.runner, m.name); err != nil {
 			return fmt.Errorf("failed to restart service '%s': %w", m.name, err)
 		}
+		return m.waitState(ctx, serviceStateStarted)
 	}
 	if err := m.Stop(ctx); err != nil {
 		return fmt.Errorf("failed to stop service '%s' for restart: %w", m.name, err)
 	}
 	if err := m.Start(ctx); err != nil {
-		return fmt.Errorf("failed to restart service '%s: %w", m.name, err)
+		return fmt.Errorf("failed to restart service '%s': %w", m.name, err)
 	}
 	return nil
 }
 
+const (
+	serviceStatePollMinInterval = 100 * time.Millisecond
+	serviceStatePollMaxInterval = 1000 * time.Millisecond
+)
+
 func (m *Service) waitState(ctx context.Context, state serviceState) error {
+	delay := serviceStatePollMinInterval
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
 	for {
+		running := m.initsys.ServiceIsRunning(ctx, m.runner, m.name)
+		wantRunning := state == serviceStateStarted
+		if running == wantRunning {
+			return nil
+		}
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("service '%s' did not reach the desired state: %w", m.name, ctx.Err())
-		default:
-			if m.initsys.ServiceIsRunning(ctx, m.runner, m.name) == (state == serviceStateStarted) {
-				return nil
+		case <-timer.C:
+			delay *= 2
+			if delay > serviceStatePollMaxInterval {
+				delay = serviceStatePollMaxInterval
 			}
+			timer.Reset(delay)
 		}
 	}
 }

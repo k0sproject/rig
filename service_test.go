@@ -2,6 +2,7 @@ package rig
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"testing"
 
@@ -196,7 +197,133 @@ func TestServiceDaemonReload(t *testing.T) {
 	})
 }
 
+// mockLifecycleManager tracks Start/Stop calls and maintains isRunning state.
+type mockLifecycleManager struct {
+	isRunning   bool
+	neverReady  bool // when true, ServiceIsRunning always returns false
+	startCalled int
+	stopCalled  int
+}
+
+func (m *mockLifecycleManager) StartService(_ context.Context, _ cmd.ContextRunner, _ string) error {
+	m.startCalled++
+	if !m.neverReady {
+		m.isRunning = true
+	}
+	return nil
+}
+
+func (m *mockLifecycleManager) StopService(_ context.Context, _ cmd.ContextRunner, _ string) error {
+	m.stopCalled++
+	m.isRunning = false
+	return nil
+}
+
+func (m *mockLifecycleManager) ServiceIsRunning(_ context.Context, _ cmd.ContextRunner, _ string) bool {
+	if m.neverReady {
+		return false
+	}
+	return m.isRunning
+}
+
+func (m *mockLifecycleManager) ServiceScriptPath(_ context.Context, _ cmd.ContextRunner, _ string) (string, error) {
+	return "", nil
+}
+
+func (m *mockLifecycleManager) EnableService(_ context.Context, _ cmd.ContextRunner, _ string) error {
+	return nil
+}
+
+func (m *mockLifecycleManager) DisableService(_ context.Context, _ cmd.ContextRunner, _ string) error {
+	return nil
+}
+
+// mockNativeRestarter extends mockLifecycleManager with RestartService.
+type mockNativeRestarter struct {
+	mockLifecycleManager
+	restartCalled int
+	restartErr    error
+}
+
+func (m *mockNativeRestarter) RestartService(_ context.Context, _ cmd.ContextRunner, _ string) error {
+	m.restartCalled++
+	if m.restartErr != nil {
+		return m.restartErr
+	}
+	if !m.neverReady {
+		m.isRunning = true
+	}
+	return nil
+}
+
+func TestServiceStart(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("starts and reaches running state", func(t *testing.T) {
+		mgr := &mockLifecycleManager{}
+		svc := &Service{runner: rigtest.NewMockRunner(), name: "svc", initsys: mgr}
+		require.NoError(t, svc.Start(ctx))
+		require.Equal(t, 1, mgr.startCalled)
+		require.True(t, mgr.isRunning)
+	})
+
+	t.Run("pre-cancelled context returns error", func(t *testing.T) {
+		mgr := &mockLifecycleManager{neverReady: true}
+		svc := &Service{runner: rigtest.NewMockRunner(), name: "svc", initsys: mgr}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		err := svc.Start(ctx)
+		require.ErrorIs(t, err, context.Canceled)
+	})
+}
+
+func TestServiceStop(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("stops and reaches stopped state", func(t *testing.T) {
+		mgr := &mockLifecycleManager{isRunning: true}
+		svc := &Service{runner: rigtest.NewMockRunner(), name: "svc", initsys: mgr}
+		require.NoError(t, svc.Stop(ctx))
+		require.Equal(t, 1, mgr.stopCalled)
+		require.False(t, mgr.isRunning)
+	})
+}
+
+func TestServiceRestart(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("uses native restart when available", func(t *testing.T) {
+		mgr := &mockNativeRestarter{}
+		svc := &Service{runner: rigtest.NewMockRunner(), name: "svc", initsys: mgr}
+		require.NoError(t, svc.Restart(ctx))
+		require.Equal(t, 1, mgr.restartCalled)
+		require.Equal(t, 0, mgr.startCalled, "Start must not be called after native restart")
+		require.Equal(t, 0, mgr.stopCalled, "Stop must not be called after native restart")
+	})
+
+	t.Run("falls back to stop+start without native restart", func(t *testing.T) {
+		mgr := &mockLifecycleManager{isRunning: true}
+		svc := &Service{runner: rigtest.NewMockRunner(), name: "svc", initsys: mgr}
+		require.NoError(t, svc.Restart(ctx))
+		require.Equal(t, 1, mgr.stopCalled)
+		require.Equal(t, 1, mgr.startCalled)
+	})
+
+	t.Run("native restart error does not fall through to stop+start", func(t *testing.T) {
+		restartErr := errors.New("restart failed")
+		mgr := &mockNativeRestarter{restartErr: restartErr}
+		svc := &Service{runner: rigtest.NewMockRunner(), name: "svc", initsys: mgr}
+		err := svc.Restart(ctx)
+		require.Error(t, err)
+		require.ErrorIs(t, err, restartErr)
+		require.Equal(t, 0, mgr.startCalled, "Start must not be called after failed native restart")
+		require.Equal(t, 0, mgr.stopCalled, "Stop must not be called after failed native restart")
+	})
+}
+
 // Ensure initsystem.ServiceEnvironmentManager is satisfied by types implementing it.
 var _ initsystem.ServiceEnvironmentManager = (*mockEnvManager)(nil)
 var _ initsystem.ServiceManagerReloader = (*mockReloadEnvManager)(nil)
 var _ initsystem.ServiceManager = (*mockBasicManager)(nil)
+var _ initsystem.ServiceManager = (*mockLifecycleManager)(nil)
+var _ initsystem.ServiceManagerRestarter = (*mockNativeRestarter)(nil)
