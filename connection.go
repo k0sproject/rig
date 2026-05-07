@@ -16,6 +16,7 @@ import (
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
 	rigos "github.com/k0sproject/rig/os"
+	ps "github.com/k0sproject/rig/pkg/powershell"
 	"github.com/k0sproject/rig/pkg/rigfs"
 	"github.com/mattn/go-shellwords"
 )
@@ -289,9 +290,7 @@ func sudoDoas(cmd string) string {
 	return `doas -n -- "${SHELL-sh}" -c ` + shellescape.Quote(cmd)
 }
 
-// sudoWindows is a no-op on windows - the user must already be an admin or UAC must be disabled
-// and the user must belong to Administrators. if that is the case, the user should be able to
-// do anything.
+// sudoWindows is a no-op: the session already has effective administrator privileges.
 func sudoWindows(cmd string) string {
 	return cmd
 }
@@ -315,30 +314,13 @@ func (c *Connection) discoverSudo() {
 		return
 	}
 
-	out, err := c.ExecOutput(`whoami`)
-	if err != nil {
-		return
-	}
-	parts := strings.Split(out, `\`)
-	if strings.ToLower(parts[len(parts)-1]) == "administrator" {
-		// user is already the administrator
-		c.sudofunc = sudoWindows
-		return
-	}
-
-	if c.Exec(`net user "%USERNAME%" | findstr /B /C:"Local Group Memberships" | findstr /C:"*Administrators"`) != nil {
-		// user is not in the Administrators group
-		return
-	}
-
-	out, err = c.ExecOutput(`reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "EnableLUA"`)
-	if err != nil {
-		return
-	}
-	if strings.Contains(out, "0x0") {
-		// UAC is disabled and the user is in the Administrators group - expect sudo to work
-		c.sudofunc = sudoWindows
-		return
+	// IsInRole uses CheckTokenMembership: returns true only when the Administrators SID is
+	// present and not deny-only, which correctly identifies an effectively elevated session.
+	// SSH sessions always give Administrators group members a full elevated token regardless
+	// of UAC; WinRM does too for domain accounts or when LocalAccountTokenFilterPolicy=1.
+	isAdmin := ps.Cmd(`if (-not (New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { exit 1 }`)
+	if c.Exec(isAdmin) == nil {
+		c.SetSudofn(sudoWindows)
 	}
 }
 
@@ -346,7 +328,7 @@ func (c *Connection) discoverSudo() {
 func (c Connection) Sudo(cmd string) (string, error) {
 	if c.sudofunc == nil {
 		if c.IsWindows() {
-			return "", fmt.Errorf("%w: UAC is enabled and user is not 'Administrator'", ErrSudoRequired)
+			return "", fmt.Errorf("%w: current session does not have administrator privileges", ErrSudoRequired)
 		}
 		return "", fmt.Errorf("%w: user is not root and passwordless access elevation (sudo, doas) has not been configured", ErrSudoRequired)
 	}

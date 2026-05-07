@@ -49,6 +49,23 @@ var stubSudofunc = func(in string) string {
 	return "sudo-goes-here " + in
 }
 
+type windowsMockClient struct {
+	execErr error
+}
+
+func (m *windowsMockClient) Connect() error      { return nil }
+func (m *windowsMockClient) Disconnect()         {}
+func (m *windowsMockClient) IsWindows() bool     { return true }
+func (m *windowsMockClient) ExecInteractive(_ string) error { return nil }
+func (m *windowsMockClient) String() string      { return "windows-mock" }
+func (m *windowsMockClient) Protocol() string    { return "winrm" }
+func (m *windowsMockClient) IPAddress() string   { return "192.0.2.1" }
+func (m *windowsMockClient) IsConnected() bool   { return true }
+func (m *windowsMockClient) Exec(_ string, _ ...exec.Option) error { return m.execErr }
+func (m *windowsMockClient) ExecStreams(_ string, _ io.ReadCloser, _, _ io.Writer, _ ...exec.Option) (exec.Waiter, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
 func TestHostFunctions(t *testing.T) {
 	h := Host{
 		Connection: Connection{
@@ -110,6 +127,26 @@ func TestGrouping(t *testing.T) {
 	opts, args := GroupParams(h, "ls", 1, exec.HideOutput(), exec.Sudo(h))
 	require.Len(t, opts, 2)
 	require.Len(t, args, 3)
+}
+
+func TestDiscoverSudoWindows(t *testing.T) {
+	t.Run("elevated session sets sudofunc", func(t *testing.T) {
+		mc := &windowsMockClient{}
+		h := Host{Connection: Connection{client: mc}}
+		h.discoverSudo()
+		result, err := h.Sudo("whoami")
+		require.NoError(t, err)
+		require.Equal(t, "whoami", result)
+	})
+
+	t.Run("non-elevated session returns ErrSudoRequired", func(t *testing.T) {
+		mc := &windowsMockClient{execErr: fmt.Errorf("access denied")}
+		h := Host{Connection: Connection{client: mc}}
+		h.discoverSudo()
+		_, err := h.Sudo("whoami")
+		require.ErrorIs(t, err, ErrSudoRequired)
+		require.ErrorContains(t, err, "administrator privileges")
+	})
 }
 
 func TestSudo(t *testing.T) {
