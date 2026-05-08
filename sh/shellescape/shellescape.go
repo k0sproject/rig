@@ -119,9 +119,9 @@ func Join(args ...string) string { //nolint:cyclop
 		case !singleQ && !special:
 			builder.WriteString(arg)
 		case special && !singleQ:
-			escapeTo(arg, builder)
-		default:
 			wrapTo(arg, builder)
+		default:
+			escapeTo(arg, builder)
 		}
 		if i < len(args)-1 {
 			builder.WriteByte(' ')

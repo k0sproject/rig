@@ -902,7 +902,7 @@ func (s *PosixFS) CommandExist(name string) bool {
 
 // Getenv returns the value of the environment variable named by the key.
 func (s *PosixFS) Getenv(key string) string {
-	out, err := s.ExecOutput(sh.Command("printenv", key), cmd.HideOutput())
+	out, err := s.ExecOutput(fmt.Sprintf("printf '%%s' \"${%s}\"", key), cmd.HideOutput())
 	if err != nil {
 		return ""
 	}

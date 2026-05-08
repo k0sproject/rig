@@ -30,6 +30,25 @@ func TestQuote(t *testing.T) {
 	}
 }
 
+func TestJoin(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []string
+		expected string
+	}{
+		{"Basic", []string{"ls", "-l", "file with space"}, `ls -l 'file with space'`},
+		{"Single quote in arg", []string{"touch", "it's here"}, `touch 'it'"'"'s here'`},
+		{"Single quote only", []string{"echo", "'"}, `echo ''"'"''`},
+		{"Single quote and special", []string{"rm", "/path/it's bad"}, `rm '/path/it'"'"'s bad'`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, shellescape.Join(tt.input...))
+		})
+	}
+}
+
 func TestQuoteCommand(t *testing.T) {
 	tests := []struct {
 		name     string
