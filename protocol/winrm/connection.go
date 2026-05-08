@@ -117,6 +117,18 @@ func isAuthError(err error) bool {
 		strings.Contains(msg, "http response error: 403")
 }
 
+// endpointTimeout returns time.Minute, or the context deadline if it is shorter.
+// This bounds the WinRM HTTP transport timeout so CreateShell honours ctx cancellation.
+func endpointTimeout(ctx context.Context) time.Duration {
+	timeout := time.Minute
+	if deadline, ok := ctx.Deadline(); ok {
+		if d := time.Until(deadline); d > 0 && d < timeout {
+			return d
+		}
+	}
+	return timeout
+}
+
 // IsConnected returns true if the WinRM connection is alive by running a no-op
 // command. WinRM is stateless HTTP so the only real liveness test is a probe.
 func (c *Connection) IsConnected() bool {
@@ -193,7 +205,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 		HTTPS:         c.UseHTTPS,
 		Insecure:      c.Insecure,
 		TLSServerName: c.TLSServerName,
-		Timeout:       time.Minute,
+		Timeout:       endpointTimeout(ctx),
 	}
 
 	if len(c.caCert) > 0 {

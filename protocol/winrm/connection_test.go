@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/k0sproject/rig/v2/protocol"
 )
@@ -187,7 +188,9 @@ func TestConnect_probeClassification(t *testing.T) {
 				t.Fatalf("NewConnection() error = %v", err)
 			}
 
-			err = conn.Connect(context.Background())
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			err = conn.Connect(ctx)
 			if err == nil {
 				t.Fatal("Connect() succeeded against stub server, want error")
 			}
