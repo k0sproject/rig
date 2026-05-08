@@ -347,7 +347,7 @@ func (s *PosixFS) Truncate(name string, size int64) error {
 
 // Chmod changes the mode of the named file to mode.
 func (s *PosixFS) Chmod(name string, mode fs.FileMode) error {
-	if err := s.Exec(fmt.Sprintf("chmod %#o %s", mode, shellescape.Quote(name))); err != nil {
+	if err := s.Exec(sh.Command("chmod", fmt.Sprintf("%#o", mode), name)); err != nil {
 		if isNotExist(err) {
 			return PathError("chmod", name, fs.ErrNotExist)
 		}
@@ -641,7 +641,7 @@ func (s *PosixFS) openNew(name string, flags int, perm fs.FileMode) (fs.FileInfo
 		return nil, PathErrorf(OpOpen, name, "%w: failed to stat parent directory", fs.ErrInvalid)
 	}
 
-	if err := s.Exec(fmt.Sprintf("install -m %#o /dev/null %s", perm, shellescape.Quote(name))); err != nil {
+	if err := s.Exec(sh.Command("install", "-m", fmt.Sprintf("%#o", perm), "/dev/null", name)); err != nil {
 		return nil, PathError(OpOpen, name, err)
 	}
 
@@ -800,7 +800,6 @@ func (s *PosixFS) TempDir() string {
 // MkdirAll creates a new directory structure with the specified name and permission bits.
 // If the directory already exists, MkDirAll does nothing and returns nil.
 func (s *PosixFS) MkdirAll(name string, perm fs.FileMode) error {
-	dir := shellescape.Quote(name)
 	if existing, err := s.Stat(name); err == nil {
 		if existing.IsDir() {
 			return nil
@@ -808,7 +807,7 @@ func (s *PosixFS) MkdirAll(name string, perm fs.FileMode) error {
 		return fmt.Errorf("mkdir %s: %w", name, fs.ErrExist)
 	}
 
-	if err := s.Exec(fmt.Sprintf("install -d -m %#o %s", perm, shellescape.Quote(dir))); err != nil {
+	if err := s.Exec(sh.Command("install", "-d", "-m", fmt.Sprintf("%#o", perm), name)); err != nil {
 		return fmt.Errorf("mkdir %s: %w", name, err)
 	}
 
@@ -817,7 +816,7 @@ func (s *PosixFS) MkdirAll(name string, perm fs.FileMode) error {
 
 // Mkdir creates a new directory with the specified name and permission bits.
 func (s *PosixFS) Mkdir(name string, perm fs.FileMode) error {
-	if err := s.Exec(fmt.Sprintf("mkdir -m %#o %s", perm, shellescape.Quote(name))); err != nil {
+	if err := s.Exec(sh.Command("mkdir", "-m", fmt.Sprintf("%#o", perm), name)); err != nil {
 		return PathError("mkdir", name, err)
 	}
 
@@ -826,7 +825,7 @@ func (s *PosixFS) Mkdir(name string, perm fs.FileMode) error {
 
 // WriteFile writes data to a file named by filename.
 func (s *PosixFS) WriteFile(filename string, data []byte, perm fs.FileMode) error {
-	if err := s.Exec(fmt.Sprintf("install -D -m %#o /dev/stdin %s", perm, shellescape.Quote(filename)), cmd.Stdin(bytes.NewReader(data))); err != nil {
+	if err := s.Exec(sh.Command("install", "-D", "-m", fmt.Sprintf("%#o", perm), "/dev/stdin", filename), cmd.Stdin(bytes.NewReader(data))); err != nil {
 		return fmt.Errorf("write file %s: %w", filename, err)
 	}
 	return nil
@@ -903,7 +902,7 @@ func (s *PosixFS) CommandExist(name string) bool {
 
 // Getenv returns the value of the environment variable named by the key.
 func (s *PosixFS) Getenv(key string) string {
-	out, err := s.ExecOutput(fmt.Sprintf("echo ${%s}", key), cmd.HideOutput())
+	out, err := s.ExecOutput(sh.Command("printenv", key), cmd.HideOutput())
 	if err != nil {
 		return ""
 	}

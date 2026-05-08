@@ -9,7 +9,6 @@ import (
 
 	"github.com/k0sproject/rig/v2/cmd"
 	"github.com/k0sproject/rig/v2/sh"
-	"github.com/k0sproject/rig/v2/sh/shellescape"
 )
 
 // Upstart is the init system used by Ubuntu 14.04 and older.
@@ -65,7 +64,7 @@ func (i Upstart) EnableService(ctx context.Context, h cmd.ContextRunner, s strin
 // DisableService for Upstart.
 func (i Upstart) DisableService(ctx context.Context, h cmd.ContextRunner, s string) error {
 	overridePath := fmt.Sprintf("/etc/init/%s.override", s)
-	if err := h.ExecContext(ctx, "echo 'manual' > "+shellescape.Quote(overridePath)); err != nil {
+	if err := h.ExecContext(ctx, sh.Command("tee", overridePath), cmd.StdinString("manual\n"), cmd.HideOutput()); err != nil {
 		return fmt.Errorf("failed to create override file %s: %w", overridePath, err)
 	}
 	return nil
