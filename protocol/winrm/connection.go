@@ -193,8 +193,10 @@ func (c *Connection) bastionDialer(ctx context.Context) (*ssh.Connection, dialFu
 	return bastionSSH, bastionSSH.Dial, nil
 }
 
-// Connect opens the WinRM connection.
+// Connect opens the WinRM connection. Any existing connection is torn down first.
 func (c *Connection) Connect(ctx context.Context) error {
+	c.Disconnect()
+
 	if err := c.loadCertificates(); err != nil {
 		return fmt.Errorf("%w: failed to load certificates: %w", protocol.ErrNonRetryable, err)
 	}
@@ -253,7 +255,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 
 	if err := c.probe(ctx); err != nil {
 		c.Disconnect()
-		return fmt.Errorf("connection probe: %w", err)
+		return err
 	}
 
 	return nil
