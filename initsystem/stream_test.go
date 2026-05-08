@@ -101,7 +101,7 @@ func TestStreamServiceLogsCommand(t *testing.T) {
 			name:     "Systemd",
 			streamer: initsystem.Systemd{},
 			setup:    rigtest.Contains("journalctl"),
-			expect:   rigtest.Contains("journalctl -f -u mysvc"),
+			expect:   rigtest.Contains("journalctl -n 0 -f -u mysvc"),
 		},
 		{
 			name:     "Upstart",

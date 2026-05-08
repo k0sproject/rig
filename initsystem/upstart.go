@@ -84,7 +84,7 @@ func (i Upstart) ServiceLogs(ctx context.Context, h cmd.ContextRunner, s string,
 // StreamServiceLogs streams service logs to w by following /var/log/upstart/<service>.log, until ctx is cancelled.
 // It's not guaranteed that the log file exists or that the service logs to this file.
 func (i Upstart) StreamServiceLogs(ctx context.Context, h cmd.ContextRunner, s string, w io.Writer) error {
-	return streamToWriter(ctx, h, s, sh.Command("tail", "-f", "/var/log/upstart/"+s+".log"), w)
+	return streamToWriter(ctx, h, s, sh.Command("tail", "-n", "0", "-f", "--", "/var/log/upstart/"+s+".log"), w)
 }
 
 // RegisterUpstart registers Upstart in a repository.

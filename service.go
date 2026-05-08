@@ -169,8 +169,9 @@ func (m *Service) Logs(ctx context.Context, lines int) ([]string, error) {
 	return rows, nil
 }
 
-// StreamLogs streams service log output to w until ctx is cancelled or an error occurs.
-// Cancelling ctx is the expected way to stop streaming and does not return an error.
+// StreamLogs streams new service log output to w from the current point in time until ctx is
+// cancelled or an error occurs. Cancelling ctx is the expected way to stop streaming and does
+// not return an error.
 func (m *Service) StreamLogs(ctx context.Context, w io.Writer) error {
 	streamer, ok := m.initsys.(initsystem.ServiceManagerLogStreamer)
 	if !ok {
