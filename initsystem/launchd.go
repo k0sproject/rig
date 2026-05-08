@@ -66,7 +66,7 @@ func (i Launchd) DisableService(ctx context.Context, h cmd.ContextRunner, s stri
 
 // ServiceLogs returns the logs for a launchd service.
 func (i Launchd) ServiceLogs(ctx context.Context, h cmd.ContextRunner, s string, lines int) ([]string, error) {
-	out, err := h.ExecOutputContext(ctx, fmt.Sprintf("log show --predicate 'subsystem contains %s' --debug --info --last 10m --style syslog", strconv.QuoteToASCII(s)))
+	out, err := h.ExecOutputContext(ctx, sh.Command("log", "show", "--predicate", "subsystem contains "+strconv.QuoteToASCII(s), "--debug", "--info", "--last", "10m", "--style", "syslog"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get logs for service %s: %w", s, err)
 	}
@@ -79,7 +79,7 @@ func (i Launchd) ServiceLogs(ctx context.Context, h cmd.ContextRunner, s string,
 
 // StreamServiceLogs streams service logs to w using the macOS log stream command, until ctx is cancelled.
 func (i Launchd) StreamServiceLogs(ctx context.Context, h cmd.ContextRunner, s string, w io.Writer) error {
-	return streamToWriter(ctx, h, s, fmt.Sprintf("log stream --predicate 'subsystem contains %s'", strconv.QuoteToASCII(s)), w)
+	return streamToWriter(ctx, h, s, sh.Command("log", "stream", "--predicate", "subsystem contains "+strconv.QuoteToASCII(s)), w)
 }
 
 // RegisterLaunchd registers the launchd init system to a init system repository.

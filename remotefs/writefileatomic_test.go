@@ -37,33 +37,33 @@ func (o *atomicOS) Rename(_, _ string) error                          { return o
 func (o *atomicOS) Remove(p string) error                             { o.removedPaths = append(o.removedPaths, p); return nil }
 
 // Unused methods — panic on call so misuse is caught immediately.
-func (o *atomicOS) RemoveAll(_ string) error               { panic("not implemented") }
-func (o *atomicOS) Mkdir(_ string, _ fs.FileMode) error    { panic("not implemented") }
-func (o *atomicOS) MkdirTemp(_, _ string) (string, error)  { panic("not implemented") }
-func (o *atomicOS) FileExist(_ string) bool                { panic("not implemented") }
-func (o *atomicOS) LookPath(_ string) (string, error)      { panic("not implemented") }
-func (o *atomicOS) Join(_ ...string) string                { panic("not implemented") }
-func (o *atomicOS) Chown(_ string, _ string) error         { panic("not implemented") }
-func (o *atomicOS) ChownInt(_ string, _, _ int) error      { panic("not implemented") }
-func (o *atomicOS) ChownTree(_ string, _ string) error     { panic("not implemented") }
-func (o *atomicOS) ChownTreeInt(_ string, _, _ int) error  { panic("not implemented") }
-func (o *atomicOS) Chtimes(_ string, _, _ int64) error     { panic("not implemented") }
-func (o *atomicOS) Touch(_ string, _ ...time.Time) error   { panic("not implemented") }
-func (o *atomicOS) Truncate(_ string, _ int64) error       { panic("not implemented") }
-func (o *atomicOS) Getenv(_ string) string                 { panic("not implemented") }
-func (o *atomicOS) FileContains(_, _ string) (bool, error)                 { panic("not implemented") }
-func (o *atomicOS) Follow(_ context.Context, _ string, _ io.Writer) error  { panic("not implemented") }
-func (o *atomicOS) IsContainer() (bool, error)                             { panic("not implemented") }
-func (o *atomicOS) Hostname() (string, error)              { panic("not implemented") }
-func (o *atomicOS) LongHostname() (string, error)          { panic("not implemented") }
-func (o *atomicOS) MachineID() (string, error)             { panic("not implemented") }
-func (o *atomicOS) SystemTime() (time.Time, error)         { panic("not implemented") }
-func (o *atomicOS) TempDir() string                        { panic("not implemented") }
-func (o *atomicOS) UserCacheDir() string                   { panic("not implemented") }
-func (o *atomicOS) UserConfigDir() string                  { panic("not implemented") }
-func (o *atomicOS) UserHomeDir() string                    { panic("not implemented") }
-func (o *atomicOS) Base(_ string) string                   { panic("not implemented") }
-func (o *atomicOS) CommandExist(_ string) bool             { panic("not implemented") }
+func (o *atomicOS) RemoveAll(_ string) error                              { panic("not implemented") }
+func (o *atomicOS) Mkdir(_ string, _ fs.FileMode) error                   { panic("not implemented") }
+func (o *atomicOS) MkdirTemp(_, _ string) (string, error)                 { panic("not implemented") }
+func (o *atomicOS) FileExist(_ string) bool                               { panic("not implemented") }
+func (o *atomicOS) LookPath(_ string) (string, error)                     { panic("not implemented") }
+func (o *atomicOS) Join(_ ...string) string                               { panic("not implemented") }
+func (o *atomicOS) Chown(_ string, _ string) error                        { panic("not implemented") }
+func (o *atomicOS) ChownInt(_ string, _, _ int) error                     { panic("not implemented") }
+func (o *atomicOS) ChownTree(_ string, _ string) error                    { panic("not implemented") }
+func (o *atomicOS) ChownTreeInt(_ string, _, _ int) error                 { panic("not implemented") }
+func (o *atomicOS) Chtimes(_ string, _, _ int64) error                    { panic("not implemented") }
+func (o *atomicOS) Touch(_ string, _ ...time.Time) error                  { panic("not implemented") }
+func (o *atomicOS) Truncate(_ string, _ int64) error                      { panic("not implemented") }
+func (o *atomicOS) Getenv(_ string) string                                { panic("not implemented") }
+func (o *atomicOS) FileContains(_, _ string) (bool, error)                { panic("not implemented") }
+func (o *atomicOS) Follow(_ context.Context, _ string, _ io.Writer) error { panic("not implemented") }
+func (o *atomicOS) IsContainer() (bool, error)                            { panic("not implemented") }
+func (o *atomicOS) Hostname() (string, error)                             { panic("not implemented") }
+func (o *atomicOS) LongHostname() (string, error)                         { panic("not implemented") }
+func (o *atomicOS) MachineID() (string, error)                            { panic("not implemented") }
+func (o *atomicOS) SystemTime() (time.Time, error)                        { panic("not implemented") }
+func (o *atomicOS) TempDir() string                                       { panic("not implemented") }
+func (o *atomicOS) UserCacheDir() string                                  { panic("not implemented") }
+func (o *atomicOS) UserConfigDir() string                                 { panic("not implemented") }
+func (o *atomicOS) UserHomeDir() string                                   { panic("not implemented") }
+func (o *atomicOS) Base(_ string) string                                  { panic("not implemented") }
+func (o *atomicOS) CommandExist(_ string) bool                            { panic("not implemented") }
 
 // Compile-time check that atomicOS satisfies remotefs.OS.
 var _ remotefs.OS = (*atomicOS)(nil)
