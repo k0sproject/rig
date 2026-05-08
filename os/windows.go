@@ -178,26 +178,26 @@ func (c Windows) CommandExist(h Host, cmd string) bool {
 }
 
 // Reboot triggers an immediate forced restart by scheduling a SYSTEM-context
-// one-shot task that runs 'shutdown /r /f /t 5', then immediately triggering
-// and deleting it within the 5-second countdown window.
+// one-shot task that runs shutdown, then immediately triggering it.
 //
 // Running via a scheduled task bypasses the filtered Administrator token used
 // by WinRM sessions (e.g. AWS EC2) which lacks SeShutdownPrivilege. Issuing
 // 'shutdown /r' directly in the WinRM session is silently ignored in that
 // context.
 //
-// /sc onstart is used instead of /sc once to avoid schtasks writing a
-// stderr warning about the start time being in the past, which rig treats
-// as an error. The task is deleted immediately after triggering (while the
-// 5-second timer counts down) so it does not re-fire on subsequent startups.
+// A unique task name is used per invocation to prevent conflicts with concurrent
+// callers. The start time is set one minute ahead so schtasks does not emit a
+// past-start-time warning; the task is triggered immediately via schtasks /run
+// regardless of the scheduled time.
 func (c Windows) Reboot(h Host) error {
-	const taskName = "RigReboot"
-	// Create a SYSTEM-context ONSTART task that runs 'shutdown /r /f /t 5'.
-	// The 5-second delay gives us time to delete the task before the OS
-	// actually executes the reboot, preventing it from firing again on the
-	// next startup.
-	create := fmt.Sprintf(`schtasks /create /tn "%s" /tr "shutdown /r /f /t 5" /sc onstart /f /ru SYSTEM`, taskName)
-	if err := h.Exec(create); err != nil {
+	taskName := fmt.Sprintf("RigReboot%d", time.Now().Unix())
+	const shutdownDelay = 5
+	startTime := time.Now().Add(time.Minute).Format("15:04")
+	create := fmt.Sprintf(
+		`schtasks /create /tn "%s" /tr "shutdown /r /f /t %d" /sc once /st %s /f /ru SYSTEM`,
+		taskName, shutdownDelay, startTime,
+	)
+	if err := h.Exec(create, exec.AllowWinStderr()); err != nil {
 		return fmt.Errorf("failed to create reboot task: %w", err)
 	}
 	run := fmt.Sprintf(`schtasks /run /tn "%s"`, taskName)
@@ -209,14 +209,10 @@ func (c Windows) Reboot(h Host) error {
 			return fmt.Errorf("failed to run reboot task: %w", err)
 		}
 	}
-	// Delete the task immediately while the 5-second shutdown timer is still
-	// counting down. This prevents it from re-firing on subsequent startups.
-	del := fmt.Sprintf(`schtasks /delete /tn "%s" /f`, taskName)
-	// Best-effort: ignore delete errors — if the task fires before we can
-	// delete it, the caller is expected to delete it after reconnecting.
-	_ = h.Exec(del)
-	// Allow Windows time to complete shutdown before waitForHost begins polling.
-	time.Sleep(15 * time.Second)
+	// Best-effort cleanup; /sc once guarantees the task won't re-fire even if delete fails.
+	_ = h.Exec(fmt.Sprintf(`schtasks /delete /tn "%s" /f`, taskName)) //nolint:errcheck
+	// Wait for the shutdown timer plus a buffer before the caller begins polling.
+	time.Sleep(time.Duration(shutdownDelay+10) * time.Second)
 	return nil
 }
 

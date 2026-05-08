@@ -196,8 +196,7 @@ type Command struct {
 	wg     sync.WaitGroup
 }
 
-// Wait blocks until the command finishes
-// Wait blocks until the command finishes
+// Wait blocks until the command finishes.
 func (c *Command) Wait() error {
 	defer c.sh.Close()
 	defer c.cmd.Close()
