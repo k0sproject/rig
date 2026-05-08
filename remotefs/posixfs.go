@@ -900,8 +900,28 @@ func (s *PosixFS) CommandExist(name string) bool {
 	return err == nil
 }
 
+// isValidEnvVarName reports whether key is a valid POSIX environment variable name.
+func isValidEnvVarName(key string) bool {
+	if len(key) == 0 {
+		return false
+	}
+	for i, r := range key {
+		if r == '_' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+			continue
+		}
+		if i > 0 && r >= '0' && r <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 // Getenv returns the value of the environment variable named by the key.
 func (s *PosixFS) Getenv(key string) string {
+	if !isValidEnvVarName(key) {
+		return ""
+	}
 	out, err := s.ExecOutput(fmt.Sprintf("printf '%%s' \"${%s}\"", key), cmd.HideOutput())
 	if err != nil {
 		return ""
