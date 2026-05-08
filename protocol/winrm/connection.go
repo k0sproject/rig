@@ -117,9 +117,13 @@ func isAuthError(err error) bool {
 		strings.Contains(msg, "http response error: 403")
 }
 
-// endpointTimeout returns time.Minute, or the context deadline if it is shorter.
-// This bounds the WinRM HTTP transport timeout so CreateShell honours ctx cancellation.
+// endpointTimeout returns the WinRM HTTP transport timeout to use. It returns
+// time.Minute, the remaining context deadline if shorter, or 1ms if the context
+// is already canceled or expired (so the HTTP call fails quickly).
 func endpointTimeout(ctx context.Context) time.Duration {
+	if ctx.Err() != nil {
+		return time.Millisecond
+	}
 	timeout := time.Minute
 	if deadline, ok := ctx.Deadline(); ok {
 		if d := time.Until(deadline); d > 0 && d < timeout {
