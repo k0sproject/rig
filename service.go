@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"path"
 	"time"
@@ -148,6 +149,7 @@ func (m *Service) IsRunning(ctx context.Context) bool {
 
 var (
 	errLogReaderNotSupported    = errors.New("init system provider does not implement log reader")
+	errLogStreamerNotSupported  = errors.New("init system provider does not support log streaming")
 	errEnvManagerNotSupported   = errors.New("init system provider does not support service environment management")
 	errDaemonReloadNotSupported = errors.New("init system provider does not support daemon-reload")
 	errServiceFSNotAvailable    = errors.New("service has no filesystem access; use client.Service() instead of GetService()")
@@ -165,6 +167,23 @@ func (m *Service) Logs(ctx context.Context, lines int) ([]string, error) {
 		return nil, fmt.Errorf("get logs: %w", err)
 	}
 	return rows, nil
+}
+
+// StreamLogs streams new service log output to w from the current point in time until ctx is
+// cancelled or an error occurs. Cancelling ctx is the expected way to stop streaming and does
+// not return an error.
+func (m *Service) StreamLogs(ctx context.Context, w io.Writer) error {
+	streamer, ok := m.initsys.(initsystem.ServiceManagerLogStreamer)
+	if !ok {
+		return errLogStreamerNotSupported
+	}
+	if err := streamer.StreamServiceLogs(ctx, m.runner, m.name, w); err != nil {
+		if ctx.Err() != nil {
+			return nil //nolint:nilerr // context cancellation is the expected stop signal
+		}
+		return fmt.Errorf("stream logs for service '%s': %w", m.name, err)
+	}
+	return nil
 }
 
 // SetEnvironment writes environment variable overrides for the service and triggers a daemon-reload

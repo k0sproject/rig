@@ -1,6 +1,7 @@
 package remotefs_test
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
@@ -67,6 +68,7 @@ func (f *uploadFS) Rename(_, _ string) error                                { pa
 func (f *uploadFS) DownloadURL(_ string, _ string) error                    { panic("not implemented") }
 func (f *uploadFS) RoundTrip(_ *http.Request) (*http.Response, error)       { panic("not implemented") }
 func (f *uploadFS) FileContains(_ string, _ string) (bool, error)           { panic("not implemented") }
+func (f *uploadFS) Follow(_ context.Context, _ string, _ io.Writer) error   { panic("not implemented") }
 func (f *uploadFS) IsContainer() (bool, error)                              { panic("not implemented") }
 func (f *uploadFS) Hostname() (string, error)                               { panic("not implemented") }
 func (f *uploadFS) LongHostname() (string, error)                           { panic("not implemented") }

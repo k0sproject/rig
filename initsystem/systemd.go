@@ -3,6 +3,7 @@ package initsystem
 import (
 	"context"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -115,6 +116,11 @@ func (i Systemd) ServiceLogs(ctx context.Context, h cmd.ContextRunner, s string,
 	}
 
 	return strings.Split(out, "\n"), nil
+}
+
+// StreamServiceLogs streams service logs to w using journalctl -f, until ctx is cancelled.
+func (i Systemd) StreamServiceLogs(ctx context.Context, h cmd.ContextRunner, s string, w io.Writer) error {
+	return streamToWriter(ctx, h, s, sh.Command("journalctl", "-n", "0", "-f", "-u", s), w)
 }
 
 // RegisterSystemd registers systemd into a repository.

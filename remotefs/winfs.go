@@ -2,6 +2,7 @@ package remotefs
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -581,6 +582,19 @@ try {
 	default:
 		return false, fmt.Errorf("file-contains %s: %w: %q", name, errUnexpectedOutput, status)
 	}
+}
+
+// Follow streams new content appended to path to w until ctx is cancelled.
+// Cancelling ctx is the expected way to stop following and does not return an error.
+func (s *WinFS) Follow(ctx context.Context, path string, w io.Writer) error {
+	err := s.ExecContext(ctx, fmt.Sprintf("Get-Content -LiteralPath %s -Tail 0 -Wait", ps.SingleQuote(ps.ToWindowsPath(path))), cmd.Stdout(w), cmd.HideOutput(), cmd.PS())
+	if err != nil && ctx.Err() != nil {
+		return nil //nolint:nilerr // context cancellation is the expected stop signal
+	}
+	if err != nil {
+		return fmt.Errorf("follow %s: %w", path, err)
+	}
+	return nil
 }
 
 // IsContainer reports whether the host is running inside a container.

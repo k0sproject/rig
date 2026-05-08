@@ -4,6 +4,7 @@ package initsystem
 import (
 	"context"
 	"errors"
+	"io"
 	"sync"
 
 	"github.com/k0sproject/rig/v2/cmd"
@@ -23,6 +24,13 @@ type ServiceManager interface {
 // ServiceManagerLogReader is a servicemanager that supports reading service logs.
 type ServiceManagerLogReader interface {
 	ServiceLogs(ctx context.Context, h cmd.ContextRunner, s string, lines int) ([]string, error)
+}
+
+// ServiceManagerLogStreamer is an optional interface for init systems that can follow
+// service logs in real time. The method streams log output to w until ctx is cancelled
+// or an error occurs. Context cancellation is treated as a clean stop, not an error.
+type ServiceManagerLogStreamer interface {
+	StreamServiceLogs(ctx context.Context, h cmd.ContextRunner, s string, w io.Writer) error
 }
 
 // ServiceManagerRestarter is a servicemanager that supports direct restarts (instead of stop+start).

@@ -1,10 +1,12 @@
 package remotefs_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"testing"
 	"time"
@@ -641,3 +643,45 @@ func TestWindowsRename(t *testing.T) {
 	})
 }
 
+
+func TestPosixFSFollow(t *testing.T) {
+	const path = "/var/log/app.log"
+
+	t.Run("output flows to writer", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommand(rigtest.Contains("tail"), func(a *rigtest.A) error {
+			_, _ = a.Stdout.Write([]byte("new line\n"))
+			return nil
+		})
+		fs := remotefs.NewPosixFS(mr)
+		var buf bytes.Buffer
+		require.NoError(t, fs.Follow(context.Background(), path, &buf))
+		require.Equal(t, "new line\n", buf.String())
+	})
+
+	t.Run("starts from EOF", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandSuccess(rigtest.Contains("tail"))
+		fs := remotefs.NewPosixFS(mr)
+		_ = fs.Follow(context.Background(), path, io.Discard)
+		require.NoError(t, mr.Received(rigtest.Contains("-n 0")))
+	})
+
+	t.Run("context cancellation returns nil", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		mr.AddCommand(rigtest.Contains("tail"), func(a *rigtest.A) error {
+			return a.Ctx.Err()
+		})
+		fs := remotefs.NewPosixFS(mr)
+		require.NoError(t, fs.Follow(ctx, path, io.Discard), "context cancellation should not return an error")
+	})
+
+	t.Run("command error propagates", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandFailure(rigtest.Contains("tail"), errors.New("permission denied"))
+		fs := remotefs.NewPosixFS(mr)
+		require.Error(t, fs.Follow(context.Background(), path, io.Discard))
+	})
+}

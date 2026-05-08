@@ -3,6 +3,7 @@ package initsystem
 import (
 	"context"
 	"fmt"
+	"io"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -81,6 +82,12 @@ func (i Runit) ServiceLogs(ctx context.Context, h cmd.ContextRunner, s string, l
 		return nil, fmt.Errorf("failed to get logs for service %s: %w", s, err)
 	}
 	return strings.Split(out, "\n"), nil
+}
+
+// StreamServiceLogs streams service logs to w by following /var/log/<service>/current, until ctx is cancelled.
+// It's not guaranteed that the log file exists or that the service logs to this file.
+func (i Runit) StreamServiceLogs(ctx context.Context, h cmd.ContextRunner, s string, w io.Writer) error {
+	return streamToWriter(ctx, h, s, sh.Command("tail", "-n", "0", "-f", "--", "/var/log/"+s+"/current"), w)
 }
 
 // RegisterRunit register runit in a repository.
