@@ -37,8 +37,9 @@ type Connection struct {
 	key    []byte
 	cert   []byte
 
-	mu     sync.Mutex
-	client *winrm.Client
+	mu          sync.Mutex
+	client      *winrm.Client
+	bastionConn *ssh.Connection
 }
 
 type dialFunc func(network, addr string) (net.Conn, error)
@@ -84,6 +85,54 @@ func (c *Connection) IsWindows() bool {
 	return true
 }
 
+// probe runs a no-op command to verify the connection is alive and authenticated.
+// HTTP 401/403 responses are wrapped as ErrNonRetryable.
+func (c *Connection) probe(ctx context.Context) error {
+	proc, err := c.StartProcess(ctx, "cmd.exe /c exit 0", nil, nil, nil)
+	if err != nil {
+		if isAuthError(err) {
+			return fmt.Errorf("%w: %w", protocol.ErrNonRetryable, err)
+		}
+		return err
+	}
+	if err := proc.Wait(); err != nil {
+		return fmt.Errorf("probe: %w", err)
+	}
+	return nil
+}
+
+// isAuthError reports whether err looks like an HTTP 401/403 response from the
+// WinRM library. The library returns untyped formatted errors so we match by
+// substring. Both formats seen in the library are covered:
+//   - "http error 401: ..."       (http.go / auth.go)
+//   - "http response error: 401 - ..." (auth.go alternate path)
+func isAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "http error 401") ||
+		strings.Contains(msg, "http error 403") ||
+		strings.Contains(msg, "http response error: 401") ||
+		strings.Contains(msg, "http response error: 403")
+}
+
+// endpointTimeout returns the WinRM HTTP transport timeout to use. It returns
+// time.Minute, the remaining context deadline if shorter, or 1ms if the context
+// is already canceled or expired (so the HTTP call fails quickly).
+func endpointTimeout(ctx context.Context) time.Duration {
+	if ctx.Err() != nil {
+		return time.Millisecond
+	}
+	timeout := time.Minute
+	if deadline, ok := ctx.Deadline(); ok {
+		if d := time.Until(deadline); d > 0 && d < timeout {
+			return d
+		}
+	}
+	return timeout
+}
+
 // IsConnected returns true if the WinRM connection is alive by running a no-op
 // command. WinRM is stateless HTTP so the only real liveness test is a probe.
 func (c *Connection) IsConnected() bool {
@@ -95,11 +144,7 @@ func (c *Connection) IsConnected() bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	proc, err := c.StartProcess(ctx, "cmd.exe /c exit 0", nil, nil, nil)
-	if err != nil {
-		return false
-	}
-	return proc.Wait() == nil
+	return c.probe(ctx) == nil
 }
 
 func (c *Connection) loadCertificates() error {
@@ -133,27 +178,29 @@ func (c *Connection) loadCertificates() error {
 	return nil
 }
 
-func (c *Connection) bastionDialer(ctx context.Context) (dialFunc, error) {
+func (c *Connection) bastionDialer(ctx context.Context) (*ssh.Connection, dialFunc, error) {
 	bastion, err := c.Bastion.Connection() //nolint:contextcheck
 	if err != nil {
-		return nil, fmt.Errorf("create bastion connection: %w", err)
+		return nil, nil, fmt.Errorf("create bastion connection: %w", err)
 	}
 	bastionSSH, ok := bastion.(*ssh.Connection)
 	if !ok {
-		return nil, fmt.Errorf("%w: bastion connection is not an SSH connection", protocol.ErrNonRetryable)
+		return nil, nil, fmt.Errorf("%w: bastion connection is not an SSH connection", protocol.ErrNonRetryable)
 	}
 	log.Trace(ctx, "connecting to bastion", log.KeyHost, c)
 	if err := bastionSSH.Connect(ctx); err != nil {
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
-			return nil, fmt.Errorf("%w: bastion connect: %w", protocol.ErrNonRetryable, err)
+			return nil, nil, fmt.Errorf("%w: bastion connect: %w", protocol.ErrNonRetryable, err)
 		}
-		return nil, fmt.Errorf("bastion connect: %w", err)
+		return nil, nil, fmt.Errorf("bastion connect: %w", err)
 	}
-	return bastionSSH.Dial, nil
+	return bastionSSH, bastionSSH.Dial, nil
 }
 
-// Connect opens the WinRM connection.
+// Connect opens the WinRM connection. Any existing connection is torn down first.
 func (c *Connection) Connect(ctx context.Context) error {
+	c.Disconnect()
+
 	if err := c.loadCertificates(); err != nil {
 		return fmt.Errorf("%w: failed to load certificates: %w", protocol.ErrNonRetryable, err)
 	}
@@ -164,7 +211,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 		HTTPS:         c.UseHTTPS,
 		Insecure:      c.Insecure,
 		TLSServerName: c.TLSServerName,
-		Timeout:       time.Minute,
+		Timeout:       endpointTimeout(ctx),
 	}
 
 	if len(c.caCert) > 0 {
@@ -182,11 +229,14 @@ func (c *Connection) Connect(ctx context.Context) error {
 	params := winrm.DefaultParameters
 
 	if c.Bastion != nil {
-		dialer, err := c.bastionDialer(ctx)
+		bastionSSH, dialer, err := c.bastionDialer(ctx)
 		if err != nil {
 			return err
 		}
 		params.Dial = dialer
+		c.mu.Lock()
+		c.bastionConn = bastionSSH
+		c.mu.Unlock()
 	}
 
 	if c.UseNTLM {
@@ -199,12 +249,18 @@ func (c *Connection) Connect(ctx context.Context) error {
 
 	client, err := winrm.NewClientWithParameters(endpoint, c.User, c.Password, params)
 	if err != nil {
+		c.Disconnect()
 		return fmt.Errorf("create winrm client: %w", err)
 	}
 
 	c.mu.Lock()
 	c.client = client
 	c.mu.Unlock()
+
+	if err := c.probe(ctx); err != nil {
+		c.Disconnect()
+		return err
+	}
 
 	return nil
 }
@@ -213,7 +269,12 @@ func (c *Connection) Connect(ctx context.Context) error {
 func (c *Connection) Disconnect() {
 	c.mu.Lock()
 	c.client = nil
+	bastion := c.bastionConn
+	c.bastionConn = nil
 	c.mu.Unlock()
+	if bastion != nil {
+		bastion.Disconnect()
+	}
 }
 
 type command struct {
@@ -277,6 +338,7 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 	}
 	proc, err := shell.ExecuteWithContext(ctx, cmd)
 	if err != nil {
+		shell.Close()
 		return nil, fmt.Errorf("execute command: %w", err)
 	}
 	started := time.Now()
