@@ -12,6 +12,7 @@ import (
 
 	"github.com/k0sproject/rig/v2/cmd"
 	"github.com/k0sproject/rig/v2/iostream"
+	"github.com/k0sproject/rig/v2/sh"
 	"github.com/k0sproject/rig/v2/sh/shellescape"
 )
 
@@ -90,7 +91,7 @@ func (f *PosixFile) Read(p []byte) (int, error) {
 
 	bs, skip, count := f.ddParams(f.pos, len(p))
 
-	if err := f.fs.Exec(fmt.Sprintf("dd if=%s bs=%d skip=%d count=%d", shellescape.Quote(f.path), bs, skip, count), cmd.Stdout(buf), cmd.HideOutput()); err != nil {
+	if err := f.fs.Exec(sh.Command("dd", "if="+f.path, fmt.Sprintf("bs=%d", bs), fmt.Sprintf("skip=%d", skip), fmt.Sprintf("count=%d", count)), cmd.Stdout(buf), cmd.HideOutput()); err != nil {
 		return 0, fmt.Errorf("failed to execute dd: %w", err)
 	}
 
@@ -124,7 +125,7 @@ func (f *PosixFile) Write(p []byte) (int, error) {
 		limitedReader := bytes.NewReader(remaining[:toWrite])
 
 		err := f.fs.Exec(
-			fmt.Sprintf("dd if=/dev/stdin of=%s bs=%d count=%d seek=%d conv=notrunc", f.path, bs, count, skip),
+			sh.Command("dd", "if=/dev/stdin", "of="+f.path, fmt.Sprintf("bs=%d", bs), fmt.Sprintf("count=%d", count), fmt.Sprintf("seek=%d", skip), "conv=notrunc"),
 			cmd.Stdin(limitedReader),
 		)
 		if err != nil {
@@ -158,7 +159,7 @@ func (f *PosixFile) CopyTo(dst io.Writer) (int64, error) {
 	counter := &iostream.ByteCounter{}
 	writer := io.MultiWriter(dst, counter)
 	err := f.fs.Exec(
-		fmt.Sprintf("dd if=%s bs=%d skip=%d count=%d", shellescape.Quote(f.path), bs, skip, count),
+		sh.Command("dd", "if="+f.path, fmt.Sprintf("bs=%d", bs), fmt.Sprintf("skip=%d", skip), fmt.Sprintf("count=%d", count)),
 		cmd.Stdout(writer),
 		cmd.HideOutput(),
 	)
@@ -182,7 +183,7 @@ func (f *PosixFile) CopyFrom(src io.Reader) (int64, error) {
 	counter := &iostream.ByteCounter{}
 
 	err := f.fs.Exec(
-		fmt.Sprintf("dd if=/dev/stdin of=%s bs=%d seek=%d conv=notrunc", shellescape.Quote(f.path), f.fsBlockSize(), f.pos),
+		sh.Command("dd", "if=/dev/stdin", "of="+f.path, fmt.Sprintf("bs=%d", f.fsBlockSize()), fmt.Sprintf("seek=%d", f.pos), "conv=notrunc"),
 		cmd.Stdin(io.TeeReader(src, counter)),
 	)
 	if err != nil {
