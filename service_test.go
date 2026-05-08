@@ -357,6 +357,14 @@ func TestServiceStreamLogs(t *testing.T) {
 		require.ErrorIs(t, err, streamErr)
 	})
 
+	t.Run("context cancellation returns nil", func(t *testing.T) {
+		cancelCtx, cancel := context.WithCancel(ctx)
+		cancel()
+		mgr := &mockLogStreamer{err: cancelCtx.Err()}
+		svc := &Service{runner: rigtest.NewMockRunner(), name: "svc", initsys: mgr}
+		require.NoError(t, svc.StreamLogs(cancelCtx, io.Discard), "context cancellation should not return an error")
+	})
+
 	t.Run("not supported", func(t *testing.T) {
 		svc := &Service{runner: rigtest.NewMockRunner(), name: "svc", initsys: &mockBasicManager{}}
 		err := svc.StreamLogs(ctx, io.Discard)

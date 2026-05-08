@@ -11,7 +11,7 @@ import (
 // streamToWriter runs command with stdout piped to w. Context cancellation is treated as a
 // clean stop and returns nil — it is the expected way for callers to terminate streaming.
 func streamToWriter(ctx context.Context, h cmd.ContextRunner, s, command string, w io.Writer) error {
-	err := h.ExecContext(ctx, command, cmd.Stdout(w))
+	err := h.ExecContext(ctx, command, cmd.Stdout(w), cmd.HideOutput())
 	if err != nil && ctx.Err() != nil {
 		return nil //nolint:nilerr // context cancellation is the expected stop signal
 	}

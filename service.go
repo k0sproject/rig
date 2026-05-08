@@ -178,6 +178,9 @@ func (m *Service) StreamLogs(ctx context.Context, w io.Writer) error {
 		return errLogStreamerNotSupported
 	}
 	if err := streamer.StreamServiceLogs(ctx, m.runner, m.name, w); err != nil {
+		if ctx.Err() != nil {
+			return nil //nolint:nilerr // context cancellation is the expected stop signal
+		}
 		return fmt.Errorf("stream logs for service '%s': %w", m.name, err)
 	}
 	return nil
