@@ -221,9 +221,10 @@ func (c *OpenSSH) Connect() error {
 	opts.Set("ControlPersist", 600)
 	opts.Set("TCPKeepalive", true)
 
-	args := make([]string, 0, 2+len(opts.ToArgs())+len(c.args()))
+	optsArgs := opts.ToArgs()
+	args := make([]string, 0, 2+len(optsArgs)+len(c.args()))
 	args = append(args, "-N", "-f")
-	args = append(args, opts.ToArgs()...)
+	args = append(args, optsArgs...)
 	args = append(args, c.args()...)
 
 	//nolint:noctx // OpenSSH connection multiplexing is a long-running background process
@@ -263,10 +264,9 @@ func (c *OpenSSH) closeControl() error {
 		return ErrControlPathNotSet
 	}
 
-	args := make([]string, 0, 4+len(c.args())+1)
+	args := make([]string, 0, 4+len(c.args()))
 	args = append(args, "-O", "exit", "-S", controlPath)
 	args = append(args, c.args()...)
-	args = append(args, c.userhost())
 
 	log.Debugf("%s: closing ssh multiplexing control master", c)
 	//nolint:noctx // OpenSSH connection multiplexing command
