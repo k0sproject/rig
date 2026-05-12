@@ -16,10 +16,12 @@ deps:
 $(TARGET): deps
 	@mkdir -p $(TARGET)
 
-$(TARGET)/%.json: $(TARGET) ../../%.go
+GEN_SOURCES := gen_schema.go go.mod go.sum
+
+$(TARGET)/%.json: $(TARGET) ../../%.go $(GEN_SOURCES)
 	$(SCHEMA_TOOL) -type=$(basename $(notdir $(basename $@))) > $@
 
-$(TARGET)/%.yaml: $(TARGET) ../../%.go
+$(TARGET)/%.yaml: $(TARGET) ../../%.go $(GEN_SOURCES)
 	$(SCHEMA_TOOL) -yaml -type=$(basename $(notdir $(basename $@))) > $@
 
 clean:

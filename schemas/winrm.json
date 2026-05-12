@@ -6,12 +6,25 @@
     "SSH": {
       "properties": {
         "address": {
-          "type": "string",
-          "format": "hostname",
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "hostname"
+            },
+            {
+              "type": "string",
+              "format": "ipv4"
+            },
+            {
+              "type": "string",
+              "format": "ipv6"
+            }
+          ],
           "description": "Address of the remote host (IP or hostname)"
         },
         "user": {
           "type": "string",
+          "minLength": 1,
           "description": "User to log in as",
           "default": "root"
         },
@@ -19,7 +32,7 @@
           "type": "integer",
           "maximum": 65535,
           "minimum": 1,
-          "description": "SSH port",
+          "description": "SSH port (default 22)",
           "default": 22
         },
         "keyPath": {
@@ -38,16 +51,26 @@
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "address",
-        "user",
-        "port"
+        "address"
       ]
     },
     "WinRM": {
       "properties": {
         "address": {
-          "type": "string",
-          "format": "hostname",
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "hostname"
+            },
+            {
+              "type": "string",
+              "format": "ipv4"
+            },
+            {
+              "type": "string",
+              "format": "ipv6"
+            }
+          ],
           "description": "Address of the remote host"
         },
         "user": {
@@ -95,8 +118,20 @@
           "description": "Path to client key"
         },
         "tlsServerName": {
-          "type": "string",
-          "format": "hostname",
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "hostname"
+            },
+            {
+              "type": "string",
+              "format": "ipv4"
+            },
+            {
+              "type": "string",
+              "format": "ipv6"
+            }
+          ],
           "description": "TLS server name override"
         },
         "bastion": {
@@ -107,12 +142,7 @@
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "address",
-        "user",
-        "port",
-        "useHTTPS",
-        "insecure",
-        "useNTLM"
+        "address"
       ]
     }
   }

@@ -4,7 +4,6 @@ $defs:
     properties:
       address:
         description: Address of the remote host
-        format: hostname
         type: string
       configPath:
         description: Path to SSH config file
@@ -18,7 +17,7 @@ $defs:
         type: string
       options:
         $ref: '#/$defs/OpenSSHOptions'
-        description: Additional SSH options as key-value pairs
+        description: 'Additional SSH options as key-value pairs (e.g. StrictHostKeyChecking: false)'
       port:
         description: Optional SSH port
         maximum: 65535

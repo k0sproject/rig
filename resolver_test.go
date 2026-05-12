@@ -5,7 +5,6 @@ import (
 	"testing"
 )
 
-const ()
 
 func TestParseReleaseFile(t *testing.T) {
 	osReleaseRocky := `NAME="Rocky Linux"   

@@ -29,13 +29,13 @@ import (
 // SSH describes an SSH connection
 type SSH struct {
 	// Address of the remote host (IP or hostname)
-	Address string `yaml:"address" json:"address" validate:"required,hostname_rfc1123|ip" jsonschema:"required,format=hostname,description=Address of the remote host (IP or hostname)"`
+	Address string `yaml:"address" json:"address" validate:"required,hostname_rfc1123|ip" jsonschema:"required,description=Address of the remote host (IP or hostname)"`
 
 	// User to log in as
-	User string `yaml:"user" json:"user" validate:"required" default:"root" jsonschema:"required,default=root,description=User to log in as"`
+	User string `yaml:"user" json:"user,omitempty" validate:"required" default:"root" jsonschema:"minLength=1,default=root,description=User to log in as"`
 
 	// SSH port, usually 22
-	Port int `yaml:"port" json:"port" validate:"gt=0,lte=65535" default:"22" jsonschema:"minimum=1,maximum=65535,default=22,description=SSH port, usually 22"`
+	Port int `yaml:"port" json:"port,omitempty" validate:"gt=0,lte=65535" default:"22" jsonschema:"minimum=1,maximum=65535,default=22,description=SSH port (default 22)"`
 
 	// Optional path to private key
 	KeyPath *string `yaml:"keyPath,omitempty" json:"keyPath,omitempty" validate:"omitempty" jsonschema:"description=Optional path to private key"`

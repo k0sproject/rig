@@ -81,7 +81,7 @@ type Connection struct {
 	SSH *SSH `yaml:"ssh,omitempty" json:"ssh,omitempty"`
 	// Connection configuration for localhost
 	Localhost *Localhost `yaml:"localhost,omitempty" json:"localhost,omitempty"`
-	// Connection configuration for SSH targets over OpenSSH client integration"
+	// Connection configuration for SSH targets over OpenSSH client integration
 	OpenSSH *OpenSSH `yaml:"openSSH,omitempty" json:"openSSH,omitempty"`
 
 	OSVersion *OSVersion `yaml:"-" json:"-"`

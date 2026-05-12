@@ -3,6 +3,7 @@ $defs:
     additionalProperties: false
     properties:
       enabled:
+        const: true
         description: Enabled must be true for the connection to be valid
         type: boolean
     required:

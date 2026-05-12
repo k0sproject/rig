@@ -31,7 +31,7 @@ func isHostKeyError(stderr string) bool {
 // The connection is multiplexec over a control master, so that subsequent connections don't need to re-authenticate.
 type OpenSSH struct {
 	// Address of the remote host
-	Address string `yaml:"address" json:"address" validate:"required" jsonschema:"required,format=hostname,description=Address of the remote host"`
+	Address string `yaml:"address" json:"address" validate:"required" jsonschema:"required,description=Address of the remote host"`
 
 	// Optional SSH user
 	User *string `yaml:"user,omitempty" json:"user,omitempty" jsonschema:"description=Optional SSH user"`
@@ -46,7 +46,7 @@ type OpenSSH struct {
 	ConfigPath *string `yaml:"configPath,omitempty" json:"configPath,omitempty" jsonschema:"description=Path to SSH config file"`
 
 	// Additional SSH options as key-value pairs, such as StrictHostKeyChecking: false
-	Options OpenSSHOptions `yaml:"options,omitempty" json:"options,omitempty" jsonschema:"description=Additional SSH options as key-value pairs, such as StrictHostKeyChecking: false"`
+	Options OpenSSHOptions `yaml:"options,omitempty" json:"options,omitempty" jsonschema:"description=Additional SSH options as key-value pairs (e.g. StrictHostKeyChecking: false)"`
 
 	// Disable SSH connection multiplexing
 	DisableMultiplexing bool `yaml:"disableMultiplexing,omitempty" json:"disableMultiplexing,omitempty" jsonschema:"default=false,description=Disable SSH connection multiplexing"`
