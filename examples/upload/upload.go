@@ -1,7 +1,9 @@
+// Package main demonstrates how to upload files with rig.
 package main
 
 // A simple file uploader for testing
 import (
+	"errors"
 	"flag"
 	"fmt"
 	goos "os"
@@ -12,6 +14,8 @@ import (
 	"github.com/k0sproject/rig/os/registry"
 	_ "github.com/k0sproject/rig/os/support"
 )
+
+var errUnsupportedOS = errors.New("OS does not support configurer interface")
 
 type configurer interface {
 	Pwd(host os.Host) string
@@ -30,12 +34,12 @@ type Host struct {
 func (h *Host) LoadOS() error {
 	bf, err := registry.GetOSModuleBuilder(*h.OSVersion)
 	if err != nil {
-		return err
+		return fmt.Errorf("load os module builder: %w", err)
 	}
 
 	c, ok := bf().(configurer)
 	if !ok {
-		return fmt.Errorf("OS %s does not support configurer interface", *h.OSVersion)
+		return fmt.Errorf("%w: %s", errUnsupportedOS, *h.OSVersion)
 	}
 	h.Configurer = c
 
@@ -43,65 +47,65 @@ func (h *Host) LoadOS() error {
 }
 
 func main() {
-	dh := flag.String("host", "127.0.0.1", "target host")
-	dp := flag.Int("port", 9022, "target host port")
-	sf := flag.String("src", "tmpfile", "source file")
-	df := flag.String("dst", "/tmp/tempfile", "destination file")
+	hostAddr := flag.String("host", "127.0.0.1", "target host")
+	hostPort := flag.Int("port", 9022, "target host port")
+	srcFile := flag.String("src", "tmpfile", "source file")
+	dstFile := flag.String("dst", "/tmp/tempfile", "destination file")
 	sudo := flag.Bool("sudo", false, "use sudo when uploading")
-	usr := flag.String("user", "root", "user name")
-	pwd := flag.String("pass", "", "password")
+	user := flag.String("user", "root", "user name")
+	password := flag.String("pass", "", "password")
 	proto := flag.String("proto", "ssh", "ssh/winrm")
 	https := flag.Bool("https", false, "use https")
 
 	flag.Parse()
 
-	if *dh == "" {
+	if *hostAddr == "" {
 		println("see -help")
 		goos.Exit(1)
 	}
 
-	var h *Host
+	var host *Host
 
 	if *proto == "ssh" {
-		h = &Host{
+		host = &Host{
 			Connection: rig.Connection{
 				SSH: &rig.SSH{
-					Address: *dh,
-					Port:    *dp,
-					User:    *usr,
+					Address: *hostAddr,
+					Port:    *hostPort,
+					User:    *user,
 				},
 			},
 		}
 	} else {
-		h = &Host{
+		host = &Host{
 			Connection: rig.Connection{
 				WinRM: &rig.WinRM{
-					Address:  *dh,
-					Port:     *dp,
-					User:     *usr,
+					Address:  *hostAddr,
+					Port:     *hostPort,
+					User:     *user,
 					UseHTTPS: *https,
 					Insecure: true,
-					Password: *pwd,
+					Password: *password,
 				},
 			},
 		}
 	}
 
-	if err := h.Connect(); err != nil {
-		fmt.Println(*dh, *dp)
+	if err := host.Connect(); err != nil {
+		fmt.Println(*hostAddr, *hostPort)
 		panic(err)
 	}
 
-	if err := h.LoadOS(); err != nil {
+	if err := host.LoadOS(); err != nil {
 		panic(err)
 	}
 
 	var opts []exec.Option
 	if *sudo {
-		opts = append(opts, exec.Sudo(h))
+		opts = append(opts, exec.Sudo(host))
 	}
-	if err := h.Upload(*sf, *df, 0o600, opts...); err != nil {
+	if err := host.Upload(*srcFile, *dstFile, 0o600, opts...); err != nil {
 		panic(err)
 	}
-	fmt.Println("Done, file now at", *df)
+	fmt.Println("Done, file now at", *dstFile)
 }

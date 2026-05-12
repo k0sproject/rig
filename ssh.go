@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -74,7 +75,7 @@ type PasswordCallback func() (secret string, err error)
 var agentSignerSource = func() ([]ssh.Signer, error) {
 	a, err := agent.NewClient()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create ssh agent client: %w", err)
 	}
 	return a.Signers()
 }
@@ -202,14 +203,7 @@ func (c *SSH) initGlobalDefaults() {
 
 func findUniq(a, b []string) (string, bool) {
 	for _, s := range a {
-		found := false
-		for _, t := range b {
-			if s == t {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !slices.Contains(b, s) {
 			return s, true
 		}
 	}
@@ -289,7 +283,7 @@ func (c *SSH) getConfigAll(key string) []string {
 // String returns the connection's printable name
 func (c *SSH) String() string {
 	if c.name == "" {
-		c.name = fmt.Sprintf("[ssh] %s", net.JoinHostPort(c.Address, strconv.Itoa(c.Port)))
+		c.name = "[ssh] " + net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
 	}
 
 	return c.name

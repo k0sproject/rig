@@ -115,7 +115,7 @@ func (c Windows) WriteFile(h Host, path string, data string, _ string) error {
 
 // ReadFile reads a file's contents from the host.
 func (c Windows) ReadFile(h Host, path string) (string, error) {
-	out, err := h.ExecOutput(fmt.Sprintf(`type %s`, ps.DoubleQuotePath(path)), exec.HideOutput())
+	out, err := h.ExecOutput("type "+ps.DoubleQuotePath(path), exec.HideOutput())
 	if err != nil {
 		return "", fmt.Errorf("failed to read file %s: %w", path, err)
 	}
@@ -124,7 +124,7 @@ func (c Windows) ReadFile(h Host, path string) (string, error) {
 
 // DeleteFile deletes a file from the host.
 func (c Windows) DeleteFile(h Host, path string) error {
-	if err := h.Exec(fmt.Sprintf(`del /f %s`, ps.DoubleQuotePath(path))); err != nil {
+	if err := h.Exec("del /f " + ps.DoubleQuotePath(path)); err != nil {
 		return fmt.Errorf("failed to delete file %s: %w", path, err)
 	}
 	return nil
@@ -208,7 +208,7 @@ func (c Windows) ServiceScriptPath(_ Host, _ string) (string, error) {
 
 // RestartService restarts a service
 func (c Windows) RestartService(h Host, s string) error {
-	if err := h.Execf(ps.Cmd(fmt.Sprintf(`Restart-Service %s`, ps.DoubleQuote(s)))); err != nil {
+	if err := h.Execf(ps.Cmd("Restart-Service " + ps.DoubleQuote(s))); err != nil {
 		return fmt.Errorf("failed to restart service %s: %w", s, err)
 	}
 	return nil
@@ -244,7 +244,7 @@ func (c Windows) ServiceIsRunning(h Host, s string) bool {
 // MkDir creates a directory (including intermediate directories)
 func (c Windows) MkDir(h Host, s string, opts ...exec.Option) error {
 	// windows mkdir is "-p" by default
-	if err := h.Exec(fmt.Sprintf(`mkdir %s`, ps.DoubleQuote(s)), opts...); err != nil {
+	if err := h.Exec("mkdir "+ps.DoubleQuote(s), opts...); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", s, err)
 	}
 	return nil

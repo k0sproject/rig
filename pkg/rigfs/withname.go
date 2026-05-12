@@ -2,15 +2,24 @@ package rigfs
 
 import "io/fs"
 
+// File operation names for use in error handling.
 const (
-	OpClose    = "close"     // OpClose Close operation
-	OpOpen     = "open"      // OpOpen Open operation
-	OpRead     = "read"      // OpRead Read operation
-	OpSeek     = "seek"      // OpSeek Seek operation
-	OpStat     = "stat"      // OpStat Stat operation
-	OpWrite    = "write"     // OpWrite Write operation
-	OpCopyTo   = "copy-to"   // OpCopyTo CopyTo operation
-	OpCopyFrom = "copy-from" // OpCopyFrom CopyFrom operation
+	// OpClose represents a close operation.
+	OpClose = "close"
+	// OpOpen represents an open operation.
+	OpOpen = "open"
+	// OpRead represents a read operation.
+	OpRead = "read"
+	// OpSeek represents a seek operation.
+	OpSeek = "seek"
+	// OpStat represents a stat operation.
+	OpStat = "stat"
+	// OpWrite represents a write operation.
+	OpWrite = "write"
+	// OpCopyTo represents a copy-to operation.
+	OpCopyTo = "copy-to"
+	// OpCopyFrom represents a copy-from operation.
+	OpCopyFrom = "copy-from"
 )
 
 type withPath struct {

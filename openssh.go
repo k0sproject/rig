@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	goexec "os/exec"
 	"strconv"
@@ -58,10 +59,6 @@ type OpenSSH struct {
 	name string
 }
 
-func boolPtr(b bool) *bool {
-	return &b
-}
-
 // Protocol returns the protocol name
 func (c *OpenSSH) Protocol() string {
 	return "OpenSSH"
@@ -79,7 +76,8 @@ func (c *OpenSSH) IsWindows() bool {
 		return *c.isWindows
 	}
 
-	c.isWindows = boolPtr(c.Exec("cmd.exe /c exit 0") == nil)
+	isWin := c.Exec("cmd.exe /c exit 0") == nil
+	c.isWindows = &isWin
 	log.Debugf("%s: host is windows: %t", c, *c.isWindows)
 
 	return *c.isWindows
@@ -91,9 +89,7 @@ type OpenSSHOptions map[string]any
 // Copy returns a copy of the options
 func (o OpenSSHOptions) Copy() OpenSSHOptions {
 	dup := make(OpenSSHOptions, len(o))
-	for k, v := range o {
-		dup[k] = v
-	}
+	maps.Copy(dup, o)
 	return dup
 }
 
@@ -122,9 +118,9 @@ func (o OpenSSHOptions) ToArgs() []string {
 	for k, v := range o {
 		if b, ok := v.(bool); ok {
 			if b {
-				args = append(args, "-o", fmt.Sprintf("%s=yes", k))
+				args = append(args, "-o", k+"=yes")
 			} else {
-				args = append(args, "-o", fmt.Sprintf("%s=no", k))
+				args = append(args, "-o", k+"=no")
 			}
 			continue
 		}
@@ -225,10 +221,12 @@ func (c *OpenSSH) Connect() error {
 	opts.Set("ControlPersist", 600)
 	opts.Set("TCPKeepalive", true)
 
-	args := []string{"-N", "-f"}
+	args := make([]string, 0, 2+len(opts.ToArgs())+len(c.args()))
+	args = append(args, "-N", "-f")
 	args = append(args, opts.ToArgs()...)
 	args = append(args, c.args()...)
 
+	//nolint:noctx // OpenSSH connection multiplexing is a long-running background process
 	cmd := goexec.Command("ssh", args...)
 	var errBuf bytes.Buffer
 	cmd.Stdout = os.Stdout
@@ -265,11 +263,13 @@ func (c *OpenSSH) closeControl() error {
 		return ErrControlPathNotSet
 	}
 
-	args := []string{"-O", "exit", "-S", controlPath}
+	args := make([]string, 0, 4+len(c.args())+1)
+	args = append(args, "-O", "exit", "-S", controlPath)
 	args = append(args, c.args()...)
 	args = append(args, c.userhost())
 
 	log.Debugf("%s: closing ssh multiplexing control master", c)
+	//nolint:noctx // OpenSSH connection multiplexing command
 	cmd := goexec.Command("ssh", args...)
 	err := cmd.Run()
 	if err != nil {
@@ -296,6 +296,7 @@ func (c *OpenSSH) Exec(cmdStr string, opts ...exec.Option) error { //nolint:cycl
 	args = append(args, "-o", "BatchMode=yes")
 	args = append(args, c.args()...)
 	args = append(args, "--", command)
+	//nolint:noctx // OpenSSH command execution
 	cmd := goexec.Command("ssh", args...)
 
 	if execOpts.Stdin != "" {
@@ -375,6 +376,7 @@ func (c *OpenSSH) ExecStreams(cmdStr string, stdin io.ReadCloser, stdout, stderr
 	args = append(args, "-o", "BatchMode=yes")
 	args = append(args, c.args()...)
 	args = append(args, "--", command)
+	//nolint:noctx // OpenSSH command execution with streams
 	cmd := goexec.Command("ssh", args...)
 
 	cmd.Stdin = stdin
@@ -407,9 +409,9 @@ func (c *OpenSSH) String() string {
 		return c.name
 	}
 
-	c.name = fmt.Sprintf("[OpenSSH] %s", c.userhost())
+	c.name = "[OpenSSH] " + c.userhost()
 	if c.Port != nil {
-		c.name = fmt.Sprintf("%s:%d", c.name, *c.Port)
+		c.name = c.name + ":" + strconv.Itoa(*c.Port)
 	}
 
 	return c.name

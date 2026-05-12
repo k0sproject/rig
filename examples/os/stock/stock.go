@@ -1,3 +1,4 @@
+// Package main demonstrates how to use the OS support mechanism with rig.
 package main
 
 /*
@@ -12,6 +13,7 @@ package main
 */
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/k0sproject/rig"
@@ -19,6 +21,8 @@ import (
 	"github.com/k0sproject/rig/os/registry"
 	_ "github.com/k0sproject/rig/os/support"
 )
+
+var errUnsupportedOS = errors.New("OS does not support configurer interface")
 
 type configurer interface {
 	Pwd(host os.Host) string
@@ -36,12 +40,12 @@ type Host struct {
 func (h *Host) LoadOS() error {
 	bf, err := registry.GetOSModuleBuilder(*h.OSVersion)
 	if err != nil {
-		return err
+		return fmt.Errorf("load os module builder: %w", err)
 	}
 
 	c, ok := bf().(configurer)
 	if !ok {
-		return fmt.Errorf("OS %s does not support configurer interface", *h.OSVersion)
+		return fmt.Errorf("%w: %s", errUnsupportedOS, *h.OSVersion)
 	}
 	h.Configurer = c
 
@@ -49,7 +53,7 @@ func (h *Host) LoadOS() error {
 }
 
 func main() {
-	h := &Host{
+	host := &Host{
 		Connection: rig.Connection{
 			Localhost: &rig.Localhost{
 				Enabled: true,
@@ -57,15 +61,15 @@ func main() {
 		},
 	}
 
-	if err := h.Connect(); err != nil {
+	if err := host.Connect(); err != nil {
 		panic(err)
 	}
 
-	if err := h.LoadOS(); err != nil {
+	if err := host.LoadOS(); err != nil {
 		panic(err)
 	}
 
 	fmt.Println("OS Info:")
-	fmt.Printf("%+v\n", h.OSVersion)
-	fmt.Printf("Host PWD:\n%s\n", h.Configurer.Pwd(h))
+	fmt.Printf("%+v\n", host.OSVersion)
+	fmt.Printf("Host PWD:\n%s\n", host.Configurer.Pwd(host))
 }

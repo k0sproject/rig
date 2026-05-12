@@ -154,9 +154,11 @@ func (c *Localhost) command(cmd string, o *exec.Options) (*osexec.Cmd, error) {
 	}
 
 	if c.IsWindows() {
+		//nolint:noctx // localhost exec commands are long-running and do not use context cancellation
 		return osexec.Command("cmd.exe", "/c", cmd), nil
 	}
 
+	//nolint:noctx // localhost exec commands are long-running and do not use context cancellation
 	return osexec.Command("sh", "-c", "--", cmd), nil
 }
 
@@ -175,7 +177,7 @@ func (c *Localhost) ExecInteractive(cmd string) error {
 		return fmt.Errorf("failed to get current working directory: %w", err)
 	}
 
-	pa := os.ProcAttr{
+	procAttr := os.ProcAttr{
 		Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
 		Dir:   cwd,
 	}
@@ -185,7 +187,8 @@ func (c *Localhost) ExecInteractive(cmd string) error {
 		return fmt.Errorf("failed to parse command: %w", err)
 	}
 
-	proc, err := os.StartProcess(parts[0], parts[1:], &pa)
+	//nolint:gosec // command is parsed from user input via shellwords.Parse which safely handles quoting
+	proc, err := os.StartProcess(parts[0], parts[1:], &procAttr)
 	if err != nil {
 		return fmt.Errorf("failed to start process: %w", err)
 	}

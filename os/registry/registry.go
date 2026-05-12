@@ -11,25 +11,26 @@ import (
 var ErrOSModuleNotFound = errors.New("os support module not found")
 
 type (
-	buildFunc = func() any
+	// BuildFunc is a function that builds an OS module instance.
+	BuildFunc = func() any
 	matchFunc = func(rig.OSVersion) bool
 )
 
 type osFactory struct {
 	MatchFunc matchFunc
-	BuildFunc buildFunc
+	BuildFunc BuildFunc
 }
 
 var osModules []*osFactory
 
 // RegisterOSModule registers a OS support module into rig's registry
-func RegisterOSModule(mf matchFunc, bf buildFunc) {
+func RegisterOSModule(mf matchFunc, bf BuildFunc) {
 	// Inserting to beginning to match the most latest added
 	osModules = append([]*osFactory{{MatchFunc: mf, BuildFunc: bf}}, osModules...)
 }
 
-// GetOSModuleBuilder returns a suitable OS support module from rig's registry
-func GetOSModuleBuilder(osv rig.OSVersion) (buildFunc, error) {
+// GetOSModuleBuilder returns a suitable OS support module from rig's registry.
+func GetOSModuleBuilder(osv rig.OSVersion) (BuildFunc, error) {
 	for _, of := range osModules {
 		if of.MatchFunc(osv) {
 			return of.BuildFunc, nil

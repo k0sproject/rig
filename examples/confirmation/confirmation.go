@@ -1,3 +1,4 @@
+// Package main demonstrates how to use confirmation dialogs with rig.
 package main
 
 import (
@@ -11,11 +12,11 @@ import (
 )
 
 func main() {
-	c := &rig.Localhost{Enabled: true}
+	conn := &rig.Localhost{Enabled: true}
 	exec.Confirm = true
-	exec.ConfirmFunc = func(s string) bool {
+	exec.ConfirmFunc = func(cmd string) bool {
 		fmt.Println("Executing function:")
-		fmt.Println(s)
+		fmt.Println(cmd)
 		fmt.Print("Allow? [Y/n]: ")
 
 		reader := bufio.NewReader(os.Stdin)
@@ -24,5 +25,5 @@ func main() {
 		return text == "" || text == "Y" || text == "y"
 	}
 
-	c.Exec("echo Hello, world", exec.StreamOutput())
+	_ = conn.Exec("echo Hello, world", exec.StreamOutput())
 }

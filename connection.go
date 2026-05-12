@@ -21,6 +21,8 @@ import (
 	"github.com/mattn/go-shellwords"
 )
 
+const osWindows = "windows"
+
 var _ rigos.Host = (*Connection)(nil)
 
 type client interface {
@@ -70,6 +72,8 @@ type sudofn func(string) string
 //	  }
 //	  output, err := h.ExecOutput("echo hello")
 //	}
+//
+//nolint:recvcheck // Connection has intentional mixed receivers: pointers for mutating methods, values for read-only accessors
 type Connection struct {
 	// Connection configuration for WinRM targets
 	WinRM *WinRM `yaml:"winRM,omitempty" json:"winRM,omitempty"`
@@ -177,7 +181,7 @@ func (c *Connection) SudoFsys() rigfs.Fsys {
 // IsWindows returns true on windows hosts
 func (c *Connection) IsWindows() bool {
 	if c.OSVersion != nil {
-		return c.OSVersion.ID == "windows"
+		return c.OSVersion.ID == osWindows
 	}
 	if !c.IsConnected() {
 		if client := c.configuredClient(); client != nil {

@@ -9,6 +9,8 @@ import (
 	"github.com/k0sproject/rig/os/registry"
 )
 
+const osWindows = "windows"
+
 // Windows2019 provides os specific functions for the "Windows Server 2019" OS
 type Windows2019 struct {
 	os.Windows
@@ -17,7 +19,7 @@ type Windows2019 struct {
 func init() {
 	registry.RegisterOSModule(
 		func(os rig.OSVersion) bool {
-			return os.ID == "windows" && strings.HasPrefix(os.Version, "10.0.")
+			return os.ID == osWindows && strings.HasPrefix(os.Version, "10.0.")
 		},
 		func() any {
 			return Windows2019{}
