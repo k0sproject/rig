@@ -192,24 +192,23 @@ func (c Windows) CommandExist(h Host, cmd string) bool {
 func (c Windows) Reboot(h Host) error {
 	taskName := fmt.Sprintf("RigReboot%d", time.Now().UnixNano())
 	const shutdownDelay = 5
-	startTime := time.Now().Add(time.Minute).Format("15:04")
+	scheduled := time.Now().Add(time.Minute)
 	create := fmt.Sprintf(
-		`schtasks /create /tn "%s" /tr "shutdown /r /f /t %d" /sc once /st %s /f /ru SYSTEM`,
-		taskName, shutdownDelay, startTime,
+		`schtasks /create /tn "%s" /tr "shutdown /r /f /t %d" /sc once /sd %s /st %s /z /f /ru SYSTEM`,
+		taskName, shutdownDelay, scheduled.Format("01/02/2006"), scheduled.Format("15:04"),
 	)
 	if err := h.Exec(create, exec.AllowWinStderr()); err != nil {
 		return fmt.Errorf("failed to create reboot task: %w", err)
 	}
-	// Best-effort cleanup deferred immediately after create; /sc once guarantees
-	// the task won't re-fire even if delete fails, but we still try to remove it
-	// on all exit paths, including early returns from run errors.
-	defer func() { _ = h.Exec(fmt.Sprintf(`schtasks /delete /tn "%s" /f`, taskName)) }()
 	run := fmt.Sprintf(`schtasks /run /tn "%s"`, taskName)
 	if err := h.Exec(run); err != nil {
 		// Tolerate connection-level errors; the OS may kill WinRM as it starts
-		// rebooting before the run command returns.
+		// rebooting before the run command returns. Leave the task in place so it
+		// fires at its scheduled time if /run did not actually trigger it.
 		errMsg := err.Error()
 		if !strings.Contains(errMsg, "connection") && !strings.Contains(errMsg, "closed") && !strings.Contains(errMsg, "EOF") {
+			// Non-connection error: delete the task to prevent an unexpected reboot.
+			_ = h.Exec(fmt.Sprintf(`schtasks /delete /tn "%s" /f`, taskName))
 			return fmt.Errorf("failed to run reboot task: %w", err)
 		}
 	}
