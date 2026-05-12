@@ -24,7 +24,7 @@ func main() {
 			Address: *host,
 			PasswordCallback: func() (string, error) {
 				fmt.Println("Enter password:")
-				pass, err := term.ReadPassword(syscall.Stdin)
+				pass, err := term.ReadPassword(int(syscall.Stdin)) //nolint:unconvert // syscall.Stdin is uintptr on Windows
 				return string(pass), err
 			},
 		},
