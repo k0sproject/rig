@@ -190,7 +190,7 @@ func (c Windows) CommandExist(h Host, cmd string) bool {
 // past-start-time warning; the task is triggered immediately via schtasks /run
 // regardless of the scheduled time.
 func (c Windows) Reboot(h Host) error {
-	taskName := fmt.Sprintf("RigReboot%d", time.Now().Unix())
+	taskName := fmt.Sprintf("RigReboot%d", time.Now().UnixNano())
 	const shutdownDelay = 5
 	startTime := time.Now().Add(time.Minute).Format("15:04")
 	create := fmt.Sprintf(
@@ -200,6 +200,10 @@ func (c Windows) Reboot(h Host) error {
 	if err := h.Exec(create, exec.AllowWinStderr()); err != nil {
 		return fmt.Errorf("failed to create reboot task: %w", err)
 	}
+	// Best-effort cleanup deferred immediately after create; /sc once guarantees
+	// the task won't re-fire even if delete fails, but we still try to remove it
+	// on all exit paths, including early returns from run errors.
+	defer func() { _ = h.Exec(fmt.Sprintf(`schtasks /delete /tn "%s" /f`, taskName)) }()
 	run := fmt.Sprintf(`schtasks /run /tn "%s"`, taskName)
 	if err := h.Exec(run); err != nil {
 		// Tolerate connection-level errors; the OS may kill WinRM as it starts
@@ -209,8 +213,6 @@ func (c Windows) Reboot(h Host) error {
 			return fmt.Errorf("failed to run reboot task: %w", err)
 		}
 	}
-	// Best-effort cleanup; /sc once guarantees the task won't re-fire even if delete fails.
-	_ = h.Exec(fmt.Sprintf(`schtasks /delete /tn "%s" /f`, taskName)) //nolint:errcheck
 	// Wait for the shutdown timer plus a buffer before the caller begins polling.
 	time.Sleep(time.Duration(shutdownDelay+10) * time.Second)
 	return nil
