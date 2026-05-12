@@ -183,6 +183,9 @@ func (c Windows) CommandExist(h Host, cmd string) bool {
 // disconnection rather than a logical failure. WinRM errors are not always
 // typed, so we check known sentinels first and fall back to string matching.
 func isWinRMConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
 	if errors.Is(err, io.EOF) {
 		return true
 	}
@@ -196,25 +199,25 @@ func isWinRMConnectionError(err error) bool {
 
 // Reboot triggers a forced restart via a SYSTEM-context one-shot scheduled
 // task that runs shutdown, then immediately triggers it with schtasks /run.
+// Returns as soon as the trigger is sent; the caller is responsible for
+// polling until the host goes down and comes back.
 //
 // Running via a scheduled task bypasses the filtered Administrator token used
 // by WinRM sessions (e.g. AWS EC2) which lacks SeShutdownPrivilege. Issuing
 // 'shutdown /r' directly in the WinRM session is silently ignored in that
 // context.
 //
-// The task is scheduled one hour ahead to avoid past-start-time warnings while
-// keeping the fallback window large enough that transient /run errors (not
-// caused by an actual reboot) do not trigger an unexpected restart. After the
-// shutdown delay elapses, a best-effort delete is attempted; if the machine is
-// already rebooting the delete will fail silently and the /z flag ensures the
-// task is removed once it eventually fires.
+// The task is scheduled for a fixed far-future date to avoid past-start-time
+// warnings without depending on the controller's clock or timezone. The /z
+// flag auto-deletes the task after it fires. A best-effort delete is also
+// attempted immediately after /run; if the machine is already rebooting the
+// delete will fail silently.
 func (c Windows) Reboot(h Host) error {
 	taskName := fmt.Sprintf("RigReboot%d", time.Now().UnixNano())
 	const shutdownDelay = 5
-	scheduled := time.Now().Add(time.Hour)
 	create := fmt.Sprintf(
-		`schtasks /create /tn "%s" /tr "shutdown /r /f /t %d" /sc once /sd %s /st %s /z /f /ru SYSTEM`,
-		taskName, shutdownDelay, scheduled.Format("01/02/2006"), scheduled.Format("15:04"),
+		`schtasks /create /tn "%s" /tr "shutdown /r /f /t %d" /sc once /sd 12/31/2099 /st 23:59 /z /f /ru SYSTEM`,
+		taskName, shutdownDelay,
 	)
 	if err := h.Exec(create, exec.AllowWinStderr()); err != nil {
 		return fmt.Errorf("failed to create reboot task: %w", err)
@@ -229,11 +232,10 @@ func (c Windows) Reboot(h Host) error {
 		// Connection-level error: the OS may have killed WinRM as it started
 		// rebooting. Leave the task in place so it fires at its scheduled time
 		// if /run did not actually trigger it.
+		return nil
 	}
-	// Wait for the shutdown timer plus a buffer before the caller begins polling.
-	time.Sleep(time.Duration(shutdownDelay+10) * time.Second)
-	// Best-effort cleanup: if the machine is still reachable here the reboot did
-	// not start, so remove the task to prevent it firing at its scheduled time.
+	// Best-effort cleanup: deleting the task entry does not cancel the already-
+	// started shutdown process; it only prevents the far-future scheduled fire.
 	_ = h.Exec(fmt.Sprintf(`schtasks /delete /tn "%s" /f`, taskName))
 	return nil
 }
