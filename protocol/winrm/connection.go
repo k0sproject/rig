@@ -281,21 +281,10 @@ type command struct {
 	sh  *winrm.Shell
 	cmd *winrm.Command
 	wg  sync.WaitGroup
-	log log.Logger
 }
 
 // Wait blocks until the command finishes.
 func (c *command) Wait() error {
-	defer func() {
-		if r := recover(); r != nil {
-			if strings.Contains(fmt.Sprint(r), "close of closed channel") {
-				c.log.Debug("recovered from a panic in command.Wait", "reason", r)
-			} else {
-				panic(r)
-			}
-		}
-	}()
-
 	defer c.sh.Close()
 	defer c.cmd.Close()
 
@@ -342,7 +331,7 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 		return nil, fmt.Errorf("execute command: %w", err)
 	}
 	started := time.Now()
-	res := &command{sh: shell, cmd: proc, log: c.Log()}
+	res := &command{sh: shell, cmd: proc}
 	if stdin == nil {
 		proc.Stdin.Close()
 	} else {

@@ -14,12 +14,18 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/k0sproject/rig/v2/cmd"
 	"github.com/k0sproject/rig/v2/log"
 	ps "github.com/k0sproject/rig/v2/powershell"
 )
+
+// rebootTaskCounter ensures unique Windows scheduled-task names across rapid
+// successive calls within the same process, since time.Now().UnixNano() can
+// collide on coarse-resolution clocks.
+var rebootTaskCounter atomic.Uint64
 
 var (
 	_ fs.FS = (*WinFS)(nil)
@@ -708,4 +714,51 @@ func (s *WinFS) UserHomeDir() string {
 
 func toSlashes(path string) string {
 	return strings.ReplaceAll(path, "\\", "/")
+}
+
+// Reboot triggers an immediate restart of the remote host via a SYSTEM-context
+// one-shot scheduled task running 'shutdown /r /f /t 5'. Running via a
+// scheduled task bypasses the filtered Administrator token used by WinRM
+// sessions (e.g. on AWS EC2) which lacks SeShutdownPrivilege — issuing
+// 'shutdown /r' directly in such a session is silently ignored by the OS.
+//
+// The scheduled time uses '/sc once /st 23:59' to avoid locale-sensitive
+// date parsing; the task is immediately triggered via 'schtasks /run' so the
+// scheduled time is irrelevant. The '/z' flag asks Windows to delete the
+// task after it fires, and a best-effort 'schtasks /delete' is attempted in
+// all cases to prevent a delayed fallback fire if '/run' never triggered the
+// shutdown.
+func (s *WinFS) Reboot(ctx context.Context) error {
+	taskName := fmt.Sprintf("RigReboot%d_%d", time.Now().UnixNano(), rebootTaskCounter.Add(1))
+	const shutdownDelay = 5
+	createCmd := fmt.Sprintf(
+		`schtasks /create /tn "%s" /tr "shutdown /r /f /t %d" /sc once /st 23:59 /z /f /ru SYSTEM`,
+		taskName, shutdownDelay,
+	)
+	if err := s.ExecContext(ctx, createCmd, cmd.AllowWinStderr()); err != nil {
+		return fmt.Errorf("create reboot task: %w", err)
+	}
+
+	runCmd := fmt.Sprintf(`schtasks /run /tn "%s"`, taskName)
+	deleteCmd := fmt.Sprintf(`schtasks /delete /tn "%s" /f`, taskName)
+
+	if err := s.ExecContext(ctx, runCmd, cmd.AllowWinStderr()); err != nil {
+		// Best-effort delete in all error paths to prevent the task from
+		// firing later. Ignore the delete error: if the host is already
+		// rebooting it will fail anyway, and if the task never fired the
+		// auto-delete (/z) won't trigger either.
+		_ = s.ExecContext(ctx, deleteCmd, cmd.AllowWinStderr())
+		if !isTransportClosed(err) {
+			return fmt.Errorf("run reboot task: %w", err)
+		}
+		// Transport-level error means the session was likely torn down by
+		// the shutdown starting — treat as success.
+		return nil
+	}
+
+	// Run succeeded. Best-effort cleanup; deleting the task entry does not
+	// cancel the already-started shutdown countdown, it only prevents a
+	// delayed fallback fire if /run somehow did not trigger.
+	_ = s.ExecContext(ctx, deleteCmd, cmd.AllowWinStderr())
+	return nil
 }
