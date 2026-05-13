@@ -309,7 +309,7 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop
 		}()
 	}
 
-	var errors []string
+	var stderrLines []string
 
 	wg.Add(1)
 	go func() {
@@ -336,7 +336,7 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop
 		for outputScanner.Scan() {
 			msg := outputScanner.Text()
 			if msg != "" {
-				errors = append(errors, msg)
+				stderrLines = append(stderrLines, msg)
 				execOpts.LogErrorf("%s: %s", c, msg)
 			}
 		}
@@ -351,8 +351,8 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop
 	if ec := command.ExitCode(); ec > 0 {
 		return fmt.Errorf("%w: non-zero exit code: %d", ErrCommandFailed, ec)
 	}
-	if !execOpts.AllowWinStderr && len(errors) > 0 {
-		return fmt.Errorf("%w: received data in stderr: %s", ErrCommandFailed, strings.Join(errors, "\n"))
+	if !execOpts.AllowWinStderr && len(stderrLines) > 0 {
+		return fmt.Errorf("%w: received data in stderr: %s", ErrCommandFailed, strings.Join(stderrLines, "\n"))
 	}
 
 	return nil

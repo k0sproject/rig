@@ -207,16 +207,16 @@ func isWinRMConnectionError(err error) bool {
 // 'shutdown /r' directly in the WinRM session is silently ignored in that
 // context.
 //
-// The task is scheduled for a fixed far-future date to avoid past-start-time
-// warnings without depending on the controller's clock or timezone. The /z
-// flag auto-deletes the task after it fires. A best-effort delete is also
-// attempted immediately after /run; if the machine is already rebooting the
-// delete will fail silently.
+// The task omits /sd to avoid locale-sensitive date parsing; /st 23:59 is
+// accepted universally. The task is immediately triggered via /run so the
+// scheduled time is irrelevant. The /z flag auto-deletes the task after it
+// fires. A best-effort delete is also attempted immediately after /run; if
+// the machine is already rebooting the delete will fail silently.
 func (c Windows) Reboot(h Host) error {
 	taskName := fmt.Sprintf("RigReboot%d", time.Now().UnixNano())
 	const shutdownDelay = 5
 	create := fmt.Sprintf(
-		`schtasks /create /tn "%s" /tr "shutdown /r /f /t %d" /sc once /sd 12/31/2099 /st 23:59 /z /f /ru SYSTEM`,
+		`schtasks /create /tn "%s" /tr "shutdown /r /f /t %d" /sc once /st 23:59 /z /f /ru SYSTEM`,
 		taskName, shutdownDelay,
 	)
 	if err := h.Exec(create, exec.AllowWinStderr()); err != nil {
