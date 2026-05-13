@@ -12,6 +12,7 @@ import (
 	ps "github.com/k0sproject/rig/pkg/powershell"
 )
 
+// ResolveFunc is a function that resolves the OS version from a connection.
 type ResolveFunc func(*Connection) (OSVersion, error)
 
 var (
@@ -75,8 +76,8 @@ func resolveWindows(conn *Connection) (OSVersion, error) {
 		return OSVersion{}, fmt.Errorf("%w: unable to parse windows version: %w", errAbort, err)
 	}
 	return OSVersion{
-		ID:      "windows",
-		IDLike:  "windows",
+		ID:      osWindows,
+		IDLike:  osWindows,
 		Version: winver.Version,
 		Name:    winver.Caption,
 	}, nil
@@ -115,13 +116,14 @@ func unquote(s string) string {
 	return s
 }
 
+// ParseOSReleaseFile parses the contents of an /etc/os-release file into an OSVersion struct.
 func ParseOSReleaseFile(s string, version *OSVersion) error {
 	scanner := bufio.NewScanner(strings.NewReader(s))
 	for scanner.Scan() {
 		fields := strings.SplitN(scanner.Text(), "=", 2)
 		switch fields[0] {
 		case "":
-		        // Empty line in the file - unexpected but may happen
+			// Empty line in the file - unexpected but may happen
 		case "ID":
 			version.ID = unquote(fields[1])
 		case "ID_LIKE":

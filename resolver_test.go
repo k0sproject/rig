@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-const (
-)
 
 func TestParseReleaseFile(t *testing.T) {
 	osReleaseRocky := `NAME="Rocky Linux"   
@@ -50,5 +48,5 @@ REDHAT_SUPPORT_PRODUCT_VERSION="8.9"`
 	} else if v != "Rocky-Linux-8" {
 		t.Errorf("ParseOSReleaseFile gave the wrong extra field value: '%s != 'Rocky-Linux-8'", v)
 	}
-	
+
 }

@@ -21,6 +21,8 @@ import (
 	"github.com/mattn/go-shellwords"
 )
 
+const osWindows = "windows"
+
 var _ rigos.Host = (*Connection)(nil)
 
 type client interface {
@@ -70,15 +72,21 @@ type sudofn func(string) string
 //	  }
 //	  output, err := h.ExecOutput("echo hello")
 //	}
+//
+//nolint:recvcheck // Connection has intentional mixed receivers: pointers for mutating methods, values for read-only accessors
 type Connection struct {
-	WinRM     *WinRM     `yaml:"winRM,omitempty"`
-	SSH       *SSH       `yaml:"ssh,omitempty"`
-	Localhost *Localhost `yaml:"localhost,omitempty"`
-	OpenSSH   *OpenSSH   `yaml:"openSSH,omitempty"`
+	// Connection configuration for WinRM targets
+	WinRM *WinRM `yaml:"winRM,omitempty" json:"winRM,omitempty"`
+	// Connection configuration for SSH targets
+	SSH *SSH `yaml:"ssh,omitempty" json:"ssh,omitempty"`
+	// Connection configuration for localhost
+	Localhost *Localhost `yaml:"localhost,omitempty" json:"localhost,omitempty"`
+	// Connection configuration for SSH targets over OpenSSH client integration
+	OpenSSH *OpenSSH `yaml:"openSSH,omitempty" json:"openSSH,omitempty"`
 
-	OSVersion *OSVersion `yaml:"-"`
+	OSVersion *OSVersion `yaml:"-" json:"-"`
 
-	client   client `yaml:"-"`
+	client   client
 	sudofunc sudofn
 	fsys     rigfs.Fsys
 	sudofsys rigfs.Fsys
@@ -173,7 +181,7 @@ func (c *Connection) SudoFsys() rigfs.Fsys {
 // IsWindows returns true on windows hosts
 func (c *Connection) IsWindows() bool {
 	if c.OSVersion != nil {
-		return c.OSVersion.ID == "windows"
+		return c.OSVersion.ID == osWindows
 	}
 	if !c.IsConnected() {
 		if client := c.configuredClient(); client != nil {

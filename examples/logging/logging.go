@@ -1,3 +1,4 @@
+// Package main demonstrates how to use logging with rig.
 package main
 
 import (
@@ -14,10 +15,10 @@ func main() {
 	log.Errorf("Testing ERROR level logging: %s", "Hello")
 
 	c := &rig.Localhost{Enabled: true}
-	c.Exec("echo Hello, world", exec.StreamOutput())
+	_ = c.Exec("echo Hello, world", exec.StreamOutput())
 
 	log.Infof("testing without HideOutput()")
-	c.Exec("ls")
+	_ = c.Exec("ls")
 	log.Infof("testing with HideOutput()")
-	c.Exec("ls", exec.HideOutput())
+	_ = c.Exec("ls", exec.HideOutput())
 }

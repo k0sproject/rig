@@ -1,3 +1,4 @@
+// Package main demonstrates how to use password authentication with rig.
 package main
 
 import (
@@ -6,7 +7,7 @@ import (
 	"syscall"
 
 	"github.com/k0sproject/rig"
-	"golang.org/x/crypto/ssh/terminal"
+	"golang.org/x/term"
 )
 
 /*
@@ -23,7 +24,7 @@ func main() {
 			Address: *host,
 			PasswordCallback: func() (string, error) {
 				fmt.Println("Enter password:")
-				pass, err := terminal.ReadPassword(int(syscall.Stdin))
+				pass, err := term.ReadPassword(int(syscall.Stdin)) //nolint:unconvert // syscall.Stdin is uintptr on Windows
 				return string(pass), err
 			},
 		},
