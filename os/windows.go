@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -177,11 +179,65 @@ func (c Windows) CommandExist(h Host, cmd string) bool {
 	return h.Execf("where /q %s", cmd) == nil
 }
 
-// Reboot executes the reboot command
-func (c Windows) Reboot(h Host) error {
-	if err := h.Exec("shutdown /r /t 5"); err != nil {
-		return fmt.Errorf("failed to reboot: %w", err)
+// isWinRMConnectionError reports whether err looks like a transport-level
+// disconnection rather than a logical failure. WinRM errors are not always
+// typed, so we check known sentinels first and fall back to string matching.
+func isWinRMConnectionError(err error) bool {
+	if err == nil {
+		return false
 	}
+	if errors.Is(err, io.EOF) {
+		return true
+	}
+	var netErr *net.OpError
+	if errors.As(err, &netErr) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "connection") || strings.Contains(msg, "closed") || strings.Contains(msg, "eof")
+}
+
+// Reboot triggers a forced restart via a SYSTEM-context one-shot scheduled
+// task that runs shutdown, then immediately triggers it with schtasks /run.
+// Returns as soon as the trigger is sent; the caller is responsible for
+// polling until the host goes down and comes back.
+//
+// Running via a scheduled task bypasses the filtered Administrator token used
+// by WinRM sessions (e.g. AWS EC2) which lacks SeShutdownPrivilege. Issuing
+// 'shutdown /r' directly in the WinRM session is silently ignored in that
+// context.
+//
+// The task omits /sd to avoid locale-sensitive date parsing; /st 23:59 is
+// accepted universally. The task is immediately triggered via /run so the
+// scheduled time is irrelevant. The /z flag auto-deletes the task after it
+// fires. A best-effort delete is attempted in all cases after /run; this
+// prevents a delayed fallback fire if /run never triggered the shutdown.
+func (c Windows) Reboot(h Host) error {
+	taskName := fmt.Sprintf("RigReboot%d", time.Now().UnixNano())
+	const shutdownDelay = 5
+	create := fmt.Sprintf(
+		`schtasks /create /tn "%s" /tr "shutdown /r /f /t %d" /sc once /st 23:59 /z /f /ru SYSTEM`,
+		taskName, shutdownDelay,
+	)
+	if err := h.Exec(create, exec.AllowWinStderr()); err != nil {
+		return fmt.Errorf("failed to create reboot task: %w", err)
+	}
+	run := fmt.Sprintf(`schtasks /run /tn "%s"`, taskName)
+	if err := h.Exec(run); err != nil {
+		if !isWinRMConnectionError(err) {
+			// Non-connection error: delete the task to prevent an unexpected reboot.
+			_ = h.Exec(fmt.Sprintf(`schtasks /delete /tn "%s" /f`, taskName))
+			return fmt.Errorf("failed to run reboot task: %w", err)
+		}
+		// Connection-level error: the OS may have killed WinRM as it started
+		// rebooting. Attempt best-effort deletion to prevent a delayed fallback
+		// fire if /run never actually triggered the shutdown.
+		_ = h.Exec(fmt.Sprintf(`schtasks /delete /tn "%s" /f`, taskName))
+		return nil
+	}
+	// Best-effort cleanup: deleting the task entry does not cancel the already-
+	// started shutdown process; it only prevents the far-future scheduled fire.
+	_ = h.Exec(fmt.Sprintf(`schtasks /delete /tn "%s" /f`, taskName))
 	return nil
 }
 

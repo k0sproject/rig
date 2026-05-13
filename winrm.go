@@ -196,18 +196,8 @@ type Command struct {
 	wg     sync.WaitGroup
 }
 
-// Wait blocks until the command finishes
-func (c *Command) Wait() (err error) { //nolint:nonamedreturns // needed for panic recovery
-	defer func() {
-		if r := recover(); err == nil && r != nil {
-			if strings.Contains(fmt.Sprint(r), "close of closed channel") {
-				log.Debugf("recovered from a panic in Command.Wait: %v", r)
-			} else {
-				panic(r)
-			}
-		}
-	}()
-
+// Wait blocks until the command finishes.
+func (c *Command) Wait() error {
 	defer c.sh.Close()
 	defer c.cmd.Close()
 
@@ -215,9 +205,9 @@ func (c *Command) Wait() (err error) { //nolint:nonamedreturns // needed for pan
 	c.cmd.Wait()
 	log.Debugf("command finished")
 	if c.cmd.ExitCode() != 0 {
-		err = fmt.Errorf("%w: exit code %d", ErrCommandFailed, c.cmd.ExitCode())
+		return fmt.Errorf("%w: exit code %d", ErrCommandFailed, c.cmd.ExitCode())
 	}
-	return err
+	return nil
 }
 
 // Close terminates the command
@@ -319,26 +309,19 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop
 		}()
 	}
 
+	var stderrLines []string
+
 	wg.Add(1)
 	go func() {
-		// ignore channel close panics
-		defer func() {
-			if r := recover(); r != nil {
-				log.Debugf("recovered from a panic while reading stderr: %v", r)
-			}
-		}()
 		defer wg.Done()
 		if execOpts.Writer == nil {
 			outputScanner := bufio.NewScanner(command.Stdout)
-
 			for outputScanner.Scan() {
 				execOpts.AddOutput(c.String(), outputScanner.Text()+"\n", "")
 			}
-
 			if err := outputScanner.Err(); err != nil {
 				execOpts.LogErrorf("%s: %s", c, err.Error())
 			}
-			command.Stdout.Close()
 		} else {
 			if _, err := io.Copy(execOpts.Writer, command.Stdout); err != nil {
 				execOpts.LogErrorf("%s: failed to stream stdout: %v", c, err)
@@ -346,31 +329,20 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop
 		}
 	}()
 
-	var errors []string
-
 	wg.Add(1)
 	go func() {
-		// ignore channel close panics
-		defer func() {
-			if r := recover(); r != nil {
-				log.Debugf("recovered from a panic while reading stderr: %v", r)
-			}
-		}()
 		defer wg.Done()
 		outputScanner := bufio.NewScanner(command.Stderr)
-
 		for outputScanner.Scan() {
 			msg := outputScanner.Text()
 			if msg != "" {
-				errors = append(errors, msg)
+				stderrLines = append(stderrLines, msg)
 				execOpts.LogErrorf("%s: %s", c, msg)
 			}
 		}
-
 		if err := outputScanner.Err(); err != nil {
 			execOpts.LogErrorf("%s: %s", c, err.Error())
 		}
-		command.Stderr.Close()
 	}()
 
 	wg.Wait()
@@ -379,8 +351,8 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop
 	if ec := command.ExitCode(); ec > 0 {
 		return fmt.Errorf("%w: non-zero exit code: %d", ErrCommandFailed, ec)
 	}
-	if !execOpts.AllowWinStderr && len(errors) > 0 {
-		return fmt.Errorf("%w: received data in stderr: %s", ErrCommandFailed, strings.Join(errors, "\n"))
+	if !execOpts.AllowWinStderr && len(stderrLines) > 0 {
+		return fmt.Errorf("%w: received data in stderr: %s", ErrCommandFailed, strings.Join(stderrLines, "\n"))
 	}
 
 	return nil
