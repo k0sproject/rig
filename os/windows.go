@@ -193,8 +193,8 @@ func isWinRMConnectionError(err error) bool {
 	if errors.As(err, &netErr) {
 		return true
 	}
-	msg := err.Error()
-	return strings.Contains(msg, "connection") || strings.Contains(msg, "closed") || strings.Contains(msg, "EOF")
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "connection") || strings.Contains(msg, "closed") || strings.Contains(msg, "eof")
 }
 
 // Reboot triggers a forced restart via a SYSTEM-context one-shot scheduled
@@ -210,8 +210,8 @@ func isWinRMConnectionError(err error) bool {
 // The task omits /sd to avoid locale-sensitive date parsing; /st 23:59 is
 // accepted universally. The task is immediately triggered via /run so the
 // scheduled time is irrelevant. The /z flag auto-deletes the task after it
-// fires. A best-effort delete is also attempted immediately after /run; if
-// the machine is already rebooting the delete will fail silently.
+// fires. A best-effort delete is attempted in all cases after /run; this
+// prevents a delayed fallback fire if /run never triggered the shutdown.
 func (c Windows) Reboot(h Host) error {
 	taskName := fmt.Sprintf("RigReboot%d", time.Now().UnixNano())
 	const shutdownDelay = 5
@@ -230,8 +230,9 @@ func (c Windows) Reboot(h Host) error {
 			return fmt.Errorf("failed to run reboot task: %w", err)
 		}
 		// Connection-level error: the OS may have killed WinRM as it started
-		// rebooting. Leave the task in place so it fires at its scheduled time
-		// if /run did not actually trigger it.
+		// rebooting. Attempt best-effort deletion to prevent a delayed fallback
+		// fire if /run never actually triggered the shutdown.
+		_ = h.Exec(fmt.Sprintf(`schtasks /delete /tn "%s" /f`, taskName))
 		return nil
 	}
 	// Best-effort cleanup: deleting the task entry does not cancel the already-
