@@ -8,6 +8,7 @@ import (
 	"github.com/k0sproject/rig/v2"
 	"github.com/k0sproject/rig/v2/cmd"
 	"github.com/k0sproject/rig/v2/os"
+	"github.com/k0sproject/rig/v2/protocol"
 	"github.com/k0sproject/rig/v2/packagemanager"
 	"github.com/k0sproject/rig/v2/remotefs"
 	"github.com/k0sproject/rig/v2/rigtest"
@@ -310,4 +311,35 @@ func TestConfiguredConnectionConnectOptsApplied(t *testing.T) {
 	require.NoError(t, err)
 
 	rigtest.ReceivedEqual(t, mock, "echo hello", "WithRunner option passed to Connect was not applied")
+}
+
+func TestClientRebootNilConnection(t *testing.T) {
+	conn := rigtest.NewMockConnection()
+	client, err := rig.NewClient(rig.WithConnection(conn))
+	require.NoError(t, err)
+	require.NoError(t, client.Connect(context.Background()))
+
+	// Clone with a nil connection forces an uninitialized connection state.
+	uninitialized := client.Clone(rig.WithConnection(nil))
+	err = uninitialized.Reboot(context.Background())
+	require.Error(t, err)
+	require.ErrorIs(t, err, protocol.ErrNonRetryable)
+}
+
+func TestClientRebootFSErrorWrapped(t *testing.T) {
+	mockErr := errors.New("reboot failed on remote")
+	conn := rigtest.NewMockConnection()
+	client, err := rig.NewClient(
+		rig.WithConnection(conn),
+		rig.WithRemoteFSProvider(func(_ cmd.Runner) (remotefs.FS, error) {
+			return nil, mockErr
+		}),
+	)
+	require.NoError(t, err)
+	require.NoError(t, client.Connect(context.Background()))
+
+	err = client.Reboot(context.Background())
+	require.Error(t, err)
+	require.ErrorIs(t, err, mockErr)
+	require.Contains(t, err.Error(), "reboot:")
 }
