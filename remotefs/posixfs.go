@@ -994,3 +994,23 @@ func (s *PosixFS) UserConfigDir() string {
 func (s *PosixFS) UserHomeDir() string {
 	return s.Getenv("HOME")
 }
+
+// Reboot triggers an immediate restart of the remote host. It first tries
+// the simple 'reboot' command; if that fails with a logical error (not a
+// transport tear-down), it falls back to 'shutdown -r now'. A
+// transport-level error from either is treated as success since the kernel
+// is already going down.
+func (s *PosixFS) Reboot(ctx context.Context) error {
+	if err := s.ExecContext(ctx, "reboot"); err != nil {
+		if isTransportClosed(err) {
+			return nil
+		}
+		if fallbackErr := s.ExecContext(ctx, sh.Command("shutdown", "-r", "now")); fallbackErr != nil {
+			if isTransportClosed(fallbackErr) {
+				return nil
+			}
+			return fmt.Errorf("%w (fallback shutdown -r now: %w)", err, fallbackErr)
+		}
+	}
+	return nil
+}

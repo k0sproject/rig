@@ -64,6 +64,7 @@ func (o *atomicOS) UserConfigDir() string                                 { pani
 func (o *atomicOS) UserHomeDir() string                                   { panic("not implemented") }
 func (o *atomicOS) Base(_ string) string                                  { panic("not implemented") }
 func (o *atomicOS) CommandExist(_ string) bool                            { panic("not implemented") }
+func (o *atomicOS) Reboot(_ context.Context) error                        { panic("not implemented") }
 
 // Compile-time check that atomicOS satisfies remotefs.OS.
 var _ remotefs.OS = (*atomicOS)(nil)

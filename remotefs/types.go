@@ -69,6 +69,7 @@ type OS interface { //nolint:interfacebloat // intentionally large interface
 	Dir(path string) string
 	Base(path string) string
 	CommandExist(name string) bool
+	Reboot(ctx context.Context) error
 }
 
 // Opener is a file opener interface, modeled after stdlib's OS package.

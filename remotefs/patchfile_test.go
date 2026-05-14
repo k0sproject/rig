@@ -22,9 +22,9 @@ type patchFS struct {
 	statErr  error
 	statMode fs.FileMode
 
-	written      []byte
-	writtenPerm  fs.FileMode
-	writeCalled  bool
+	written     []byte
+	writtenPerm fs.FileMode
+	writeCalled bool
 }
 
 func (f *patchFS) Stat(_ string) (fs.FileInfo, error) {
@@ -39,9 +39,9 @@ func (f *patchFS) ReadFile(_ string) ([]byte, error) {
 }
 
 // WriteFileAtomic delegates to these OS methods:
-func (f *patchFS) Dir(p string) string                             { return path.Dir(p) }
-func (f *patchFS) MkdirAll(_ string, _ fs.FileMode) error         { return nil }
-func (f *patchFS) CreateTemp(dir, _ string) (string, error)       { return dir + "/.tmp-test", nil }
+func (f *patchFS) Dir(p string) string                      { return path.Dir(p) }
+func (f *patchFS) MkdirAll(_ string, _ fs.FileMode) error   { return nil }
+func (f *patchFS) CreateTemp(dir, _ string) (string, error) { return dir + "/.tmp-test", nil }
 func (f *patchFS) WriteFile(_ string, data []byte, _ fs.FileMode) error {
 	f.written = data
 	f.writeCalled = true
@@ -52,53 +52,54 @@ func (f *patchFS) Rename(_, _ string) error               { return nil }
 func (f *patchFS) Remove(_ string) error                  { return nil }
 
 // Unused FS methods — panic on call so any unexpected usage is caught immediately.
-func (f *patchFS) Open(_ string) (fs.File, error)                          { panic("not implemented") }
-func (f *patchFS) ReadDir(_ string) ([]fs.DirEntry, error)                 { panic("not implemented") }
+func (f *patchFS) Open(_ string) (fs.File, error)          { panic("not implemented") }
+func (f *patchFS) ReadDir(_ string) ([]fs.DirEntry, error) { panic("not implemented") }
 func (f *patchFS) OpenFile(_ string, _ int, _ fs.FileMode) (remotefs.File, error) {
 	panic("not implemented")
 }
-func (f *patchFS) Sha256(_ string) (string, error)                         { panic("not implemented") }
-func (f *patchFS) DownloadURL(_, _ string) error                           { panic("not implemented") }
-func (f *patchFS) RoundTrip(_ *http.Request) (*http.Response, error)       { panic("not implemented") }
-func (f *patchFS) RemoveAll(_ string) error                                { panic("not implemented") }
-func (f *patchFS) Mkdir(_ string, _ fs.FileMode) error                     { panic("not implemented") }
-func (f *patchFS) MkdirTemp(_, _ string) (string, error)                   { panic("not implemented") }
-func (f *patchFS) FileExist(_ string) bool                                 { panic("not implemented") }
-func (f *patchFS) LookPath(_ string) (string, error)                       { panic("not implemented") }
-func (f *patchFS) Join(_ ...string) string                                 { panic("not implemented") }
-func (f *patchFS) Chown(_ string, _ string) error                          { panic("not implemented") }
-func (f *patchFS) ChownInt(_ string, _, _ int) error                       { panic("not implemented") }
-func (f *patchFS) ChownTree(_ string, _ string) error                      { panic("not implemented") }
-func (f *patchFS) ChownTreeInt(_ string, _, _ int) error                   { panic("not implemented") }
-func (f *patchFS) Chtimes(_ string, _, _ int64) error                      { panic("not implemented") }
-func (f *patchFS) Touch(_ string, _ ...time.Time) error                    { panic("not implemented") }
-func (f *patchFS) Truncate(_ string, _ int64) error                        { panic("not implemented") }
-func (f *patchFS) Getenv(_ string) string                                  { panic("not implemented") }
-func (f *patchFS) FileContains(_, _ string) (bool, error)                  { panic("not implemented") }
-func (f *patchFS) Follow(_ context.Context, _ string, _ io.Writer) error   { panic("not implemented") }
-func (f *patchFS) IsContainer() (bool, error)                              { panic("not implemented") }
-func (f *patchFS) Hostname() (string, error)                               { panic("not implemented") }
-func (f *patchFS) LongHostname() (string, error)                           { panic("not implemented") }
-func (f *patchFS) MachineID() (string, error)                              { panic("not implemented") }
-func (f *patchFS) SystemTime() (time.Time, error)                          { panic("not implemented") }
-func (f *patchFS) TempDir() string                                         { panic("not implemented") }
-func (f *patchFS) UserCacheDir() string                                    { panic("not implemented") }
-func (f *patchFS) UserConfigDir() string                                   { panic("not implemented") }
-func (f *patchFS) UserHomeDir() string                                     { panic("not implemented") }
-func (f *patchFS) Base(_ string) string                                    { panic("not implemented") }
-func (f *patchFS) CommandExist(_ string) bool                              { panic("not implemented") }
+func (f *patchFS) Sha256(_ string) (string, error)                       { panic("not implemented") }
+func (f *patchFS) DownloadURL(_, _ string) error                         { panic("not implemented") }
+func (f *patchFS) RoundTrip(_ *http.Request) (*http.Response, error)     { panic("not implemented") }
+func (f *patchFS) RemoveAll(_ string) error                              { panic("not implemented") }
+func (f *patchFS) Mkdir(_ string, _ fs.FileMode) error                   { panic("not implemented") }
+func (f *patchFS) MkdirTemp(_, _ string) (string, error)                 { panic("not implemented") }
+func (f *patchFS) FileExist(_ string) bool                               { panic("not implemented") }
+func (f *patchFS) LookPath(_ string) (string, error)                     { panic("not implemented") }
+func (f *patchFS) Join(_ ...string) string                               { panic("not implemented") }
+func (f *patchFS) Chown(_ string, _ string) error                        { panic("not implemented") }
+func (f *patchFS) ChownInt(_ string, _, _ int) error                     { panic("not implemented") }
+func (f *patchFS) ChownTree(_ string, _ string) error                    { panic("not implemented") }
+func (f *patchFS) ChownTreeInt(_ string, _, _ int) error                 { panic("not implemented") }
+func (f *patchFS) Chtimes(_ string, _, _ int64) error                    { panic("not implemented") }
+func (f *patchFS) Touch(_ string, _ ...time.Time) error                  { panic("not implemented") }
+func (f *patchFS) Truncate(_ string, _ int64) error                      { panic("not implemented") }
+func (f *patchFS) Getenv(_ string) string                                { panic("not implemented") }
+func (f *patchFS) FileContains(_, _ string) (bool, error)                { panic("not implemented") }
+func (f *patchFS) Follow(_ context.Context, _ string, _ io.Writer) error { panic("not implemented") }
+func (f *patchFS) IsContainer() (bool, error)                            { panic("not implemented") }
+func (f *patchFS) Hostname() (string, error)                             { panic("not implemented") }
+func (f *patchFS) LongHostname() (string, error)                         { panic("not implemented") }
+func (f *patchFS) MachineID() (string, error)                            { panic("not implemented") }
+func (f *patchFS) SystemTime() (time.Time, error)                        { panic("not implemented") }
+func (f *patchFS) TempDir() string                                       { panic("not implemented") }
+func (f *patchFS) UserCacheDir() string                                  { panic("not implemented") }
+func (f *patchFS) UserConfigDir() string                                 { panic("not implemented") }
+func (f *patchFS) UserHomeDir() string                                   { panic("not implemented") }
+func (f *patchFS) Base(_ string) string                                  { panic("not implemented") }
+func (f *patchFS) CommandExist(_ string) bool                            { panic("not implemented") }
+func (f *patchFS) Reboot(_ context.Context) error                        { panic("not implemented") }
 
 var _ remotefs.FS = (*patchFS)(nil)
 
 // patchFileInfo is a minimal fs.FileInfo stub.
 type patchFileInfo struct{ mode fs.FileMode }
 
-func (i *patchFileInfo) Name() string      { return "stub" }
-func (i *patchFileInfo) Size() int64       { return 0 }
-func (i *patchFileInfo) Mode() fs.FileMode { return i.mode }
+func (i *patchFileInfo) Name() string       { return "stub" }
+func (i *patchFileInfo) Size() int64        { return 0 }
+func (i *patchFileInfo) Mode() fs.FileMode  { return i.mode }
 func (i *patchFileInfo) ModTime() time.Time { return time.Time{} }
-func (i *patchFileInfo) IsDir() bool       { return false }
-func (i *patchFileInfo) Sys() any          { return nil }
+func (i *patchFileInfo) IsDir() bool        { return false }
+func (i *patchFileInfo) Sys() any           { return nil }
 
 func newPatchFS(content string) *patchFS {
 	return &patchFS{content: []byte(content), statMode: 0o644}
