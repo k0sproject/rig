@@ -124,7 +124,8 @@ func (c Windows) ReadFile(h Host, path string) (string, error) {
 
 // DeleteFile deletes a file from the host.
 func (c Windows) DeleteFile(h Host, path string) error {
-	if err := h.Exec(fmt.Sprintf(`del /f %s`, ps.DoubleQuotePath(path))); err != nil {
+	cmd := fmt.Sprintf(`Remove-Item -LiteralPath %s -Force -ErrorAction Stop`, ps.DoubleQuotePath(path))
+	if err := h.Exec(ps.Cmd(cmd)); err != nil {
 		return fmt.Errorf("failed to delete file %s: %w", path, err)
 	}
 	return nil
@@ -187,7 +188,7 @@ func (c Windows) Reboot(h Host) error {
 
 // StartService starts a service
 func (c Windows) StartService(h Host, s string) error {
-	if err := h.Execf(`sc start %s`, ps.DoubleQuote(s)); err != nil {
+	if err := h.Exec(ps.Cmd(fmt.Sprintf(`Start-Service -Name %s -ErrorAction Stop`, ps.SingleQuote(s)))); err != nil {
 		return fmt.Errorf("failed to start service %s: %w", s, err)
 	}
 	return nil
@@ -195,7 +196,7 @@ func (c Windows) StartService(h Host, s string) error {
 
 // StopService stops a service
 func (c Windows) StopService(h Host, s string) error {
-	if err := h.Execf(`sc stop %s`, ps.DoubleQuote(s)); err != nil {
+	if err := h.Exec(ps.Cmd(fmt.Sprintf(`Stop-Service -Name %s -ErrorAction Stop`, ps.SingleQuote(s)))); err != nil {
 		return fmt.Errorf("failed to stop service %s: %w", s, err)
 	}
 	return nil
