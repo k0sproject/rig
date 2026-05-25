@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"strings"
+	"sync"
 	"unicode/utf16"
 )
 
@@ -14,6 +15,26 @@ const PipeHasEnded = "The pipe has been ended."
 
 // PipeIsBeingClosed string is used during the base64+sha265 upload process.
 const PipeIsBeingClosed = "The pipe is being closed."
+
+// compressBuf pairs a buffer with a gzip.Writer so both can be pooled together.
+type compressBuf struct {
+	buf *bytes.Buffer
+	gz  *gzip.Writer
+}
+
+// compressPool recycles compressBuf instances to reduce allocations in CompressedCmd.
+var compressPool = sync.Pool{
+	New: func() any {
+		buf := &bytes.Buffer{}
+		gz, _ := gzip.NewWriterLevel(buf, gzip.BestCompression) // level is always valid
+		return &compressBuf{buf: buf, gz: gz}
+	},
+}
+
+// builderPool recycles strings.Builder instances for SingleQuote and DoubleQuote.
+var builderPool = sync.Pool{
+	New: func() any { return &strings.Builder{} },
+}
 
 // CompressedCmd creates a scriptlet that will decompress and execute a gzipped script to both avoid
 // command line length limits and to reduce data transferred.
@@ -27,14 +48,19 @@ func CompressedCmd(psCmd string) string {
 		trimmed = append(trimmed, line)
 	}
 	cmd := strings.Join(trimmed, "\n")
-	var b bytes.Buffer
-	w, err := gzip.NewWriterLevel(&b, gzip.BestCompression)
-	if err != nil {
-		panic(err) // BestCompression level is always valid
+	compBuf, ok := compressPool.Get().(*compressBuf)
+	if !ok {
+		buf := &bytes.Buffer{}
+		gz, _ := gzip.NewWriterLevel(buf, gzip.BestCompression)
+		compBuf = &compressBuf{buf: buf, gz: gz}
 	}
-	_, _ = w.Write([]byte(cmd))
-	_ = w.Close()
-	scriptlet := `$z="` + base64.StdEncoding.EncodeToString(b.Bytes()) + `"
+	compBuf.buf.Reset()
+	compBuf.gz.Reset(compBuf.buf)
+	_, _ = compBuf.gz.Write([]byte(cmd))
+	_ = compBuf.gz.Close()
+	encoded := base64.StdEncoding.EncodeToString(compBuf.buf.Bytes())
+	compressPool.Put(compBuf)
+	scriptlet := `$z="` + encoded + `"
 $d=[Convert]::FromBase64String($z)
 Set-Alias NO New-Object
 $m=NO IO.MemoryStream
@@ -87,11 +113,18 @@ func Cmd(psCmd string) string {
 
 // SingleQuote quotes and escapes a string in a format that is accepted by powershell scriptlets
 // from jbrekelmans/go-winrm/util.go PowerShellSingleQuotedStringLiteral.
-func SingleQuote(v string) string {
-	var buf strings.Builder
-	buf.Grow(len(v) + 3)
+func SingleQuote(str string) string {
+	buf, ok := builderPool.Get().(*strings.Builder)
+	if !ok {
+		buf = &strings.Builder{}
+	}
+	defer func() {
+		buf.Reset()
+		builderPool.Put(buf)
+	}()
+	buf.Grow(len(str) + 3)
 	buf.WriteRune('\'')
-	for _, rune := range v {
+	for _, rune := range str {
 		switch rune {
 		case '\n', '\r', '\t', '\v', '\f', '\a', '\b', '\'', '`', '\x00':
 			buf.WriteString("`")
@@ -105,16 +138,23 @@ func SingleQuote(v string) string {
 }
 
 // DoubleQuote adds double quotes around a string and escapes any double quotes inside.
-func DoubleQuote(v string) string {
-	if len(v) > 0 && v[0] == '"' && v[len(v)-1] == '"' {
+func DoubleQuote(str string) string {
+	if len(str) > 0 && str[0] == '"' && str[len(str)-1] == '"' {
 		// already quoted
-		return v
+		return str
 	}
 
-	var buf strings.Builder
-	buf.Grow(len(v) + 4)
+	buf, ok := builderPool.Get().(*strings.Builder)
+	if !ok {
+		buf = &strings.Builder{}
+	}
+	defer func() {
+		buf.Reset()
+		builderPool.Put(buf)
+	}()
+	buf.Grow(len(str) + 4)
 	buf.WriteRune('"')
-	for _, rune := range v {
+	for _, rune := range str {
 		switch rune {
 		case '"':
 			buf.WriteString("`\"")
