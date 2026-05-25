@@ -105,6 +105,7 @@ func (f *winDir) ReadDir(n int) ([]fs.DirEntry, error) {
 		}
 		pipeW.Close()
 		<-done
+		*fileinfosptr = fileinfos // sync the (possibly grown) slice back before returning it to the pool
 
 		if decodeErr != nil {
 			return nil, fmt.Errorf("decode readdir output: %w", decodeErr)
