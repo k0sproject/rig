@@ -93,7 +93,10 @@ func (f *winDir) ReadDir(n int) ([]fs.DirEntry, error) {
 	fileinfos = fileinfos[:0]
 	defer func() {
 		if cap(fileinfos) <= 1000 {
-			*fileinfosptr = fileinfos
+			// Clear backing array so pooled slice does not retain *winFileInfo
+			// pointers and block GC collection of previously decoded entries.
+			clear(fileinfos[:cap(fileinfos)])
+			*fileinfosptr = fileinfos[:0]
 			fileInfoPool.Put(fileinfosptr)
 		}
 	}()
