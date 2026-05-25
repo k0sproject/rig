@@ -34,6 +34,11 @@ var (
 	errOddUTF16Length = errors.New("odd byte length in UTF-16LE payload")
 )
 
+// bufferPool recycles bytes.Buffer instances for ExecOutputContext to reduce allocations.
+var bufferPool = sync.Pool{
+	New: func() any { return &bytes.Buffer{} },
+}
+
 // Executor is an Runner that runs commands on a host.
 type Executor struct {
 	log.LoggerInjectable
@@ -277,8 +282,16 @@ func (r *Executor) Exec(command string, opts ...ExecOption) error {
 
 // ExecOutputContext executes the command and returns the stdout output or an error.
 func (r *Executor) ExecOutputContext(ctx context.Context, command string, opts ...ExecOption) (string, error) {
-	out := &bytes.Buffer{}
-	defer out.Reset()
+	out, ok := bufferPool.Get().(*bytes.Buffer)
+	if !ok {
+		out = &bytes.Buffer{}
+	}
+	defer func() {
+		if out.Cap() <= 64<<10 {
+			out.Reset()
+			bufferPool.Put(out)
+		}
+	}()
 
 	opts = append(opts, Stdout(out))
 
