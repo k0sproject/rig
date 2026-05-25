@@ -14,26 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// decodePSScript extracts and decodes the PowerShell script from a command using the -E encoded flag.
-// PS -EncodedCommand encoding: script is UTF-16LE encoded then base64 encoded. For ASCII-only scripts
-// each character occupies two bytes (char_byte, 0x00), so decoding strips every other byte.
-func decodePSScript(psCmd string) string {
-	const marker = " -E "
-	idx := strings.Index(psCmd, marker)
-	if idx < 0 {
-		return ""
-	}
-	raw, err := base64.StdEncoding.DecodeString(psCmd[idx+len(marker):])
-	if err != nil {
-		return ""
-	}
-	var sb strings.Builder
-	for i := 0; i+1 < len(raw); i += 2 {
-		sb.WriteByte(raw[i])
-	}
-	return sb.String()
-}
-
 func TestPosixRoundTripGET(t *testing.T) {
 	rawResp := "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nhello"
 	encoded := base64.StdEncoding.EncodeToString([]byte(rawResp))
@@ -236,7 +216,9 @@ func TestWinRoundTripWithRequestBody(t *testing.T) {
 	defer resp.Body.Close()
 
 	require.Equal(t, 201, resp.StatusCode)
-	require.Contains(t, decodePSScript(mr.LastCommand()), "OpenStandardInput")
+	script, ok := decodePSScript(mr.LastCommand())
+	require.True(t, ok, "expected encoded PS command")
+	require.Contains(t, script, "OpenStandardInput")
 }
 
 func TestRoundTripURLValidation(t *testing.T) {

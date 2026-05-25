@@ -398,15 +398,19 @@ func (s *WinFS) Chtimes(name string, atime, mtime int64) error {
 
 // Chmod changes the mode of the named file to mode. On Windows, only the 0200
 // bit (owner writable) of mode is used: if set, the read-only attribute is
-// cleared (attrib -R); if unset, it is set (attrib +R).
+// cleared; if unset, it is set.
 func (s *WinFS) Chmod(name string, mode fs.FileMode) error {
-	var attribSign string
+	var op string
 	if mode&0o200 != 0 {
-		attribSign = "-" // owner-write set → clear read-only
+		op = "-band -bnot [IO.FileAttributes]::ReadOnly" // owner-write set → clear read-only
 	} else {
-		attribSign = "+" // owner-write not set → set read-only
+		op = "-bor [IO.FileAttributes]::ReadOnly" // owner-write not set → set read-only
 	}
-	if err := s.Exec(fmt.Sprintf("attrib %sR %s", attribSign, ps.DoubleQuotePath(name))); err != nil {
+	// Use a newline to separate statements so powershell.Cmd chooses
+	// -EncodedCommand; this prevents $a from being expanded by an outer
+	// PowerShell host (e.g. when SSH DefaultShell is PowerShell).
+	script := fmt.Sprintf("$a=Get-Item -LiteralPath %s -Force -ErrorAction Stop\n$a.Attributes=($a.Attributes %s)", ps.SingleQuotePath(name), op)
+	if err := s.Exec(script, cmd.PS()); err != nil {
 		return fmt.Errorf("chmod %s: %w", name, err)
 	}
 	return nil
@@ -717,37 +721,37 @@ func toSlashes(path string) string {
 }
 
 // Reboot triggers an immediate restart of the remote host via a SYSTEM-context
-// one-shot scheduled task running 'shutdown /r /f /t 5'. Running via a
+// on-demand scheduled task running 'shutdown.exe /r /f /t 5'. Running via a
 // scheduled task bypasses the filtered Administrator token used by WinRM
 // sessions (e.g. on AWS EC2) which lacks SeShutdownPrivilege — issuing
 // 'shutdown /r' directly in such a session is silently ignored by the OS.
 //
-// The scheduled time uses '/sc once /st 23:59' to avoid locale-sensitive
-// date parsing; the task is immediately triggered via 'schtasks /run' so the
-// scheduled time is irrelevant. The '/z' flag asks Windows to delete the
-// task after it fires, and a best-effort 'schtasks /delete' is attempted in
-// all cases to prevent a delayed fallback fire if '/run' never triggered the
-// shutdown.
+// The task is registered without a time-based trigger so it can only fire when
+// explicitly started via Start-ScheduledTask. A best-effort
+// Unregister-ScheduledTask is attempted in all cases.
 func (s *WinFS) Reboot(ctx context.Context) error {
 	taskName := fmt.Sprintf("RigReboot%d_%d", time.Now().UnixNano(), rebootTaskCounter.Add(1))
 	const shutdownDelay = 5
-	createCmd := fmt.Sprintf(
-		`schtasks /create /tn "%s" /tr "shutdown /r /f /t %d" /sc once /st 23:59 /z /f /ru SYSTEM`,
-		taskName, shutdownDelay,
+	createScript := fmt.Sprintf(
+		`$ErrorActionPreference='Stop'`+
+			`; $a=New-ScheduledTaskAction -Execute 'shutdown.exe' -Argument %s`+
+			`; $p=New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest -LogonType ServiceAccount`+
+			`; Register-ScheduledTask -TaskName %s -Action $a -Principal $p -Force | Out-Null`,
+		ps.SingleQuote(fmt.Sprintf("/r /f /t %d", shutdownDelay)),
+		ps.DoubleQuote(taskName),
 	)
-	if err := s.ExecContext(ctx, createCmd, cmd.AllowWinStderr()); err != nil {
+	if err := s.ExecContext(ctx, createScript, cmd.PS(), cmd.AllowWinStderr()); err != nil {
 		return fmt.Errorf("create reboot task: %w", err)
 	}
 
-	runCmd := fmt.Sprintf(`schtasks /run /tn "%s"`, taskName)
-	deleteCmd := fmt.Sprintf(`schtasks /delete /tn "%s" /f`, taskName)
+	runScript := "$ErrorActionPreference='Stop'; Start-ScheduledTask -TaskName " + ps.DoubleQuote(taskName)
+	deleteScript := fmt.Sprintf("Unregister-ScheduledTask -TaskName %s -Confirm:$false", ps.DoubleQuote(taskName))
 
-	if err := s.ExecContext(ctx, runCmd, cmd.AllowWinStderr()); err != nil {
+	if err := s.ExecContext(ctx, runScript, cmd.PS(), cmd.AllowWinStderr()); err != nil {
 		// Best-effort delete in all error paths to prevent the task from
 		// firing later. Ignore the delete error: if the host is already
-		// rebooting it will fail anyway, and if the task never fired the
-		// auto-delete (/z) won't trigger either.
-		_ = s.ExecContext(ctx, deleteCmd, cmd.AllowWinStderr())
+		// rebooting it will fail anyway.
+		_ = s.ExecContext(ctx, deleteScript, cmd.PS(), cmd.AllowWinStderr())
 		if !isTransportClosed(err) {
 			return fmt.Errorf("run reboot task: %w", err)
 		}
@@ -757,8 +761,7 @@ func (s *WinFS) Reboot(ctx context.Context) error {
 	}
 
 	// Run succeeded. Best-effort cleanup; deleting the task entry does not
-	// cancel the already-started shutdown countdown, it only prevents a
-	// delayed fallback fire if /run somehow did not trigger.
-	_ = s.ExecContext(ctx, deleteCmd, cmd.AllowWinStderr())
+	// cancel the already-started shutdown countdown.
+	_ = s.ExecContext(ctx, deleteScript, cmd.PS(), cmd.AllowWinStderr())
 	return nil
 }

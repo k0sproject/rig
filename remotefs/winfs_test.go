@@ -322,22 +322,33 @@ func TestWinFSChmod(t *testing.T) {
 	t.Run("writable mode clears read-only attribute", func(t *testing.T) {
 		mr := rigtest.NewMockRunner()
 		mr.Windows = true
-		mr.AddCommandSuccess(rigtest.Contains("attrib"))
+		mr.AddCommandSuccess(rigtest.HasPrefix("powershell.exe"))
 		fsys := remotefs.NewWindowsFS(mr)
-		// 0o644 has the owner-write bit (0o200) set → should clear read-only (attrib -R).
+		// 0o644 has the owner-write bit (0o200) set → should clear read-only.
 		require.NoError(t, fsys.Chmod(`C:\file.txt`, 0o644))
-		require.NoError(t, mr.Received(rigtest.Contains("attrib -R")))
-		require.NoError(t, mr.NotReceived(rigtest.Contains("attrib +R")))
+		require.NoError(t, mr.Received(rigtest.HasPrefix("powershell.exe")))
+		require.NoError(t, mr.NotReceived(rigtest.Contains("attrib")))
+		// Decode the -EncodedCommand payload and verify the bitwise-clear operation.
+		script, ok := decodePSScript(mr.LastCommand())
+		require.True(t, ok, "Chmod should use an encoded PS command to prevent $a expansion by an outer PS host")
+		require.Contains(t, script, "Get-Item")
+		require.Contains(t, script, "-band -bnot [IO.FileAttributes]::ReadOnly")
 	})
 
 	t.Run("read-only mode sets read-only attribute", func(t *testing.T) {
 		mr := rigtest.NewMockRunner()
 		mr.Windows = true
-		mr.AddCommandSuccess(rigtest.Contains("attrib"))
+		mr.AddCommandSuccess(rigtest.HasPrefix("powershell.exe"))
 		fsys := remotefs.NewWindowsFS(mr)
-		// 0o444 has no owner-write bit → should set read-only (attrib +R).
+		// 0o444 has no owner-write bit → should set read-only.
 		require.NoError(t, fsys.Chmod(`C:\file.txt`, fs.FileMode(0o444)))
-		require.NoError(t, mr.Received(rigtest.Contains("attrib +R")))
-		require.NoError(t, mr.NotReceived(rigtest.Contains("attrib -R")))
+		require.NoError(t, mr.Received(rigtest.HasPrefix("powershell.exe")))
+		require.NoError(t, mr.NotReceived(rigtest.Contains("attrib")))
+		// Decode the -EncodedCommand payload and verify the bitwise-set operation.
+		script, ok := decodePSScript(mr.LastCommand())
+		require.True(t, ok, "Chmod should use an encoded PS command to prevent $a expansion by an outer PS host")
+		require.Contains(t, script, "Get-Item")
+		require.Contains(t, script, "-bor [IO.FileAttributes]::ReadOnly")
 	})
 }
+

@@ -132,6 +132,14 @@ func DoubleQuotePath(v string) string {
 	return DoubleQuote(ToWindowsPath(v))
 }
 
+// SingleQuotePath single-quotes a path and converts forward slashes to backslashes.
+// Use this instead of DoubleQuotePath when the value is passed to a -LiteralPath
+// parameter or any context where PowerShell variable interpolation (e.g. '$' in
+// directory names like C:\$Recycle.Bin) must not occur.
+func SingleQuotePath(v string) string {
+	return SingleQuote(ToWindowsPath(v))
+}
+
 // ToWindowsPath converts a unix-style forward slash separated path to a windows-style path.
 func ToWindowsPath(v string) string {
 	return strings.ReplaceAll(v, "/", "\\")
