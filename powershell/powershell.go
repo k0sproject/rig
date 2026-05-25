@@ -32,6 +32,9 @@ var compressPool = sync.Pool{
 }
 
 // builderPool recycles strings.Builder instances for SingleQuote and DoubleQuote.
+// Safety: Reset() nils the internal buffer, so a subsequent Grow allocates fresh
+// memory; the string returned by String() before Reset keeps its own reference to
+// the old backing array and remains valid after the builder is reused.
 var builderPool = sync.Pool{
 	New: func() any { return &strings.Builder{} },
 }
@@ -59,7 +62,9 @@ func CompressedCmd(psCmd string) string {
 	_, _ = compBuf.gz.Write([]byte(cmd))
 	_ = compBuf.gz.Close()
 	encoded := base64.StdEncoding.EncodeToString(compBuf.buf.Bytes())
-	compressPool.Put(compBuf)
+	if compBuf.buf.Cap() <= 64<<10 {
+		compressPool.Put(compBuf)
+	}
 	scriptlet := `$z="` + encoded + `"
 $d=[Convert]::FromBase64String($z)
 Set-Alias NO New-Object
@@ -119,8 +124,10 @@ func SingleQuote(str string) string {
 		buf = &strings.Builder{}
 	}
 	defer func() {
-		buf.Reset()
-		builderPool.Put(buf)
+		if buf.Cap() <= 64<<10 {
+			buf.Reset()
+			builderPool.Put(buf)
+		}
 	}()
 	buf.Grow(len(str) + 3)
 	buf.WriteRune('\'')
@@ -149,8 +156,10 @@ func DoubleQuote(str string) string {
 		buf = &strings.Builder{}
 	}
 	defer func() {
-		buf.Reset()
-		builderPool.Put(buf)
+		if buf.Cap() <= 64<<10 {
+			buf.Reset()
+			builderPool.Put(buf)
+		}
 	}()
 	buf.Grow(len(str) + 4)
 	buf.WriteRune('"')

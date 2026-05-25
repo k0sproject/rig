@@ -73,54 +73,60 @@ var fileInfoPool = sync.Pool{
 // a slice of up to n fs.DirEntry values in directory order.
 // Subsequent calls on the same file will yield further DirEntry values.
 func (f *winDir) ReadDir(n int) ([]fs.DirEntry, error) {
-	if f.buffer == nil {
-		pipeR, pipeW := io.Pipe()
-		cmd, err := f.fs.Start(context.Background(), fmt.Sprintf(statDirTemplate, f.path), cmd.PS(), cmd.Stdout(pipeW))
-		if err != nil {
-			pipeW.Close()
-			return nil, fmt.Errorf("readdir: %w", err)
-		}
+	if f.buffer != nil {
+		return f.buffer.Next(n)
+	}
 
-		fileinfosptr, ok := fileInfoPool.Get().(*[]*winFileInfo)
-		if !ok {
-			infos := make([]*winFileInfo, 0)
-			fileinfosptr = &infos
-		}
-		fileinfos := *fileinfosptr
-		fileinfos = fileinfos[:0]
-		defer fileInfoPool.Put(fileinfosptr)
+	pipeR, pipeW := io.Pipe()
+	proc, err := f.fs.Start(context.Background(), fmt.Sprintf(statDirTemplate, f.path), cmd.PS(), cmd.Stdout(pipeW))
+	if err != nil {
+		pipeW.Close()
+		return nil, fmt.Errorf("readdir: %w", err)
+	}
 
-		var decodeErr error
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			decoder := json.NewDecoder(pipeR)
-			decodeErr = decoder.Decode(&fileinfos)
-			pipeR.Close()
-		}()
-		if err := cmd.Wait(); err != nil {
-			pipeW.Close()
-			<-done
-			return nil, fmt.Errorf("readdir: %w", err)
+	fileinfosptr, ok := fileInfoPool.Get().(*[]*winFileInfo)
+	if !ok {
+		infos := make([]*winFileInfo, 0)
+		fileinfosptr = &infos
+	}
+	fileinfos := *fileinfosptr
+	fileinfos = fileinfos[:0]
+	defer func() {
+		if cap(fileinfos) <= 1000 {
+			*fileinfosptr = fileinfos
+			fileInfoPool.Put(fileinfosptr)
 		}
+	}()
+
+	var decodeErr error
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		decoder := json.NewDecoder(pipeR)
+		decodeErr = decoder.Decode(&fileinfos)
+		pipeR.Close()
+	}()
+	if err := proc.Wait(); err != nil {
 		pipeW.Close()
 		<-done
-		*fileinfosptr = fileinfos // sync the (possibly grown) slice back before returning it to the pool
-
-		if decodeErr != nil {
-			return nil, fmt.Errorf("decode readdir output: %w", decodeErr)
-		}
-
-		for _, info := range fileinfos {
-			info.fs = f.fs
-		}
-
-		entries := make([]fs.DirEntry, len(fileinfos))
-		for i, info := range fileinfos {
-			entries[i] = fs.DirEntry(info)
-		}
-		f.buffer = newDirEntryBuffer(entries)
+		return nil, fmt.Errorf("readdir: %w", err)
 	}
+	pipeW.Close()
+	<-done
+
+	if decodeErr != nil {
+		return nil, fmt.Errorf("decode readdir output: %w", decodeErr)
+	}
+
+	for _, info := range fileinfos {
+		info.fs = f.fs
+	}
+
+	entries := make([]fs.DirEntry, len(fileinfos))
+	for i, info := range fileinfos {
+		entries[i] = fs.DirEntry(info)
+	}
+	f.buffer = newDirEntryBuffer(entries)
 	return f.buffer.Next(n)
 }
 
