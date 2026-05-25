@@ -288,6 +288,7 @@ func (r *Executor) ExecOutputContext(ctx context.Context, command string, opts .
 	}
 	defer func() {
 		if out.Cap() <= 64<<10 {
+			clear(out.Bytes()) // zero backing array so output doesn't linger in pool memory
 			out.Reset()
 			bufferPool.Put(out)
 		}

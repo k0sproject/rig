@@ -63,6 +63,8 @@ func CompressedCmd(psCmd string) string {
 	_ = compBuf.gz.Close()
 	encoded := base64.StdEncoding.EncodeToString(compBuf.buf.Bytes())
 	if compBuf.buf.Cap() <= 64<<10 {
+		clear(compBuf.buf.Bytes()) // zero compressed bytes before pooling
+		compBuf.buf.Reset()
 		compressPool.Put(compBuf)
 	}
 	scriptlet := `$z="` + encoded + `"
