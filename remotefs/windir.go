@@ -81,6 +81,7 @@ func (f *winDir) ReadDir(n int) ([]fs.DirEntry, error) {
 	proc, err := f.fs.Start(context.Background(), fmt.Sprintf(statDirTemplate, f.path), cmd.PS(), cmd.Stdout(pipeW))
 	if err != nil {
 		pipeW.Close()
+		pipeR.Close()
 		return nil, fmt.Errorf("readdir: %w", err)
 	}
 
@@ -93,9 +94,10 @@ func (f *winDir) ReadDir(n int) ([]fs.DirEntry, error) {
 	fileinfos = fileinfos[:0]
 	defer func() {
 		if cap(fileinfos) <= 1000 {
-			// Clear backing array so pooled slice does not retain *winFileInfo
-			// pointers and block GC collection of previously decoded entries.
-			clear(fileinfos[:cap(fileinfos)])
+			// Clear the full backing array (resliced to capacity via three-index
+			// form) so pooled items do not retain *winFileInfo pointers and block
+			// GC collection of previously decoded directory entries.
+			clear(fileinfos[:cap(fileinfos):cap(fileinfos)])
 			*fileinfosptr = fileinfos[:0]
 			fileInfoPool.Put(fileinfosptr)
 		}
