@@ -370,9 +370,10 @@ func (c *Client) Disconnect() {
 var errInteractiveNotSupported = errors.New("the connection does not provide interactive exec support")
 
 // ExecInteractive executes a command on the host and passes stdin/stdout/stderr as-is to the session.
-func (c *Client) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
+// The session is terminated when ctx is cancelled or its deadline is exceeded.
+func (c *Client) ExecInteractive(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if conn, ok := c.connection.(protocol.InteractiveExecer); ok {
-		if err := conn.ExecInteractive(cmd, stdin, stdout, stderr); err != nil {
+		if err := conn.ExecInteractive(ctx, cmd, stdin, stdout, stderr); err != nil {
 			return fmt.Errorf("exec interactive: %w", err)
 		}
 		return nil

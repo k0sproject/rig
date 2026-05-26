@@ -263,12 +263,16 @@ func (c *Connection) StartProcess(ctx context.Context, cmdStr string, stdin io.R
 }
 
 // ExecInteractive executes a command on the host and passes stdin/stdout/stderr as-is to the session.
-func (c *Connection) ExecInteractive(cmdStr string, stdin io.Reader, stdout, stderr io.Writer) error {
-	cmd, err := c.StartProcess(context.Background(), cmdStr, stdin, stdout, stderr)
+// The session is terminated when ctx is cancelled.
+func (c *Connection) ExecInteractive(ctx context.Context, cmdStr string, stdin io.Reader, stdout, stderr io.Writer) error {
+	cmd, err := c.StartProcess(ctx, cmdStr, stdin, stdout, stderr)
 	if err != nil {
-		return err
+		return err //nolint:wrapcheck // StartProcess already wraps
 	}
 	if err := cmd.Wait(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err() //nolint:wrapcheck // context error is the real cause
+		}
 		return fmt.Errorf("command wait: %w", err)
 	}
 	return nil

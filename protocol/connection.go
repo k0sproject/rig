@@ -44,7 +44,7 @@ type WindowsChecker interface {
 
 // InteractiveExecer is a connection that can start an interactive session.
 type InteractiveExecer interface {
-	ExecInteractive(cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error
+	ExecInteractive(ctx context.Context, cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error
 }
 
 // Connection is the minimum interface for protocol implementations.

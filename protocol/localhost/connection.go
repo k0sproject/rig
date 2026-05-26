@@ -81,7 +81,8 @@ func (c *Connection) command(ctx context.Context, cmd string) *exec.Cmd {
 }
 
 // ExecInteractive executes a command on the host and passes stdin/stdout/stderr as-is to the session.
-func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error { //nolint:cyclop
+// The process is killed when ctx is cancelled.
+func (c *Connection) ExecInteractive(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) error { //nolint:cyclop
 	if cmd == "" {
 		cmd = os.Getenv("SHELL") + " -l"
 	}
@@ -152,7 +153,16 @@ func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr
 		return fmt.Errorf("failed to start process: %w", err)
 	}
 
+	// Kill the process when the context is done.
+	go func() {
+		<-ctx.Done()
+		_ = proc.Kill()
+	}()
+
 	if _, err := proc.Wait(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err() //nolint:wrapcheck // context error is the real cause
+		}
 		return fmt.Errorf("process wait: %w", err)
 	}
 	return nil

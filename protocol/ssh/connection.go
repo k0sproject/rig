@@ -617,7 +617,8 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 }
 
 // ExecInteractive executes a command on the host and passes stdin/stdout/stderr as-is to the session.
-func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
+// The session is closed when ctx is cancelled.
+func (c *Connection) ExecInteractive(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
 	c.mu.Lock()
 	client := c.client
 	c.mu.Unlock()
@@ -629,6 +630,12 @@ func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr
 		return fmt.Errorf("ssh new session: %w", err)
 	}
 	defer session.Close()
+
+	// Close the session when the context is done.
+	go func() {
+		<-ctx.Done()
+		_ = session.Close()
+	}()
 
 	session.Stdout = stdout
 	session.Stderr = stderr
@@ -682,6 +689,9 @@ func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr
 	}
 
 	if err := session.Wait(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err() //nolint:wrapcheck // context error is the real cause
+		}
 		return fmt.Errorf("ssh session wait: %w", err)
 	}
 

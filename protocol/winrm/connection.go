@@ -373,7 +373,8 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 }
 
 // ExecInteractive executes a command on the host and passes stdin/stdout/stderr as-is to the session.
-func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
+// The session is terminated when ctx is cancelled.
+func (c *Connection) ExecInteractive(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
 	c.mu.Lock()
 	client := c.client
 	c.mu.Unlock()
@@ -383,8 +384,11 @@ func (c *Connection) ExecInteractive(cmd string, stdin io.Reader, stdout, stderr
 	if cmd == "" {
 		cmd = "cmd.exe"
 	}
-	_, err := client.RunWithContextWithInput(context.Background(), cmd, stdout, stderr, stdin)
+	_, err := client.RunWithContextWithInput(ctx, cmd, stdout, stderr, stdin)
 	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err() //nolint:wrapcheck // context error is the real cause
+		}
 		return fmt.Errorf("execute command in interactive mode: %w", err)
 	}
 	return nil
