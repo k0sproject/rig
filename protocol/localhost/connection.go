@@ -81,8 +81,17 @@ func (c *Connection) command(ctx context.Context, cmd string) *exec.Cmd {
 }
 
 // ExecInteractive executes a command on the host and passes stdin/stdout/stderr as-is to the session.
-// The process is killed when ctx is cancelled.
+// The process is killed when ctx is cancelled. Nil streams default to os.Stdin/os.Stdout/os.Stderr.
 func (c *Connection) ExecInteractive(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) error { //nolint:cyclop
+	if stdin == nil {
+		stdin = os.Stdin
+	}
+	if stdout == nil {
+		stdout = os.Stdout
+	}
+	if stderr == nil {
+		stderr = os.Stderr
+	}
 	if cmd == "" {
 		cmd = os.Getenv("SHELL") + " -l"
 	}

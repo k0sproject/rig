@@ -18,6 +18,7 @@ linters:
     - gocyclo
     - godox
     - goheader
+    - gomodguard
     - ireturn
     - lll
     - mnd

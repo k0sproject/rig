@@ -72,10 +72,14 @@ func (c *Connection) IPAddress() string {
 // ensuring the connection is established before calling this method.
 func (c *Connection) detectWindows(ctx context.Context) bool {
 	isWinProc, err := c.StartProcess(ctx, "cmd.exe /c exit 0", nil, nil, nil)
-	isWin := err == nil && isWinProc.Wait() == nil
-	// Don't cache a probe that failed due to context cancellation — the
-	// result would be a false negative that persists for the lifetime of
-	// the connection.
+	if err != nil {
+		// Probe couldn't start (e.g. not yet connected); don't cache so a
+		// subsequent call after Connect can succeed.
+		return false
+	}
+	isWin := isWinProc.Wait() == nil
+	// Don't cache when the context was cancelled — the probe result may
+	// reflect cancellation rather than the actual remote OS.
 	if ctx.Err() != nil {
 		return false
 	}

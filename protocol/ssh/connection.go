@@ -679,9 +679,44 @@ func setupInteractivePTY(session *ssh.Session, inF *os.File) (func(), error) {
 	return func() { _ = term.Restore(stdinFD, old) }, nil
 }
 
+// prepareSessionInput wires stdin to the session. If stdin is a terminal
+// *os.File a PTY is requested and a raw-mode restore function is returned;
+// otherwise the reader is used as-is and the restore is a no-op.
+func prepareSessionInput(session *ssh.Session, stdin io.Reader) (input io.Reader, restore func(), err error) {
+	restore = func() {}
+	inF, ok := stdin.(*os.File)
+	if !ok {
+		return stdin, restore, nil
+	}
+	if term.IsTerminal(int(inF.Fd())) {
+		restore, err = setupInteractivePTY(session, inF)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	return inF, restore, nil
+}
+
+// defaultInteractiveStreams replaces nil streams with the process's standard
+// streams so that callers can safely pass nil for any stream they don't need
+// to redirect.
+func defaultInteractiveStreams(stdin io.Reader, stdout, stderr io.Writer) (io.Reader, io.Writer, io.Writer) {
+	if stdin == nil {
+		stdin = os.Stdin
+	}
+	if stdout == nil {
+		stdout = os.Stdout
+	}
+	if stderr == nil {
+		stderr = os.Stderr
+	}
+	return stdin, stdout, stderr
+}
+
 // ExecInteractive executes a command on the host and passes stdin/stdout/stderr as-is to the session.
-// The session is closed when ctx is cancelled.
+// The session is closed when ctx is cancelled. Nil streams default to os.Stdin/os.Stdout/os.Stderr.
 func (c *Connection) ExecInteractive(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
+	stdin, stdout, stderr = defaultInteractiveStreams(stdin, stdout, stderr)
 	c.mu.Lock()
 	client := c.client
 	c.mu.Unlock()
@@ -709,15 +744,11 @@ func (c *Connection) ExecInteractive(ctx context.Context, cmd string, stdin io.R
 	session.Stdout = stdout
 	session.Stderr = stderr
 
-	input := stdin
-	if inF, ok := stdin.(*os.File); ok {
-		restore, err := setupInteractivePTY(session, inF)
-		if err != nil {
-			return err
-		}
-		defer restore()
-		input = inF
+	input, restoreTerm, err := prepareSessionInput(session, stdin)
+	if err != nil {
+		return err
 	}
+	defer restoreTerm()
 
 	stdinpipe, err := session.StdinPipe()
 	if err != nil {

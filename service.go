@@ -66,16 +66,20 @@ func (m *Service) Stop(ctx context.Context) error {
 	return m.waitState(ctx, serviceStateStopped)
 }
 
-// Restart the service. If ctx has no deadline, a 2-minute default timeout is applied.
+// Restart the service. For init systems with a native restart operation, a
+// 2-minute default timeout is applied if ctx has no deadline. For the
+// stop+start fallback, each step applies its own independent default timeout
+// so the combined operation can take up to 4 minutes.
 func (m *Service) Restart(ctx context.Context) error {
-	ctx, cancel := withServiceTimeout(ctx)
-	defer cancel()
 	if restarter, ok := m.initsys.(initsystem.ServiceManagerRestarter); ok {
-		if err := restarter.RestartService(ctx, m.runner, m.name); err != nil {
+		rctx, cancel := withServiceTimeout(ctx)
+		defer cancel()
+		if err := restarter.RestartService(rctx, m.runner, m.name); err != nil {
 			return fmt.Errorf("failed to restart service '%s': %w", m.name, err)
 		}
-		return m.waitState(ctx, serviceStateStarted)
+		return m.waitState(rctx, serviceStateStarted)
 	}
+	// Fall back to stop+start; each applies its own default timeout independently.
 	if err := m.Stop(ctx); err != nil {
 		return fmt.Errorf("failed to stop service '%s' for restart: %w", m.name, err)
 	}
