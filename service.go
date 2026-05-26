@@ -46,24 +46,30 @@ func (m *Service) String() string {
 	return fmt.Sprintf("%s@%s", m.Name(), m.runner.String())
 }
 
-// Start the service.
+// Start the service. If ctx has no deadline, a 2-minute default timeout is applied.
 func (m *Service) Start(ctx context.Context) error {
+	ctx, cancel := withServiceTimeout(ctx)
+	defer cancel()
 	if err := m.initsys.StartService(ctx, m.runner, m.name); err != nil {
 		return fmt.Errorf("failed to start service '%s': %w", m.name, err)
 	}
 	return m.waitState(ctx, serviceStateStarted)
 }
 
-// Stop the service.
+// Stop the service. If ctx has no deadline, a 2-minute default timeout is applied.
 func (m *Service) Stop(ctx context.Context) error {
+	ctx, cancel := withServiceTimeout(ctx)
+	defer cancel()
 	if err := m.initsys.StopService(ctx, m.runner, m.name); err != nil {
 		return fmt.Errorf("failed to stop service '%s': %w", m.name, err)
 	}
 	return m.waitState(ctx, serviceStateStopped)
 }
 
-// Restart the service.
+// Restart the service. If ctx has no deadline, a 2-minute default timeout is applied.
 func (m *Service) Restart(ctx context.Context) error {
+	ctx, cancel := withServiceTimeout(ctx)
+	defer cancel()
 	if restarter, ok := m.initsys.(initsystem.ServiceManagerRestarter); ok {
 		if err := restarter.RestartService(ctx, m.runner, m.name); err != nil {
 			return fmt.Errorf("failed to restart service '%s': %w", m.name, err)
@@ -82,7 +88,19 @@ func (m *Service) Restart(ctx context.Context) error {
 const (
 	serviceStatePollMinInterval = 100 * time.Millisecond
 	serviceStatePollMaxInterval = 1000 * time.Millisecond
+	// serviceDefaultTimeout is applied when a caller passes a context with no deadline.
+	// It covers systemd's default 90-second start/stop timeout plus overhead.
+	serviceDefaultTimeout = 2 * time.Minute
 )
+
+// withServiceTimeout wraps ctx with serviceDefaultTimeout when ctx has no deadline.
+// The returned cancel must always be called.
+func withServiceTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, serviceDefaultTimeout)
+}
 
 func (m *Service) waitState(ctx context.Context, state serviceState) error {
 	delay := serviceStatePollMinInterval
@@ -107,8 +125,10 @@ func (m *Service) waitState(ctx context.Context, state serviceState) error {
 	}
 }
 
-// Enable the service.
+// Enable the service. If ctx has no deadline, a 2-minute default timeout is applied.
 func (m *Service) Enable(ctx context.Context) error {
+	ctx, cancel := withServiceTimeout(ctx)
+	defer cancel()
 	if err := m.initsys.EnableService(ctx, m.runner, m.name); err != nil {
 		return fmt.Errorf("failed to enable service: %w", err)
 	}
@@ -120,8 +140,10 @@ func (m *Service) Enable(ctx context.Context) error {
 	return nil
 }
 
-// Disable the service.
+// Disable the service. If ctx has no deadline, a 2-minute default timeout is applied.
 func (m *Service) Disable(ctx context.Context) error {
+	ctx, cancel := withServiceTimeout(ctx)
+	defer cancel()
 	if err := m.initsys.DisableService(ctx, m.runner, m.name); err != nil {
 		return fmt.Errorf("failed to disable service '%s': %w", m.name, err)
 	}
@@ -218,7 +240,10 @@ func (m *Service) SetEnvironment(ctx context.Context, env map[string]string) err
 
 // DaemonReload triggers a daemon-reload on the init system, if supported. This is useful after
 // manually writing service unit files outside of rig. Enable and Disable call this automatically.
+// If ctx has no deadline, a 2-minute default timeout is applied.
 func (m *Service) DaemonReload(ctx context.Context) error {
+	ctx, cancel := withServiceTimeout(ctx)
+	defer cancel()
 	reloader, ok := m.initsys.(initsystem.ServiceManagerReloader)
 	if !ok {
 		return errDaemonReloadNotSupported

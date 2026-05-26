@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"testing"
+	"time"
 
 	"github.com/k0sproject/rig/v2/cmd"
 	"github.com/k0sproject/rig/v2/initsystem"
@@ -369,6 +370,27 @@ func TestServiceStreamLogs(t *testing.T) {
 		svc := &Service{runner: rigtest.NewMockRunner(), name: "svc", initsys: &mockBasicManager{}}
 		err := svc.StreamLogs(ctx, io.Discard)
 		require.ErrorIs(t, err, errLogStreamerNotSupported)
+	})
+}
+
+func TestWithServiceTimeout(t *testing.T) {
+	t.Run("adds deadline when none present", func(t *testing.T) {
+		ctx, cancel := withServiceTimeout(context.Background())
+		defer cancel()
+		_, ok := ctx.Deadline()
+		require.True(t, ok, "expected a deadline to be set when context.Background() is passed")
+	})
+
+	t.Run("preserves existing deadline", func(t *testing.T) {
+		parent, parentCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer parentCancel()
+		wantDeadline, _ := parent.Deadline()
+
+		ctx, cancel := withServiceTimeout(parent)
+		defer cancel()
+		gotDeadline, ok := ctx.Deadline()
+		require.True(t, ok)
+		require.Equal(t, wantDeadline, gotDeadline, "existing deadline must not be overridden")
 	})
 }
 
