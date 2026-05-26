@@ -50,7 +50,7 @@ func (c Windows) InstallPackage(h Host, s ...string) error {
 
 // InstallFile on windows is a regular file move operation
 func (c Windows) InstallFile(h Host, src, dst, _ string) error {
-	if err := h.Execf("move /y %s %s", ps.DoubleQuotePath(src), ps.DoubleQuotePath(dst), exec.Sudo(h)); err != nil {
+	if err := h.Execf("cmd.exe /c move /y %s %s", ps.DoubleQuotePath(src), ps.DoubleQuotePath(dst), exec.Sudo(h)); err != nil {
 		return fmt.Errorf("failed to move %s to %s: %w", src, dst, err)
 	}
 	return nil
@@ -58,7 +58,7 @@ func (c Windows) InstallFile(h Host, src, dst, _ string) error {
 
 // Pwd returns the current working directory
 func (c Windows) Pwd(h Host) string {
-	if pwd, err := h.ExecOutput("echo %cd%"); err == nil {
+	if pwd, err := h.ExecOutput("cmd.exe /c echo %cd%"); err == nil {
 		return pwd
 	}
 
@@ -126,7 +126,7 @@ func (c Windows) ReadFile(h Host, path string) (string, error) {
 
 // DeleteFile deletes a file from the host.
 func (c Windows) DeleteFile(h Host, path string) error {
-	if err := h.Exec(fmt.Sprintf(`del /f %s`, ps.DoubleQuotePath(path))); err != nil {
+	if err := h.Exec(fmt.Sprintf(`cmd.exe /c del /f %s`, ps.DoubleQuotePath(path))); err != nil {
 		return fmt.Errorf("failed to delete file %s: %w", path, err)
 	}
 	return nil
@@ -243,7 +243,7 @@ func (c Windows) Reboot(h Host) error {
 
 // StartService starts a service
 func (c Windows) StartService(h Host, s string) error {
-	if err := h.Execf(`sc start %s`, ps.DoubleQuote(s)); err != nil {
+	if err := h.Execf(`cmd.exe /c sc start %s`, ps.DoubleQuote(s)); err != nil {
 		return fmt.Errorf("failed to start service %s: %w", s, err)
 	}
 	return nil
@@ -251,7 +251,7 @@ func (c Windows) StartService(h Host, s string) error {
 
 // StopService stops a service
 func (c Windows) StopService(h Host, s string) error {
-	if err := h.Execf(`sc stop %s`, ps.DoubleQuote(s)); err != nil {
+	if err := h.Execf(`cmd.exe /c sc stop %s`, ps.DoubleQuote(s)); err != nil {
 		return fmt.Errorf("failed to stop service %s: %w", s, err)
 	}
 	return nil
