@@ -153,10 +153,16 @@ func (c *Connection) ExecInteractive(ctx context.Context, cmd string, stdin io.R
 		return fmt.Errorf("failed to start process: %w", err)
 	}
 
-	// Kill the process when the context is done.
+	// Kill the process when the context is done, but also stop watching when
+	// the function returns normally so that the goroutine does not leak.
+	watchDone := make(chan struct{})
+	defer close(watchDone)
 	go func() {
-		<-ctx.Done()
-		_ = proc.Kill()
+		select {
+		case <-ctx.Done():
+			_ = proc.Kill()
+		case <-watchDone:
+		}
 	}()
 
 	if _, err := proc.Wait(); err != nil {

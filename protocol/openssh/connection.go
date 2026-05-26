@@ -67,25 +67,42 @@ func (c *Connection) IPAddress() string {
 	return c.Address
 }
 
-// IsWindows returns true if the remote host is windows.
-func (c *Connection) IsWindows() bool {
-	// Implement your logic here
-	if c.isWindows != nil {
-		return *c.isWindows
+// detectWindows probes the remote host to determine whether it is running
+// Windows and stores the result in the cache. The caller is responsible for
+// ensuring the connection is established before calling this method.
+func (c *Connection) detectWindows(ctx context.Context) bool {
+	isWinProc, err := c.StartProcess(ctx, "cmd.exe /c exit 0", nil, nil, nil)
+	isWin := err == nil && isWinProc.Wait() == nil
+	// Don't cache a probe that failed due to context cancellation — the
+	// result would be a false negative that persists for the lifetime of
+	// the connection.
+	if ctx.Err() != nil {
+		return false
 	}
+	c.controlMutex.Lock()
+	c.isWindows = &isWin
+	c.controlMutex.Unlock()
+	log.Trace(ctx, fmt.Sprintf("host is windows: %t", isWin), log.KeyHost, c)
+	return isWin
+}
 
-	var isWin bool
+// IsWindows returns true if the remote host is windows.
+// The result is cached after the first probe; subsequent calls are O(1).
+// For reliable context propagation, Connect should be called first —
+// detection is also triggered during Connect using the connect context.
+func (c *Connection) IsWindows() bool {
+	c.controlMutex.Lock()
+	if c.isWindows != nil {
+		result := *c.isWindows
+		c.controlMutex.Unlock()
+		return result
+	}
+	c.controlMutex.Unlock()
 
+	// Fallback: probe with a bounded background context.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-
-	isWinProc, err := c.StartProcess(ctx, "cmd.exe /c exit 0", nil, nil, nil)
-	isWin = err == nil && isWinProc.Wait() == nil
-
-	c.isWindows = &isWin
-	log.Trace(context.Background(), fmt.Sprintf("host is windows: %t", *c.isWindows), log.KeyHost, c)
-
-	return *c.isWindows
+	return c.detectWindows(ctx)
 }
 
 // DefaultOptionArguments are the default options for the OpenSSH client.
@@ -172,11 +189,14 @@ func (c *Connection) Connect(ctx context.Context) error {
 		c.controlMutex.Lock()
 		c.isConnected = true
 		c.controlMutex.Unlock()
+		// Pre-warm Windows detection using the connect context. This avoids
+		// context.Background() probes on every first IsWindows() call.
+		c.detectWindows(ctx)
 		return nil
 	}
 
-	defer c.controlMutex.Unlock()
-
+	// Multiplexing path: manage the lock explicitly so we can release it
+	// before calling detectWindows (StartProcess acquires the same lock).
 	opts := c.Options.Copy()
 	opts.Set("ControlMaster", true)
 	opts.Set("ControlPersist", 600)
@@ -194,6 +214,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 	log.Trace(ctx, "starting ssh control master", log.KeyHost, c, log.KeyCommand, strings.Join(args, " "))
 	if err := cmd.Run(); err != nil {
 		c.isConnected = false
+		c.controlMutex.Unlock()
 		errOut := errBuf.String()
 		if isHostKeyError(errOut) {
 			return fmt.Errorf("%w: host key verification failed: %w (%s)", protocol.ErrNonRetryable, err, errOut)
@@ -206,6 +227,11 @@ func (c *Connection) Connect(ctx context.Context) error {
 		c.controlPath = cp
 	}
 	log.Trace(ctx, "started ssh multiplexing control master", log.KeyHost, c)
+	c.controlMutex.Unlock()
+
+	// Pre-warm Windows detection using the connect context. This avoids
+	// context.Background() probes on every first IsWindows() call.
+	c.detectWindows(ctx)
 
 	return nil
 }
@@ -267,7 +293,7 @@ func (c *Connection) StartProcess(ctx context.Context, cmdStr string, stdin io.R
 func (c *Connection) ExecInteractive(ctx context.Context, cmdStr string, stdin io.Reader, stdout, stderr io.Writer) error {
 	cmd, err := c.StartProcess(ctx, cmdStr, stdin, stdout, stderr)
 	if err != nil {
-		return err //nolint:wrapcheck // StartProcess already wraps
+		return err
 	}
 	if err := cmd.Wait(); err != nil {
 		if ctx.Err() != nil {
