@@ -459,7 +459,22 @@ func (c *Connection) connectViaBastion(ctx context.Context, dst string, config *
 	c.startKeepalive()
 	c.mu.Unlock()
 
+	c.prewarmWindows(ctx)
+
 	return nil
+}
+
+// prewarmWindows calls detectWindows with a short bounded context derived from
+// ctx so that Connect does not block indefinitely on the OS probe. A cancelled
+// or expired ctx causes the probe to be skipped entirely, leaving the cache
+// empty (IsWindows will probe on first call instead).
+func (c *Connection) prewarmWindows(ctx context.Context) {
+	if ctx.Err() != nil {
+		return
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	c.detectWindows(probeCtx)
 }
 
 // startKeepalive starts the keepalive goroutine. Caller must hold c.mu.
@@ -518,9 +533,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 	c.startKeepalive()
 	c.mu.Unlock()
 
-	// Pre-warm the Windows detection cache using the connect context so that
-	// callers who cancel after Connect never trigger a context.Background() probe.
-	c.detectWindows(ctx)
+	c.prewarmWindows(ctx)
 
 	return nil
 }
@@ -645,25 +658,24 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 // and returns the raw-mode restore function. It sets the local terminal to raw
 // mode so that keystrokes are forwarded unmodified.
 func setupInteractivePTY(session *ssh.Session, inF *os.File) (func(), error) {
-	stdinFD := int(os.Stdin.Fd())
+	stdinFD := int(inF.Fd())
 	old, err := term.MakeRaw(stdinFD)
 	if err != nil {
 		return nil, fmt.Errorf("make local terminal raw: %w", err)
 	}
 
-	rows, cols, err := term.GetSize(stdinFD)
+	width, height, err := term.GetSize(stdinFD)
 	if err != nil {
 		_ = term.Restore(stdinFD, old)
 		return nil, fmt.Errorf("get terminal size: %w", err)
 	}
 
 	modes := ssh.TerminalModes{ssh.ECHO: 1}
-	if err := session.RequestPty("xterm", cols, rows, modes); err != nil {
+	if err := session.RequestPty("xterm", height, width, modes); err != nil {
 		_ = term.Restore(stdinFD, old)
 		return nil, fmt.Errorf("request pty: %w", err)
 	}
 
-	_ = inF // kept for signature clarity; caller passes it as input
 	return func() { _ = term.Restore(stdinFD, old) }, nil
 }
 

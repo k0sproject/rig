@@ -189,9 +189,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 		c.controlMutex.Lock()
 		c.isConnected = true
 		c.controlMutex.Unlock()
-		// Pre-warm Windows detection using the connect context. This avoids
-		// context.Background() probes on every first IsWindows() call.
-		c.detectWindows(ctx)
+		c.prewarmWindows(ctx)
 		return nil
 	}
 
@@ -229,11 +227,22 @@ func (c *Connection) Connect(ctx context.Context) error {
 	log.Trace(ctx, "started ssh multiplexing control master", log.KeyHost, c)
 	c.controlMutex.Unlock()
 
-	// Pre-warm Windows detection using the connect context. This avoids
-	// context.Background() probes on every first IsWindows() call.
-	c.detectWindows(ctx)
+	c.prewarmWindows(ctx)
 
 	return nil
+}
+
+// prewarmWindows calls detectWindows with a short bounded context derived from
+// ctx so that Connect does not block indefinitely on the OS probe. A cancelled
+// or expired ctx causes the probe to be skipped entirely, leaving the cache
+// empty (IsWindows will probe on first call instead).
+func (c *Connection) prewarmWindows(ctx context.Context) {
+	if ctx.Err() != nil {
+		return
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	c.detectWindows(probeCtx)
 }
 
 func (c *Connection) closeControl() error {

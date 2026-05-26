@@ -3,6 +3,7 @@ package rig_test
 import (
 	"context"
 	"errors"
+	"io"
 	"testing"
 
 	"github.com/k0sproject/rig/v2"
@@ -342,4 +343,63 @@ func TestClientRebootFSErrorWrapped(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, mockErr)
 	require.Contains(t, err.Error(), "reboot:")
+}
+
+// interactiveConn embeds MockConnection and additionally implements InteractiveExecer
+// so that Client.ExecInteractive forwards through to it.
+type interactiveConn struct {
+	*rigtest.MockConnection
+	receivedCtx context.Context
+	receivedCmd string
+	returnErr   error
+}
+
+func (c *interactiveConn) ExecInteractive(ctx context.Context, cmd string, _ io.Reader, _ io.Writer, _ io.Writer) error {
+	c.receivedCtx = ctx
+	c.receivedCmd = cmd
+	return c.returnErr
+}
+
+func TestClientExecInteractiveForwardsContext(t *testing.T) {
+	conn := &interactiveConn{MockConnection: rigtest.NewMockConnection()}
+	client, err := rig.NewClient(rig.WithConnection(conn))
+	require.NoError(t, err)
+	require.NoError(t, client.Connect(context.Background()))
+
+	type ctxKey struct{}
+	ctx := context.WithValue(context.Background(), ctxKey{}, "marker")
+
+	require.NoError(t, client.ExecInteractive(ctx, "echo hello", nil, nil, nil))
+	require.Equal(t, "echo hello", conn.receivedCmd)
+	require.Equal(t, "marker", conn.receivedCtx.Value(ctxKey{}))
+}
+
+func TestClientExecInteractiveCancelledContext(t *testing.T) {
+	conn := &interactiveConn{
+		MockConnection: rigtest.NewMockConnection(),
+		returnErr:      context.Canceled,
+	}
+	client, err := rig.NewClient(rig.WithConnection(conn))
+	require.NoError(t, err)
+	require.NoError(t, client.Connect(context.Background()))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err = client.ExecInteractive(ctx, "sleep 60", nil, nil, nil)
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestClientExecInteractiveNotSupported(t *testing.T) {
+	// MockConnection does not implement InteractiveExecer, so the client should
+	// return an error indicating that interactive exec is unsupported.
+	conn := rigtest.NewMockConnection()
+	client, err := rig.NewClient(rig.WithConnection(conn))
+	require.NoError(t, err)
+	require.NoError(t, client.Connect(context.Background()))
+
+	err = client.ExecInteractive(context.Background(), "sh", nil, nil, nil)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "interactive")
 }

@@ -156,7 +156,10 @@ func (m *Service) Disable(ctx context.Context) error {
 }
 
 // ScriptPath returns the path to the service script.
+// If ctx has no deadline, a 2-minute default timeout is applied.
 func (m *Service) ScriptPath(ctx context.Context) (string, error) {
+	ctx, cancel := withServiceTimeout(ctx)
+	defer cancel()
 	scriptPath, err := m.initsys.ServiceScriptPath(ctx, m.runner, m.name)
 	if err != nil {
 		return "", fmt.Errorf("failed to get service script path: %w", err)
@@ -165,7 +168,10 @@ func (m *Service) ScriptPath(ctx context.Context) (string, error) {
 }
 
 // IsRunning returns true if the service is running.
+// If ctx has no deadline, a 2-minute default timeout is applied.
 func (m *Service) IsRunning(ctx context.Context) bool {
+	ctx, cancel := withServiceTimeout(ctx)
+	defer cancel()
 	return m.initsys.ServiceIsRunning(ctx, m.runner, m.name)
 }
 
@@ -178,7 +184,10 @@ var (
 )
 
 // Logs returns latest log lines for the service.
+// If ctx has no deadline, a 2-minute default timeout is applied.
 func (m *Service) Logs(ctx context.Context, lines int) ([]string, error) {
+	ctx, cancel := withServiceTimeout(ctx)
+	defer cancel()
 	logreader, ok := m.initsys.(initsystem.ServiceManagerLogReader)
 	if !ok {
 		return nil, errLogReaderNotSupported
@@ -210,8 +219,10 @@ func (m *Service) StreamLogs(ctx context.Context, w io.Writer) error {
 
 // SetEnvironment writes environment variable overrides for the service and triggers a daemon-reload
 // if the init system requires it (e.g. systemd). The init system determines the file path and format;
-// any existing content is replaced.
+// any existing content is replaced. If ctx has no deadline, a 2-minute default timeout is applied.
 func (m *Service) SetEnvironment(ctx context.Context, env map[string]string) error {
+	ctx, cancel := withServiceTimeout(ctx)
+	defer cancel()
 	envManager, ok := m.initsys.(initsystem.ServiceEnvironmentManager)
 	if !ok {
 		return errEnvManagerNotSupported
