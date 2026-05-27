@@ -69,6 +69,23 @@ func TestStringRedacter(t *testing.T) {
 			input:    "secret password secret secret password",
 			expected: "s.cr.t pass.ord s.cr.t s.cr.t pass.ord",
 		},
+		{
+			// When the mask itself contains the match string, replacing would
+			// immediately reintroduce the secret; StringRedacter silently drops
+			// such matches so the returned Redacter is a no-op for that secret.
+			name:     "mask contains match is dropped",
+			redacter: redact.StringRedacter("(secret)", "secret"),
+			input:    "the password is secret",
+			expected: "the password is secret",
+		},
+		{
+			// Only matches whose mask doesn't contain them are dropped; others
+			// still work normally.
+			name:     "mask contains one of multiple matches",
+			redacter: redact.StringRedacter("(secret)", "secret", "password"),
+			input:    "the password is secret",
+			expected: "the (secret) is secret",
+		},
 	}
 
 	for _, test := range tests {

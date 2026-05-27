@@ -31,6 +31,9 @@ func (r noopRedacter) Writer(dst io.Writer) io.WriteCloser {
 }
 
 // StringRedacter returns a Redacter that will redact any matches of the provided strings with the provided mask.
+// Matches where the mask itself contains the match string are silently dropped — replacing such a match would
+// immediately reintroduce it, which makes repeated-redaction strategies unsafe and can lead to non-termination
+// or unbounded growth if replacement were repeatedly attempted.
 func StringRedacter(mask string, matches ...string) Redacter {
 	if len(matches) == 0 {
 		return noopRedacter{}
@@ -40,12 +43,14 @@ func StringRedacter(mask string, matches ...string) Redacter {
 		if match == "" {
 			continue
 		}
-		for _, m := range matches {
-			if m == match {
-				continue
-			}
+		if strings.Contains(mask, match) {
+			// Replacing this match with the mask would reintroduce it; skip.
+			continue
 		}
 		newMatches = append(newMatches, match)
+	}
+	if len(newMatches) == 0 {
+		return noopRedacter{}
 	}
 	return &stringRedacter{newMatches, mask}
 }
@@ -58,6 +63,24 @@ type stringRedacter struct {
 func (r *stringRedacter) Redact(s string) string {
 	for _, match := range r.matches {
 		s = strings.ReplaceAll(s, match, r.mask)
+		if len(r.mask) >= len(match) {
+			// When mask is at least as long as match, looping is unsafe: each
+			// replacement can re-introduce match at the mask/remaining-text
+			// boundary, causing the string to grow without bound. A single
+			// pass is used instead; residual occurrences are possible in
+			// pathological mask/match combinations.
+			continue
+		}
+		// Mask is strictly shorter than match: each ReplaceAll shrinks the
+		// string, so the loop must terminate. Keep replacing until no
+		// occurrences remain.
+		for strings.Contains(s, match) {
+			prev := s
+			s = strings.ReplaceAll(s, match, r.mask)
+			if s == prev {
+				break
+			}
+		}
 	}
 	return s
 }

@@ -333,6 +333,9 @@ func tokenizeRow(s string) (key string, values []string, err error) {
 	leftTrimmed = leftTrimmed[idx+1:]
 
 	idx = strings.IndexFunc(leftTrimmed, func(r rune) bool { return !unicode.IsSpace(r) && r != '=' })
+	if idx == -1 {
+		return "", nil, fmt.Errorf("%w: missing value: %q", ErrSyntax, s)
+	}
 	breakOnComment := true
 	switch key {
 	case "knownhostscommand", "proxycommand", "localcommand", "remotecommand":

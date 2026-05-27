@@ -24,10 +24,17 @@ func FuzzNewParser(f *testing.F) {
 			return
 		}
 		// Strip Include directives to prevent filesystem access during fuzzing.
+		// Only skip lines whose first whitespace/= delimited token is exactly "include"
+		// (case-insensitive), so that lines like "IncludeMe yes" still reach the parser.
 		var filtered strings.Builder
 		for line := range strings.SplitSeq(input, "\n") {
 			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(strings.ToLower(trimmed), "include") {
+			// Extract the first token (delimited by whitespace or '=').
+			firstToken := trimmed
+			if i := strings.IndexAny(trimmed, " \t="); i >= 0 {
+				firstToken = trimmed[:i]
+			}
+			if strings.EqualFold(firstToken, "include") {
 				continue
 			}
 			filtered.WriteString(line)

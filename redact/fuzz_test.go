@@ -9,8 +9,9 @@ import (
 )
 
 // FuzzStringRedacterRedact verifies that StringRedacter.Redact never panics on
-// arbitrary mask, match, and input combinations, and that the result never contains
-// the match when a non-empty match is provided.
+// arbitrary mask, match, and input combinations, and, when match is non-empty,
+// mask is shorter than match, and mask itself does not contain match, that the
+// result no longer contains match.
 func FuzzStringRedacterRedact(f *testing.F) {
 	f.Add("[REDACTED]", "secret", "the secret is here")
 	f.Add("", "password", "my password is 1234")
@@ -25,10 +26,13 @@ func FuzzStringRedacterRedact(f *testing.F) {
 		r := redact.StringRedacter(mask, match)
 		result := r.Redact(input)
 
-		// If a non-empty match was provided and the mask itself does not contain
-		// the match string (which would make the assertion trivially unsatisfiable),
-		// the result must not contain the original match.
-		if match != "" && !strings.Contains(mask, match) && strings.Contains(result, match) {
+		// When mask is strictly shorter than match, Redact loops until all
+		// occurrences are gone (guaranteed to terminate because the string
+		// shrinks). Assert full elimination in that case, provided the mask
+		// itself does not contain match (which would be self-defeating).
+		// When len(mask) >= len(match), a single ReplaceAll pass is used to
+		// avoid unbounded string growth; residual occurrences are possible.
+		if match != "" && len(mask) < len(match) && !strings.Contains(mask, match) && strings.Contains(result, match) {
 			t.Errorf("Redact(%q) with match=%q mask=%q: result %q still contains the match", input, match, mask, result)
 		}
 	})

@@ -24,3 +24,12 @@ endif
 lint:
 	golangci-lint run -v $(fixparam)
 
+FUZZ_TIME := 10s
+.PHONY: fuzz
+fuzz:
+	@go list ./... | while read pkg; do \
+		go test "$$pkg" -list '^Fuzz' | grep '^Fuzz' | while read fuzz; do \
+			echo "==> $$pkg $$fuzz"; \
+			go test "$$pkg" -run=^$$ -fuzz="^$$fuzz$$" -fuzztime=$(FUZZ_TIME); \
+		done; \
+	done
