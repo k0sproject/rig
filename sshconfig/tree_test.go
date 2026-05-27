@@ -12,7 +12,7 @@ import (
 // The tests can be modified to use the exported API.
 
 // TestTokenizeRowMissingValue is a regression test for inputs that carry a key
-// but no value (e.g. "Key =" or "Key ="). Before the fix these caused a panic;
+// but no value (e.g. "Key =" or "Key="). Before the fix these caused a panic;
 // now they must return ErrSyntax instead.
 func TestTokenizeRowMissingValue(t *testing.T) {
 	for _, input := range []string{
