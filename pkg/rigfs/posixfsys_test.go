@@ -1,6 +1,7 @@
 package rigfs
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -97,8 +98,11 @@ func TestReadDirNonExistentDirectory(t *testing.T) {
 	if err == nil {
 		t.Fatal("ReadDir on non-existent directory returned nil error, want fs.ErrNotExist")
 	}
-	pe, ok := err.(*fs.PathError)
-	if !ok || pe.Path != dirName {
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("ReadDir returned %v, want an error wrapping fs.ErrNotExist", err)
+	}
+	var pe *fs.PathError
+	if !errors.As(err, &pe) || pe.Path != dirName {
 		t.Fatalf("ReadDir returned %v, want *fs.PathError with Path=%q", err, dirName)
 	}
 }
