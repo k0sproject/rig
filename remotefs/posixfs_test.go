@@ -7,11 +7,13 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/k0sproject/rig/v2/remotefs"
 	"github.com/k0sproject/rig/v2/rigtest"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -306,48 +308,37 @@ func TestPosixHTTPStatus(t *testing.T) {
 }
 
 func TestPosixInitStat(t *testing.T) {
-	// initStat selects between GNU and BSD stat by inspecting "stat --help 2>&1".
-	// GNU mode uses "stat -c", BSD mode uses "stat -f".
+	// initStat selects between GNU and BSD stat by inspecting stat's capabilities.
+	// GNU mode tests and uses "stat -c", BSD mode tests "stat -s" and uses "stat -f".
+	type matchers = []rigtest.CommandMatcher
 	cases := []struct {
-		name    string
-		helpOut string
-		wantGNU bool
+		name     string
+		expected matchers
 	}{
-		{
-			name:    "GNU coreutils (--format=)",
-			helpOut: "Usage: stat [OPTION]... FILE...\n      --format=FORMAT",
-			wantGNU: true,
-		},
-		{
-			name:    "uutils (--format without =)",
-			helpOut: "Usage: stat [OPTIONS] <file>\n      --format <FORMAT>   use the specified FORMAT instead of the default",
-			wantGNU: true,
-		},
-		{
-			name:    "BusyBox",
-			helpOut: "BusyBox v1.35.0 multi-call binary.",
-			wantGNU: true,
-		},
-		{
-			name:    "BSD stat",
-			helpOut: "stat: illegal option -- -\nusage: stat [-FlLnqrsx] [-f format] [-t timefmt] [file ...]",
-			wantGNU: false,
-		},
+		{"GNU", matchers{rigtest.Equal("stat -c %n /"), rigtest.Contains("LC_ALL=C stat -c")}},
+		{"BSD", matchers{rigtest.Equal("stat -s /"), rigtest.Contains("LC_ALL=C stat -f")}},
+		{"unknown", nil},
 	}
-
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			mr := rigtest.NewMockRunner()
-			mr.AddCommandOutput(rigtest.Equal("stat --help 2>&1"), tc.helpOut)
-			// Trigger initStat via Stat; ignore the ErrNotExist result.
+			mr.ErrDefault = errors.New("unexpected command")
+			for _, expected := range tc.expected {
+				mr.AddCommandSuccess(expected)
+			}
+
 			f := remotefs.NewPosixFS(mr)
-			_, _ = f.Stat("/tmp/file")
-			if tc.wantGNU {
-				require.NoError(t, mr.Received(rigtest.Contains("stat -c")), "expected GNU stat format (-c)")
-				require.NoError(t, mr.NotReceived(rigtest.Contains("stat -f")), "unexpected BSD stat format (-f)")
+			_, err := f.Stat("/tmp/file")
+
+			if tc.expected == nil {
+				assert.ErrorContains(t, err, "unsupported stat implementation")
 			} else {
-				require.NoError(t, mr.Received(rigtest.Contains("stat -f")), "expected BSD stat format (-f)")
-				require.NoError(t, mr.NotReceived(rigtest.Contains("stat -c")), "unexpected GNU stat format (-c)")
+				assert.ErrorIs(t, err, os.ErrNotExist)
+				for i, expected := range tc.expected {
+					if err := mr.Received(expected); err != nil {
+						assert.Failf(t, "Expected command not received", "Command %d", i)
+					}
+				}
 			}
 		})
 	}

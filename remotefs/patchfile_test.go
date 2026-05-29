@@ -458,12 +458,12 @@ func TestPatchFileStatError(t *testing.T) {
 // TestPatchFilePosix verifies PatchFile works end-to-end via PosixFS.
 func TestPatchFilePosix(t *testing.T) {
 	mr := rigtest.NewMockRunner()
-	// initStat probe: "stat --format=FORMAT" selects GNU stat (stat -c format).
-	mr.AddCommandOutput(rigtest.Equal("stat --help 2>&1"), "Usage: stat --format=FORMAT")
+	// initStat probe: Selecting GNU mode.
+	mr.AddCommandSuccess(rigtest.Equal("stat -c %n /"))
 	// PatchFile's Stat("/etc/env") — match path-specifically so the generic stat
 	// handler below (for MkdirAll's Stat("/etc")) does not fire first.
 	// 0x81a4 = 0o100644 (regular file, rw-r--r--).
-	mr.AddCommandOutput(rigtest.Match(`stat -c.*etc/env`), "0x81a4 12 1234567890.000000000 ///etc/env//")
+	mr.AddCommandOutput(rigtest.Match(`stat -c .+ -- /etc/env`), "0x81a4 12 1234567890.000000000 ///etc/env//")
 	// ReadFile via cat.
 	mr.AddCommandOutput(rigtest.Contains("cat"), "FOO=old\nBAR=keep\n")
 	// WriteFileAtomic: MkdirAll probes Stat("/etc") — return directory so no install -d is needed.

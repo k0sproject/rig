@@ -31,6 +31,7 @@ var (
 	errBase64Required       = errors.New("base64 is not available on the remote host")
 	errGrepFailed           = errors.New("grep failed")
 	errTestFailed           = errors.New("test failed")
+	errStatInitFailed       = errors.New("stat command not found or unsupported stat implementation")
 	statCmdGNU              = `env -i PATH="$PATH" LC_ALL=C stat -c '%%#f %%s %%.9Y //%%n//' -- %s 2> /dev/null`
 	statCmdBSD              = `env -i PATH="$PATH" LC_ALL=C stat -f '%%#p %%z %%Fm //%%N//' -- %s 2> /dev/null`
 )
@@ -63,18 +64,20 @@ func (s *PosixFS) initStat() error {
 	if s.statCmd != nil {
 		return nil
 	}
-	out, err := s.ExecOutput("stat --help 2>&1", cmd.HideOutput())
-	if err != nil {
-		return fmt.Errorf("can't access stat command: %w", err)
-	}
-	if strings.Contains(out, "BusyBox") || strings.Contains(out, "--format") {
+
+	if err := s.Exec("stat -c %n /"); err == nil {
 		s.statCmd = &statCmdGNU
 		s.timeTrunc = time.Second
-	} else {
+		return nil
+	}
+
+	if err := s.Exec("stat -s /"); err == nil {
 		s.statCmd = &statCmdBSD
 		s.timeTrunc = time.Nanosecond
+		return nil
 	}
-	return nil
+
+	return errStatInitFailed
 }
 
 // second precision touch for busybox.
