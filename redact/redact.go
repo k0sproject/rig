@@ -30,10 +30,13 @@ func (r noopRedacter) Writer(dst io.Writer) io.WriteCloser {
 	return noopWriteCloser{dst}
 }
 
-// StringRedacter returns a Redacter that will redact any matches of the provided strings with the provided mask.
-// Matches where the mask itself contains the match string are silently dropped — replacing such a match would
-// immediately reintroduce it, which makes repeated-redaction strategies unsafe and can lead to non-termination
-// or unbounded growth if replacement were repeatedly attempted.
+// StringRedacter returns a Redacter that performs best-effort redaction of the provided match strings using the
+// provided mask. Redaction is not guaranteed to be complete in all cases:
+//   - Matches where the mask contains the match string are silently dropped (replacing would immediately reintroduce the secret).
+//   - When the mask is longer than the match, only a single replacement pass is made; a replacement can re-introduce
+//     the match at a boundary (e.g. match="ab", mask="xxa", input="abb" → "xxab"), leaving a residual occurrence.
+//
+// Callers must not rely on this for guaranteed removal of sensitive data. It is intended for best-effort log redaction.
 func StringRedacter(mask string, matches ...string) Redacter {
 	if len(matches) == 0 {
 		return noopRedacter{}

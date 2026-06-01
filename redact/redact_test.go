@@ -95,6 +95,15 @@ func TestStringRedacter(t *testing.T) {
 			input:    "aabb",
 			expected: "bbaa",
 		},
+		{
+			// When mask is longer than match, only one pass is made to avoid
+			// unbounded string growth. A replacement can re-introduce match at
+			// a boundary; that residual occurrence is intentional/documented.
+			name:     "longer mask single-pass residual is intentional",
+			redacter: redact.StringRedacter("xxa", "ab"),
+			input:    "abb",
+			expected: "xxab",
+		},
 	}
 
 	for _, test := range tests {
