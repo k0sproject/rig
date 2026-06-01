@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"io/fs"
 	"net/http"
 	"os"
+	"path"
 	"testing"
 	"time"
 
@@ -18,26 +20,60 @@ import (
 // uploadFS is a minimal FS stub for Upload tests. Only the methods called by
 // Upload are implemented; everything else panics if called.
 type uploadFS struct {
-	capturedPerm  fs.FileMode
+	tmpPath       string
 	capturedChmod fs.FileMode
-	chmodCalled   bool
+	renamedFrom   string
+	renamedTo     string
+	removedPaths  []string
 	written       []byte
+
+	createTempErr error
+	openFileErr   error
+	copyFromErr   error
+	sha256Err     error
+	chmodErr      error
+	renameErr     error
 }
 
-func (f *uploadFS) OpenFile(_ string, _ int, perm fs.FileMode) (remotefs.File, error) {
-	f.capturedPerm = perm
-	return &uploadFile{buf: &f.written}, nil
+func (f *uploadFS) Dir(p string) string { return path.Dir(p) }
+
+func (f *uploadFS) CreateTemp(dir, prefix string) (string, error) {
+	if f.createTempErr != nil {
+		return "", f.createTempErr
+	}
+	f.tmpPath = dir + "/" + prefix + "tmp"
+	return f.tmpPath, nil
+}
+
+func (f *uploadFS) OpenFile(_ string, _ int, _ fs.FileMode) (remotefs.File, error) {
+	if f.openFileErr != nil {
+		return nil, f.openFileErr
+	}
+	return &uploadFile{buf: &f.written, copyFromErr: f.copyFromErr}, nil
 }
 
 func (f *uploadFS) Sha256(_ string) (string, error) {
+	if f.sha256Err != nil {
+		return "", f.sha256Err
+	}
 	h := sha256.New()
 	h.Write(f.written)
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func (f *uploadFS) Chmod(_ string, mode fs.FileMode) error {
-	f.chmodCalled = true
 	f.capturedChmod = mode
+	return f.chmodErr
+}
+
+func (f *uploadFS) Rename(from, to string) error {
+	f.renamedFrom = from
+	f.renamedTo = to
+	return f.renameErr
+}
+
+func (f *uploadFS) Remove(p string) error {
+	f.removedPaths = append(f.removedPaths, p)
 	return nil
 }
 
@@ -46,12 +82,10 @@ func (f *uploadFS) Open(_ string) (fs.File, error)                        { pani
 func (f *uploadFS) Stat(_ string) (fs.FileInfo, error)                    { panic("not implemented") }
 func (f *uploadFS) ReadFile(_ string) ([]byte, error)                     { panic("not implemented") }
 func (f *uploadFS) ReadDir(_ string) ([]fs.DirEntry, error)               { panic("not implemented") }
-func (f *uploadFS) Remove(_ string) error                                 { panic("not implemented") }
 func (f *uploadFS) RemoveAll(_ string) error                              { panic("not implemented") }
 func (f *uploadFS) Mkdir(_ string, _ fs.FileMode) error                   { panic("not implemented") }
 func (f *uploadFS) MkdirAll(_ string, _ fs.FileMode) error                { panic("not implemented") }
 func (f *uploadFS) MkdirTemp(_, _ string) (string, error)                 { panic("not implemented") }
-func (f *uploadFS) CreateTemp(_, _ string) (string, error)                { panic("not implemented") }
 func (f *uploadFS) WriteFile(_ string, _ []byte, _ fs.FileMode) error     { panic("not implemented") }
 func (f *uploadFS) FileExist(_ string) bool                               { panic("not implemented") }
 func (f *uploadFS) LookPath(_ string) (string, error)                     { panic("not implemented") }
@@ -64,7 +98,6 @@ func (f *uploadFS) Chtimes(_ string, _, _ int64) error                    { pani
 func (f *uploadFS) Touch(_ string, _ ...time.Time) error                  { panic("not implemented") }
 func (f *uploadFS) Truncate(_ string, _ int64) error                      { panic("not implemented") }
 func (f *uploadFS) Getenv(_ string) string                                { panic("not implemented") }
-func (f *uploadFS) Rename(_, _ string) error                              { panic("not implemented") }
 func (f *uploadFS) DownloadURL(_ string, _ string) error                  { panic("not implemented") }
 func (f *uploadFS) RoundTrip(_ *http.Request) (*http.Response, error)     { panic("not implemented") }
 func (f *uploadFS) FileContains(_ string, _ string) (bool, error)         { panic("not implemented") }
@@ -78,19 +111,22 @@ func (f *uploadFS) TempDir() string                                       { pani
 func (f *uploadFS) UserCacheDir() string                                  { panic("not implemented") }
 func (f *uploadFS) UserConfigDir() string                                 { panic("not implemented") }
 func (f *uploadFS) UserHomeDir() string                                   { panic("not implemented") }
-func (f *uploadFS) Dir(_ string) string                                   { panic("not implemented") }
 func (f *uploadFS) Base(_ string) string                                  { panic("not implemented") }
 func (f *uploadFS) CommandExist(_ string) bool                            { panic("not implemented") }
 func (f *uploadFS) Reboot(_ context.Context) error                        { panic("not implemented") }
 
 // uploadFile is a minimal File stub that captures written bytes.
 type uploadFile struct {
-	buf *[]byte
+	buf         *[]byte
+	copyFromErr error
 }
 
 func (f *uploadFile) CopyFrom(src io.Reader) (int64, error) {
 	data, err := io.ReadAll(src)
 	*f.buf = data
+	if f.copyFromErr != nil {
+		return int64(len(data)), f.copyFromErr
+	}
 	return int64(len(data)), err
 }
 
@@ -122,8 +158,9 @@ func TestUploadUsesLocalPermByDefault(t *testing.T) {
 
 	mfs := &uploadFS{}
 	require.NoError(t, remotefs.Upload(mfs, src, "/remote/dst"))
-	require.Equal(t, stat.Mode(), mfs.capturedPerm)
-	require.False(t, mfs.chmodCalled, "Chmod should not be called without WithPermissions")
+	require.Equal(t, stat.Mode(), mfs.capturedChmod, "Chmod must be called with local file's mode")
+	require.Equal(t, mfs.tmpPath, mfs.renamedFrom, "temp path must be renamed to dst")
+	require.Equal(t, "/remote/dst", mfs.renamedTo)
 }
 
 func TestUploadWithPermissions(t *testing.T) {
@@ -131,15 +168,44 @@ func TestUploadWithPermissions(t *testing.T) {
 	mfs := &uploadFS{}
 
 	require.NoError(t, remotefs.Upload(mfs, src, "/remote/dst", remotefs.WithPermissions(0o755)))
-	require.Equal(t, fs.FileMode(0o755), mfs.capturedPerm)
-	require.True(t, mfs.chmodCalled, "Chmod should be called with WithPermissions")
-	require.Equal(t, fs.FileMode(0o755), mfs.capturedChmod)
+	require.Equal(t, fs.FileMode(0o755), mfs.capturedChmod, "Chmod must be called with specified mode")
+	require.Equal(t, mfs.tmpPath, mfs.renamedFrom)
+	require.Equal(t, "/remote/dst", mfs.renamedTo)
 }
 
 func TestUploadChecksumMismatch(t *testing.T) {
 	src := writeTempFile(t, "hello", 0o644)
-	err := remotefs.Upload(&corruptUploadFS{uploadFS: uploadFS{}}, src, "/remote/dst")
+	corruptFS := &corruptUploadFS{}
+	err := remotefs.Upload(corruptFS, src, "/remote/dst")
 	require.ErrorIs(t, err, remotefs.ErrChecksumMismatch)
+	require.Contains(t, corruptFS.removedPaths, corruptFS.tmpPath, "temp file must be removed on checksum mismatch")
+}
+
+func TestUploadCopyFailureCleansTempFile(t *testing.T) {
+	src := writeTempFile(t, "hello", 0o644)
+	mfs := &uploadFS{copyFromErr: errors.New("network error")}
+
+	err := remotefs.Upload(mfs, src, "/remote/dst")
+	require.Error(t, err)
+	require.Contains(t, mfs.removedPaths, mfs.tmpPath, "temp file must be removed after copy failure")
+}
+
+func TestUploadRenameFailureCleansTempFile(t *testing.T) {
+	src := writeTempFile(t, "hello", 0o644)
+	mfs := &uploadFS{renameErr: errors.New("cross-device link")}
+
+	err := remotefs.Upload(mfs, src, "/remote/dst")
+	require.Error(t, err)
+	require.Contains(t, mfs.removedPaths, mfs.tmpPath, "temp file must be removed after rename failure")
+}
+
+func TestUploadCreateTempFailure(t *testing.T) {
+	src := writeTempFile(t, "hello", 0o644)
+	mfs := &uploadFS{createTempErr: errors.New("no space left on device")}
+
+	err := remotefs.Upload(mfs, src, "/remote/dst")
+	require.Error(t, err)
+	require.Empty(t, mfs.removedPaths, "no temp file created, nothing to remove")
 }
 
 // corruptUploadFS simulates a checksum mismatch by returning an incorrect sha256 digest.

@@ -131,12 +131,12 @@ func (s *PosixFS) initTouch() error {
 	if err != nil {
 		return fmt.Errorf("can't create temp file for touch test: %w", err)
 	}
-	if err := tmpF.Close(); err != nil {
-		return fmt.Errorf("can't close temp file for touch test: %w", err)
-	}
 	defer func() {
 		_ = s.Remove(tmpF.Name())
 	}()
+	if err := tmpF.Close(); err != nil {
+		return fmt.Errorf("can't close temp file for touch test: %w", err)
+	}
 	if err := s.nsecChtimes(tmpF.Name(), 0, 0); err != nil {
 		s.chtimesFn = s.secChtimes
 	} else {
