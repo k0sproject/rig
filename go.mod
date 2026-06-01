@@ -2,12 +2,12 @@ module github.com/k0sproject/rig/v2
 
 go 1.26.0
 
-toolchain go1.26.1
+toolchain go1.26.3
 
 require (
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/davidmz/go-pageant v1.0.2
-	github.com/masterzen/winrm v0.0.0-20250927112105-5f8e6c707321
+	github.com/masterzen/winrm v0.0.0-20260407182533-5570be7f80cf
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.52.0
 	golang.org/x/term v0.43.0
@@ -33,7 +33,7 @@ require (
 	github.com/masterzen/simplexml v0.0.0-20190410153822-31eea3082786 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/tidwall/transform v0.0.0-20201103190739-32f242e2dbde // indirect
-	golang.org/x/net v0.54.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
