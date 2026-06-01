@@ -43,6 +43,15 @@ type WindowsChecker interface {
 }
 
 // InteractiveExecer is a connection that can start an interactive session.
+//
+// All implementations guarantee:
+//   - stdin, stdout, and stderr are forwarded to the remote process.
+//   - context cancellation terminates the remote session.
+//   - an empty cmd falls back to a protocol-appropriate default shell.
+//
+// PTY allocation, terminal sizing, signal forwarding, and raw-mode behaviour
+// are protocol- and OS-specific. See docs/pty-tty-semantics.md for the full
+// per-protocol audit and gap list.
 type InteractiveExecer interface {
 	ExecInteractive(ctx context.Context, cmd string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error
 }
