@@ -26,12 +26,13 @@ func FuzzStringRedacterRedact(f *testing.F) {
 		r := redact.StringRedacter(mask, match)
 		result := r.Redact(input)
 
-		// When mask is strictly shorter than match, Redact loops until all
-		// occurrences are gone (guaranteed to terminate because the string
-		// shrinks). Assert full elimination in that case, provided the mask
-		// itself does not contain match (which would be self-defeating).
-		// When len(mask) >= len(match), a single ReplaceAll pass is used to
-		// avoid unbounded string growth; residual occurrences are possible.
+		// When mask is strictly shorter than match, each ReplaceAll shrinks
+		// the string so the loop terminates with all occurrences eliminated.
+		// Assert full elimination in that case, provided the mask itself does
+		// not contain match (which would be self-defeating).
+		// When len(mask) == len(match), a bounded loop is used; residuals are
+		// possible if the bound is hit. When len(mask) > len(match), a single
+		// pass is used to avoid unbounded string growth; residuals are possible.
 		if match != "" && len(mask) < len(match) && !strings.Contains(mask, match) && strings.Contains(result, match) {
 			t.Errorf("Redact(%q) with match=%q mask=%q: result %q still contains the match", input, match, mask, result)
 		}

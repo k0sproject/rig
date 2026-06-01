@@ -86,6 +86,15 @@ func TestStringRedacter(t *testing.T) {
 			input:    "the password is secret",
 			expected: "the (secret) is secret",
 		},
+		{
+			// A single ReplaceAll pass can create new occurrences of match at
+			// replacement boundaries when mask and match are the same length;
+			// additional passes are needed to clear them.
+			name:     "equal-length mask boundary re-introduction",
+			redacter: redact.StringRedacter("ba", "ab"),
+			input:    "aabb",
+			expected: "bbaa",
+		},
 	}
 
 	for _, test := range tests {

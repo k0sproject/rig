@@ -63,23 +63,17 @@ type stringRedacter struct {
 func (r *stringRedacter) Redact(s string) string {
 	for _, match := range r.matches {
 		s = strings.ReplaceAll(s, match, r.mask)
-		if len(r.mask) >= len(match) {
-			// When mask is at least as long as match, looping is unsafe: each
-			// replacement can re-introduce match at the mask/remaining-text
-			// boundary, causing the string to grow without bound. A single
-			// pass is used instead; residual occurrences are possible in
-			// pathological mask/match combinations.
+		if len(r.mask) > len(match) {
+			// mask longer than match: looping can re-introduce match at
+			// replacement boundaries and grow the string without bound;
+			// one pass is used. Residual occurrences are possible.
 			continue
 		}
-		// Mask is strictly shorter than match: each ReplaceAll shrinks the
-		// string, so the loop must terminate. Keep replacing until no
-		// occurrences remain.
-		for strings.Contains(s, match) {
-			prev := s
+		// mask same length or shorter: additional passes clear boundary
+		// re-introductions. The loop is bounded by len(s) to avoid
+		// non-termination in pathological equal-length mask/match cases.
+		for i := len(s); i > 0 && strings.Contains(s, match); i-- {
 			s = strings.ReplaceAll(s, match, r.mask)
-			if s == prev {
-				break
-			}
 		}
 	}
 	return s
