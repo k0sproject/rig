@@ -3,10 +3,15 @@ package sshconfig_test
 import (
 	"strings"
 	"testing"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/k0sproject/rig/v2/sshconfig"
 )
+
+type noopExecutor struct{}
+
+func (noopExecutor) Run(_ string, _ ...string) error { return nil }
 
 // FuzzNewParser verifies that the ssh_config parser never panics on arbitrary input.
 // Include directives are stripped to avoid filesystem access during fuzzing.
@@ -31,7 +36,7 @@ func FuzzNewParser(f *testing.F) {
 			trimmed := strings.TrimSpace(line)
 			// Extract the first token (delimited by whitespace or '=').
 			firstToken := trimmed
-			if i := strings.IndexAny(trimmed, " \t="); i >= 0 {
+			if i := strings.IndexFunc(trimmed, func(r rune) bool { return unicode.IsSpace(r) || r == '=' }); i >= 0 {
 				firstToken = trimmed[:i]
 			}
 			if strings.EqualFold(firstToken, "include") {
@@ -41,7 +46,7 @@ func FuzzNewParser(f *testing.F) {
 			filtered.WriteByte('\n')
 		}
 
-		parser, err := sshconfig.NewParser(strings.NewReader(filtered.String()))
+		parser, err := sshconfig.NewParser(strings.NewReader(filtered.String()), sshconfig.WithExecutor(noopExecutor{}))
 		if err != nil {
 			// Syntax errors are expected; panics are not.
 			return
