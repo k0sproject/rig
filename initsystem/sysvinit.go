@@ -13,6 +13,9 @@ const initd = "/etc/init.d/"
 // SysVinit is the service manager for SysVinit.
 type SysVinit struct{}
 
+// String returns the name of the init system.
+func (SysVinit) String() string { return "sysvinit" }
+
 // StartService starts a service.
 func (i SysVinit) StartService(ctx context.Context, h cmd.ContextRunner, s string) error {
 	if err := h.ExecContext(ctx, sh.Command(initd+s, "start")); err != nil {

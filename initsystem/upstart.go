@@ -14,6 +14,9 @@ import (
 // Upstart is the init system used by Ubuntu 14.04 and older.
 type Upstart struct{}
 
+// String returns the name of the init system.
+func (Upstart) String() string { return "upstart" }
+
 const initctl = sh.CommandBuilder("initctl")
 
 var initctlCmd = initctl.Args

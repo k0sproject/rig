@@ -16,6 +16,9 @@ import (
 // Runit is an init system implementation for runit.
 type Runit struct{}
 
+// String returns the name of the init system.
+func (Runit) String() string { return "runit" }
+
 const sv = sh.CommandBuilder("sv")
 
 var svCmd = sv.Args

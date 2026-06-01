@@ -22,6 +22,9 @@ type universalPackageManager struct {
 	update  string
 }
 
+// String returns the package manager name.
+func (u universalPackageManager) String() string { return u.name }
+
 func (u universalPackageManager) buildAndExec(ctx context.Context, kw string, packageNames ...string) error {
 	if err := u.ExecContext(ctx, buildCommand(u.command, kw, packageNames...)); err != nil {
 		return fmt.Errorf("failed to %s %s packages: %w", kw, u.name, err)

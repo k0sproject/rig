@@ -15,6 +15,9 @@ var errNotSupported = errors.New("not supported on windows")
 // WinSCM is a struct that implements the InitSystem interface for Windows Service Control Manager.
 type WinSCM struct{}
 
+// String returns the name of the init system.
+func (WinSCM) String() string { return "winscm" }
+
 // StartService starts a service.
 func (c WinSCM) StartService(ctx context.Context, h cmd.ContextRunner, s string) error {
 	if err := h.ExecContext(ctx, "$ErrorActionPreference='Stop'\nStart-Service "+ps.SingleQuote(s)+" -ErrorAction Stop", cmd.PS()); err != nil {

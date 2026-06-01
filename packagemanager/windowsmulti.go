@@ -18,6 +18,9 @@ type WindowsMultiManager struct {
 // ErrNoWindowsPackageManager is returned when no windows package manager is found.
 var ErrNoWindowsPackageManager = errors.New("no windows package manager found")
 
+// String returns the package manager name.
+func (w *WindowsMultiManager) String() string { return "windows-multi" }
+
 // Install the given packages.
 func (w *WindowsMultiManager) Install(ctx context.Context, packageNames ...string) error {
 	if len(w.managers) == 0 {

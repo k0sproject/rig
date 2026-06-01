@@ -15,6 +15,9 @@ import (
 // OpenRC is found on some linux systems, often installed on Alpine for example.
 type OpenRC struct{}
 
+// String returns the name of the init system.
+func (OpenRC) String() string { return "openrc" }
+
 const rcservice = sh.CommandBuilder("rc-service")
 
 var rcserviceCmd = rcservice.Args

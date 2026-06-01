@@ -16,6 +16,9 @@ import (
 // Systemd is found by default on most linux distributions today.
 type Systemd struct{}
 
+// String returns the name of the init system.
+func (Systemd) String() string { return "systemd" }
+
 const systemctl = sh.CommandBuilder("systemctl")
 
 var systemctlCmd = systemctl.Args

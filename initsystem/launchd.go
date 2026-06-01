@@ -15,6 +15,9 @@ import (
 // Launchd is the init system for macOS (and darwin), the implementation is very basic and doesn't handle services in user space.
 type Launchd struct{}
 
+// String returns the name of the init system.
+func (Launchd) String() string { return "launchd" }
+
 const launchctl = sh.CommandBuilder("launchctl")
 
 var launchctlCmd = launchctl.Args
