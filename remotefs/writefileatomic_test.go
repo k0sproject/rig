@@ -131,19 +131,6 @@ func TestWriteFileAtomic(t *testing.T) {
 // TestWriteFileAtomicPosix verifies WriteFileAtomic works end-to-end via PosixFS.
 func TestWriteFileAtomicPosix(t *testing.T) {
 	mr := rigtest.NewMockRunner()
-	// initStat probe
-	mr.AddCommandOutput(rigtest.Equal("stat --help 2>&1"), "Usage: stat --format=FORMAT")
-	// MkdirAll: Stat probe returns empty (dir not found), then install -d
-	mr.AddCommandSuccess(rigtest.Contains("stat -c"))
-	mr.AddCommandSuccess(rigtest.Contains("install -d"))
-	// CreateTemp
-	mr.AddCommandOutput(rigtest.Contains("mktemp"), "/srv/.tmp-abc123")
-	// WriteFile via install + stdin
-	mr.AddCommandSuccess(rigtest.Contains("install"))
-	// Chmod
-	mr.AddCommandSuccess(rigtest.Contains("chmod"))
-	// Rename
-	mr.AddCommandSuccess(rigtest.Contains("mv -f"))
 
 	f := remotefs.NewPosixFS(mr)
 	err := remotefs.WriteFileAtomic(f, "/srv/k0s", []byte("binary"), 0o755)
