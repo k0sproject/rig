@@ -137,15 +137,18 @@ func (o *ExecOptions) Stdin() io.Reader {
 }
 
 func (o *ExecOptions) logWriter(stream string, logFn func(msg string, keysAndValues ...any)) io.WriteCloser {
-	wc := redact.Writer(iostream.NewScanWriter(func(s string) { logFn(s, "stream", stream) }), o.redactMask, o.redactStrings...)
-	o.outputClosers = append(o.outputClosers, wc)
-	return wc
+	sw := iostream.NewScanWriter(func(s string) { logFn(s, "stream", stream) })
+	rw := redact.Writer(sw, o.redactMask, o.redactStrings...)
+	// rw must be closed first so it flushes its partial-match buffer into sw,
+	// then sw must be closed to signal EOF to the scanner goroutine.
+	o.outputClosers = append(o.outputClosers, rw, sw)
+	return rw
 }
 
-// OutputClosers returns WriteClosers created by this ExecOptions that must be
-// closed after the process finishes to release their resources.
+// OutputClosers returns a copy of the WriteClosers created by this ExecOptions that must
+// be closed after the process finishes to release their resources.
 func (o *ExecOptions) OutputClosers() []io.Closer {
-	return o.outputClosers
+	return append([]io.Closer(nil), o.outputClosers...)
 }
 
 // Stdout returns the Stdout writer. If output logging is enabled, it will be a MultiWriter that writes to the log.

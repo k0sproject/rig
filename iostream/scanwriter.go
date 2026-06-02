@@ -4,6 +4,7 @@ package iostream
 import (
 	"bufio"
 	"io"
+	"sync"
 )
 
 // ScanWriterMaxBufferSize is the maximum size of the ScanWriter buffer. If the buffer
@@ -22,6 +23,7 @@ type ScanWriter struct {
 	pipeR   *io.PipeReader
 	pipeW   *io.PipeWriter
 	scanner *bufio.Scanner
+	once    sync.Once
 	closed  bool
 	closeCh chan struct{}
 }
@@ -35,13 +37,18 @@ func NewScanWriter(fn CallbackFn) io.WriteCloser {
 	sw.pipeR, sw.pipeW = io.Pipe()
 	sw.scanner = bufio.NewScanner(sw.pipeR)
 	sw.scanner.Buffer(nil, ScanWriterMaxBufferSize)
-	go func() {
-		for sw.scanner.Scan() {
-			sw.fn(sw.scanner.Text())
-		}
-		close(sw.closeCh)
-	}()
 	return sw
+}
+
+func (w *ScanWriter) startScanner() {
+	w.once.Do(func() {
+		go func() {
+			for w.scanner.Scan() {
+				w.fn(w.scanner.Text())
+			}
+			close(w.closeCh)
+		}()
+	})
 }
 
 // Write writes the given bytes to the scanner.
@@ -49,6 +56,7 @@ func (w *ScanWriter) Write(p []byte) (int, error) {
 	if w.closed {
 		return 0, io.ErrUnexpectedEOF
 	}
+	w.startScanner()
 	return w.pipeW.Write(p) //nolint:wrapcheck
 }
 
@@ -67,6 +75,11 @@ func (w *ScanWriter) CloseWithError(reason error) error {
 	if err := w.pipeW.CloseWithError(reason); err != nil {
 		return err //nolint:wrapcheck
 	}
+
+	// Ensure the scanner goroutine is running before we wait for it.
+	// If Write was never called the goroutine hasn't started yet; starting it here
+	// lets it observe the closed pipe and exit cleanly without deadlocking.
+	w.startScanner()
 
 	<-w.closeCh
 

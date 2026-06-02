@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,18 +18,25 @@ import (
 
 // tracerRecorder collects lifecycle events for assertions.
 type tracerRecorder struct {
+	mu     sync.Mutex
 	events []string
 }
 
 func (r *tracerRecorder) CommandFormatted(host, formatted string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.events = append(r.events, "formatted:"+formatted)
 }
 
 func (r *tracerRecorder) ProcessStarted(host, formatted string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.events = append(r.events, "started:"+formatted)
 }
 
 func (r *tracerRecorder) ProcessFinished(host, formatted string, duration time.Duration, err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if err != nil {
 		r.events = append(r.events, "finished-err:"+err.Error())
 	} else {
@@ -39,6 +47,7 @@ func (r *tracerRecorder) ProcessFinished(host, formatted string, duration time.D
 // outputTracerRecorder also captures per-line output.
 type outputTracerRecorder struct {
 	tracerRecorder
+	mu     sync.Mutex
 	stdout []string
 	stderr []string
 }
@@ -53,10 +62,14 @@ func (s *explainOnlyStarter) StartProcess(_ context.Context, command string, _ i
 }
 
 func (r *outputTracerRecorder) StdoutLine(host, line string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.stdout = append(r.stdout, line)
 }
 
 func (r *outputTracerRecorder) StderrLine(host, line string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.stderr = append(r.stderr, line)
 }
 
@@ -275,7 +288,7 @@ func TestExplainMatchesStart(t *testing.T) {
 	callDec := func(c string) string { return "sudo " + c }
 
 	ex := runner.Explain("myapp run", cmd.Decorate(callDec))
-	_ = runner.Exec("myapp run", cmd.Decorate(callDec))
+	require.NoError(t, runner.Exec("myapp run", cmd.Decorate(callDec)))
 
 	rigtest.ReceivedEqual(t, conn, ex.Formatted)
 }

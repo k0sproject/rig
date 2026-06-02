@@ -70,16 +70,8 @@ func (rw *redactWriter) Close() error {
 
 	// Copy any remaining data from the buffer to the underlying writer.
 	// (should be just a partial match that didn't get to complete)
-	if _, err := io.Copy(rw.w, rw.buf); err != nil {
-		return err //nolint:wrapcheck
-	}
-
-	// Propagate close to the underlying writer so callers such as ScanWriter
-	// can signal EOF to their scanning goroutine.
-	if c, ok := rw.w.(io.Closer); ok {
-		return c.Close() //nolint:wrapcheck
-	}
-	return nil
+	_, err := io.Copy(rw.w, rw.buf)
+	return err //nolint:wrapcheck
 }
 
 type matchInfo struct {
