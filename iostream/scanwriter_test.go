@@ -15,8 +15,6 @@ func (c *collector) fn(token string) {
 	c.tokens = append(c.tokens, token)
 }
 
-const lf byte = '\n'
-
 func TestScanWriter(t *testing.T) {
 	testCases := []struct {
 		name        string

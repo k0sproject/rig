@@ -29,6 +29,25 @@ func NewErrorExecutor(err error) *ErrorExecutor {
 // Format returns the command string as is.
 func (r *ErrorExecutor) Format(cmd string) string { return cmd }
 
+// Explain returns an [Explanation] with per-call decorators applied. ErrorExecutor has
+// no global decorators and no connection, so OS-specific wrapping is not applied.
+func (r *ErrorExecutor) Explain(command string, opts ...ExecOption) Explanation {
+	execOpts := Build(opts...)
+	formatted := execOpts.Format(command)
+	decoded := decodeEncoded(formatted)
+	logged := ""
+	if execOpts.LogCommand() {
+		logged = execOpts.Redact(decoded)
+	}
+	return Explanation{
+		Formatted:       formatted,
+		Decoded:         decoded,
+		Logged:          logged,
+		CommandLogged:   execOpts.LogCommand(),
+		OSWrappingKnown: false,
+	}
+}
+
 // Proc returns a Proc bound to this executor for the given command.
 func (r *ErrorExecutor) Proc(cmd string) *Proc {
 	return &Proc{runner: r, command: cmd}

@@ -11,8 +11,11 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 	"unicode/utf16"
 
+	"github.com/k0sproject/rig/v2/iostream"
 	"github.com/k0sproject/rig/v2/log"
 	"github.com/k0sproject/rig/v2/protocol"
 )
@@ -45,6 +48,8 @@ type Executor struct {
 	connection protocol.ProcessStarter
 	decorators []DecorateFunc
 	isWin      func() bool
+	osKnown    atomic.Bool
+	tracer     Tracer
 }
 
 func isWinFunc(conn protocol.ProcessStarter) func() bool {
@@ -69,6 +74,56 @@ func NewExecutor(conn protocol.ProcessStarter, decorators ...DecorateFunc) *Exec
 	}
 }
 
+// SetTracer attaches a runner-wide [Tracer]. It fires for every command
+// unless overridden per-call via the [Trace] option.
+// SetTracer must not be called concurrently with Start, Exec, or any other
+// command-execution method.
+func (r *Executor) SetTracer(t Tracer) {
+	r.tracer = t
+}
+
+func (r *Executor) formatCommandForOS(command string, execOpts *ExecOptions, isWindows bool) string {
+	cmd := r.Format(execOpts.Format(command))
+	if isWindows && !isExe(cmd) {
+		cmd = "cmd.exe /C " + cmd
+	}
+	return cmd
+}
+
+// formatCommand returns the fully decorated command string.
+func (r *Executor) formatCommand(command string, execOpts *ExecOptions) string {
+	return r.formatCommandForOS(command, execOpts, r.IsWindows())
+}
+
+func (r *Executor) explainCommand(command string, execOpts *ExecOptions) (string, bool) {
+	if !r.osKnown.Load() {
+		return r.formatCommandForOS(command, execOpts, false), false
+	}
+	return r.formatCommandForOS(command, execOpts, r.IsWindows()), true
+}
+
+// Explain returns the formatted command without running it. Use this to
+// inspect the effect of decorators, sudo wrapping, PowerShell encoding,
+// and redaction without executing anything. Explain never probes the host
+// to determine OS-specific wrapping; wrapping is included only when the OS
+// has already been determined (see OSWrappingKnown in the returned Explanation).
+func (r *Executor) Explain(command string, opts ...ExecOption) Explanation {
+	execOpts := Build(opts...)
+	formatted, osWrappingKnown := r.explainCommand(command, execOpts)
+	decoded := decodeEncoded(formatted)
+	logged := ""
+	if execOpts.LogCommand() {
+		logged = execOpts.Redact(decoded)
+	}
+	return Explanation{
+		Formatted:       formatted,
+		Decoded:         decoded,
+		Logged:          logged,
+		CommandLogged:   execOpts.LogCommand(),
+		OSWrappingKnown: osWrappingKnown,
+	}
+}
+
 // Format returns the command string decorated with the runner's global decorators.
 func (r *Executor) Format(cmd string) string {
 	for _, decorator := range r.decorators {
@@ -85,7 +140,9 @@ func (r *Executor) Proc(cmd string) *Proc {
 
 // IsWindows returns true if the host is running Windows.
 func (r *Executor) IsWindows() bool {
-	return r.isWin()
+	result := r.isWin()
+	r.osKnown.Store(true)
+	return result
 }
 
 // String returns the client's string representation.
@@ -135,9 +192,14 @@ func findPrintfError(s string) error {
 }
 
 type waiterWrapper struct {
-	waiter    protocol.Waiter
-	opts      *ExecOptions
-	isWindows bool
+	waiter       protocol.Waiter
+	opts         *ExecOptions
+	isWindows    bool
+	tracer       Tracer
+	host         string
+	formatted    string
+	started      time.Time
+	traceClosers []io.Closer
 }
 
 var xmlTagRe = regexp.MustCompile(`<.+?>`)
@@ -160,17 +222,28 @@ func formatStderr(stderr string, isWindows bool) string {
 // Wait waits for the command to finish and returns an error if it fails or if it wrote to stderr.
 func (w *waiterWrapper) Wait() error {
 	waitErr := w.waiter.Wait()
+
+	// flush per-line trace writers before reading errBuf so all output is delivered
+	for _, c := range w.traceClosers {
+		_ = c.Close()
+	}
+
 	stderr := formatStderr(w.opts.ErrString(), w.isWindows)
 	if waitErr == nil && w.isWindows && !w.opts.AllowWinStderr() && len(stderr) > 0 {
 		waitErr = ErrWroteStderr
 	}
+	var result error
 	if waitErr != nil {
 		if len(stderr) > 0 {
-			return fmt.Errorf("process finished with error: %w (%s)", waitErr, stderr)
+			result = fmt.Errorf("process finished with error: %w (%s)", waitErr, stderr)
+		} else {
+			result = fmt.Errorf("process finished with error: %w", waitErr)
 		}
-		return fmt.Errorf("process finished with error: %w", waitErr)
 	}
-	return nil
+	if w.tracer != nil {
+		w.tracer.ProcessFinished(w.host, w.formatted, time.Since(w.started), result)
+	}
+	return result
 }
 
 func isExe(cmd string) bool {
@@ -225,35 +298,71 @@ func (r *Executor) Start(ctx context.Context, command string, opts ...ExecOption
 	execOpts := Build(opts...)
 	r.InjectLoggerTo(execOpts) //nolint:contextcheck // uses trace logger which takes context
 
-	cmd := r.Format(execOpts.Format(command))
-	if r.IsWindows() {
-		// we don't know if the default shell is cmd or powershell, so to make sure commands
-		// without a shell prefix go consistently go through the same shell, we default to running
-		// non-prefixed commands through cmd.exe.
-		if !isExe(cmd) {
-			cmd = "cmd.exe /C " + cmd
-		}
+	// resolve active tracer: per-call overrides runner-wide
+	tracer := execOpts.tracer
+	if tracer == nil {
+		tracer = r.tracer
 	}
+
+	// wire per-line output hooks for OutputTracer before computing final writers
+	var traceClosers []io.Closer //nolint:prealloc // OutputClosers length is unknown until Stdout/Stderr are called below
+	if ot, ok := tracer.(OutputTracer); ok {
+		host := r.String()
+		outSW := iostream.NewScanWriter(func(line string) { ot.StdoutLine(host, line) })
+		errSW := iostream.NewScanWriter(func(line string) { ot.StderrLine(host, line) })
+		traceClosers = []io.Closer{outSW, errSW}
+		execOpts.traceOut = outSW
+		execOpts.traceErr = errSW
+	}
+
+	// we don't know if the default shell is cmd or powershell, so to make sure commands
+	// without a shell prefix go consistently go through the same shell, we default to running
+	// non-prefixed commands through cmd.exe.
+	cmd := r.formatCommand(command, execOpts)
 
 	if execOpts.LogCommand() {
 		r.Log().Debug("executing command", log.KeyCommand, execOpts.Redact(decodeEncoded(cmd)))
 	}
 
-	waiter, err := r.connection.StartProcess(ctx, cmd, execOpts.Stdin(), execOpts.Stdout(), execOpts.Stderr()) //nolint:contextcheck // Stdin() uses trace logger which takes context
+	if tracer != nil {
+		tracer.CommandFormatted(r.String(), cmd)
+	}
+
+	stdout := execOpts.Stdout()
+	stderr := execOpts.Stderr()
+	traceClosers = append(traceClosers, execOpts.OutputClosers()...)
+
+	waiter, err := r.connection.StartProcess(ctx, cmd, execOpts.Stdin(), stdout, stderr) //nolint:contextcheck // Stdin() uses trace logger which takes context
 	if err != nil {
+		for _, c := range traceClosers {
+			_ = c.Close()
+		}
 		log.Trace(ctx, "start process failed", log.HostAttr(r), log.KeyCommand, cmd, log.KeyError, err)
 		return nil, fmt.Errorf("runner start command: %w", err)
 	}
 
 	if waiter == nil {
+		for _, c := range traceClosers {
+			_ = c.Close()
+		}
 		log.Trace(ctx, "start process returned nil waiter", log.HostAttr(r), log.KeyCommand, cmd, log.KeyError, err)
 		return nil, fmt.Errorf("%w: connection returned no error but a nil waiter", errInternal)
 	}
 
+	started := time.Now()
+	if tracer != nil {
+		tracer.ProcessStarted(r.String(), cmd)
+	}
+
 	return &waiterWrapper{
-		waiter:    waiter,
-		opts:      execOpts,
-		isWindows: r.IsWindows(),
+		waiter:       waiter,
+		opts:         execOpts,
+		isWindows:    r.IsWindows(),
+		tracer:       tracer,
+		host:         r.String(),
+		formatted:    cmd,
+		started:      started,
+		traceClosers: traceClosers,
 	}, nil
 }
 

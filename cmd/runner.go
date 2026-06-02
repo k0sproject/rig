@@ -60,6 +60,13 @@ type Runner interface {
 	SimpleRunner
 	ContextRunner
 	Proc(cmd string) *Proc
+	// Explain returns an [Explanation] describing how the command would be processed,
+	// without actually running it. The Explanation includes the fully decorated
+	// command string (Formatted), the decoded/human-readable form (Decoded), the
+	// redacted version that would appear in logs (Logged), and whether the OS
+	// wrapping decision was known (OSWrappingKnown). Use this to inspect the effect of
+	// decorators, sudo wrapping, PowerShell encoding, and redaction.
+	Explain(cmd string, opts ...ExecOption) Explanation
 	// ProcessStarter is included to allow runners to accept another runner as their connection for chaining.
 	protocol.ProcessStarter
 }

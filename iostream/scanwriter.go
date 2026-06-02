@@ -4,7 +4,6 @@ package iostream
 import (
 	"bufio"
 	"io"
-	"sync"
 )
 
 // ScanWriterMaxBufferSize is the maximum size of the ScanWriter buffer. If the buffer
@@ -23,7 +22,6 @@ type ScanWriter struct {
 	pipeR   *io.PipeReader
 	pipeW   *io.PipeWriter
 	scanner *bufio.Scanner
-	once    sync.Once
 	closed  bool
 	closeCh chan struct{}
 }
@@ -37,6 +35,12 @@ func NewScanWriter(fn CallbackFn) io.WriteCloser {
 	sw.pipeR, sw.pipeW = io.Pipe()
 	sw.scanner = bufio.NewScanner(sw.pipeR)
 	sw.scanner.Buffer(nil, ScanWriterMaxBufferSize)
+	go func() {
+		for sw.scanner.Scan() {
+			sw.fn(sw.scanner.Text())
+		}
+		close(sw.closeCh)
+	}()
 	return sw
 }
 
@@ -45,14 +49,6 @@ func (w *ScanWriter) Write(p []byte) (int, error) {
 	if w.closed {
 		return 0, io.ErrUnexpectedEOF
 	}
-	w.once.Do(func() {
-		go func() {
-			for w.scanner.Scan() {
-				w.fn(w.scanner.Text())
-			}
-			close(w.closeCh)
-		}()
-	})
 	return w.pipeW.Write(p) //nolint:wrapcheck
 }
 
