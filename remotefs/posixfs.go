@@ -49,7 +49,6 @@ type PosixFS struct {
 	// TODO: these should probably be in some kind of "coreutils" package
 	statCmd   *string
 	chtimesFn func(name string, atime, mtime int64) error
-	timeTrunc time.Duration
 
 	httpToolsOnce sync.Once
 	httpToolsErr  error
@@ -67,13 +66,11 @@ func (s *PosixFS) initStat() error {
 
 	if err := s.Exec("stat -c %n /"); err == nil {
 		s.statCmd = &statCmdGNU
-		s.timeTrunc = time.Second
 		return nil
 	}
 
 	if err := s.Exec("stat -s /"); err == nil {
 		s.statCmd = &statCmdBSD
-		s.timeTrunc = time.Nanosecond
 		return nil
 	}
 
