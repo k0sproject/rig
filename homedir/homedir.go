@@ -10,24 +10,24 @@ import (
 // ErrInvalidPath is returned when the given path is invalid.
 var ErrInvalidPath = errors.New("invalid path")
 
-func expandStat(path string) (os.FileInfo, error) {
-	if len(path) == 0 {
-		return nil, fmt.Errorf("%w: path is empty", ErrInvalidPath)
+func expandStat(p string) (string, os.FileInfo, error) {
+	if len(p) == 0 {
+		return "", nil, fmt.Errorf("%w: path is empty", ErrInvalidPath)
 	}
-	path, err := Expand(path)
+	expanded, err := Expand(p)
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
-	stat, err := os.Stat(path)
+	stat, err := os.Stat(expanded)
 	if err != nil {
-		return nil, fmt.Errorf("stat: %w", err)
+		return "", nil, fmt.Errorf("stat: %w", err)
 	}
-	return stat, nil
+	return expanded, stat, nil
 }
 
 // ExpandFile expands the path and checks that it is an existing file.
 func ExpandFile(path string) (string, error) {
-	stat, err := expandStat(path)
+	expanded, stat, err := expandStat(path)
 	if err != nil {
 		return "", fmt.Errorf("file does not exist: %w", err)
 	}
@@ -36,12 +36,12 @@ func ExpandFile(path string) (string, error) {
 		return "", fmt.Errorf("%w: %s is a directory", ErrInvalidPath, path)
 	}
 
-	return path, nil
+	return expanded, nil
 }
 
 // ExpandDir expands the path and checks that it is an existing directory.
 func ExpandDir(path string) (string, error) {
-	stat, err := expandStat(path)
+	expanded, stat, err := expandStat(path)
 	if err != nil {
 		return "", fmt.Errorf("directory does not exist: %w", err)
 	}
@@ -50,5 +50,5 @@ func ExpandDir(path string) (string, error) {
 		return "", fmt.Errorf("%w: %s is not a directory", ErrInvalidPath, path)
 	}
 
-	return path, nil
+	return expanded, nil
 }

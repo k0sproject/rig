@@ -460,11 +460,13 @@ func TestRegistryDetection(t *testing.T) {
 		initsystem.RegisterSystemd(reg)
 
 		mr := rigtest.NewMockRunner()
+		mr.ErrDefault = errExec
 		mr.AddCommandSuccess(rigtest.Contains("stat /run/systemd/system"))
 
 		mgr, err := reg.Get(mr)
 		require.NoError(t, err)
 		assert.IsType(t, initsystem.Systemd{}, mgr)
+		require.NoError(t, mr.Received(rigtest.Contains("stat /run/systemd/system")))
 	})
 
 	t.Run("Systemd not detected when probe fails", func(t *testing.T) {
@@ -497,11 +499,13 @@ func TestRegistryDetection(t *testing.T) {
 		initsystem.RegisterSysVinit(reg)
 
 		mr := rigtest.NewMockRunner()
+		mr.ErrDefault = errExec
 		mr.AddCommandSuccess(rigtest.Contains("/etc/init.d"))
 
 		mgr, err := reg.Get(mr)
 		require.NoError(t, err)
 		assert.IsType(t, initsystem.SysVinit{}, mgr)
+		require.NoError(t, mr.Received(rigtest.Contains("/etc/init.d")))
 	})
 
 	t.Run("SysVinit not detected on Windows", func(t *testing.T) {
@@ -520,11 +524,15 @@ func TestRegistryDetection(t *testing.T) {
 		initsystem.RegisterRunit(reg)
 
 		mr := rigtest.NewMockRunner()
-		mr.AddCommandSuccess(rigtest.Contains("command -v"))
+		mr.ErrDefault = errExec
+		mr.AddCommandSuccess(rigtest.Contains("command -v runit"))
+		mr.AddCommandSuccess(rigtest.Contains("command -v sv"))
 
 		mgr, err := reg.Get(mr)
 		require.NoError(t, err)
 		assert.IsType(t, initsystem.Runit{}, mgr)
+		require.NoError(t, mr.Received(rigtest.Contains("command -v runit")))
+		require.NoError(t, mr.Received(rigtest.Contains("command -v sv")))
 	})
 
 	t.Run("Upstart detected when initctl present", func(t *testing.T) {
@@ -532,11 +540,13 @@ func TestRegistryDetection(t *testing.T) {
 		initsystem.RegisterUpstart(reg)
 
 		mr := rigtest.NewMockRunner()
-		mr.AddCommandSuccess(rigtest.Contains("initctl"))
+		mr.ErrDefault = errExec
+		mr.AddCommandSuccess(rigtest.Contains("command -v initctl"))
 
 		mgr, err := reg.Get(mr)
 		require.NoError(t, err)
 		assert.IsType(t, initsystem.Upstart{}, mgr)
+		require.NoError(t, mr.Received(rigtest.Contains("command -v initctl")))
 	})
 
 	t.Run("Launchd detected when SystemVersion.plist present", func(t *testing.T) {
@@ -544,11 +554,13 @@ func TestRegistryDetection(t *testing.T) {
 		initsystem.RegisterLaunchd(reg)
 
 		mr := rigtest.NewMockRunner()
+		mr.ErrDefault = errExec
 		mr.AddCommandSuccess(rigtest.Contains("SystemVersion.plist"))
 
 		mgr, err := reg.Get(mr)
 		require.NoError(t, err)
 		assert.IsType(t, initsystem.Launchd{}, mgr)
+		require.NoError(t, mr.Received(rigtest.Contains("SystemVersion.plist")))
 	})
 
 	t.Run("First registered manager wins", func(t *testing.T) {

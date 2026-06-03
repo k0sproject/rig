@@ -37,6 +37,20 @@ func TestExpandFile(t *testing.T) {
 		_, err := homedir.ExpandFile("")
 		require.ErrorIs(t, err, homedir.ErrInvalidPath)
 	})
+
+	t.Run("tilde prefix is expanded to home directory", func(t *testing.T) {
+		homeDir, err := os.UserHomeDir()
+		require.NoError(t, err)
+
+		f, err := os.CreateTemp(homeDir, "rig-test-*")
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
+		defer os.Remove(f.Name())
+
+		got, err := homedir.ExpandFile("~/" + filepath.Base(f.Name()))
+		require.NoError(t, err)
+		assert.Equal(t, f.Name(), got)
+	})
 }
 
 func TestExpandDir(t *testing.T) {
@@ -65,5 +79,18 @@ func TestExpandDir(t *testing.T) {
 	t.Run("empty path returns error", func(t *testing.T) {
 		_, err := homedir.ExpandDir("")
 		require.ErrorIs(t, err, homedir.ErrInvalidPath)
+	})
+
+	t.Run("tilde expands to home directory", func(t *testing.T) {
+		homeDir, err := os.UserHomeDir()
+		require.NoError(t, err)
+
+		subDir, err := os.MkdirTemp(homeDir, "rig-test-*")
+		require.NoError(t, err)
+		defer os.RemoveAll(subDir)
+
+		got, err := homedir.ExpandDir("~/" + filepath.Base(subDir))
+		require.NoError(t, err)
+		assert.Equal(t, subDir, got)
 	})
 }

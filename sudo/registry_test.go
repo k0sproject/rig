@@ -25,11 +25,13 @@ func TestRegisterSudo(t *testing.T) {
 		sudo.RegisterSudo(reg)
 
 		mr := rigtest.NewMockRunner()
-		mr.AddCommandSuccess(rigtest.Contains("sudo"))
+		mr.ErrDefault = errProbe
+		mr.AddCommandSuccess(rigtest.Contains("sudo -n"))
 
 		runner, err := reg.Get(mr)
 		require.NoError(t, err)
 		require.NotNil(t, runner)
+		require.NoError(t, mr.Received(rigtest.Contains("sudo -n")))
 	})
 
 	t.Run("not detected when sudo probe fails", func(t *testing.T) {
@@ -79,11 +81,13 @@ func TestRegisterDoas(t *testing.T) {
 		sudo.RegisterDoas(reg)
 
 		mr := rigtest.NewMockRunner()
-		mr.AddCommandSuccess(rigtest.Contains("doas"))
+		mr.ErrDefault = errProbe
+		mr.AddCommandSuccess(rigtest.Contains("doas -n"))
 
 		runner, err := reg.Get(mr)
 		require.NoError(t, err)
 		require.NotNil(t, runner)
+		require.NoError(t, mr.Received(rigtest.Contains("doas -n")))
 	})
 
 	t.Run("not detected when doas probe fails", func(t *testing.T) {
@@ -133,11 +137,13 @@ func TestRegisterUID0Noop(t *testing.T) {
 		sudo.RegisterUID0Noop(reg)
 
 		mr := rigtest.NewMockRunner()
+		mr.ErrDefault = errProbe
 		mr.AddCommandSuccess(rigtest.Contains("id -u"))
 
 		runner, err := reg.Get(mr)
 		require.NoError(t, err)
 		require.NotNil(t, runner)
+		require.NoError(t, mr.Received(rigtest.Contains("id -u")))
 	})
 
 	t.Run("not detected when not root", func(t *testing.T) {
@@ -203,7 +209,7 @@ func TestSudoProvider(t *testing.T) {
 
 		provider := sudo.NewSudoProvider(reg.Get, mr)
 		_, err := provider.SudoRunner()
-		require.Error(t, err)
+		require.ErrorIs(t, err, sudo.ErrNoSudo)
 	})
 
 	t.Run("SudoRunner is memoised", func(t *testing.T) {
