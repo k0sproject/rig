@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"path"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -70,7 +69,7 @@ func (i Runit) EnableService(ctx context.Context, h cmd.ContextRunner, s string)
 
 // DisableService removes the symlink from the runit service directory to disable a service.
 func (i Runit) DisableService(ctx context.Context, h cmd.ContextRunner, s string) error {
-	symlinkPath := filepath.Join("/etc/service", s) // Adjust as necessary
+	symlinkPath := path.Join("/etc/service", s)
 	if err := h.ExecContext(ctx, sh.Command("rm", "-f", symlinkPath)); err != nil {
 		return fmt.Errorf("failed to disable service %s: %w", s, err)
 	}

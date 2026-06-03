@@ -66,7 +66,7 @@ func TestRegisterSudo(t *testing.T) {
 		runner, err := reg.Get(mr)
 		require.NoError(t, err)
 
-		_ = runner.Exec("whoami")
+		require.NoError(t, runner.Exec("whoami"))
 		require.NoError(t, mr.Received(rigtest.Contains("sudo -n")))
 		require.NoError(t, mr.Received(rigtest.Contains("whoami")))
 	})
@@ -120,7 +120,7 @@ func TestRegisterDoas(t *testing.T) {
 		runner, err := reg.Get(mr)
 		require.NoError(t, err)
 
-		_ = runner.Exec("whoami")
+		require.NoError(t, runner.Exec("whoami"))
 		require.NoError(t, mr.Received(rigtest.Contains("doas -n")))
 		require.NoError(t, mr.Received(rigtest.Contains("whoami")))
 	})
@@ -219,6 +219,6 @@ func TestSudoProvider(t *testing.T) {
 		r2, err2 := provider.SudoRunner()
 		require.NoError(t, err2)
 		// Same pointer returned both times.
-		assert.Equal(t, r1, r2)
+		assert.Same(t, r1, r2)
 	})
 }
