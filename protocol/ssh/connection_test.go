@@ -571,3 +571,69 @@ func TestClientConfigRekeyLimit(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(1024*1024), cfg.RekeyThreshold)
 }
+
+// unsetKnownHostsEnv ensures SSH_KNOWN_HOSTS is not set for the duration of the
+// test so the UserKnownHostsFile/GlobalKnownHostsFile resolution path is
+// exercised instead of the environment override.
+func unsetKnownHostsEnv(t *testing.T) {
+	t.Helper()
+	prev, ok := os.LookupEnv("SSH_KNOWN_HOSTS")
+	require.NoError(t, os.Unsetenv("SSH_KNOWN_HOSTS"))
+	t.Cleanup(func() {
+		if ok {
+			_ = os.Setenv("SSH_KNOWN_HOSTS", prev)
+		}
+	})
+}
+
+func TestHostkeyCallbackFallsBackToGlobalKnownHostsFile(t *testing.T) {
+	unsetKnownHostsEnv(t)
+
+	khPath := filepath.Join(t.TempDir(), "ssh_known_hosts")
+	require.NoError(t, os.WriteFile(khPath, []byte(""), 0o600))
+
+	c := &Connection{
+		sshConfig: &sshconfig.Config{
+			// No user known_hosts file: resolution must fall through.
+			UserKnownHostsFile:   []string{},
+			GlobalKnownHostsFile: []string{khPath},
+		},
+	}
+
+	cb, err := c.hostkeyCallback(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, cb)
+}
+
+func TestHostkeyCallbackNoKnownHostsFile(t *testing.T) {
+	unsetKnownHostsEnv(t)
+
+	c := &Connection{
+		sshConfig: &sshconfig.Config{
+			UserKnownHostsFile:   []string{},
+			GlobalKnownHostsFile: []string{},
+		},
+	}
+
+	_, err := c.hostkeyCallback(context.Background())
+	require.Error(t, err)
+}
+
+func TestHostkeyCallbackSkipsMissingGlobalKnownHostsFile(t *testing.T) {
+	unsetKnownHostsEnv(t)
+
+	missing := filepath.Join(t.TempDir(), "nonexistent_known_hosts")
+
+	c := &Connection{
+		sshConfig: &sshconfig.Config{
+			UserKnownHostsFile:   []string{},
+			GlobalKnownHostsFile: []string{missing},
+		},
+	}
+
+	_, err := c.hostkeyCallback(context.Background())
+	require.Error(t, err, "missing global known_hosts must not be created — should fall through to error")
+
+	_, statErr := os.Stat(missing)
+	require.True(t, os.IsNotExist(statErr), "hostkeyCallback must not create missing global known_hosts files")
+}

@@ -66,6 +66,22 @@ func KnownHostsFileCallback(path string, permissive, hash bool) (ssh.HostKeyCall
 	return wrapCallback(hkc, path, permissive, hash), nil
 }
 
+// KnownHostsReadOnlyFileCallback returns a HostKeyCallback that only reads from
+// an existing known hosts file — it never creates the file or appends new entries.
+// This is appropriate for system-wide files such as /etc/ssh/ssh_known_hosts that
+// should not be modified by unprivileged users.
+func KnownHostsReadOnlyFileCallback(path string, permissive bool) (ssh.HostKeyCallback, error) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	hkc, err := knownhosts.New(path)
+	if err != nil {
+		return nil, fmt.Errorf("%w: knownhosts callback: %w", ErrCheckHostKey, err)
+	}
+
+	return wrapReadOnlyCallback(hkc, permissive), nil
+}
+
 // extends a knownhosts callback to not return an error when the key
 // is not found in the known_hosts file but instead adds it to the file as new
 // entry.
@@ -111,6 +127,36 @@ func wrapCallback(hkc ssh.HostKeyCallback, path string, permissive, hash bool) s
 			return fmt.Errorf("failed to close known_hosts file after writing: %w", err)
 		}
 		return nil
+	})
+}
+
+// wrapReadOnlyCallback wraps a knownhosts callback to reject unknown hosts
+// without writing to the file. When permissive is true, unknown hosts are
+// accepted silently instead of rejected.
+func wrapReadOnlyCallback(hkc ssh.HostKeyCallback, permissive bool) ssh.HostKeyCallback {
+	return ssh.HostKeyCallback(func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		mu.Lock()
+		defer mu.Unlock()
+		err := hkc(hostname, remote, key)
+		if err == nil {
+			return nil
+		}
+
+		var keyErr *knownhosts.KeyError
+		if !errors.As(err, &keyErr) || len(keyErr.Want) > 0 {
+			// non-empty Want means key mismatch
+			if permissive {
+				fmt.Fprintln(os.Stderr, "Ignored an SSH host key mismatch for", remote, "because StrictHostkeyChecking is set to 'no' in ssh config")
+				return nil
+			}
+			return fmt.Errorf("%w: %w", ErrHostKeyMismatch, err)
+		}
+
+		// host not found in file — read-only mode cannot append new entries
+		if permissive {
+			return nil
+		}
+		return err
 	})
 }
 

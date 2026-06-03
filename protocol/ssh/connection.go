@@ -312,6 +312,14 @@ func knownhostsCallback(path string, permissive, hash bool) (ssh.HostKeyCallback
 	return cb, nil
 }
 
+func knownhostsGlobalCallback(path string, permissive bool) (ssh.HostKeyCallback, error) {
+	cb, err := hostkey.KnownHostsReadOnlyFileCallback(path, permissive)
+	if err != nil {
+		return nil, fmt.Errorf("%w: create host key validator: %w", protocol.ErrNonRetryable, err)
+	}
+	return cb, nil
+}
+
 func isPermissive(ctx context.Context, c *Connection) bool {
 	if c.sshConfig.StrictHostKeyChecking.IsFalse() {
 		log.Trace(ctx, "config StrictHostkeyChecking is set to 'no'", log.KeyHost, c)
@@ -358,6 +366,25 @@ func (c *Connection) hostkeyCallback(ctx context.Context) (ssh.HostKeyCallback, 
 	if khPath != "" {
 		log.Trace(ctx, "using known_hosts file", log.KeyHost, c, log.KeyFile, khPath)
 		return knownhostsCallback(khPath, permissive, hash)
+	}
+
+	for _, f := range c.sshConfig.GlobalKnownHostsFile {
+		log.Trace(ctx, "trying global known_hosts file", log.KeyHost, c, log.KeyFile, f)
+		exp, err := homedir.Expand(f)
+		if err != nil {
+			continue
+		}
+		if _, err := os.Stat(exp); err != nil {
+			log.Trace(ctx, "skipping missing global known_hosts file", log.KeyHost, c, log.KeyFile, exp)
+			continue
+		}
+		khPath = exp
+		break
+	}
+
+	if khPath != "" {
+		log.Trace(ctx, "using global known_hosts file", log.KeyHost, c, log.KeyFile, khPath)
+		return knownhostsGlobalCallback(khPath, permissive)
 	}
 
 	return nil, fmt.Errorf("%w: no known_hosts file found", protocol.ErrNonRetryable)
