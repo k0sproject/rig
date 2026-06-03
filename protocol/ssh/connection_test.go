@@ -7,9 +7,11 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/k0sproject/rig/v2/protocol"
+	"github.com/k0sproject/rig/v2/sshconfig"
 	"github.com/k0sproject/rig/v2/sshconfig/options"
 	"github.com/stretchr/testify/require"
 	ssh "golang.org/x/crypto/ssh"
@@ -21,6 +23,16 @@ import (
 func newTestConnection(t *testing.T) *Connection {
 	t.Helper()
 	t.Setenv("SSH_KNOWN_HOSTS", "")
+
+	// Replace the global ConfigParser with one backed by empty readers so
+	// the developer's ~/.ssh/config and /etc/ssh/ssh_config don't bleed into
+	// these tests.
+	oldParser := ConfigParser
+	emptyParser, err := sshconfig.NewParser(strings.NewReader(""))
+	if err == nil {
+		ConfigParser = emptyParser
+	}
+	t.Cleanup(func() { ConfigParser = oldParser })
 
 	c, err := NewConnection(Config{
 		Address:     "127.0.0.1",
@@ -77,4 +89,17 @@ func TestPkeySignerEncryptedKeyWithoutBatchModeOrCallback(t *testing.T) {
 	_, err := c.pkeySigner(ctx, nil, path)
 	require.Error(t, err)
 	require.ErrorIs(t, err, protocol.ErrNonRetryable)
+}
+
+// TestPkeySignerBatchModeErrorNonCacheable guards against signer-cache poisoning:
+// a BatchMode=yes connection must not permanently cache its "skip" error so that
+// a later non-batch connection to the same key path still gets a chance to decrypt.
+func TestPkeySignerBatchModeErrorNonCacheable(t *testing.T) {
+	ctx := context.Background()
+	c := newTestConnection(t)
+	c.sshConfig.BatchMode = options.BooleanOption("yes")
+	path := writeEncryptedKey(t)
+
+	_, err := c.pkeySigner(ctx, nil, path)
+	require.ErrorIs(t, err, errSkipCache, "batch-mode skip error must carry errSkipCache so clientConfig does not cache it")
 }

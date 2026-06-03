@@ -82,6 +82,12 @@ func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
 	return c, nil
 }
 
+// errSkipCache is a sentinel wrapped into errors returned from pkeySigner
+// when the failure is conditional on per-connection state (BatchMode, PasswordCallback).
+// clientConfig uses it to skip caching so the same key path can be retried by a
+// connection with different settings in the same process.
+var errSkipCache = errors.New("skip signer cache")
+
 var (
 	signerCache = sync.Map{}
 
@@ -406,7 +412,9 @@ func (c *Connection) clientConfig(ctx context.Context) (*ssh.ClientConfig, error
 		signer, err := c.pkeySigner(ctx, agentSigners, keyPath)
 		if err != nil {
 			c.Log().Debug("failed to obtain a signer for identity", log.KeyFile, keyPath, log.ErrorAttr(err))
-			signerCache.Store(keyPath, err)
+			if !errors.Is(err, errSkipCache) {
+				signerCache.Store(keyPath, err)
+			}
 		} else {
 			signerCache.Store(keyPath, signer)
 			keySigners = append(keySigners, signer)
@@ -586,18 +594,18 @@ func (c *Connection) pkeySigner(ctx context.Context, agentSigners []ssh.Signer, 
 		}
 
 		if c.sshConfig.BatchMode.IsTrue() {
-			return nil, fmt.Errorf("%w: batch mode enabled: skipping encrypted key %s", protocol.ErrNonRetryable, path)
+			return nil, fmt.Errorf("%w: %w: batch mode enabled: skipping encrypted key %s", errSkipCache, protocol.ErrNonRetryable, path)
 		}
 
 		if c.PasswordCallback != nil {
 			log.Trace(ctx, "asking for a password to decrypt key", log.HostAttr(c), log.KeyFile, path)
 			pass, err := c.PasswordCallback()
 			if err != nil {
-				return nil, fmt.Errorf("%w: failed to get password: %w", protocol.ErrNonRetryable, err)
+				return nil, fmt.Errorf("%w: %w: failed to get password: %w", errSkipCache, protocol.ErrNonRetryable, err)
 			}
 			signer, err := ssh.ParsePrivateKeyWithPassphrase(key, []byte(pass))
 			if err != nil {
-				return nil, fmt.Errorf("%w: encrypted key %s decoding failed: %w", protocol.ErrNonRetryable, path, err)
+				return nil, fmt.Errorf("%w: %w: encrypted key %s decoding failed: %w", errSkipCache, protocol.ErrNonRetryable, path, err)
 			}
 			return signer, nil
 		}
