@@ -39,13 +39,13 @@ func TestExpandFile(t *testing.T) {
 	})
 
 	t.Run("tilde prefix is expanded to home directory", func(t *testing.T) {
-		homeDir, err := os.UserHomeDir()
-		require.NoError(t, err)
+		fakeHome := t.TempDir()
+		t.Setenv("HOME", fakeHome)
+		t.Setenv("USERPROFILE", fakeHome)
 
-		f, err := os.CreateTemp(homeDir, "rig-test-*")
+		f, err := os.CreateTemp(fakeHome, "rig-test-*")
 		require.NoError(t, err)
 		require.NoError(t, f.Close())
-		defer os.Remove(f.Name())
 
 		got, err := homedir.ExpandFile("~/" + filepath.Base(f.Name()))
 		require.NoError(t, err)
@@ -82,12 +82,12 @@ func TestExpandDir(t *testing.T) {
 	})
 
 	t.Run("tilde expands to home directory", func(t *testing.T) {
-		homeDir, err := os.UserHomeDir()
-		require.NoError(t, err)
+		fakeHome := t.TempDir()
+		t.Setenv("HOME", fakeHome)
+		t.Setenv("USERPROFILE", fakeHome)
 
-		subDir, err := os.MkdirTemp(homeDir, "rig-test-*")
+		subDir, err := os.MkdirTemp(fakeHome, "rig-test-*")
 		require.NoError(t, err)
-		defer os.RemoveAll(subDir)
 
 		got, err := homedir.ExpandDir("~/" + filepath.Base(subDir))
 		require.NoError(t, err)
