@@ -29,9 +29,8 @@ func newTestConnection(t *testing.T) *Connection {
 	// these tests.
 	oldParser := ConfigParser
 	emptyParser, err := sshconfig.NewParser(strings.NewReader(""))
-	if err == nil {
-		ConfigParser = emptyParser
-	}
+	require.NoError(t, err, "sshconfig.NewParser must succeed for isolated tests")
+	ConfigParser = emptyParser
 	t.Cleanup(func() { ConfigParser = oldParser })
 
 	c, err := NewConnection(Config{
