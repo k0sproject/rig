@@ -371,35 +371,35 @@ func mergeSigners(keySigners, agentSigners []ssh.Signer) []ssh.Signer {
 	return out
 }
 
-func (c *Connection) clientConfig(ctx context.Context) (*ssh.ClientConfig, error) { //nolint:cyclop
-	config := &ssh.ClientConfig{
-		User: c.User,
-	}
-
-	hkc, err := c.hostkeyCallback(ctx)
-	if err != nil {
-		return nil, err
-	}
-	config.HostKeyCallback = hkc
-
-	var agentSigners []ssh.Signer
-	agentClient, err := agent.NewClient()
+// loadAgentSigners returns the signers offered by the local ssh agent and a
+// closer for the agent connection. The caller must close the connection after
+// the SSH handshake completes, because the signers rely on it for signing.
+// Failures to reach the agent or list its signers are logged and result in a
+// nil slice and a no-op closer rather than an error.
+func (c *Connection) loadAgentSigners(ctx context.Context) ([]ssh.Signer, func()) {
+	agentClient, closer, err := agent.NewClient()
 	if err != nil {
 		log.Trace(ctx, "failed to get ssh agent client", log.ErrorAttr(err))
-	} else {
-		c.Log().Debug("using ssh agent")
-		agentSigners, err = agentClient.Signers()
-		if err != nil {
-			log.Trace(ctx, "failed to list signers from ssh agent", log.ErrorAttr(err))
-		}
+		return nil, func() {}
 	}
-
-	if len(c.AuthMethods) > 0 {
-		log.Trace(ctx, "using passed-in auth methods", "count", len(c.AuthMethods))
-		config.Auth = c.AuthMethods
-		return config, nil
+	closeAgent := func() {}
+	if closer != nil {
+		closeAgent = func() { _ = closer.Close() }
 	}
+	c.Log().Debug("using ssh agent")
+	signers, err := agentClient.Signers()
+	if err != nil {
+		log.Trace(ctx, "failed to list signers from ssh agent", log.ErrorAttr(err))
+		closeAgent()
+		return nil, func() {}
+	}
+	return signers, closeAgent
+}
 
+// loadKeySigners loads signers for each configured key path, using signerCache
+// to avoid re-parsing keys. Agent-backed signers (for .pub files or encrypted
+// keys) are not cached because they require a live agent connection.
+func (c *Connection) loadKeySigners(ctx context.Context, agentSigners []ssh.Signer) []ssh.Signer {
 	var keySigners []ssh.Signer
 	for _, keyPath := range c.keyPaths {
 		keyPath, err := homedir.Expand(keyPath)
@@ -419,16 +419,57 @@ func (c *Connection) clientConfig(ctx context.Context) (*ssh.ClientConfig, error
 			}
 			continue
 		}
-		signer, err := c.pkeySigner(ctx, agentSigners, keyPath)
+		signer, fromAgent, err := c.pkeySigner(ctx, agentSigners, keyPath)
 		if err != nil {
 			c.Log().Debug("failed to obtain a signer for identity", log.KeyFile, keyPath, log.ErrorAttr(err))
 			if !errors.Is(err, errSkipCache) {
 				signerCache.Store(keyPath, err)
 			}
 		} else {
-			signerCache.Store(keyPath, signer)
+			if !fromAgent {
+				signerCache.Store(keyPath, signer)
+			}
 			keySigners = append(keySigners, signer)
 		}
+	}
+	return keySigners
+}
+
+func (c *Connection) clientConfig(ctx context.Context) (*ssh.ClientConfig, func(), error) {
+	config := &ssh.ClientConfig{
+		User: c.User,
+	}
+
+	hkc, err := c.hostkeyCallback(ctx)
+	if err != nil {
+		return nil, func() {}, err
+	}
+	config.HostKeyCallback = hkc
+
+	// PubkeyAuthentication is honored from the ssh config. When set to "no", all
+	// public key authentication (ssh agent and identity files) is skipped.
+	// PasswordAuthentication from ssh_config is not honored: rig does not read
+	// passwords from config. Callers can still enable password auth by supplying
+	// ssh.Password(...) via AuthMethods.
+	pubkeyEnabled := !c.sshConfig.PubkeyAuthentication.IsFalse()
+
+	var agentSigners []ssh.Signer
+	agentClose := func() {}
+	if pubkeyEnabled {
+		agentSigners, agentClose = c.loadAgentSigners(ctx)
+	} else {
+		log.Trace(ctx, "public key authentication disabled by ssh config (PubkeyAuthentication no)")
+	}
+
+	if len(c.AuthMethods) > 0 {
+		log.Trace(ctx, "using passed-in auth methods", "count", len(c.AuthMethods))
+		config.Auth = c.AuthMethods
+		return config, agentClose, nil
+	}
+
+	var keySigners []ssh.Signer
+	if pubkeyEnabled {
+		keySigners = c.loadKeySigners(ctx, agentSigners)
 	}
 
 	combined := mergeSigners(keySigners, agentSigners)
@@ -438,13 +479,13 @@ func (c *Connection) clientConfig(ctx context.Context) (*ssh.ClientConfig, error
 	}
 
 	if len(config.Auth) == 0 {
-		return nil, fmt.Errorf("%w: no usable authentication method found", protocol.ErrNonRetryable)
+		return nil, agentClose, fmt.Errorf("%w: no usable authentication method found", protocol.ErrNonRetryable)
 	}
 
-	return config, nil
+	return config, agentClose, nil
 }
 
-func (c *Connection) connectViaBastion(ctx context.Context, dst string, config *ssh.ClientConfig) error {
+func (c *Connection) connectViaBastion(ctx context.Context, dst string, config *ssh.ClientConfig, agentClose func()) error {
 	bastion, err := c.Bastion.Connection() //nolint:contextcheck
 	if err != nil {
 		return fmt.Errorf("create bastion connection: %w", err)
@@ -465,6 +506,7 @@ func (c *Connection) connectViaBastion(ctx context.Context, dst string, config *
 		return fmt.Errorf("bastion dial: %w", err)
 	}
 	client, chans, reqs, err := ssh.NewClientConn(bconn, dst, config)
+	agentClose()
 	if err != nil {
 		_ = bconn.Close()
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
@@ -523,7 +565,10 @@ func (c *Connection) startKeepalive() {
 func (c *Connection) Connect(ctx context.Context) error {
 	c.SetDefaults(ctx)
 
-	config, err := c.clientConfig(ctx)
+	config, rawClose, err := c.clientConfig(ctx)
+	var once sync.Once
+	agentClose := func() { once.Do(rawClose) }
+	defer agentClose()
 	if err != nil {
 		return fmt.Errorf("%w: create config: %w", protocol.ErrNonRetryable, err)
 	}
@@ -531,7 +576,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 	dst := net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
 
 	if c.Bastion != nil {
-		return c.connectViaBastion(ctx, dst, config)
+		return c.connectViaBastion(ctx, dst, config, agentClose)
 	}
 
 	network := "tcp"
@@ -546,6 +591,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 		return fmt.Errorf("ssh dial: %w", err)
 	}
 	ncc, chans, reqs, err := ssh.NewClientConn(conn, dst, config)
+	agentClose()
 	if err != nil {
 		_ = conn.Close()
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
@@ -578,58 +624,61 @@ func (c *Connection) pubkeySigner(agentSigners []ssh.Signer, key ssh.PublicKey) 
 	return nil, fmt.Errorf("%w: the provided key is a public key and is not known by agent", protocol.ErrNonRetryable)
 }
 
-func (c *Connection) pkeySigner(ctx context.Context, agentSigners []ssh.Signer, path string) (ssh.Signer, error) {
+// pkeySigner returns a signer for the key at path. The second return value is
+// true when the signer is agent-backed and must not be stored in signerCache.
+func (c *Connection) pkeySigner(ctx context.Context, agentSigners []ssh.Signer, path string) (ssh.Signer, bool, error) {
 	path, err := homedir.ExpandFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("expand keyfile path: %w", err)
+		return nil, false, fmt.Errorf("expand keyfile path: %w", err)
 	}
 	log.Trace(ctx, "checking identity file", log.KeyFile, path)
 	key, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("%w: read identity file %s: %w", protocol.ErrNonRetryable, path, err)
+		return nil, false, fmt.Errorf("%w: read identity file %s: %w", protocol.ErrNonRetryable, path, err)
 	}
 
 	pubKey, _, _, _, err := ssh.ParseAuthorizedKey(key)
 	if err == nil {
 		log.Trace(ctx, "file is a public key", log.KeyFile, path)
-		return c.pubkeySigner(agentSigners, pubKey)
+		s, err := c.pubkeySigner(agentSigners, pubKey)
+		return s, err == nil, err
 	}
 
 	signer, err := ssh.ParsePrivateKey(key)
 	if err == nil {
 		c.Log().Debug("using an unencrypted private key", log.KeyFile, path)
-		return signer, nil
+		return signer, false, nil
 	}
 
 	if errors.As(err, new(*ssh.PassphraseMissingError)) { //nolint:nestif
 		c.Log().Debug("key is encrypted", log.KeyFile, path)
 
 		if len(agentSigners) > 0 {
-			if signer, err := c.pkeySigner(ctx, agentSigners, path+".pub"); err == nil {
-				return signer, nil
+			if signer, _, err := c.pkeySigner(ctx, agentSigners, path+".pub"); err == nil {
+				return signer, true, nil
 			}
 		}
 
 		if c.sshConfig.BatchMode.IsTrue() {
-			return nil, skipCache(fmt.Errorf("%w: batch mode enabled: skipping encrypted key %s", protocol.ErrNonRetryable, path))
+			return nil, false, skipCache(fmt.Errorf("%w: batch mode enabled: skipping encrypted key %s", protocol.ErrNonRetryable, path))
 		}
 
 		if c.PasswordCallback != nil {
 			log.Trace(ctx, "asking for a password to decrypt key", log.HostAttr(c), log.KeyFile, path)
 			pass, err := c.PasswordCallback()
 			if err != nil {
-				return nil, skipCache(fmt.Errorf("%w: failed to get password: %w", protocol.ErrNonRetryable, err))
+				return nil, false, skipCache(fmt.Errorf("%w: failed to get password: %w", protocol.ErrNonRetryable, err))
 			}
 			signer, err := ssh.ParsePrivateKeyWithPassphrase(key, []byte(pass))
 			if err != nil {
-				return nil, skipCache(fmt.Errorf("%w: encrypted key %s decoding failed: %w", protocol.ErrNonRetryable, path, err))
+				return nil, false, skipCache(fmt.Errorf("%w: encrypted key %s decoding failed: %w", protocol.ErrNonRetryable, path, err))
 			}
-			return signer, nil
+			return signer, false, nil
 		}
-		return nil, skipCache(fmt.Errorf("%w: encrypted key %s: no password callback", protocol.ErrNonRetryable, path))
+		return nil, false, skipCache(fmt.Errorf("%w: encrypted key %s: no password callback", protocol.ErrNonRetryable, path))
 	}
 
-	return nil, fmt.Errorf("%w: can't parse keyfile: %s: %w", protocol.ErrNonRetryable, path, err)
+	return nil, false, fmt.Errorf("%w: can't parse keyfile: %s: %w", protocol.ErrNonRetryable, path, err)
 }
 
 // StartProcess executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
