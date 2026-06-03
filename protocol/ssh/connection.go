@@ -609,6 +609,7 @@ func (c *Connection) pkeySigner(ctx context.Context, agentSigners []ssh.Signer, 
 			}
 			return signer, nil
 		}
+		return nil, fmt.Errorf("%w: %w: encrypted key %s: no password callback", errSkipCache, protocol.ErrNonRetryable, path)
 	}
 
 	return nil, fmt.Errorf("%w: can't parse keyfile: %s: %w", protocol.ErrNonRetryable, path, err)
