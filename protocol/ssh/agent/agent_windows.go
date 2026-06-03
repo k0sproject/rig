@@ -32,3 +32,9 @@ func NewClient() (agent.Agent, io.Closer, error) {
 	}
 	return agent.NewClient(sock), sock, nil
 }
+
+// NewClientFromSocket on Windows ignores the socket path (Unix sockets are not
+// used) and falls back to NewClient, which tries Pageant then the OpenSSH pipe.
+func NewClientFromSocket(_ string) (agent.Agent, io.Closer, error) {
+	return NewClient()
+}

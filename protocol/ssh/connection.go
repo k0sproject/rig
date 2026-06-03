@@ -22,6 +22,7 @@ import (
 	"github.com/k0sproject/rig/v2/protocol/ssh/hostkey"
 	"github.com/k0sproject/rig/v2/sshconfig"
 	ssh "golang.org/x/crypto/ssh"
+	cryptoagent "golang.org/x/crypto/ssh/agent"
 	"golang.org/x/term"
 )
 
@@ -465,13 +466,30 @@ func mergeSigners(keySigners, agentSigners []ssh.Signer) []ssh.Signer {
 	return out
 }
 
-// loadAgentSigners returns the signers offered by the local ssh agent and a
-// closer for the agent connection. The caller must close the connection after
-// the SSH handshake completes, because the signers rely on it for signing.
-// Failures to reach the agent or list its signers are logged and result in a
-// nil slice and a no-op closer rather than an error.
+// loadAgentSigners returns the signers offered by the ssh agent, honoring the
+// IdentityAgent ssh config option, and a closer for the agent connection. The
+// caller must invoke the closer after the SSH handshake completes because the
+// signers rely on it for signing. An IdentityAgent value of "none" disables the
+// agent. A non-empty value selects a custom agent socket. An empty value falls
+// back to the default agent (SSH_AUTH_SOCK). Agent connection and signer-listing
+// failures are non-fatal: they are logged at trace level and the function returns
+// nil signers with a no-op closer. A successful agent connection is logged at
+// debug level.
 func (c *Connection) loadAgentSigners(ctx context.Context) ([]ssh.Signer, func()) {
-	agentClient, closer, err := agent.NewClient()
+	if string(c.sshConfig.IdentityAgent) == "none" {
+		log.Trace(ctx, "IdentityAgent is 'none', skipping ssh agent")
+		return nil, func() {}
+	}
+	sock := c.sshConfig.IdentityAgent.Socket()
+
+	var agentClient cryptoagent.Agent
+	var closer io.Closer
+	var err error
+	if sock != "" {
+		agentClient, closer, err = agent.NewClientFromSocket(sock)
+	} else {
+		agentClient, closer, err = agent.NewClient()
+	}
 	if err != nil {
 		log.Trace(ctx, "failed to get ssh agent client", log.ErrorAttr(err))
 		return nil, func() {}

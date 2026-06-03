@@ -585,6 +585,82 @@ func TestNewConnectionSSHConfigOptions(t *testing.T) {
 	})
 }
 
+// TestLoadAgentSignersIdentityAgent verifies that the IdentityAgent ssh config
+// field controls which agent socket is used (or skipped) for agent-backed signers.
+func TestLoadAgentSignersIdentityAgent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix-socket ssh-agent not available on windows")
+	}
+
+	ctx := context.Background()
+
+	startAgent := func(t *testing.T, socketPath string) ssh.Signer {
+		t.Helper()
+		_, priv, err := ed25519.GenerateKey(rand.Reader)
+		require.NoError(t, err)
+		signer, err := ssh.NewSignerFromKey(priv)
+		require.NoError(t, err)
+		keyring := agent.NewKeyring()
+		require.NoError(t, keyring.Add(agent.AddedKey{PrivateKey: priv}))
+		ln, err := net.Listen("unix", socketPath)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = ln.Close() })
+		go func() {
+			for {
+				conn, err := ln.Accept()
+				if err != nil {
+					return
+				}
+				go func() {
+					_ = agent.ServeAgent(keyring, conn)
+					conn.Close()
+				}()
+			}
+		}()
+		return signer
+	}
+
+	// Use /tmp directly to keep unix socket paths short (macOS limit: 104 chars).
+	dir, err := os.MkdirTemp("/tmp", "rig")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	sockA := filepath.Join(dir, "a.sock")
+	sockB := filepath.Join(dir, "b.sock")
+	startAgent(t, sockA)
+	signerB := startAgent(t, sockB)
+
+	savedParser := ConfigParser
+	ConfigParser = nil
+	t.Cleanup(func() { ConfigParser = savedParser })
+
+	newConn := func(identityAgent options.IdentityAgentOption) *Connection {
+		t.Helper()
+		c, cerr := NewConnection(Config{Address: "127.0.0.1", User: "test", Port: 22})
+		require.NoError(t, cerr)
+		c.sshConfig.IdentityAgent = identityAgent
+		c.sshConfig.IdentityFile = nil
+		c.SetDefaults(ctx)
+		return c
+	}
+
+	t.Run("IdentityAgent=none skips agent even when SSH_AUTH_SOCK is set", func(t *testing.T) {
+		t.Setenv("SSH_AUTH_SOCK", sockA)
+		c := newConn(options.IdentityAgentOption("none"))
+		signers, closeAgent := c.loadAgentSigners(ctx)
+		closeAgent()
+		require.Empty(t, signers, "IdentityAgent=none must yield no signers")
+	})
+
+	t.Run("IdentityAgent=custom socket uses that socket not SSH_AUTH_SOCK", func(t *testing.T) {
+		t.Setenv("SSH_AUTH_SOCK", sockA)
+		c := newConn(options.IdentityAgentOption(sockB))
+		signers, closeAgent := c.loadAgentSigners(ctx)
+		defer closeAgent()
+		require.Len(t, signers, 1, "must get exactly one signer from the custom agent socket")
+		require.Equal(t, signerB.PublicKey().Marshal(), signers[0].PublicKey().Marshal(), "signer must come from sockB not SSH_AUTH_SOCK")
+	})
+}
+
 func TestClientConfigRekeyLimit(t *testing.T) {
 	t.Setenv("SSH_KNOWN_HOSTS", "")
 

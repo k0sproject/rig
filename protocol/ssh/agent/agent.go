@@ -29,3 +29,13 @@ func NewClient() (agent.Agent, io.Closer, error) {
 	}
 	return agent.NewClient(sshAgent), sshAgent, nil
 }
+
+// NewClientFromSocket returns an SSH agent and its underlying closer using the
+// provided socket path. The caller must close the returned io.Closer when done.
+func NewClientFromSocket(socketPath string) (agent.Agent, io.Closer, error) {
+	conn, err := net.Dial("unix", socketPath) //nolint:noctx // no context available in this function
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: can't connect to ssh agent at %q: %w", ErrSSHAgent, socketPath, err)
+	}
+	return agent.NewClient(conn), conn, nil
+}
