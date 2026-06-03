@@ -17,11 +17,12 @@ import (
 )
 
 var (
-	_          fs.File        = (*PosixFile)(nil)
-	_          File           = (*PosixFile)(nil)
-	_          fs.ReadDirFile = (*PosixDir)(nil)
-	_          fs.FS          = (*PosixFsys)(nil)
-	errInvalid                = errors.New("invalid")
+	_                 fs.File        = (*PosixFile)(nil)
+	_                 File           = (*PosixFile)(nil)
+	_                 fs.ReadDirFile = (*PosixDir)(nil)
+	_                 fs.FS          = (*PosixFsys)(nil)
+	errInvalid                       = errors.New("invalid")
+	errStatInitFailed                = errors.New("stat command not found or unsupported stat implementation")
 )
 
 // PosixFsys implements fs.FS for a remote filesystem that uses POSIX commands for access
@@ -280,18 +281,17 @@ var (
 
 func (fsys *PosixFsys) initStat() error {
 	if fsys.statCmd == nil {
-		opts := make([]exec.Option, len(fsys.opts), len(fsys.opts)+1)
-		copy(opts, fsys.opts)
-		opts = append(opts, exec.HideOutput())
-		out, err := fsys.conn.ExecOutput("stat --help 2>&1", opts...)
-		if err != nil {
-			return fmt.Errorf("can't access stat command: %w", err)
-		}
-		if strings.Contains(out, "BusyBox") || strings.Contains(out, "--format") {
+		if err := fsys.conn.Exec("stat -c %n /", fsys.opts...); err == nil {
 			fsys.statCmd = &statCmdGNU
-		} else {
-			fsys.statCmd = &statCmdBSD
+			return nil
 		}
+
+		if err := fsys.conn.Exec("stat -s /", fsys.opts...); err == nil {
+			fsys.statCmd = &statCmdBSD
+			return nil
+		}
+
+		return errStatInitFailed
 	}
 	return nil
 }
