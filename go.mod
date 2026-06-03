@@ -2,7 +2,7 @@ module github.com/k0sproject/rig/v2
 
 go 1.26.0
 
-toolchain go1.26.3
+toolchain go1.26.4
 
 require (
 	github.com/Microsoft/go-winio v0.6.2
