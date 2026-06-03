@@ -472,6 +472,9 @@ func (c *Connection) clientConfig(ctx context.Context) (*ssh.ClientConfig, func(
 	if len(c.sshConfig.HostKeyAlgorithms) > 0 {
 		config.HostKeyAlgorithms = c.sshConfig.HostKeyAlgorithms
 	}
+	if c.sshConfig.RekeyLimit.MaxData > 0 {
+		config.RekeyThreshold = uint64(c.sshConfig.RekeyLimit.MaxData)
+	}
 
 	// PubkeyAuthentication is honored from the ssh config. When set to "no", all
 	// public key authentication (ssh agent and identity files) is skipped.

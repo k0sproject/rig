@@ -552,3 +552,22 @@ func TestConnectDeadline(t *testing.T) {
 		require.True(t, d.Before(before.Add(2*time.Second)))
 	})
 }
+
+func TestClientConfigRekeyLimit(t *testing.T) {
+	t.Setenv("SSH_KNOWN_HOSTS", "")
+
+	orig := ConfigParser
+	ConfigParser = nil
+	t.Cleanup(func() { ConfigParser = orig })
+
+	conn, err := NewConnection(Config{Address: "127.0.0.1"})
+	require.NoError(t, err)
+
+	conn.sshConfig.RekeyLimit = options.RekeyLimitOption{MaxData: 1024 * 1024}
+	conn.Config.AuthMethods = []ssh.AuthMethod{ssh.Password("dummy")}
+
+	cfg, agentClose, err := conn.clientConfig(context.Background())
+	agentClose()
+	require.NoError(t, err)
+	require.Equal(t, uint64(1024*1024), cfg.RekeyThreshold)
+}
