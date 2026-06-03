@@ -585,6 +585,10 @@ func (c *Connection) pkeySigner(ctx context.Context, agentSigners []ssh.Signer, 
 			}
 		}
 
+		if c.sshConfig.BatchMode.IsTrue() {
+			return nil, fmt.Errorf("%w: batch mode enabled: skipping encrypted key %s", protocol.ErrNonRetryable, path)
+		}
+
 		if c.PasswordCallback != nil {
 			log.Trace(ctx, "asking for a password to decrypt key", log.HostAttr(c), log.KeyFile, path)
 			pass, err := c.PasswordCallback()
