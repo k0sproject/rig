@@ -82,11 +82,21 @@ func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
 	return c, nil
 }
 
-// errSkipCache is a sentinel wrapped into errors returned from pkeySigner
-// when the failure is conditional on per-connection state (BatchMode, PasswordCallback).
-// clientConfig uses it to skip caching so the same key path can be retried by a
-// connection with different settings in the same process.
+// errSkipCache is a sentinel used by pkeySigner when the failure is conditional
+// on per-connection state (BatchMode, PasswordCallback). clientConfig uses it to
+// skip caching so the same key path can be retried by a connection with different
+// settings in the same process.
 var errSkipCache = errors.New("skip signer cache")
+
+// skipCacheError wraps an error and marks it as non-cacheable via errSkipCache.
+// Its Error() returns only the inner message so the sentinel text never appears
+// in user-facing output while errors.Is(err, errSkipCache) still works.
+type skipCacheError struct{ inner error }
+
+func (e *skipCacheError) Error() string   { return e.inner.Error() }
+func (e *skipCacheError) Unwrap() []error { return []error{errSkipCache, e.inner} }
+
+func skipCache(err error) error { return &skipCacheError{inner: err} }
 
 var (
 	signerCache = sync.Map{}
@@ -594,22 +604,22 @@ func (c *Connection) pkeySigner(ctx context.Context, agentSigners []ssh.Signer, 
 		}
 
 		if c.sshConfig.BatchMode.IsTrue() {
-			return nil, fmt.Errorf("%w: %w: batch mode enabled: skipping encrypted key %s", errSkipCache, protocol.ErrNonRetryable, path)
+			return nil, skipCache(fmt.Errorf("%w: batch mode enabled: skipping encrypted key %s", protocol.ErrNonRetryable, path))
 		}
 
 		if c.PasswordCallback != nil {
 			log.Trace(ctx, "asking for a password to decrypt key", log.HostAttr(c), log.KeyFile, path)
 			pass, err := c.PasswordCallback()
 			if err != nil {
-				return nil, fmt.Errorf("%w: %w: failed to get password: %w", errSkipCache, protocol.ErrNonRetryable, err)
+				return nil, skipCache(fmt.Errorf("%w: failed to get password: %w", protocol.ErrNonRetryable, err))
 			}
 			signer, err := ssh.ParsePrivateKeyWithPassphrase(key, []byte(pass))
 			if err != nil {
-				return nil, fmt.Errorf("%w: %w: encrypted key %s decoding failed: %w", errSkipCache, protocol.ErrNonRetryable, path, err)
+				return nil, skipCache(fmt.Errorf("%w: encrypted key %s decoding failed: %w", protocol.ErrNonRetryable, path, err))
 			}
 			return signer, nil
 		}
-		return nil, fmt.Errorf("%w: %w: encrypted key %s: no password callback", errSkipCache, protocol.ErrNonRetryable, path)
+		return nil, skipCache(fmt.Errorf("%w: encrypted key %s: no password callback", protocol.ErrNonRetryable, path))
 	}
 
 	return nil, fmt.Errorf("%w: can't parse keyfile: %s: %w", protocol.ErrNonRetryable, path, err)

@@ -74,13 +74,15 @@ func TestPkeySignerBatchModeSkipsEncryptedKey(t *testing.T) {
 	require.ErrorIs(t, err, protocol.ErrNonRetryable)
 	require.NotContains(t, err.Error(), "can't parse keyfile",
 		"BatchMode should short-circuit before the generic parse-failure path")
+	require.NotContains(t, err.Error(), "skip signer cache",
+		"sentinel text must not appear in user-facing error messages")
 }
 
 func TestPkeySignerEncryptedKeyWithoutBatchModeOrCallback(t *testing.T) {
 	ctx := context.Background()
 	c := newTestConnection(t)
-	// BatchMode unset and no PasswordCallback: pkeySigner falls through to the
-	// generic non-retryable parse error rather than the BatchMode message.
+	// BatchMode unset and no PasswordCallback: pkeySigner returns a non-retryable,
+	// non-cacheable "no password callback" error — not the generic parse-failure path.
 	c.PasswordCallback = nil
 
 	path := writeEncryptedKey(t)
@@ -88,6 +90,10 @@ func TestPkeySignerEncryptedKeyWithoutBatchModeOrCallback(t *testing.T) {
 	_, err := c.pkeySigner(ctx, nil, path)
 	require.Error(t, err)
 	require.ErrorIs(t, err, protocol.ErrNonRetryable)
+	require.ErrorIs(t, err, errSkipCache, "no-callback error must carry errSkipCache so it is not permanently cached")
+	require.Contains(t, err.Error(), "no password callback")
+	require.NotContains(t, err.Error(), "skip signer cache",
+		"sentinel text must not appear in user-facing error messages")
 }
 
 // TestPkeySignerBatchModeErrorNonCacheable guards against signer-cache poisoning:
