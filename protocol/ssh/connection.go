@@ -43,7 +43,8 @@ type Connection struct {
 	once      sync.Once
 	mu        sync.Mutex
 
-	client *ssh.Client
+	client  *ssh.Client
+	bastion *Connection
 
 	done chan struct{}
 
@@ -227,6 +228,10 @@ func (c *Connection) disconnect() {
 	}
 	c.client.Close()
 	c.client = nil
+	if c.bastion != nil {
+		c.bastion.Disconnect()
+		c.bastion = nil
+	}
 }
 
 // Disconnect closes the SSH connection.
@@ -455,6 +460,19 @@ func (c *Connection) clientConfig(ctx context.Context) (*ssh.ClientConfig, func(
 	}
 	config.HostKeyCallback = hkc
 
+	if len(c.sshConfig.Ciphers) > 0 {
+		config.Ciphers = c.sshConfig.Ciphers
+	}
+	if len(c.sshConfig.KexAlgorithms) > 0 {
+		config.KeyExchanges = c.sshConfig.KexAlgorithms
+	}
+	if len(c.sshConfig.MACs) > 0 {
+		config.MACs = c.sshConfig.MACs
+	}
+	if len(c.sshConfig.HostKeyAlgorithms) > 0 {
+		config.HostKeyAlgorithms = c.sshConfig.HostKeyAlgorithms
+	}
+
 	// PubkeyAuthentication is honored from the ssh config. When set to "no", all
 	// public key authentication (ssh agent and identity files) is skipped.
 	// PasswordAuthentication from ssh_config is not honored: rig does not read
@@ -481,7 +499,11 @@ func (c *Connection) clientConfig(ctx context.Context) (*ssh.ClientConfig, func(
 		keySigners = c.loadKeySigners(ctx, agentSigners)
 	}
 
-	combined := mergeSigners(keySigners, agentSigners)
+	agentForAuth := agentSigners
+	if c.sshConfig.IdentitiesOnly.IsTrue() {
+		agentForAuth = nil
+	}
+	combined := mergeSigners(keySigners, agentForAuth)
 	if len(combined) > 0 {
 		c.Log().Debug("using public key authentication", "num_keys", len(combined))
 		config.Auth = append(config.Auth, ssh.PublicKeys(combined...))
@@ -492,6 +514,56 @@ func (c *Connection) clientConfig(ctx context.Context) (*ssh.ClientConfig, func(
 	}
 
 	return config, agentClose, nil
+}
+
+// dialWithDeadline opens a TCP channel through this connection to dst, honouring
+// ctx cancellation and the given deadline. The goroutine running Dial is
+// unblocked by disconnecting this connection when the deadline or ctx fires.
+func (c *Connection) dialWithDeadline(ctx context.Context, deadline time.Time, dst string) (net.Conn, error) {
+	dialCtx := ctx
+	if !deadline.IsZero() {
+		var cancel context.CancelFunc
+		dialCtx, cancel = context.WithDeadline(ctx, deadline)
+		defer cancel()
+	}
+	type result struct {
+		conn net.Conn
+		err  error
+	}
+	dialResult := make(chan result, 1)
+	go func() {
+		conn, err := c.Dial("tcp", dst)
+		dialResult <- result{conn, err}
+	}()
+	select {
+	case <-dialCtx.Done():
+		ctxErr := fmt.Errorf("dial %s: %w", dst, dialCtx.Err())
+		select {
+		case r := <-dialResult:
+			// Dial completed concurrently; discard the conn and honour cancellation.
+			if r.conn != nil {
+				r.conn.Close()
+			}
+		default:
+			// Dial still in progress; disconnect to unblock c.Dial, then drain.
+			c.Disconnect()
+			go func() {
+				if r := <-dialResult; r.conn != nil {
+					r.conn.Close()
+				}
+			}()
+		}
+		return nil, ctxErr
+	case r := <-dialResult:
+		// Guard against the race where both cases become ready simultaneously.
+		if err := dialCtx.Err(); err != nil {
+			if r.conn != nil {
+				r.conn.Close()
+			}
+			return nil, fmt.Errorf("dial %s: %w", dst, err)
+		}
+		return r.conn, r.err
+	}
 }
 
 func (c *Connection) connectViaBastion(ctx context.Context, dst string, config *ssh.ClientConfig, agentClose func()) error {
@@ -510,9 +582,19 @@ func (c *Connection) connectViaBastion(ctx context.Context, dst string, config *
 		}
 		return err
 	}
-	bconn, err := bastionSSH.Dial("tcp", dst)
+	connected := false
+	defer func() {
+		if !connected {
+			bastionSSH.Disconnect()
+		}
+	}()
+	deadline := c.connectDeadline(ctx)
+	bconn, err := bastionSSH.dialWithDeadline(ctx, deadline, dst)
 	if err != nil {
 		return fmt.Errorf("bastion dial: %w", err)
+	}
+	if !deadline.IsZero() {
+		_ = bconn.SetDeadline(deadline)
 	}
 	client, chans, reqs, err := ssh.NewClientConn(bconn, dst, config)
 	agentClose()
@@ -523,8 +605,13 @@ func (c *Connection) connectViaBastion(ctx context.Context, dst string, config *
 		}
 		return fmt.Errorf("bastion client connect: %w", err)
 	}
+	if !deadline.IsZero() {
+		_ = bconn.SetDeadline(time.Time{})
+	}
+	connected = true
 	c.mu.Lock()
 	c.client = ssh.NewClient(client, chans, reqs)
+	c.bastion = bastionSSH
 	c.startKeepalive()
 	c.mu.Unlock()
 
@@ -570,6 +657,31 @@ func (c *Connection) startKeepalive() {
 	}()
 }
 
+// dialNetwork returns the tcp network string based on the configured AddressFamily.
+func (c *Connection) dialNetwork() string {
+	switch c.sshConfig.AddressFamily {
+	case "inet":
+		return "tcp4"
+	case "inet6":
+		return "tcp6"
+	default:
+		return "tcp"
+	}
+}
+
+// connectDeadline returns the earliest of the context deadline and the configured
+// ConnectTimeout, or zero if neither is set.
+func (c *Connection) connectDeadline(ctx context.Context) time.Time {
+	var deadline time.Time
+	if c.sshConfig.ConnectTimeout > 0 {
+		deadline = time.Now().Add(c.sshConfig.ConnectTimeout)
+	}
+	if d, ok := ctx.Deadline(); ok && (deadline.IsZero() || d.Before(deadline)) {
+		deadline = d
+	}
+	return deadline
+}
+
 // Connect opens the SSH connection.
 func (c *Connection) Connect(ctx context.Context) error {
 	c.SetDefaults(ctx)
@@ -588,16 +700,13 @@ func (c *Connection) Connect(ctx context.Context) error {
 		return c.connectViaBastion(ctx, dst, config, agentClose)
 	}
 
-	network := "tcp"
-	switch c.sshConfig.AddressFamily {
-	case "inet":
-		network = "tcp4"
-	case "inet6":
-		network = "tcp6"
-	}
-	conn, err := (&net.Dialer{}).DialContext(ctx, network, dst)
+	deadline := c.connectDeadline(ctx)
+	conn, err := (&net.Dialer{Deadline: deadline}).DialContext(ctx, c.dialNetwork(), dst)
 	if err != nil {
 		return fmt.Errorf("ssh dial: %w", err)
+	}
+	if !deadline.IsZero() {
+		_ = conn.SetDeadline(deadline)
 	}
 	ncc, chans, reqs, err := ssh.NewClientConn(conn, dst, config)
 	agentClose()
@@ -608,6 +717,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 		}
 		return fmt.Errorf("ssh dial: %w", err)
 	}
+	_ = conn.SetDeadline(time.Time{})
 	c.mu.Lock()
 	c.client = ssh.NewClient(ncc, chans, reqs)
 	c.startKeepalive()
