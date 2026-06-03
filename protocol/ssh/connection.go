@@ -79,6 +79,15 @@ func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
 
 	c.Port = c.sshConfig.Port
 
+	// If no explicit keepalive option was provided, honor ServerAliveInterval from the ssh config.
+	// Note: platform-embedded defaults are included (e.g. macOS defaults to 30s), so a rig binary
+	// built on macOS will enable keepalive for all connections unless explicitly overridden.
+	// Pass WithKeepAlive(0) to disable keepalive regardless of the ssh config value.
+	if options.KeepAliveInterval == nil && c.sshConfig.ServerAliveInterval > 0 {
+		d := c.sshConfig.ServerAliveInterval
+		options.KeepAliveInterval = &d
+	}
+
 	return c, nil
 }
 
@@ -539,7 +548,7 @@ func (c *Connection) prewarmWindows(ctx context.Context) {
 
 // startKeepalive starts the keepalive goroutine. Caller must hold c.mu.
 func (c *Connection) startKeepalive() {
-	if c.options.KeepAliveInterval == nil {
+	if c.options.KeepAliveInterval == nil || *c.options.KeepAliveInterval <= 0 {
 		return
 	}
 

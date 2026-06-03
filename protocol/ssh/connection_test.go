@@ -9,13 +9,26 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/k0sproject/rig/v2/protocol"
 	"github.com/k0sproject/rig/v2/sshconfig"
 	"github.com/k0sproject/rig/v2/sshconfig/options"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	ssh "golang.org/x/crypto/ssh"
 )
+
+// withConfigParser temporarily installs a hermetic ssh config parser built from
+// the given ssh_config content and restores the previous parser afterwards.
+func withConfigParser(t *testing.T, content string) {
+	t.Helper()
+	parser, err := sshconfig.NewParser(strings.NewReader(content))
+	require.NoError(t, err)
+	prev := ConfigParser
+	ConfigParser = parser
+	t.Cleanup(func() { ConfigParser = prev })
+}
 
 // newTestConnection builds a Connection with explicit auth methods (to bypass
 // key/agent loading) and an empty ConfigParser (to prevent ~/.ssh/config and
@@ -170,4 +183,48 @@ func TestClientConfigPubkeyAuthenticationDisabled(t *testing.T) {
 	require.Nil(t, cfg)
 	require.ErrorIs(t, err, protocol.ErrNonRetryable)
 	require.Contains(t, err.Error(), "no usable authentication method")
+}
+
+func TestNewConnectionServerAliveIntervalWiresKeepalive(t *testing.T) {
+	withConfigParser(t, "Host *\n  ServerAliveInterval 60\n")
+
+	conn, err := NewConnection(Config{Address: "host.example.com", Port: 22, User: "user"})
+	require.NoError(t, err)
+	require.NotNil(t, conn.options.KeepAliveInterval)
+	assert.Equal(t, 60*time.Second, *conn.options.KeepAliveInterval)
+}
+
+func TestNewConnectionExplicitKeepaliveOverridesServerAliveInterval(t *testing.T) {
+	withConfigParser(t, "Host *\n  ServerAliveInterval 60\n")
+
+	conn, err := NewConnection(Config{Address: "host.example.com", Port: 22, User: "user"}, WithKeepAlive(10*time.Second))
+	require.NoError(t, err)
+	require.NotNil(t, conn.options.KeepAliveInterval)
+	assert.Equal(t, 10*time.Second, *conn.options.KeepAliveInterval)
+}
+
+func TestNewConnectionNoServerAliveIntervalLeavesKeepaliveUnset(t *testing.T) {
+	// With no parser the resolved sshConfig.ServerAliveInterval stays zero, so the
+	// guard must leave KeepAliveInterval unset. Using a real parser is not hermetic
+	// here because some platforms ship a non-zero ServerAliveInterval default
+	// (e.g. macOS defaults to 30).
+	prev := ConfigParser
+	ConfigParser = nil
+	t.Cleanup(func() { ConfigParser = prev })
+
+	conn, err := NewConnection(Config{Address: "host.example.com", Port: 22, User: "user"})
+	require.NoError(t, err)
+	assert.Nil(t, conn.options.KeepAliveInterval)
+}
+
+func TestWithKeepAliveZeroDisablesKeepalive(t *testing.T) {
+	withConfigParser(t, "Host *\n  ServerAliveInterval 60\n")
+
+	conn, err := NewConnection(Config{Address: "host.example.com", Port: 22, User: "user"}, WithKeepAlive(0))
+	require.NoError(t, err)
+	// startKeepalive must treat <= 0 as disabled; verify it does not panic.
+	conn.mu.Lock()
+	conn.startKeepalive()
+	conn.mu.Unlock()
+	assert.Nil(t, conn.done, "zero interval must not start keepalive goroutine")
 }
