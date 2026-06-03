@@ -516,7 +516,14 @@ func (c *Connection) Connect(ctx context.Context) error {
 		return c.connectViaBastion(ctx, dst, config)
 	}
 
-	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", dst)
+	network := "tcp"
+	switch c.sshConfig.AddressFamily {
+	case "inet":
+		network = "tcp4"
+	case "inet6":
+		network = "tcp6"
+	}
+	conn, err := (&net.Dialer{}).DialContext(ctx, network, dst)
 	if err != nil {
 		return fmt.Errorf("ssh dial: %w", err)
 	}
