@@ -24,7 +24,7 @@ func main() {
 			Address: *host,
 			PasswordCallback: func() (string, error) {
 				fmt.Println("Enter password:")
-				pass, err := term.ReadPassword(int(os.Stdin.Fd()))
+				pass, err := term.ReadPassword(int(os.Stdin.Fd())) // #nosec G115 -- stdin fd is always a small non-negative int
 				return string(pass), err
 			},
 		},
