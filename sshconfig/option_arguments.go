@@ -60,8 +60,8 @@ func (o OptionArguments) ToArgs() []string {
 
 // ApplyTo feeds each option into setter using [Setter.Set]. Booleans are
 // converted to "yes"/"no"; all other values are formatted with fmt.Sprint.
-// Returns an error if any key is unknown to the sshconfig package or if the
-// value cannot be parsed.
+// Returns an error if the setter rejects a value (e.g. bad format, or unknown
+// key when [Setter.ErrorOnUnknownFields] is set).
 func (o OptionArguments) ApplyTo(setter *Setter) error {
 	for key, v := range o {
 		var strVal string
