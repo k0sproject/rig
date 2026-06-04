@@ -355,6 +355,10 @@ func (c *Connection) hostkeyCallback(ctx context.Context) (ssh.HostKeyCallback, 
 	var khPath string
 
 	for _, f := range c.sshConfig.UserKnownHostsFile {
+		if strings.EqualFold(f, "none") {
+			// "none" is the OpenSSH special value meaning "ignore user known_hosts"
+			break
+		}
 		log.Trace(ctx, "trying known_hosts file from ssh config", log.KeyHost, c, log.KeyFile, f)
 		exp, err := homedir.Expand(f)
 		if err == nil {
