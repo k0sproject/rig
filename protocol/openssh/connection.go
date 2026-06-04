@@ -15,6 +15,7 @@ import (
 
 	"github.com/k0sproject/rig/v2/log"
 	"github.com/k0sproject/rig/v2/protocol"
+	"github.com/k0sproject/rig/v2/sshconfig"
 )
 
 var (
@@ -110,7 +111,7 @@ func (c *Connection) IsWindows() bool {
 }
 
 // DefaultOptionArguments are the default options for the OpenSSH client.
-var DefaultOptionArguments = OptionArguments{
+var DefaultOptionArguments = sshconfig.OptionArguments{
 	// It's easy to end up with control paths that are too long for unix sockets (104 chars?)
 	// with the default ~/.ssh/master-%r@%h:%p, for example something like:
 	// /Users/user/.ssh/master-ec2-xx-xx-xx-xx.eu-central-1.compute.amazonaws.com-centos.AAZFTHkT5....
@@ -130,7 +131,7 @@ var DefaultOptionArguments = OptionArguments{
 // SetDefaults sets default values.
 func (c *Connection) SetDefaults() {
 	if c.Options == nil {
-		c.Options = make(OptionArguments)
+		c.Options = make(sshconfig.OptionArguments)
 	}
 	for k, v := range DefaultOptionArguments {
 		if v == nil {

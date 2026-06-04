@@ -60,8 +60,3 @@ func (c *Config) Validate() error {
 
 	return nil
 }
-
-// OptionArguments is an alias for [sshconfig.OptionArguments].
-//
-// Deprecated: Use [sshconfig.OptionArguments] directly.
-type OptionArguments = sshconfig.OptionArguments
