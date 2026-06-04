@@ -1,10 +1,10 @@
-// Package main demonstrates how to use password authentication with rig.
+// Package main demonstrates SSH key password provider usage.
 package main
 
 import (
 	"flag"
 	"fmt"
-	"syscall"
+	"os"
 
 	"github.com/k0sproject/rig"
 	"golang.org/x/term"
@@ -24,7 +24,7 @@ func main() {
 			Address: *host,
 			PasswordCallback: func() (string, error) {
 				fmt.Println("Enter password:")
-				pass, err := term.ReadPassword(int(syscall.Stdin)) //nolint:unconvert // syscall.Stdin is uintptr on Windows
+				pass, err := term.ReadPassword(int(os.Stdin.Fd())) // #nosec G115 -- stdin fd is always a small non-negative int
 				return string(pass), err
 			},
 		},

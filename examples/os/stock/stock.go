@@ -1,4 +1,4 @@
-// Package main demonstrates how to use the OS support mechanism with rig.
+// Package main demonstrates OS module registry and configurer interface usage.
 package main
 
 /*
@@ -22,7 +22,7 @@ import (
 	_ "github.com/k0sproject/rig/os/support"
 )
 
-var errUnsupportedOS = errors.New("OS does not support configurer interface")
+var errNoConfigurer = errors.New("OS does not support configurer interface")
 
 type configurer interface {
 	Pwd(host os.Host) string
@@ -40,12 +40,12 @@ type Host struct {
 func (h *Host) LoadOS() error {
 	bf, err := registry.GetOSModuleBuilder(*h.OSVersion)
 	if err != nil {
-		return fmt.Errorf("load os module builder: %w", err)
+		return fmt.Errorf("getting OS module: %w", err)
 	}
 
 	c, ok := bf().(configurer)
 	if !ok {
-		return fmt.Errorf("%w: %s", errUnsupportedOS, *h.OSVersion)
+		return fmt.Errorf("%w: %s", errNoConfigurer, *h.OSVersion)
 	}
 	h.Configurer = c
 

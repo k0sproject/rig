@@ -75,7 +75,7 @@ type PasswordCallback func() (secret string, err error)
 var agentSignerSource = func() ([]ssh.Signer, error) {
 	a, err := agent.NewClient()
 	if err != nil {
-		return nil, fmt.Errorf("create ssh agent client: %w", err)
+		return nil, fmt.Errorf("ssh agent: %w", err)
 	}
 	return a.Signers()
 }
@@ -203,7 +203,8 @@ func (c *SSH) initGlobalDefaults() {
 
 func findUniq(a, b []string) (string, bool) {
 	for _, s := range a {
-		if !slices.Contains(b, s) {
+		found := slices.Contains(b, s)
+		if !found {
 			return s, true
 		}
 	}
@@ -422,7 +423,43 @@ func mergeSigners(keySigners, agentSigners []ssh.Signer) []ssh.Signer {
 	return out
 }
 
-func (c *SSH) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
+// collectAuthMethods builds auth methods from key files and SSH agent signers.
+func (c *SSH) collectAuthMethods(agentSigners []ssh.Signer) []ssh.AuthMethod {
+	// Collect key-file signers first (preferred over agent keys so that an
+	// explicitly configured KeyPath is tried before agent keys on servers
+	// with a low MaxAuthTries limit).
+	var keySigners []ssh.Signer
+	for _, keyPath := range c.keyPaths {
+		if am, ok := signerCache.Load(keyPath); ok {
+			switch s := am.(type) {
+			case ssh.Signer:
+				log.Tracef("%s: using cached signer for %s", c, keyPath)
+				keySigners = append(keySigners, s)
+			case error:
+				log.Tracef("%s: already discarded key %s: %v", c, keyPath, s)
+			default:
+				log.Tracef("%s: unexpected type %T for cached signer for %s", c, am, keyPath)
+			}
+			continue
+		}
+		signer, err := c.pkeySigner(agentSigners, keyPath)
+		if err != nil {
+			log.Debugf("%s: failed to obtain a signer for identity %s: %v", c, keyPath, err)
+			signerCache.Store(keyPath, err)
+		} else {
+			signerCache.Store(keyPath, signer)
+			keySigners = append(keySigners, signer)
+		}
+	}
+
+	// Combine key-file signers with agent signers, de-duplicating by public key.
+	if combined := mergeSigners(keySigners, agentSigners); len(combined) > 0 {
+		return []ssh.AuthMethod{ssh.PublicKeys(combined...)}
+	}
+	return nil
+}
+
+func (c *SSH) clientConfig() (*ssh.ClientConfig, error) {
 	config := &ssh.ClientConfig{
 		User: c.User,
 	}
@@ -452,42 +489,7 @@ func (c *SSH) clientConfig() (*ssh.ClientConfig, error) { //nolint:cyclop
 		log.Tracef("%s: using %d passed-in auth methods", c, len(c.AuthMethods))
 		config.Auth = c.AuthMethods
 	} else {
-		// Collect key-file signers first (preferred over agent keys so that an
-		// explicitly configured KeyPath is tried before agent keys on servers
-		// with a low MaxAuthTries limit).
-		// pkeySigner receives agentSigners so it can match .pub files to agent-held keys.
-		var keySigners []ssh.Signer
-		for _, keyPath := range c.keyPaths {
-			if am, ok := signerCache.Load(keyPath); ok {
-				switch s := am.(type) {
-				case ssh.Signer:
-					log.Tracef("%s: using cached signer for %s", c, keyPath)
-					keySigners = append(keySigners, s)
-				case error:
-					log.Tracef("%s: already discarded key %s: %v", c, keyPath, s)
-				default:
-					log.Tracef("%s: unexpected type %T for cached signer for %s", c, am, keyPath)
-				}
-				continue
-			}
-			signer, err := c.pkeySigner(agentSigners, keyPath)
-			if err != nil {
-				log.Debugf("%s: failed to obtain a signer for identity %s: %v", c, keyPath, err)
-				// store the error so this key won't be loaded again
-				signerCache.Store(keyPath, err)
-			} else {
-				signerCache.Store(keyPath, signer)
-				keySigners = append(keySigners, signer)
-			}
-		}
-
-		// Combine key-file signers with agent signers, de-duplicating by public key
-		// (a .pub file may resolve to a signer already present in agentSigners).
-		// All signers go into a single publickey AuthMethod so the server sees
-		// every key in one auth attempt rather than one per key.
-		if combined := mergeSigners(keySigners, agentSigners); len(combined) > 0 {
-			config.Auth = []ssh.AuthMethod{ssh.PublicKeys(combined...)}
-		}
+		config.Auth = c.collectAuthMethods(agentSigners)
 	}
 
 	if len(config.Auth) == 0 {
@@ -686,9 +688,7 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error { //nolint:gocognit,cy
 
 	var wg sync.WaitGroup
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		if execOpts.Writer == nil {
 			outputScanner := bufio.NewScanner(stdout)
 
@@ -706,13 +706,11 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error { //nolint:gocognit,cy
 				execOpts.LogErrorf("%s: failed to stream stdout: %v", c, err)
 			}
 		}
-	}()
+	})
 
 	var errors []string
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		outputScanner := bufio.NewScanner(stderr)
 
 		for outputScanner.Scan() {
@@ -726,7 +724,7 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error { //nolint:gocognit,cy
 		if err := outputScanner.Err(); err != nil {
 			execOpts.LogErrorf("%s: %s", c, err.Error())
 		}
-	}()
+	})
 
 	err = session.Wait()
 	wg.Wait()

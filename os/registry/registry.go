@@ -29,7 +29,7 @@ func RegisterOSModule(mf matchFunc, bf BuildFunc) {
 	osModules = append([]*osFactory{{MatchFunc: mf, BuildFunc: bf}}, osModules...)
 }
 
-// GetOSModuleBuilder returns a suitable OS support module from rig's registry.
+// GetOSModuleBuilder returns a suitable OS support module from rig's registry
 func GetOSModuleBuilder(osv rig.OSVersion) (BuildFunc, error) {
 	for _, of := range osModules {
 		if of.MatchFunc(osv) {

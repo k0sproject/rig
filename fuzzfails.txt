@@ -1,0 +1,62 @@
+==> github.com/k0sproject/rig/v2/powershell FuzzCmd
+fuzz: elapsed: 0s, gathering baseline coverage: 0/120 completed
+fuzz: elapsed: 0s, gathering baseline coverage: 120/120 completed, now fuzzing with 12 workers
+fuzz: elapsed: 3s, execs: 160634 (53541/sec), new interesting: 1 (total: 121)
+fuzz: elapsed: 6s, execs: 224236 (21202/sec), new interesting: 2 (total: 122)
+fuzz: elapsed: 9s, execs: 397846 (57859/sec), new interesting: 5 (total: 125)
+fuzz: elapsed: 11s, execs: 548601 (73393/sec), new interesting: 6 (total: 126)
+--- FAIL: FuzzCmd (11.10s)
+    context deadline exceeded
+FAIL
+exit status 1
+FAIL	github.com/k0sproject/rig/v2/powershell	11.492s
+==> github.com/k0sproject/rig/v2/redact FuzzStringRedacterRedact
+fuzz: elapsed: 0s, gathering baseline coverage: 0/42 completed
+failure while testing seed corpus entry: FuzzStringRedacterRedact/11502329c1957bf1
+fuzz: elapsed: 0s, gathering baseline coverage: 2/42 completed
+--- FAIL: FuzzStringRedacterRedact (0.07s)
+    --- FAIL: FuzzStringRedacterRedact (0.00s)
+        fuzz_test.go:32: Redact("00 ") with match="0 " mask=" ": result "0 " still contains the match
+
+FAIL
+exit status 1
+FAIL	github.com/k0sproject/rig/v2/redact	0.481s
+==> github.com/k0sproject/rig/v2/sshconfig FuzzNewParser
+fuzz: elapsed: 0s, gathering baseline coverage: 0/8 completed
+failure while testing seed corpus entry: FuzzNewParser/e2b8af39f88d630c
+fuzz: elapsed: 0s, gathering baseline coverage: 1/8 completed
+--- FAIL: FuzzNewParser (0.29s)
+    --- FAIL: FuzzNewParser (0.00s)
+        testing.go:1927: panic: runtime error: slice bounds out of range [-1:]
+            goroutine 60 [running]:
+            runtime/debug.Stack()
+            	/Users/kimmo/Projects/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.1.darwin-amd64/src/runtime/debug/stack.go:26 +0x9b
+            testing.tRunner.func1()
+            	/Users/kimmo/Projects/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.1.darwin-amd64/src/testing/testing.go:1927 +0x1d0
+            panic({0x700d8e0?, 0x20d0c1b320c0?})
+            	/Users/kimmo/Projects/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.1.darwin-amd64/src/runtime/panic.go:860 +0x13a
+            github.com/k0sproject/rig/v2/sshconfig.tokenizeRow({0x20d0c1b2a3d0, 0x2})
+            	/Users/kimmo/Projects/go/src/github.com/k0sproject/rig/sshconfig/tree.go:342 +0xff6
+            github.com/k0sproject/rig/v2/sshconfig.(*treeParser).parseTree(0x20d0c1b62380, {0x702f840?, 0x20d0c1b3e200?}, 0x20d0c1b523c0, 0x20d0c1a955b8)
+            	/Users/kimmo/Projects/go/src/github.com/k0sproject/rig/sshconfig/tree.go:360 +0x14a
+            github.com/k0sproject/rig/v2/sshconfig.(*treeParser).Parse(0x20d0c1b62380)
+            	/Users/kimmo/Projects/go/src/github.com/k0sproject/rig/sshconfig/tree.go:238 +0x18bc
+            github.com/k0sproject/rig/v2/sshconfig.NewParser({0x702f840, 0x20d0c1b3e200}, {0x0, 0x0, 0x20d0c1b271d0?})
+            	/Users/kimmo/Projects/go/src/github.com/k0sproject/rig/sshconfig/parser.go:260 +0x45b
+            github.com/k0sproject/rig/v2/sshconfig_test.FuzzNewParser.func1(0x0?, {0x20d0c1b2a3a1, 0x2})
+            	/Users/kimmo/Projects/go/src/github.com/k0sproject/rig/sshconfig/fuzz_test.go:37 +0x1e5
+            reflect.Value.call({0x6fc4ec0?, 0x702bfa0?, 0x13?}, {0x6d31c79, 0x4}, {0x20d0c1b271a0, 0x2, 0x2?})
+            	/Users/kimmo/Projects/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.1.darwin-amd64/src/reflect/value.go:586 +0xf06
+            reflect.Value.Call({0x6fc4ec0?, 0x702bfa0?, 0x703e200?}, {0x20d0c1b271a0?, 0x702a320?, 0x6ef1f90?})
+            	/Users/kimmo/Projects/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.1.darwin-amd64/src/reflect/value.go:369 +0xb9
+            testing.(*F).Fuzz.func1.1(0x20d0c1b5c248?)
+            	/Users/kimmo/Projects/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.1.darwin-amd64/src/testing/fuzz.go:341 +0x30a
+            testing.tRunner(0x20d0c1b5c248, 0x20d0c1c38000)
+            	/Users/kimmo/Projects/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.1.darwin-amd64/src/testing/testing.go:2036 +0xea
+            created by testing.(*F).Fuzz.func1 in goroutine 24
+            	/Users/kimmo/Projects/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.1.darwin-amd64/src/testing/fuzz.go:328 +0x668
+
+
+FAIL
+exit status 1
+FAIL	github.com/k0sproject/rig/v2/sshconfig	0.854s

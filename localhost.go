@@ -2,6 +2,7 @@ package rig
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -44,7 +45,7 @@ func (c *Localhost) IsConnected() bool {
 
 // IsWindows is true when running on a windows host
 func (c *Localhost) IsWindows() bool {
-	return runtime.GOOS == "windows"
+	return runtime.GOOS == osWindows
 }
 
 // Connect on local connection does nothing
@@ -106,10 +107,7 @@ func (c *Localhost) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclo
 		return fmt.Errorf("failed to start command: %w", err)
 	}
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
+	wg.Go(func() {
 		if execOpts.Writer == nil {
 			outputScanner := bufio.NewScanner(stdout)
 
@@ -124,11 +122,8 @@ func (c *Localhost) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclo
 				execOpts.LogErrorf("%s: failed to stream stdout: %v", c, err)
 			}
 		}
-	}()
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
+	})
+	wg.Go(func() {
 		outputScanner := bufio.NewScanner(stderr)
 
 		for outputScanner.Scan() {
@@ -137,7 +132,7 @@ func (c *Localhost) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclo
 		if err := outputScanner.Err(); err != nil {
 			execOpts.LogErrorf("%s: failed to scan stderr: %v", c, err)
 		}
-	}()
+	})
 
 	wg.Wait()
 	err = command.Wait()
@@ -154,12 +149,10 @@ func (c *Localhost) command(cmd string, o *exec.Options) (*osexec.Cmd, error) {
 	}
 
 	if c.IsWindows() {
-		//nolint:noctx // localhost exec commands are long-running and do not use context cancellation
-		return osexec.Command("cmd.exe", "/c", cmd), nil
+		return osexec.CommandContext(context.Background(), "cmd.exe", "/c", cmd), nil //nolint:gosec
 	}
 
-	//nolint:noctx // localhost exec commands are long-running and do not use context cancellation
-	return osexec.Command("sh", "-c", "--", cmd), nil
+	return osexec.CommandContext(context.Background(), "sh", "-c", "--", cmd), nil //nolint:gosec
 }
 
 // ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host
@@ -177,18 +170,17 @@ func (c *Localhost) ExecInteractive(cmd string) error {
 		return fmt.Errorf("failed to get current working directory: %w", err)
 	}
 
-	procAttr := os.ProcAttr{
-		Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
-		Dir:   cwd,
-	}
-
 	parts, err := shellwords.Parse(cmd)
 	if err != nil {
 		return fmt.Errorf("failed to parse command: %w", err)
 	}
 
-	//nolint:gosec // command is parsed from user input via shellwords.Parse which safely handles quoting
-	proc, err := os.StartProcess(parts[0], parts[1:], &procAttr)
+	pa := os.ProcAttr{
+		Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
+		Dir:   cwd,
+	}
+
+	proc, err := os.StartProcess(parts[0], parts[1:], &pa) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("failed to start process: %w", err)
 	}

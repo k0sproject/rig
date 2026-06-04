@@ -2,7 +2,7 @@ package rig
 
 import "errors"
 
-// Common error sentinel values.
+// Error variables for rig package operations.
 var (
 	// ErrOS is returned when an action fails on local OS.
 	ErrOS = errors.New("local os")

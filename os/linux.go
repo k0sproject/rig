@@ -315,7 +315,7 @@ func (c Linux) LineIntoFile(h Host, path, matcher, newLine string) error {
 // UpdateEnvironment updates the hosts's environment variables
 func (c Linux) UpdateEnvironment(h Host, env map[string]string) error {
 	for k, v := range env {
-		err := c.LineIntoFile(h, "/etc/environment", k+"=", k+"="+v)
+		err := c.LineIntoFile(h, "/etc/environment", k+"=", fmt.Sprintf("%s=%s", k, v))
 		if err != nil {
 			return err
 		}

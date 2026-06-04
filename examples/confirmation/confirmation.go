@@ -1,4 +1,4 @@
-// Package main demonstrates how to use confirmation dialogs with rig.
+// Package main demonstrates the confirmation/interactive prompt functionality.
 package main
 
 import (
@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	conn := &rig.Localhost{Enabled: true}
+	localhost := &rig.Localhost{Enabled: true}
 	exec.Confirm = true
 	exec.ConfirmFunc = func(cmd string) bool {
 		fmt.Println("Executing function:")
@@ -25,5 +25,7 @@ func main() {
 		return text == "" || text == "Y" || text == "y"
 	}
 
-	_ = conn.Exec("echo Hello, world", exec.StreamOutput())
+	if err := localhost.Exec("echo Hello, world", exec.StreamOutput()); err != nil {
+		fmt.Printf("exec error: %v\n", err)
+	}
 }

@@ -2,7 +2,7 @@ package rigfs
 
 import "io/fs"
 
-// File operation names for use in error handling.
+// Op constants name the file operation types used in PathError messages.
 const (
 	// OpClose represents a close operation.
 	OpClose = "close"

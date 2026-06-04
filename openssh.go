@@ -3,6 +3,7 @@ package rig
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -199,7 +200,7 @@ func (c *OpenSSH) Connect() error {
 		args = append(args, "-o", "BatchMode=yes")
 		args = append(args, c.args()...)
 		args = append(args, "--", "exit 0")
-		cmd := goexec.Command("ssh", args...) //nolint:noctx // Connect has no context in v0.x
+		cmd := goexec.CommandContext(context.Background(), "ssh", args...) //nolint:gosec
 		var errBuf bytes.Buffer
 		cmd.Stderr = &errBuf
 		if err := cmd.Run(); err != nil {
@@ -221,14 +222,14 @@ func (c *OpenSSH) Connect() error {
 	opts.Set("ControlPersist", 600)
 	opts.Set("TCPKeepalive", true)
 
-	optsArgs := opts.ToArgs()
-	args := make([]string, 0, 2+len(optsArgs)+len(c.args()))
+	optArgs := opts.ToArgs()
+	cArgs := c.args()
+	args := make([]string, 0, 2+len(optArgs)+len(cArgs))
 	args = append(args, "-N", "-f")
-	args = append(args, optsArgs...)
-	args = append(args, c.args()...)
+	args = append(args, optArgs...)
+	args = append(args, cArgs...)
 
-	//nolint:noctx // OpenSSH connection multiplexing is a long-running background process
-	cmd := goexec.Command("ssh", args...)
+	cmd := goexec.CommandContext(context.Background(), "ssh", args...) //nolint:gosec
 	var errBuf bytes.Buffer
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = io.MultiWriter(os.Stderr, &errBuf)
@@ -264,13 +265,13 @@ func (c *OpenSSH) closeControl() error {
 		return ErrControlPathNotSet
 	}
 
-	args := make([]string, 0, 4+len(c.args()))
+	cArgs := c.args()
+	args := make([]string, 0, 4+len(cArgs))
 	args = append(args, "-O", "exit", "-S", controlPath)
-	args = append(args, c.args()...)
+	args = append(args, cArgs...)
 
 	log.Debugf("%s: closing ssh multiplexing control master", c)
-	//nolint:noctx // OpenSSH connection multiplexing command
-	cmd := goexec.Command("ssh", args...)
+	cmd := goexec.CommandContext(context.Background(), "ssh", args...) //nolint:gosec
 	err := cmd.Run()
 	if err != nil {
 		return fmt.Errorf("failed to close control master: %w", err)
@@ -296,8 +297,7 @@ func (c *OpenSSH) Exec(cmdStr string, opts ...exec.Option) error { //nolint:cycl
 	args = append(args, "-o", "BatchMode=yes")
 	args = append(args, c.args()...)
 	args = append(args, "--", command)
-	//nolint:noctx // OpenSSH command execution
-	cmd := goexec.Command("ssh", args...)
+	cmd := goexec.CommandContext(context.Background(), "ssh", args...) //nolint:gosec
 
 	if execOpts.Stdin != "" {
 		execOpts.LogStdin(c.String())
@@ -320,10 +320,7 @@ func (c *OpenSSH) Exec(cmdStr string, opts ...exec.Option) error { //nolint:cycl
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
+	wg.Go(func() {
 		if execOpts.Writer == nil {
 			outputScanner := bufio.NewScanner(stdout)
 
@@ -338,11 +335,8 @@ func (c *OpenSSH) Exec(cmdStr string, opts ...exec.Option) error { //nolint:cycl
 				execOpts.LogErrorf("%s: failed to stream stdout: %v", c, err)
 			}
 		}
-	}()
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
+	})
+	wg.Go(func() {
 		outputScanner := bufio.NewScanner(stderr)
 
 		for outputScanner.Scan() {
@@ -351,7 +345,7 @@ func (c *OpenSSH) Exec(cmdStr string, opts ...exec.Option) error { //nolint:cycl
 		if err := outputScanner.Err(); err != nil {
 			execOpts.LogErrorf("%s: failed to scan stderr: %v", c, err)
 		}
-	}()
+	})
 
 	wg.Wait()
 	err = cmd.Wait()
@@ -376,8 +370,7 @@ func (c *OpenSSH) ExecStreams(cmdStr string, stdin io.ReadCloser, stdout, stderr
 	args = append(args, "-o", "BatchMode=yes")
 	args = append(args, c.args()...)
 	args = append(args, "--", command)
-	//nolint:noctx // OpenSSH command execution with streams
-	cmd := goexec.Command("ssh", args...)
+	cmd := goexec.CommandContext(context.Background(), "ssh", args...) //nolint:gosec
 
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout

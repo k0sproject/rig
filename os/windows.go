@@ -126,7 +126,7 @@ func (c Windows) ReadFile(h Host, path string) (string, error) {
 
 // DeleteFile deletes a file from the host.
 func (c Windows) DeleteFile(h Host, path string) error {
-	if err := h.Exec(`cmd.exe /c del /f ` + ps.DoubleQuotePath(path)); err != nil {
+	if err := h.Exec("cmd.exe /c del /f " + ps.DoubleQuotePath(path)); err != nil {
 		return fmt.Errorf("failed to delete file %s: %w", path, err)
 	}
 	return nil
