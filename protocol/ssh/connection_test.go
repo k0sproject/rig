@@ -111,6 +111,37 @@ func TestPkeySignerBatchModeErrorNonCacheable(t *testing.T) {
 	require.ErrorIs(t, err, errSkipCache, "batch-mode skip error must carry errSkipCache so clientConfig does not cache it")
 }
 
+// TestLoadKeySignersAgentBackedNotCached verifies that signers obtained from
+// the SSH agent (fromAgent=true) are not stored in signerCache, preventing
+// stale references after the agent connection is closed.
+func TestLoadKeySignersAgentBackedNotCached(t *testing.T) {
+	ctx := context.Background()
+
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	sshPub, err := ssh.NewPublicKey(pub)
+	require.NoError(t, err)
+
+	sshSigner, err := ssh.NewSignerFromKey(priv)
+	require.NoError(t, err)
+
+	pubKeyFile := filepath.Join(t.TempDir(), "id_ed25519.pub")
+	require.NoError(t, os.WriteFile(pubKeyFile, ssh.MarshalAuthorizedKey(sshPub), 0o600))
+
+	signerCache.Delete(pubKeyFile)
+	t.Cleanup(func() { signerCache.Delete(pubKeyFile) })
+
+	c := newTestConnection(t)
+	c.keyPaths = []string{pubKeyFile}
+
+	signers := c.loadKeySigners(ctx, []ssh.Signer{sshSigner})
+	require.Len(t, signers, 1, "agent-backed signer must be returned")
+
+	_, cached := signerCache.Load(pubKeyFile)
+	require.False(t, cached, "agent-backed signer must not be stored in signerCache")
+}
+
 // TestClientConfigPubkeyAuthenticationDisabled verifies that when the ssh config
 // has PubkeyAuthentication set to "no", clientConfig skips all public key
 // authentication (ssh agent and identity files). With no AuthMethods provided,
