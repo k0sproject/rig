@@ -121,7 +121,7 @@ func ParseOSReleaseFile(s string, version *OSVersion) error {
 		fields := strings.SplitN(scanner.Text(), "=", 2)
 		switch fields[0] {
 		case "":
-		        // Empty line in the file - unexpected but may happen
+			// Empty line in the file - unexpected but may happen
 		case "ID":
 			version.ID = unquote(fields[1])
 		case "ID_LIKE":

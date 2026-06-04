@@ -105,10 +105,7 @@ func (c *Localhost) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclo
 		return fmt.Errorf("failed to start command: %w", err)
 	}
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
+	wg.Go(func() {
 		if execOpts.Writer == nil {
 			outputScanner := bufio.NewScanner(stdout)
 
@@ -123,11 +120,8 @@ func (c *Localhost) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclo
 				execOpts.LogErrorf("%s: failed to stream stdout: %v", c, err)
 			}
 		}
-	}()
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
+	})
+	wg.Go(func() {
 		outputScanner := bufio.NewScanner(stderr)
 
 		for outputScanner.Scan() {
@@ -136,7 +130,7 @@ func (c *Localhost) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclo
 		if err := outputScanner.Err(); err != nil {
 			execOpts.LogErrorf("%s: failed to scan stderr: %v", c, err)
 		}
-	}()
+	})
 
 	wg.Wait()
 	err = command.Wait()

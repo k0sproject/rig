@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	goexec "os/exec"
 	"strconv"
@@ -45,8 +46,9 @@ type OpenSSH struct {
 	name string
 }
 
+//go:fix inline
 func boolPtr(b bool) *bool {
-	return &b
+	return new(b)
 }
 
 // Protocol returns the protocol name
@@ -66,7 +68,7 @@ func (c *OpenSSH) IsWindows() bool {
 		return *c.isWindows
 	}
 
-	c.isWindows = boolPtr(c.Exec("cmd.exe /c exit 0") == nil)
+	c.isWindows = new(c.Exec("cmd.exe /c exit 0") == nil)
 	log.Debugf("%s: host is windows: %t", c, *c.isWindows)
 
 	return *c.isWindows
@@ -78,9 +80,7 @@ type OpenSSHOptions map[string]any
 // Copy returns a copy of the options
 func (o OpenSSHOptions) Copy() OpenSSHOptions {
 	dup := make(OpenSSHOptions, len(o))
-	for k, v := range o {
-		dup[k] = v
-	}
+	maps.Copy(dup, o)
 	return dup
 }
 
@@ -109,9 +109,9 @@ func (o OpenSSHOptions) ToArgs() []string {
 	for k, v := range o {
 		if b, ok := v.(bool); ok {
 			if b {
-				args = append(args, "-o", fmt.Sprintf("%s=yes", k))
+				args = append(args, "-o", k+"=yes")
 			} else {
-				args = append(args, "-o", fmt.Sprintf("%s=no", k))
+				args = append(args, "-o", k+"=no")
 			}
 			continue
 		}
@@ -306,10 +306,7 @@ func (c *OpenSSH) Exec(cmdStr string, opts ...exec.Option) error { //nolint:cycl
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
+	wg.Go(func() {
 		if execOpts.Writer == nil {
 			outputScanner := bufio.NewScanner(stdout)
 
@@ -324,11 +321,8 @@ func (c *OpenSSH) Exec(cmdStr string, opts ...exec.Option) error { //nolint:cycl
 				execOpts.LogErrorf("%s: failed to stream stdout: %v", c, err)
 			}
 		}
-	}()
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
+	})
+	wg.Go(func() {
 		outputScanner := bufio.NewScanner(stderr)
 
 		for outputScanner.Scan() {
@@ -337,7 +331,7 @@ func (c *OpenSSH) Exec(cmdStr string, opts ...exec.Option) error { //nolint:cycl
 		if err := outputScanner.Err(); err != nil {
 			execOpts.LogErrorf("%s: failed to scan stderr: %v", c, err)
 		}
-	}()
+	})
 
 	wg.Wait()
 	err = cmd.Wait()
@@ -394,7 +388,7 @@ func (c *OpenSSH) String() string {
 		return c.name
 	}
 
-	c.name = fmt.Sprintf("[OpenSSH] %s", c.userhost())
+	c.name = "[OpenSSH] " + c.userhost()
 	if c.Port != nil {
 		c.name = fmt.Sprintf("%s:%d", c.name, *c.Port)
 	}

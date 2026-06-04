@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -190,13 +191,7 @@ func (c *SSH) initGlobalDefaults() {
 
 func findUniq(a, b []string) (string, bool) {
 	for _, s := range a {
-		found := false
-		for _, t := range b {
-			if s == t {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(b, s)
 		if !found {
 			return s, true
 		}
@@ -277,7 +272,7 @@ func (c *SSH) getConfigAll(key string) []string {
 // String returns the connection's printable name
 func (c *SSH) String() string {
 	if c.name == "" {
-		c.name = fmt.Sprintf("[ssh] %s", net.JoinHostPort(c.Address, strconv.Itoa(c.Port)))
+		c.name = "[ssh] " + net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
 	}
 
 	return c.name
@@ -680,9 +675,7 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error { //nolint:gocognit,cy
 
 	var wg sync.WaitGroup
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		if execOpts.Writer == nil {
 			outputScanner := bufio.NewScanner(stdout)
 
@@ -700,13 +693,11 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error { //nolint:gocognit,cy
 				execOpts.LogErrorf("%s: failed to stream stdout: %v", c, err)
 			}
 		}
-	}()
+	})
 
 	var errors []string
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		outputScanner := bufio.NewScanner(stderr)
 
 		for outputScanner.Scan() {
@@ -720,7 +711,7 @@ func (c *SSH) Exec(cmd string, opts ...exec.Option) error { //nolint:gocognit,cy
 		if err := outputScanner.Err(); err != nil {
 			execOpts.LogErrorf("%s: %s", c, err.Error())
 		}
-	}()
+	})
 
 	err = session.Wait()
 	wg.Wait()

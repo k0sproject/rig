@@ -315,7 +315,7 @@ func (c Linux) LineIntoFile(h Host, path, matcher, newLine string) error {
 // UpdateEnvironment updates the hosts's environment variables
 func (c Linux) UpdateEnvironment(h Host, env map[string]string) error {
 	for k, v := range env {
-		err := c.LineIntoFile(h, "/etc/environment", fmt.Sprintf("%s=", k), fmt.Sprintf("%s=%s", k, v))
+		err := c.LineIntoFile(h, "/etc/environment", k+"=", fmt.Sprintf("%s=%s", k, v))
 		if err != nil {
 			return err
 		}
@@ -376,7 +376,7 @@ func (c Linux) CleanupServiceEnvironment(h Host, s string) error {
 
 // CommandExist returns true if the command exists
 func (c Linux) CommandExist(h Host, cmd string) bool {
-	return h.Execf("/bin/sh -c %s 2> /dev/null", shellescape.Quote(fmt.Sprintf("command -v -- %s", shellescape.Quote(cmd)))) == nil
+	return h.Execf("/bin/sh -c %s 2> /dev/null", shellescape.Quote("command -v -- "+shellescape.Quote(cmd))) == nil
 }
 
 // Reboot executes the reboot command
@@ -393,7 +393,7 @@ func (c Linux) Reboot(h Host) error {
 
 // MkDir creates a directory (including intermediate directories)
 func (c Linux) MkDir(h Host, s string, opts ...exec.Option) error {
-	if err := h.Exec(fmt.Sprintf("mkdir -p -- %s", shellescape.Quote(s)), opts...); err != nil {
+	if err := h.Exec("mkdir -p -- "+shellescape.Quote(s), opts...); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", s, err)
 	}
 	return nil
