@@ -24,3 +24,6 @@ endif
 lint:
 	golangci-lint run -v $(fixparam)
 
+.PHONY: schemas
+schemas:
+	$(MAKE) -C internal/jsonschema

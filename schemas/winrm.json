@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/k0sproject/rig/win-rm",
+  "$ref": "#/$defs/WinRM",
+  "$defs": {
+    "SSH": {
+      "properties": {
+        "address": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "hostname"
+            },
+            {
+              "type": "string",
+              "format": "ipv4"
+            },
+            {
+              "type": "string",
+              "format": "ipv6"
+            }
+          ],
+          "description": "Address of the remote host (IP or hostname)"
+        },
+        "user": {
+          "type": "string",
+          "minLength": 1,
+          "description": "User to log in as",
+          "default": "root"
+        },
+        "port": {
+          "type": "integer",
+          "maximum": 65535,
+          "minimum": 1,
+          "description": "SSH port (default 22)",
+          "default": 22
+        },
+        "keyPath": {
+          "type": "string",
+          "description": "Optional path to private key"
+        },
+        "hostKey": {
+          "type": "string",
+          "description": "Optional known host key fingerprint"
+        },
+        "bastion": {
+          "$ref": "#/$defs/SSH",
+          "description": "Optional bastion host"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "address"
+      ]
+    },
+    "WinRM": {
+      "properties": {
+        "address": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "hostname"
+            },
+            {
+              "type": "string",
+              "format": "ipv4"
+            },
+            {
+              "type": "string",
+              "format": "ipv6"
+            }
+          ],
+          "description": "Address of the remote host"
+        },
+        "user": {
+          "type": "string",
+          "minLength": 3,
+          "description": "User to authenticate as",
+          "default": "Administrator"
+        },
+        "port": {
+          "type": "integer",
+          "maximum": 65535,
+          "minimum": 1,
+          "description": "WinRM port",
+          "default": 5985
+        },
+        "password": {
+          "type": "string",
+          "description": "Password for WinRM authentication"
+        },
+        "useHTTPS": {
+          "type": "boolean",
+          "description": "Use HTTPS for WinRM",
+          "default": false
+        },
+        "insecure": {
+          "type": "boolean",
+          "description": "Accept invalid TLS certificates",
+          "default": false
+        },
+        "useNTLM": {
+          "type": "boolean",
+          "description": "Use NTLM authentication",
+          "default": false
+        },
+        "caCertPath": {
+          "type": "string",
+          "description": "Path to CA certificate"
+        },
+        "certPath": {
+          "type": "string",
+          "description": "Path to client certificate"
+        },
+        "keyPath": {
+          "type": "string",
+          "description": "Path to client key"
+        },
+        "tlsServerName": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "hostname"
+            },
+            {
+              "type": "string",
+              "format": "ipv4"
+            },
+            {
+              "type": "string",
+              "format": "ipv6"
+            }
+          ],
+          "description": "TLS server name override"
+        },
+        "bastion": {
+          "$ref": "#/$defs/SSH",
+          "description": "Optional SSH bastion"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "address"
+      ]
+    }
+  }
+}

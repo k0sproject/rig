@@ -14,9 +14,9 @@ import (
 func main() {
 	localhost := &rig.Localhost{Enabled: true}
 	exec.Confirm = true
-	exec.ConfirmFunc = func(s string) bool {
+	exec.ConfirmFunc = func(cmd string) bool {
 		fmt.Println("Executing function:")
-		fmt.Println(s)
+		fmt.Println(cmd)
 		fmt.Print("Allow? [Y/n]: ")
 
 		reader := bufio.NewReader(os.Stdin)

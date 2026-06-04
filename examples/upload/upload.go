@@ -51,8 +51,8 @@ func main() {
 	srcFile := flag.String("src", "tmpfile", "source file")
 	destFile := flag.String("dst", "/tmp/tempfile", "destination file")
 	sudo := flag.Bool("sudo", false, "use sudo when uploading")
-	usr := flag.String("user", "root", "user name")
-	pwd := flag.String("pass", "", "password")
+	user := flag.String("user", "root", "user name")
+	password := flag.String("pass", "", "password")
 	proto := flag.String("proto", "ssh", "ssh/winrm")
 	https := flag.Bool("https", false, "use https")
 
@@ -71,7 +71,7 @@ func main() {
 				SSH: &rig.SSH{
 					Address: *destHost,
 					Port:    *destPort,
-					User:    *usr,
+					User:    *user,
 				},
 			},
 		}
@@ -81,10 +81,10 @@ func main() {
 				WinRM: &rig.WinRM{
 					Address:  *destHost,
 					Port:     *destPort,
-					User:     *usr,
+					User:     *user,
 					UseHTTPS: *https,
 					Insecure: true,
-					Password: *pwd,
+					Password: *password,
 				},
 			},
 		}

@@ -53,14 +53,14 @@ type windowsMockClient struct {
 	execErr error
 }
 
-func (m *windowsMockClient) Connect() error      { return nil }
-func (m *windowsMockClient) Disconnect()         {}
-func (m *windowsMockClient) IsWindows() bool     { return true }
-func (m *windowsMockClient) ExecInteractive(_ string) error { return nil }
-func (m *windowsMockClient) String() string      { return "windows-mock" }
-func (m *windowsMockClient) Protocol() string    { return "winrm" }
-func (m *windowsMockClient) IPAddress() string   { return "192.0.2.1" }
-func (m *windowsMockClient) IsConnected() bool   { return true }
+func (m *windowsMockClient) Connect() error                        { return nil }
+func (m *windowsMockClient) Disconnect()                           {}
+func (m *windowsMockClient) IsWindows() bool                       { return true }
+func (m *windowsMockClient) ExecInteractive(_ string) error        { return nil }
+func (m *windowsMockClient) String() string                        { return "windows-mock" }
+func (m *windowsMockClient) Protocol() string                      { return "winrm" }
+func (m *windowsMockClient) IPAddress() string                     { return "192.0.2.1" }
+func (m *windowsMockClient) IsConnected() bool                     { return true }
 func (m *windowsMockClient) Exec(_ string, _ ...exec.Option) error { return m.execErr }
 func (m *windowsMockClient) ExecStreams(_ string, _ io.ReadCloser, _, _ io.Writer, _ ...exec.Option) (exec.Waiter, error) {
 	return nil, fmt.Errorf("not implemented")

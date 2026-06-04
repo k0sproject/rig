@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "stick": {
+      "type": "stdio",
+      "command": "stick",
+      "args": ["mcp", "--root", "/Users/kimmo/Projects/go/src/github.com/k0sproject/rig"]
+    },
+    "shmore": {
+      "type": "stdio",
+      "command": "shmore",
+      "args": []
+    },
+    "godoc": {
+      "type": "stdio",
+      "command": "godoc-mcp"
+    },
+    "gopls": {
+      "type": "stdio",
+      "command": "gopls",
+      "args": ["mcp"]
+    }
+  }
+}
