@@ -12,6 +12,7 @@ import (
 	ps "github.com/k0sproject/rig/pkg/powershell"
 )
 
+// ResolveFunc is a function that attempts to resolve the OS version of a connection.
 type ResolveFunc func(*Connection) (OSVersion, error)
 
 var (
@@ -75,8 +76,8 @@ func resolveWindows(conn *Connection) (OSVersion, error) {
 		return OSVersion{}, fmt.Errorf("%w: unable to parse windows version: %w", errAbort, err)
 	}
 	return OSVersion{
-		ID:      "windows",
-		IDLike:  "windows",
+		ID:      osWindows,
+		IDLike:  osWindows,
 		Version: winver.Version,
 		Name:    winver.Caption,
 	}, nil
@@ -115,6 +116,18 @@ func unquote(s string) string {
 	return s
 }
 
+func setExtraOSReleaseField(version *OSVersion, fields []string) {
+	if version.ExtraFields == nil {
+		version.ExtraFields = make(map[string]string)
+	}
+	if len(fields) > 1 {
+		version.ExtraFields[fields[0]] = unquote(fields[1])
+	} else {
+		version.ExtraFields[fields[0]] = ""
+	}
+}
+
+// ParseOSReleaseFile parses the contents of an os-release file into an OSVersion struct.
 func ParseOSReleaseFile(s string, version *OSVersion) error {
 	scanner := bufio.NewScanner(strings.NewReader(s))
 	for scanner.Scan() {
@@ -131,14 +144,7 @@ func ParseOSReleaseFile(s string, version *OSVersion) error {
 		case "PRETTY_NAME":
 			version.Name = unquote(fields[1])
 		default:
-			if version.ExtraFields == nil {
-				version.ExtraFields = make(map[string]string)
-			}
-			if len(fields) > 1 {
-				version.ExtraFields[fields[0]] = unquote(fields[1])
-			} else {
-				version.ExtraFields[fields[0]] = ""
-			}
+			setExtraOSReleaseField(version, fields)
 		}
 	}
 

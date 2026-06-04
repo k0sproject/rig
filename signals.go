@@ -53,6 +53,13 @@ func termSizeWNCH() []byte {
 		binary.BigEndian.PutUint32(size, 40)
 		binary.BigEndian.PutUint32(size[4:], 80)
 	} else {
+		const maxUint32 = 1<<32 - 1
+		if cols < 0 || cols > maxUint32 {
+			cols = 80
+		}
+		if rows < 0 || rows > maxUint32 {
+			rows = 24
+		}
 		binary.BigEndian.PutUint32(size, uint32(cols))
 		binary.BigEndian.PutUint32(size[4:], uint32(rows))
 	}

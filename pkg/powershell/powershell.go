@@ -19,8 +19,7 @@ const PipeIsBeingClosed = "The pipe is being closed."
 // command line length limits and to reduce data transferred
 func CompressedCmd(psCmd string) string {
 	var trimmed []string
-	lines := strings.Split(psCmd, "\n")
-	for _, line := range lines {
+	for line := range strings.SplitSeq(psCmd, "\n") {
 		line = strings.TrimSpace(line)
 		if len(line) == 0 || line[0] == '#' {
 			continue

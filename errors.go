@@ -2,6 +2,7 @@ package rig
 
 import "errors"
 
+// Error variables for rig package operations.
 var (
 	ErrOS               = errors.New("local os")              // ErrOS is returned when an action fails on local OS
 	ErrInvalidPath      = errors.New("invalid path")          // ErrInvalidPath is returned when a path is invalid

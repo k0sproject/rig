@@ -43,7 +43,7 @@ func (c *Localhost) IsConnected() bool {
 
 // IsWindows is true when running on a windows host
 func (c *Localhost) IsWindows() bool {
-	return runtime.GOOS == "windows"
+	return runtime.GOOS == osWindows
 }
 
 // Connect on local connection does nothing
@@ -168,14 +168,14 @@ func (c *Localhost) ExecInteractive(cmd string) error {
 		return fmt.Errorf("failed to get current working directory: %w", err)
 	}
 
-	pa := os.ProcAttr{
-		Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
-		Dir:   cwd,
-	}
-
 	parts, err := shellwords.Parse(cmd)
 	if err != nil {
 		return fmt.Errorf("failed to parse command: %w", err)
+	}
+
+	pa := os.ProcAttr{
+		Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
+		Dir:   cwd,
 	}
 
 	proc, err := os.StartProcess(parts[0], parts[1:], &pa)

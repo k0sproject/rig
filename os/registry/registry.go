@@ -29,7 +29,7 @@ func RegisterOSModule(mf matchFunc, bf buildFunc) {
 }
 
 // GetOSModuleBuilder returns a suitable OS support module from rig's registry
-func GetOSModuleBuilder(osv rig.OSVersion) (buildFunc, error) {
+func GetOSModuleBuilder(osv rig.OSVersion) (func() any, error) {
 	for _, of := range osModules {
 		if of.MatchFunc(osv) {
 			return of.BuildFunc, nil

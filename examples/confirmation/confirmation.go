@@ -1,3 +1,4 @@
+// Package main demonstrates the confirmation/interactive prompt functionality.
 package main
 
 import (
@@ -11,7 +12,7 @@ import (
 )
 
 func main() {
-	c := &rig.Localhost{Enabled: true}
+	localhost := &rig.Localhost{Enabled: true}
 	exec.Confirm = true
 	exec.ConfirmFunc = func(s string) bool {
 		fmt.Println("Executing function:")
@@ -24,5 +25,7 @@ func main() {
 		return text == "" || text == "Y" || text == "y"
 	}
 
-	c.Exec("echo Hello, world", exec.StreamOutput())
+	if err := localhost.Exec("echo Hello, world", exec.StreamOutput()); err != nil {
+		fmt.Printf("exec error: %v\n", err)
+	}
 }

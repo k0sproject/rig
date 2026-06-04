@@ -46,11 +46,6 @@ type OpenSSH struct {
 	name string
 }
 
-//go:fix inline
-func boolPtr(b bool) *bool {
-	return new(b)
-}
-
 // Protocol returns the protocol name
 func (c *OpenSSH) Protocol() string {
 	return "OpenSSH"
@@ -190,7 +185,7 @@ func (c *OpenSSH) Connect() error {
 		args = append(args, "-o", "BatchMode=yes")
 		args = append(args, c.args()...)
 		args = append(args, "--", "exit 0")
-		cmd := goexec.Command("ssh", args...) //nolint:noctx // Connect has no context in v0.x
+		cmd := goexec.Command("ssh", args...)
 		var errBuf bytes.Buffer
 		cmd.Stderr = &errBuf
 		if err := cmd.Run(); err != nil {
@@ -212,9 +207,12 @@ func (c *OpenSSH) Connect() error {
 	opts.Set("ControlPersist", 600)
 	opts.Set("TCPKeepalive", true)
 
-	args := []string{"-N", "-f"}
-	args = append(args, opts.ToArgs()...)
-	args = append(args, c.args()...)
+	optArgs := opts.ToArgs()
+	cArgs := c.args()
+	args := make([]string, 0, 2+len(optArgs)+len(cArgs))
+	args = append(args, "-N", "-f")
+	args = append(args, optArgs...)
+	args = append(args, cArgs...)
 
 	cmd := goexec.Command("ssh", args...)
 	var errBuf bytes.Buffer
@@ -252,8 +250,10 @@ func (c *OpenSSH) closeControl() error {
 		return ErrControlPathNotSet
 	}
 
-	args := []string{"-O", "exit", "-S", controlPath}
-	args = append(args, c.args()...)
+	cArgs := c.args()
+	args := make([]string, 0, 4+len(cArgs)+1)
+	args = append(args, "-O", "exit", "-S", controlPath)
+	args = append(args, cArgs...)
 	args = append(args, c.userhost())
 
 	log.Debugf("%s: closing ssh multiplexing control master", c)
