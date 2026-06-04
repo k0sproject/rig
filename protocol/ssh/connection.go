@@ -72,6 +72,17 @@ func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
 		c.sshConfig.IdentityFile = []string{*c.KeyPath}
 	}
 
+	if len(c.SSHConfigOptions) > 0 {
+		setter, err := sshconfig.NewSetter(c.sshConfig)
+		if err != nil {
+			return nil, fmt.Errorf("create sshconfig setter: %w", err)
+		}
+		setter.ErrorOnUnknownFields = true
+		if err := c.SSHConfigOptions.ApplyTo(setter); err != nil {
+			return nil, fmt.Errorf("%w: %w", protocol.ErrValidationFailed, err)
+		}
+	}
+
 	if ConfigParser != nil {
 		if err := ConfigParser.Apply(c.sshConfig, c.Address); err != nil {
 			return nil, fmt.Errorf("failed to apply ssh config: %w", err)

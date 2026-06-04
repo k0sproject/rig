@@ -8,6 +8,7 @@ import (
 	"github.com/k0sproject/rig/v2/homedir"
 	"github.com/k0sproject/rig/v2/log"
 	"github.com/k0sproject/rig/v2/protocol"
+	"github.com/k0sproject/rig/v2/sshconfig"
 	ssh "golang.org/x/crypto/ssh"
 )
 
@@ -23,6 +24,14 @@ type Config struct {
 	KeyPath              *string          `yaml:"keyPath" validate:"omitempty"`
 	Bastion              *Config          `yaml:"bastion,omitempty"`
 	PasswordCallback     PasswordCallback `yaml:"-"`
+
+	// SSHConfigOptions sets ssh_config options that take effect before the user's
+	// ~/.ssh/config is applied. Keys are ssh_config directive names (case-insensitive),
+	// e.g. {"Ciphers": "aes128-ctr", "StrictHostKeyChecking": false}. Booleans are
+	// accepted for options that take yes/no values. Only options that rig reads from the
+	// config are acted upon; others are stored but silently ignored at connection time.
+	// An unknown key name is an error.
+	SSHConfigOptions sshconfig.OptionArguments `yaml:"sshConfigOptions,omitempty"`
 
 	// AuthMethods can be used to pass in a list of crypto/ssh.AuthMethod objects
 	// for example to use a private key from memory:
