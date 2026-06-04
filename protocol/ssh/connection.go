@@ -374,17 +374,22 @@ func (c *Connection) hostkeyCallback(ctx context.Context) (ssh.HostKeyCallback, 
 		if err != nil {
 			continue
 		}
-		if _, err := os.Stat(exp); err != nil {
-			log.Trace(ctx, "skipping missing global known_hosts file", log.KeyHost, c, log.KeyFile, exp)
+		stat, err := os.Stat(exp)
+		if err != nil {
+			log.Trace(ctx, "skipping global known_hosts file", log.KeyHost, c, log.KeyFile, exp, log.KeyError, err)
 			continue
 		}
-		khPath = exp
-		break
-	}
-
-	if khPath != "" {
-		log.Trace(ctx, "using global known_hosts file", log.KeyHost, c, log.KeyFile, khPath)
-		return knownhostsGlobalCallback(khPath, permissive)
+		if !stat.Mode().IsRegular() {
+			log.Trace(ctx, "skipping non-regular global known_hosts file", log.KeyHost, c, log.KeyFile, exp)
+			continue
+		}
+		cb, err := knownhostsGlobalCallback(exp, permissive)
+		if err != nil {
+			log.Trace(ctx, "skipping unusable global known_hosts file", log.KeyHost, c, log.KeyFile, exp, log.KeyError, err)
+			continue
+		}
+		log.Trace(ctx, "using global known_hosts file", log.KeyHost, c, log.KeyFile, exp)
+		return cb, nil
 	}
 
 	return nil, fmt.Errorf("%w: no known_hosts file found", protocol.ErrNonRetryable)

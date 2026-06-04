@@ -70,6 +70,21 @@ func TestKnownHostsReadOnlyFileCallbackPermissiveAcceptsUnknownHost(t *testing.T
 	require.Empty(t, contents, "permissive read-only callback must not append to the file")
 }
 
+func TestKnownHostsReadOnlyFileCallbackUnknownHostIsHostKeyMismatch(t *testing.T) {
+	dir := t.TempDir()
+	khFile := filepath.Join(dir, "ssh_known_hosts")
+	require.NoError(t, os.WriteFile(khFile, []byte(""), 0o644))
+
+	cb, err := hostkey.KnownHostsReadOnlyFileCallback(khFile, false)
+	require.NoError(t, err)
+
+	signer := newTestSigner(t)
+	addr, _ := net.ResolveTCPAddr("tcp", "192.0.2.1:22")
+
+	cbErr := cb("192.0.2.1:22", addr, signer.PublicKey())
+	require.ErrorIs(t, cbErr, hostkey.ErrHostKeyMismatch, "unknown host in read-only strict mode must return ErrHostKeyMismatch so callers treat it as non-retryable")
+}
+
 func TestKnownHostsReadOnlyFileCallbackAcceptsKnownHost(t *testing.T) {
 	signer := newTestSigner(t)
 
