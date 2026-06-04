@@ -6,8 +6,9 @@ import (
 )
 
 // OptionArguments holds ssh_config options as key-value pairs. Values may be
-// strings, booleans, or integers; booleans are rendered as "yes"/"no" when
-// converted to command-line arguments or applied to a Setter.
+// strings, booleans, integers, or other fmt-printable types. Booleans are
+// rendered as "yes"/"no" when converted to command-line arguments or applied
+// to a Setter. Setting a key to nil deletes it.
 //
 // It is used by both the OpenSSH and the pure-Go SSH protocol implementations:
 // the OpenSSH path renders options as "-o Key=Value" arguments via [OptionArguments.ToArgs];
@@ -21,8 +22,12 @@ func (o OptionArguments) Copy() OptionArguments {
 	return dup
 }
 
-// Set sets an option key to value.
+// Set sets an option key to value. A nil value deletes the key.
 func (o OptionArguments) Set(key string, value any) {
+	if value == nil {
+		delete(o, key)
+		return
+	}
 	o[key] = value
 }
 
@@ -44,16 +49,19 @@ func (o OptionArguments) IsSet(key string) bool {
 // suitable for passing to the openssh binary.
 func (o OptionArguments) ToArgs() []string {
 	args := make([]string, 0, len(o)*2)
-	for k, v := range o {
-		if b, ok := v.(bool); ok {
+	for key, val := range o {
+		if val == nil {
+			continue
+		}
+		if b, ok := val.(bool); ok {
 			if b {
-				args = append(args, "-o", k+"=yes")
+				args = append(args, "-o", key+"=yes")
 			} else {
-				args = append(args, "-o", k+"=no")
+				args = append(args, "-o", key+"=no")
 			}
 			continue
 		}
-		args = append(args, "-o", fmt.Sprintf("%s=%v", k, v))
+		args = append(args, "-o", fmt.Sprintf("%s=%v", key, val))
 	}
 	return args
 }
@@ -63,7 +71,13 @@ func (o OptionArguments) ToArgs() []string {
 // Returns an error if the setter rejects a value (e.g. bad format, or unknown
 // key when [Setter.ErrorOnUnknownFields] is set).
 func (o OptionArguments) ApplyTo(setter *Setter) error {
+	if setter == nil {
+		return nil
+	}
 	for key, v := range o {
+		if v == nil {
+			continue
+		}
 		var strVal string
 		switch tv := v.(type) {
 		case bool:

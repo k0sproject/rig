@@ -25,6 +25,29 @@ func TestOptionArgumentsSetIsSet(t *testing.T) {
 	if !o.IsSet("Compression") {
 		t.Error("IsSet(Compression) = false after Set, want true")
 	}
+	o.Set("Compression", nil)
+	if o.IsSet("Compression") {
+		t.Error("IsSet(Compression) = true after Set(nil), want false")
+	}
+}
+
+func TestOptionArgumentsSetNilDeletes(t *testing.T) {
+	o := sshconfig.OptionArguments{"Port": 22, "User": "alice"}
+	o.Set("Port", nil)
+	if o.IsSet("Port") {
+		t.Error("IsSet(Port) = true after Set(nil), want false")
+	}
+	args := o.ToArgs()
+	for i := 0; i+1 < len(args); i += 2 {
+		if args[i] == "-o" && strings.HasPrefix(args[i+1], "Port=") {
+			t.Errorf("ToArgs() emitted deleted key Port: %v", args[i+1])
+		}
+	}
+	// SetIfUnset can now fill in a deleted key
+	o.SetIfUnset("Port", 2222)
+	if o["Port"] != 2222 {
+		t.Errorf("SetIfUnset after nil-delete: got %v, want 2222", o["Port"])
+	}
 }
 
 func TestOptionArgumentsSetIfUnset(t *testing.T) {
@@ -113,6 +136,13 @@ func TestOptionArgumentsApplyTo(t *testing.T) {
 		}
 		if !cfg.Compression.IsTrue() {
 			t.Errorf("cfg.Compression = %q, want yes", cfg.Compression)
+		}
+	})
+
+	t.Run("nil setter returns nil error", func(t *testing.T) {
+		opts := sshconfig.OptionArguments{"User": "alice"}
+		if err := opts.ApplyTo(nil); err != nil {
+			t.Errorf("ApplyTo(nil) error: %v, want nil", err)
 		}
 	})
 
