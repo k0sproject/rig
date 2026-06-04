@@ -4,7 +4,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"syscall"
+	"os"
 
 	"github.com/k0sproject/rig"
 	"golang.org/x/term"
@@ -24,7 +24,7 @@ func main() {
 			Address: *host,
 			PasswordCallback: func() (string, error) {
 				fmt.Println("Enter password:")
-				pass, err := term.ReadPassword(syscall.Stdin)
+				pass, err := term.ReadPassword(int(os.Stdin.Fd()))
 				return string(pass), err
 			},
 		},
