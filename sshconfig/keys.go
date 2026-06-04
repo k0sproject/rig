@@ -1,6 +1,33 @@
 package sshconfig
 
-import "github.com/k0sproject/rig/v2/sshconfig/options"
+import (
+	"reflect"
+	"strings"
+
+	"github.com/k0sproject/rig/v2/sshconfig/options"
+)
+
+// csvKeyNames is the set of lowercase ssh_config key names whose values use
+// commas as the multi-value separator. Derived at init time from knownKeys by
+// matching keys whose printFunc is stringercsv.
+var csvKeyNames map[string]struct{}
+
+func init() {
+	target := reflect.ValueOf((*printer).stringercsv).Pointer()
+	csvKeyNames = make(map[string]struct{}, len(knownKeys))
+	for k, info := range knownKeys {
+		if info.printFunc != nil && reflect.ValueOf(info.printFunc).Pointer() == target {
+			csvKeyNames[k] = struct{}{}
+		}
+	}
+}
+
+// isCSVKey reports whether the named ssh_config directive uses comma as its
+// multi-value separator (e.g. Ciphers, KexAlgorithms, MACs, ProxyJump).
+func isCSVKey(key string) bool {
+	_, ok := csvKeyNames[strings.ToLower(key)]
+	return ok
+}
 
 type setterFunc func(setter *Setter, key string, values ...string) error
 

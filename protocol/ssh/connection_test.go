@@ -553,6 +553,38 @@ func TestConnectDeadline(t *testing.T) {
 	})
 }
 
+func TestNewConnectionSSHConfigOptions(t *testing.T) {
+	t.Setenv("SSH_KNOWN_HOSTS", "")
+
+	prev := ConfigParser
+	ConfigParser = nil
+	t.Cleanup(func() { ConfigParser = prev })
+
+	t.Run("unknown option returns ErrValidationFailed", func(t *testing.T) {
+		_, err := NewConnection(Config{
+			Address:          "host.example.com",
+			Port:             22,
+			User:             "user",
+			SSHConfigOptions: sshconfig.OptionArguments{"NoSuchOption": "value"},
+		})
+		require.Error(t, err)
+		require.ErrorIs(t, err, protocol.ErrValidationFailed)
+	})
+
+	t.Run("valid option is applied before ConfigParser", func(t *testing.T) {
+		withConfigParser(t, "Host *\n  Compression no\n")
+		conn, err := NewConnection(Config{
+			Address:          "host.example.com",
+			Port:             22,
+			User:             "user",
+			SSHConfigOptions: sshconfig.OptionArguments{"Compression": true},
+		})
+		require.NoError(t, err)
+		require.True(t, conn.sshConfig.Compression.IsTrue(),
+			"SSHConfigOptions must take precedence over ConfigParser")
+	})
+}
+
 func TestClientConfigRekeyLimit(t *testing.T) {
 	t.Setenv("SSH_KNOWN_HOSTS", "")
 

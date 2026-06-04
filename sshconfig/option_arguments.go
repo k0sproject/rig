@@ -79,7 +79,8 @@ func sliceToStrings(v any) ([]string, bool) {
 
 // ToArgs converts the options to a list of "-o Key=Value" command-line arguments
 // suitable for passing to the openssh binary. Slice values are rendered as
-// space-separated tokens (e.g. []string{"/a", "/b"} → "Key=/a /b").
+// space-separated tokens for space-delimited directives (e.g. IdentityFile) and
+// comma-separated tokens for CSV directives (e.g. Ciphers, KexAlgorithms, MACs).
 func (o OptionArguments) ToArgs() []string {
 	args := make([]string, 0, len(o)*2)
 	for key, val := range o {
@@ -87,7 +88,11 @@ func (o OptionArguments) ToArgs() []string {
 			continue
 		}
 		if strs, ok := sliceToStrings(val); ok {
-			args = append(args, "-o", key+"="+strings.Join(strs, " "))
+			sep := " "
+			if isCSVKey(key) {
+				sep = ","
+			}
+			args = append(args, "-o", key+"="+strings.Join(strs, sep))
 			continue
 		}
 		args = append(args, "-o", key+"="+valToString(val))
@@ -96,23 +101,29 @@ func (o OptionArguments) ToArgs() []string {
 }
 
 // ApplyTo feeds each option into setter using [Setter.Set]. Booleans are
-// converted to "yes"/"no"; slice values are expanded into variadic arguments
-// so multi-valued directives (IdentityFile, SendEnv, etc.) work correctly.
+// converted to "yes"/"no"; for space-delimited directives (e.g. IdentityFile,
+// SendEnv) slice values are expanded into variadic arguments; for CSV
+// directives (e.g. Ciphers, KexAlgorithms, MACs) slice values are joined with
+// commas and passed as a single argument, matching what the setter expects.
 // Returns an error if the setter rejects a value (e.g. bad format, or unknown
 // key when [Setter.ErrorOnUnknownFields] is set).
 func (o OptionArguments) ApplyTo(setter *Setter) error {
 	if setter == nil {
 		return nil
 	}
-	for key, v := range o {
-		if v == nil {
+	for key, val := range o {
+		if val == nil {
 			continue
 		}
 		var err error
-		if strs, ok := sliceToStrings(v); ok {
-			err = setter.Set(key, strs...)
+		if strs, ok := sliceToStrings(val); ok {
+			if isCSVKey(key) {
+				err = setter.Set(key, strings.Join(strs, ","))
+			} else {
+				err = setter.Set(key, strs...)
+			}
 		} else {
-			err = setter.Set(key, valToString(v))
+			err = setter.Set(key, valToString(val))
 		}
 		if err != nil {
 			return fmt.Errorf("ssh option %q: %w", key, err)

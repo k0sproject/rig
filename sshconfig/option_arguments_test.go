@@ -98,6 +98,16 @@ func TestOptionArgumentsToArgs(t *testing.T) {
 			opts:      sshconfig.OptionArguments{"SendEnv": []any{"LC_ALL", "LC_LANG"}},
 			wantPairs: map[string]string{"SendEnv": "LC_ALL LC_LANG"},
 		},
+		{
+			name:      "CSV string slice renders comma-separated",
+			opts:      sshconfig.OptionArguments{"Ciphers": []string{"aes128-ctr", "aes256-ctr"}},
+			wantPairs: map[string]string{"Ciphers": "aes128-ctr,aes256-ctr"},
+		},
+		{
+			name:      "CSV any slice renders comma-separated",
+			opts:      sshconfig.OptionArguments{"KexAlgorithms": []any{"curve25519-sha256", "diffie-hellman-group14-sha256"}},
+			wantPairs: map[string]string{"KexAlgorithms": "curve25519-sha256,diffie-hellman-group14-sha256"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -206,6 +216,46 @@ func TestOptionArgumentsApplyTo(t *testing.T) {
 		}
 		if cfg.SendEnv[0] != "LC_ALL" || cfg.SendEnv[1] != "LC_LANG" {
 			t.Errorf("cfg.SendEnv = %v, want [LC_ALL LC_LANG]", cfg.SendEnv)
+		}
+	})
+
+	t.Run("CSV string slice is accepted for comma-separated directives", func(t *testing.T) {
+		cfg := &sshconfig.Config{}
+		setter, err := sshconfig.NewSetter(cfg)
+		if err != nil {
+			t.Fatalf("NewSetter() error: %v", err)
+		}
+		opts := sshconfig.OptionArguments{
+			"Ciphers": []string{"aes128-ctr", "aes256-ctr"},
+		}
+		if err := opts.ApplyTo(setter); err != nil {
+			t.Fatalf("ApplyTo() error: %v", err)
+		}
+		if len(cfg.Ciphers) < 2 {
+			t.Fatalf("cfg.Ciphers = %v, want at least 2 entries", cfg.Ciphers)
+		}
+		if cfg.Ciphers[0] != "aes128-ctr" || cfg.Ciphers[1] != "aes256-ctr" {
+			t.Errorf("cfg.Ciphers = %v, want [aes128-ctr aes256-ctr]", cfg.Ciphers)
+		}
+	})
+
+	t.Run("CSV any slice is accepted for comma-separated directives", func(t *testing.T) {
+		cfg := &sshconfig.Config{}
+		setter, err := sshconfig.NewSetter(cfg)
+		if err != nil {
+			t.Fatalf("NewSetter() error: %v", err)
+		}
+		opts := sshconfig.OptionArguments{
+			"KexAlgorithms": []any{"curve25519-sha256", "diffie-hellman-group14-sha256"},
+		}
+		if err := opts.ApplyTo(setter); err != nil {
+			t.Fatalf("ApplyTo() error: %v", err)
+		}
+		if len(cfg.KexAlgorithms) < 2 {
+			t.Fatalf("cfg.KexAlgorithms = %v, want at least 2 entries", cfg.KexAlgorithms)
+		}
+		if cfg.KexAlgorithms[0] != "curve25519-sha256" || cfg.KexAlgorithms[1] != "diffie-hellman-group14-sha256" {
+			t.Errorf("cfg.KexAlgorithms = %v, want [curve25519-sha256 diffie-hellman-group14-sha256]", cfg.KexAlgorithms)
 		}
 	})
 }
