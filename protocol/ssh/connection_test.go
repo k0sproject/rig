@@ -17,9 +17,11 @@ import (
 	ssh "golang.org/x/crypto/ssh"
 )
 
-// newTestConnection builds a Connection with passed-in auth methods (to bypass
-// key/agent loading) and an empty SSH_KNOWN_HOSTS env (to take the
-// InsecureIgnoreHostKey path in hostkeyCallback).
+// newTestConnection builds a Connection with explicit auth methods (to bypass
+// key/agent loading) and an empty ConfigParser (to prevent ~/.ssh/config and
+// /etc/ssh/ssh_config from affecting test behaviour). SSH_KNOWN_HOSTS is also
+// cleared so that host-key validation does not depend on the developer's
+// known_hosts file.
 func newTestConnection(t *testing.T) *Connection {
 	t.Helper()
 	t.Setenv("SSH_KNOWN_HOSTS", "")
