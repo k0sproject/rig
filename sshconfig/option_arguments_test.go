@@ -88,6 +88,16 @@ func TestOptionArgumentsToArgs(t *testing.T) {
 			opts:      sshconfig.OptionArguments{"Port": 2222},
 			wantPairs: map[string]string{"Port": "2222"},
 		},
+		{
+			name:      "string slice renders space-separated",
+			opts:      sshconfig.OptionArguments{"IdentityFile": []string{"/a/id_rsa", "/b/id_ecdsa"}},
+			wantPairs: map[string]string{"IdentityFile": "/a/id_rsa /b/id_ecdsa"},
+		},
+		{
+			name:      "any slice renders space-separated",
+			opts:      sshconfig.OptionArguments{"SendEnv": []any{"LC_ALL", "LC_LANG"}},
+			wantPairs: map[string]string{"SendEnv": "LC_ALL LC_LANG"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -156,6 +166,46 @@ func TestOptionArgumentsApplyTo(t *testing.T) {
 		opts := sshconfig.OptionArguments{"NoSuchOption": "value"}
 		if err := opts.ApplyTo(setter); err == nil {
 			t.Error("ApplyTo() with unknown key: got nil error, want error")
+		}
+	})
+
+	t.Run("slice value expands into multiple setter args", func(t *testing.T) {
+		cfg := &sshconfig.Config{}
+		setter, err := sshconfig.NewSetter(cfg)
+		if err != nil {
+			t.Fatalf("NewSetter() error: %v", err)
+		}
+		opts := sshconfig.OptionArguments{
+			"SendEnv": []string{"LC_ALL", "LC_LANG"},
+		}
+		if err := opts.ApplyTo(setter); err != nil {
+			t.Fatalf("ApplyTo() error: %v", err)
+		}
+		if len(cfg.SendEnv) < 2 {
+			t.Fatalf("cfg.SendEnv = %v, want at least 2 entries", cfg.SendEnv)
+		}
+		if cfg.SendEnv[0] != "LC_ALL" || cfg.SendEnv[1] != "LC_LANG" {
+			t.Errorf("cfg.SendEnv = %v, want [LC_ALL LC_LANG]", cfg.SendEnv)
+		}
+	})
+
+	t.Run("any slice value expands into multiple setter args", func(t *testing.T) {
+		cfg := &sshconfig.Config{}
+		setter, err := sshconfig.NewSetter(cfg)
+		if err != nil {
+			t.Fatalf("NewSetter() error: %v", err)
+		}
+		opts := sshconfig.OptionArguments{
+			"SendEnv": []any{"LC_ALL", "LC_LANG"},
+		}
+		if err := opts.ApplyTo(setter); err != nil {
+			t.Fatalf("ApplyTo() error: %v", err)
+		}
+		if len(cfg.SendEnv) < 2 {
+			t.Fatalf("cfg.SendEnv = %v, want at least 2 entries", cfg.SendEnv)
+		}
+		if cfg.SendEnv[0] != "LC_ALL" || cfg.SendEnv[1] != "LC_LANG" {
+			t.Errorf("cfg.SendEnv = %v, want [LC_ALL LC_LANG]", cfg.SendEnv)
 		}
 	})
 }

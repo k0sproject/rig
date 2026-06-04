@@ -3,6 +3,7 @@ package sshconfig
 import (
 	"fmt"
 	"maps"
+	"strings"
 )
 
 // OptionArguments holds ssh_config options as key-value pairs. Values may be
@@ -45,29 +46,58 @@ func (o OptionArguments) IsSet(key string) bool {
 	return ok
 }
 
+// valToString converts a single ssh_config value to its string representation.
+// Booleans become "yes"/"no"; all other types use fmt.Sprint.
+func valToString(v any) string {
+	if b, ok := v.(bool); ok {
+		if b {
+			return "yes"
+		}
+		return "no"
+	}
+	return fmt.Sprint(v)
+}
+
+// sliceToStrings converts a []string or []any value to a []string, returning
+// (nil, false) if v is not a slice type.
+func sliceToStrings(v any) ([]string, bool) {
+	switch tv := v.(type) {
+	case []string:
+		out := make([]string, len(tv))
+		copy(out, tv)
+		return out, true
+	case []any:
+		out := make([]string, len(tv))
+		for i, elem := range tv {
+			out[i] = valToString(elem)
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
 // ToArgs converts the options to a list of "-o Key=Value" command-line arguments
-// suitable for passing to the openssh binary.
+// suitable for passing to the openssh binary. Slice values are rendered as
+// space-separated tokens (e.g. []string{"/a", "/b"} → "Key=/a /b").
 func (o OptionArguments) ToArgs() []string {
 	args := make([]string, 0, len(o)*2)
 	for key, val := range o {
 		if val == nil {
 			continue
 		}
-		if b, ok := val.(bool); ok {
-			if b {
-				args = append(args, "-o", key+"=yes")
-			} else {
-				args = append(args, "-o", key+"=no")
-			}
+		if strs, ok := sliceToStrings(val); ok {
+			args = append(args, "-o", key+"="+strings.Join(strs, " "))
 			continue
 		}
-		args = append(args, "-o", fmt.Sprintf("%s=%v", key, val))
+		args = append(args, "-o", key+"="+valToString(val))
 	}
 	return args
 }
 
 // ApplyTo feeds each option into setter using [Setter.Set]. Booleans are
-// converted to "yes"/"no"; all other values are formatted with fmt.Sprint.
+// converted to "yes"/"no"; slice values are expanded into variadic arguments
+// so multi-valued directives (IdentityFile, SendEnv, etc.) work correctly.
 // Returns an error if the setter rejects a value (e.g. bad format, or unknown
 // key when [Setter.ErrorOnUnknownFields] is set).
 func (o OptionArguments) ApplyTo(setter *Setter) error {
@@ -78,20 +108,13 @@ func (o OptionArguments) ApplyTo(setter *Setter) error {
 		if v == nil {
 			continue
 		}
-		var strVal string
-		switch tv := v.(type) {
-		case bool:
-			if tv {
-				strVal = "yes"
-			} else {
-				strVal = "no"
-			}
-		case string:
-			strVal = tv
-		default:
-			strVal = fmt.Sprint(tv)
+		var err error
+		if strs, ok := sliceToStrings(v); ok {
+			err = setter.Set(key, strs...)
+		} else {
+			err = setter.Set(key, valToString(v))
 		}
-		if err := setter.Set(key, strVal); err != nil {
+		if err != nil {
 			return fmt.Errorf("ssh option %q: %w", key, err)
 		}
 	}
