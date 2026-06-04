@@ -684,6 +684,10 @@ func (c *Connection) connectDeadline(ctx context.Context) time.Time {
 
 // Connect opens the SSH connection.
 func (c *Connection) Connect(ctx context.Context) error {
+	c.mu.Lock()
+	c.disconnect()
+	c.mu.Unlock()
+
 	c.SetDefaults(ctx)
 
 	config, rawClose, err := c.clientConfig(ctx)
