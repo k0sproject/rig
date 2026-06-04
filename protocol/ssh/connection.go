@@ -449,6 +449,24 @@ func (c *Connection) loadKeySigners(ctx context.Context, agentSigners []ssh.Sign
 	return keySigners
 }
 
+func applySSHConfigOptions(sshCfg *sshconfig.Config, config *ssh.ClientConfig) {
+	if len(sshCfg.Ciphers) > 0 {
+		config.Ciphers = sshCfg.Ciphers
+	}
+	if len(sshCfg.KexAlgorithms) > 0 {
+		config.KeyExchanges = sshCfg.KexAlgorithms
+	}
+	if len(sshCfg.MACs) > 0 {
+		config.MACs = sshCfg.MACs
+	}
+	if len(sshCfg.HostKeyAlgorithms) > 0 {
+		config.HostKeyAlgorithms = sshCfg.HostKeyAlgorithms
+	}
+	if sshCfg.RekeyLimit.MaxData > 0 {
+		config.RekeyThreshold = uint64(sshCfg.RekeyLimit.MaxData)
+	}
+}
+
 func (c *Connection) clientConfig(ctx context.Context) (*ssh.ClientConfig, func(), error) {
 	config := &ssh.ClientConfig{
 		User: c.User,
@@ -460,21 +478,7 @@ func (c *Connection) clientConfig(ctx context.Context) (*ssh.ClientConfig, func(
 	}
 	config.HostKeyCallback = hkc
 
-	if len(c.sshConfig.Ciphers) > 0 {
-		config.Ciphers = c.sshConfig.Ciphers
-	}
-	if len(c.sshConfig.KexAlgorithms) > 0 {
-		config.KeyExchanges = c.sshConfig.KexAlgorithms
-	}
-	if len(c.sshConfig.MACs) > 0 {
-		config.MACs = c.sshConfig.MACs
-	}
-	if len(c.sshConfig.HostKeyAlgorithms) > 0 {
-		config.HostKeyAlgorithms = c.sshConfig.HostKeyAlgorithms
-	}
-	if c.sshConfig.RekeyLimit.MaxData > 0 {
-		config.RekeyThreshold = uint64(c.sshConfig.RekeyLimit.MaxData)
-	}
+	applySSHConfigOptions(c.sshConfig, config)
 
 	// PubkeyAuthentication is honored from the ssh config. When set to "no", all
 	// public key authentication (ssh agent and identity files) is skipped.
