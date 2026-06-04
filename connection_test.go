@@ -124,7 +124,7 @@ func TestGrouping(t *testing.T) {
 		},
 	}
 
-	opts, args := GroupParams(h, "ls", 1, exec.HideOutput(), exec.Sudo(h))
+	opts, args := GroupParams(h, "ls", 1, exec.HideOutput(), exec.Sudo(&h))
 	require.Len(t, opts, 2)
 	require.Len(t, args, 3)
 }
@@ -158,6 +158,6 @@ func TestSudo(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, h.Execf("ls %s", "/tmp", exec.Sudo(h)))
+	require.NoError(t, h.Execf("ls %s", "/tmp", exec.Sudo(&h)))
 	require.Contains(t, mc.commands, "sudo-goes-here ls /tmp")
 }

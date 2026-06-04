@@ -1,4 +1,3 @@
-// Package linux contains configurers for various linux based distributions
 package linux
 
 import (

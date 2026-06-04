@@ -2,7 +2,7 @@ module github.com/k0sproject/rig
 
 go 1.26
 
-toolchain go1.26.0
+toolchain go1.26.4
 
 require (
 	al.essio.dev/pkg/shellescape v1.6.0

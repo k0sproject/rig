@@ -16,6 +16,7 @@ linters:
     - godot
     - godox
     - goheader
+    - gomodguard # replaced by v2
     - ireturn
     - lll
     - mnd

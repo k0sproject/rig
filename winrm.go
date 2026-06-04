@@ -246,16 +246,14 @@ func (c *WinRM) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.W
 	if res.stdin == nil {
 		proc.Stdin.Close()
 	} else {
-		res.wg.Add(1)
-		go func() {
-			defer res.wg.Done()
+		res.wg.Go(func() {
 			log.Debugf("copying data to command stdin")
 			n, err := io.Copy(res.cmd.Stdin, res.stdin)
 			if err != nil {
 				log.Errorf("copying data to command stdin failed: %v", err)
 			}
 			log.Debugf("finished copying %d bytes to stdin", n)
-		}()
+		})
 	}
 	res.wg.Add(2)
 	started := time.Now()
@@ -301,19 +299,15 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop
 
 	if execOpts.Stdin != "" {
 		execOpts.LogStdin(c.String())
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			defer command.Stdin.Close()
 			_, _ = command.Stdin.Write([]byte(execOpts.Stdin))
-		}()
+		})
 	}
 
 	var stderrLines []string
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		if execOpts.Writer == nil {
 			outputScanner := bufio.NewScanner(command.Stdout)
 			for outputScanner.Scan() {
@@ -327,11 +321,9 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop
 				execOpts.LogErrorf("%s: failed to stream stdout: %v", c, err)
 			}
 		}
-	}()
+	})
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		outputScanner := bufio.NewScanner(command.Stderr)
 		for outputScanner.Scan() {
 			msg := outputScanner.Text()
@@ -343,7 +335,7 @@ func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop
 		if err := outputScanner.Err(); err != nil {
 			execOpts.LogErrorf("%s: %s", c, err.Error())
 		}
-	}()
+	})
 
 	wg.Wait()
 	command.Wait()

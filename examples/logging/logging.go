@@ -1,6 +1,9 @@
+// Package main demonstrates logging configuration for rig connections.
 package main
 
 import (
+	"fmt"
+
 	"github.com/k0sproject/rig"
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
@@ -14,10 +17,16 @@ func main() {
 	log.Errorf("Testing ERROR level logging: %s", "Hello")
 
 	c := &rig.Localhost{Enabled: true}
-	c.Exec("echo Hello, world", exec.StreamOutput())
+	if err := c.Exec("echo Hello, world", exec.StreamOutput()); err != nil {
+		fmt.Printf("exec error: %v\n", err)
+	}
 
 	log.Infof("testing without HideOutput()")
-	c.Exec("ls")
+	if err := c.Exec("ls"); err != nil {
+		fmt.Printf("exec error: %v\n", err)
+	}
 	log.Infof("testing with HideOutput()")
-	c.Exec("ls", exec.HideOutput())
+	if err := c.Exec("ls", exec.HideOutput()); err != nil {
+		fmt.Printf("exec error: %v\n", err)
+	}
 }

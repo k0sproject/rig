@@ -23,6 +23,8 @@ import (
 
 var _ rigos.Host = (*Connection)(nil)
 
+const osWindows = "windows"
+
 type client interface {
 	Connect() error
 	Disconnect()
@@ -144,7 +146,7 @@ func (c *Connection) checkConnected() error {
 
 // String returns a printable representation of the connection, which will look
 // like: `[ssh] address:port`
-func (c Connection) String() string {
+func (c *Connection) String() string {
 	if c.client == nil {
 		return fmt.Sprintf("[%s] %s", c.Protocol(), c.Address())
 	}
@@ -173,7 +175,7 @@ func (c *Connection) SudoFsys() rigfs.Fsys {
 // IsWindows returns true on windows hosts
 func (c *Connection) IsWindows() bool {
 	if c.OSVersion != nil {
-		return c.OSVersion.ID == "windows"
+		return c.OSVersion.ID == osWindows
 	}
 	if !c.IsConnected() {
 		if client := c.configuredClient(); client != nil {
@@ -185,7 +187,7 @@ func (c *Connection) IsWindows() bool {
 
 // ExecStreams executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
-func (c Connection) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (exec.Waiter, error) {
+func (c *Connection) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (exec.Waiter, error) {
 	if err := c.checkConnected(); err != nil {
 		return nil, fmt.Errorf("%w: exec with streams: %w", ErrCommandFailed, err)
 	}
@@ -197,7 +199,7 @@ func (c Connection) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr 
 }
 
 // Exec runs a command on the host
-func (c Connection) Exec(cmd string, opts ...exec.Option) error {
+func (c *Connection) Exec(cmd string, opts ...exec.Option) error {
 	if err := c.checkConnected(); err != nil {
 		return err
 	}
@@ -210,7 +212,7 @@ func (c Connection) Exec(cmd string, opts ...exec.Option) error {
 }
 
 // ExecOutput runs a command on the host and returns the output as a String
-func (c Connection) ExecOutput(cmd string, opts ...exec.Option) (string, error) {
+func (c *Connection) ExecOutput(cmd string, opts ...exec.Option) (string, error) {
 	if err := c.checkConnected(); err != nil {
 		return "", err
 	}
@@ -325,7 +327,7 @@ func (c *Connection) discoverSudo() {
 }
 
 // Sudo formats a command string to be run with elevated privileges
-func (c Connection) Sudo(cmd string) (string, error) {
+func (c *Connection) Sudo(cmd string) (string, error) {
 	if c.sudofunc == nil {
 		if c.IsWindows() {
 			return "", fmt.Errorf("%w: current session does not have administrator privileges", ErrSudoRequired)
@@ -337,21 +339,21 @@ func (c Connection) Sudo(cmd string) (string, error) {
 }
 
 // Execf is just like `Exec` but you can use Sprintf templating for the command
-func (c Connection) Execf(s string, params ...any) error {
+func (c *Connection) Execf(s string, params ...any) error {
 	opts, args := GroupParams(params...)
 	return c.Exec(fmt.Sprintf(s, args...), opts...)
 }
 
 // ExecOutputf is like ExecOutput but you can use Sprintf
 // templating for the command
-func (c Connection) ExecOutputf(s string, params ...any) (string, error) {
+func (c *Connection) ExecOutputf(s string, params ...any) (string, error) {
 	opts, args := GroupParams(params...)
 	return c.ExecOutput(fmt.Sprintf(s, args...), opts...)
 }
 
 // ExecInteractive executes a command on the host and passes control of
 // local input to the remote command
-func (c Connection) ExecInteractive(cmd string) error {
+func (c *Connection) ExecInteractive(cmd string) error {
 	if err := c.checkConnected(); err != nil {
 		return err
 	}
