@@ -280,8 +280,8 @@ var (
 
 func (fsys *PosixFsys) initStat() error {
 	if fsys.statCmd == nil {
-		opts := make([]exec.Option, 0, 1+len(fsys.opts))
-		opts = append(opts, fsys.opts...)
+		opts := make([]exec.Option, len(fsys.opts), len(fsys.opts)+1)
+		copy(opts, fsys.opts)
 		opts = append(opts, exec.HideOutput())
 		out, err := fsys.conn.ExecOutput("stat --help 2>&1", opts...)
 		if err != nil {
@@ -409,8 +409,7 @@ func (fsys *PosixFsys) multiStat(names ...string) ([]fs.FileInfo, error) {
 			}
 			return nil, fmt.Errorf("stat %s: %w", names, err)
 		}
-		lines := strings.Split(out, "\n")
-		for _, line := range lines {
+		for line := range strings.SplitSeq(out, "\n") {
 			if line == "" {
 				continue
 			}
@@ -625,12 +624,17 @@ func (fsys *PosixFsys) ReadDir(name string) ([]fs.DirEntry, error) {
 		return nil, fmt.Errorf("read dir (find) %s: %w", name, err)
 	}
 	items := strings.Split(out, "\x00")
-	if len(items) == 0 || (len(items) == 1 && items[0] == "") {
-		return nil, &fs.PathError{Op: "read dir", Path: name, Err: fs.ErrNotExist}
+	// find -print0 always appends a trailing NUL; strip the resulting empty
+	// tail element so that an empty directory (only the directory itself in
+	// the output) correctly yields len(items)==1, not len(items)==2.
+	if len(items) > 0 && items[len(items)-1] == "" {
+		items = items[:len(items)-1]
 	}
-	if items[0] != name {
-		return nil, &fs.PathError{Op: "read dir", Path: name, Err: fs.ErrNotExist}
+
+	if err := fsys.validateReadDirItems(items, name); err != nil {
+		return nil, err
 	}
+
 	if len(items) == 1 {
 		return nil, nil
 	}
@@ -643,6 +647,16 @@ func (fsys *PosixFsys) ReadDir(name string) ([]fs.DirEntry, error) {
 		}
 	}
 	return res, err
+}
+
+func (fsys *PosixFsys) validateReadDirItems(items []string, name string) error {
+	if len(items) == 0 || (len(items) == 1 && items[0] == "") {
+		return &fs.PathError{Op: "read dir", Path: name, Err: fs.ErrNotExist}
+	}
+	if items[0] != name {
+		return &fs.PathError{Op: "read dir", Path: name, Err: fs.ErrNotExist}
+	}
+	return nil
 }
 
 // Remove deletes the named file or (empty) directory.
