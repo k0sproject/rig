@@ -3,6 +3,7 @@ package rig
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -185,7 +186,7 @@ func (c *OpenSSH) Connect() error {
 		args = append(args, "-o", "BatchMode=yes")
 		args = append(args, c.args()...)
 		args = append(args, "--", "exit 0")
-		cmd := goexec.Command("ssh", args...)
+		cmd := goexec.CommandContext(context.Background(), "ssh", args...) //nolint:gosec
 		var errBuf bytes.Buffer
 		cmd.Stderr = &errBuf
 		if err := cmd.Run(); err != nil {
@@ -214,7 +215,7 @@ func (c *OpenSSH) Connect() error {
 	args = append(args, optArgs...)
 	args = append(args, cArgs...)
 
-	cmd := goexec.Command("ssh", args...)
+	cmd := goexec.CommandContext(context.Background(), "ssh", args...) //nolint:gosec
 	var errBuf bytes.Buffer
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = io.MultiWriter(os.Stderr, &errBuf)
@@ -257,7 +258,7 @@ func (c *OpenSSH) closeControl() error {
 	args = append(args, c.userhost())
 
 	log.Debugf("%s: closing ssh multiplexing control master", c)
-	cmd := goexec.Command("ssh", args...)
+	cmd := goexec.CommandContext(context.Background(), "ssh", args...) //nolint:gosec
 	err := cmd.Run()
 	if err != nil {
 		return fmt.Errorf("failed to close control master: %w", err)
@@ -283,7 +284,7 @@ func (c *OpenSSH) Exec(cmdStr string, opts ...exec.Option) error { //nolint:cycl
 	args = append(args, "-o", "BatchMode=yes")
 	args = append(args, c.args()...)
 	args = append(args, "--", command)
-	cmd := goexec.Command("ssh", args...)
+	cmd := goexec.CommandContext(context.Background(), "ssh", args...) //nolint:gosec
 
 	if execOpts.Stdin != "" {
 		execOpts.LogStdin(c.String())
@@ -356,7 +357,7 @@ func (c *OpenSSH) ExecStreams(cmdStr string, stdin io.ReadCloser, stdout, stderr
 	args = append(args, "-o", "BatchMode=yes")
 	args = append(args, c.args()...)
 	args = append(args, "--", command)
-	cmd := goexec.Command("ssh", args...)
+	cmd := goexec.CommandContext(context.Background(), "ssh", args...) //nolint:gosec
 
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout

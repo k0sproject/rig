@@ -2,6 +2,7 @@ package rig
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -147,10 +148,10 @@ func (c *Localhost) command(cmd string, o *exec.Options) (*osexec.Cmd, error) {
 	}
 
 	if c.IsWindows() {
-		return osexec.Command("cmd.exe", "/c", cmd), nil
+		return osexec.CommandContext(context.Background(), "cmd.exe", "/c", cmd), nil //nolint:gosec
 	}
 
-	return osexec.Command("sh", "-c", "--", cmd), nil
+	return osexec.CommandContext(context.Background(), "sh", "-c", "--", cmd), nil //nolint:gosec
 }
 
 // ExecInteractive executes a command on the host and copies stdin/stdout/stderr from local host
@@ -178,7 +179,7 @@ func (c *Localhost) ExecInteractive(cmd string) error {
 		Dir:   cwd,
 	}
 
-	proc, err := os.StartProcess(parts[0], parts[1:], &pa)
+	proc, err := os.StartProcess(parts[0], parts[1:], &pa) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("failed to start process: %w", err)
 	}
