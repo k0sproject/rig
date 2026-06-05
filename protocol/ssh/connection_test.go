@@ -607,6 +607,27 @@ func TestHostkeyCallbackUserNoneFallsBackToGlobalKnownHostsFile(t *testing.T) {
 	require.NotNil(t, cb)
 }
 
+func TestHostkeyCallbackUserNoneAfterValidPathFallsBackToGlobal(t *testing.T) {
+	unsetKnownHostsEnv(t)
+
+	userKH := filepath.Join(t.TempDir(), "user_known_hosts")
+	require.NoError(t, os.WriteFile(userKH, []byte(""), 0o600))
+	globalKH := filepath.Join(t.TempDir(), "ssh_known_hosts")
+	require.NoError(t, os.WriteFile(globalKH, []byte(""), 0o600))
+
+	c := &Connection{
+		sshConfig: &sshconfig.Config{
+			// "none" after a valid path must still disable user known_hosts.
+			UserKnownHostsFile:   []string{userKH, "none"},
+			GlobalKnownHostsFile: []string{globalKH},
+		},
+	}
+
+	cb, err := c.hostkeyCallback(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, cb)
+}
+
 func TestHostkeyCallbackFallsBackToGlobalKnownHostsFile(t *testing.T) {
 	unsetKnownHostsEnv(t)
 
