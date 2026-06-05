@@ -180,7 +180,9 @@ func (c *Connection) keypathsFromConfig(ctx context.Context) []string {
 // SetDefaults sets various default values.
 func (c *Connection) SetDefaults(ctx context.Context) {
 	c.once.Do(func() {
-		c.Port = c.sshConfig.Port
+		if c.sshConfig.Port != 0 {
+			c.Port = c.sshConfig.Port
+		}
 
 		if c.sshConfig.Hostname != "" {
 			c.alias = c.Address

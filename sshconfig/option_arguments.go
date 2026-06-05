@@ -3,6 +3,7 @@ package sshconfig
 import (
 	"fmt"
 	"maps"
+	"reflect"
 	"strings"
 )
 
@@ -62,10 +63,11 @@ func valToString(v any) string {
 	return fmt.Sprint(v)
 }
 
-// sliceToStrings converts a []string or []any value to a []string, returning
-// (nil, false) if v is not a slice type.
-func sliceToStrings(v any) ([]string, bool) {
-	switch tv := v.(type) {
+// sliceToStrings converts a slice value to a []string, returning (nil, false)
+// if val is not a slice type. Handles []string, []any, and any other slice type
+// by reflecting over the elements and converting each via [valToString].
+func sliceToStrings(val any) ([]string, bool) {
+	switch tv := val.(type) {
 	case []string:
 		out := make([]string, len(tv))
 		copy(out, tv)
@@ -77,7 +79,15 @@ func sliceToStrings(v any) ([]string, bool) {
 		}
 		return out, true
 	default:
-		return nil, false
+		rv := reflect.ValueOf(val)
+		if rv.Kind() != reflect.Slice {
+			return nil, false
+		}
+		out := make([]string, rv.Len())
+		for i := range rv.Len() {
+			out[i] = valToString(rv.Index(i).Interface())
+		}
+		return out, true
 	}
 }
 
