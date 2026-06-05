@@ -359,14 +359,7 @@ func (c *Connection) hostkeyCallback(ctx context.Context) (ssh.HostKeyCallback, 
 
 	// "none" anywhere in the list disables user known_hosts entirely; check
 	// the full list before committing to any path.
-	noneSet := false
-	for _, f := range c.sshConfig.UserKnownHostsFile {
-		if strings.EqualFold(f, "none") {
-			noneSet = true
-			break
-		}
-	}
-	if !noneSet {
+	if !slices.Contains(c.sshConfig.UserKnownHostsFile, "none") {
 		for _, f := range c.sshConfig.UserKnownHostsFile {
 			log.Trace(ctx, "trying known_hosts file from ssh config", log.KeyHost, c, log.KeyFile, f)
 			exp, err := homedir.Expand(f)
