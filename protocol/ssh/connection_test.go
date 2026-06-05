@@ -628,6 +628,26 @@ func TestHostkeyCallbackUserNoneAfterValidPathFallsBackToGlobal(t *testing.T) {
 	require.NotNil(t, cb)
 }
 
+func TestHostkeyCallbackMissingUserFileFallsBackToGlobal(t *testing.T) {
+	unsetKnownHostsEnv(t)
+
+	missing := filepath.Join(t.TempDir(), "user_known_hosts")
+	globalKH := filepath.Join(t.TempDir(), "ssh_known_hosts")
+	require.NoError(t, os.WriteFile(globalKH, []byte(""), 0o600))
+
+	c := &Connection{
+		sshConfig: &sshconfig.Config{
+			// Default path exists in config but the file is absent on disk.
+			UserKnownHostsFile:   []string{missing},
+			GlobalKnownHostsFile: []string{globalKH},
+		},
+	}
+
+	cb, err := c.hostkeyCallback(context.Background())
+	require.NoError(t, err, "missing user known_hosts must fall back to GlobalKnownHostsFile")
+	require.NotNil(t, cb)
+}
+
 func TestHostkeyCallbackFallsBackToGlobalKnownHostsFile(t *testing.T) {
 	unsetKnownHostsEnv(t)
 

@@ -370,10 +370,16 @@ func (c *Connection) hostkeyCallback(ctx context.Context) (ssh.HostKeyCallback, 
 		for _, f := range c.sshConfig.UserKnownHostsFile {
 			log.Trace(ctx, "trying known_hosts file from ssh config", log.KeyHost, c, log.KeyFile, f)
 			exp, err := homedir.Expand(f)
-			if err == nil {
-				khPath = exp
-				break
+			if err != nil {
+				continue
 			}
+			stat, err := os.Stat(exp)
+			if err != nil || !stat.Mode().IsRegular() {
+				log.Trace(ctx, "skipping user known_hosts file", log.KeyHost, c, log.KeyFile, exp)
+				continue
+			}
+			khPath = exp
+			break
 		}
 	}
 
