@@ -9,7 +9,7 @@ import (
 // OptionArguments holds ssh_config options as key-value pairs. Values may be
 // strings, booleans, integers, or other fmt-printable types. Booleans are
 // rendered as "yes"/"no" when converted to command-line arguments or applied
-// to a Setter. Setting a key to nil deletes it.
+// to a Setter. Use [OptionArguments.Set] with a nil value to delete a key.
 //
 // It is used by both the OpenSSH and the pure-Go SSH protocol implementations:
 // the OpenSSH path renders options as "-o Key=Value" arguments via [OptionArguments.ToArgs];

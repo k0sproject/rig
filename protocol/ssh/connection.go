@@ -96,7 +96,9 @@ func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
 		}
 	}
 
-	c.Port = c.sshConfig.Port
+	if c.sshConfig.Port != 0 {
+		c.Port = c.sshConfig.Port
+	}
 	c.Log().Debug("resolved final port", "port", c.Port)
 
 	// If no explicit keepalive option was provided, honor ServerAliveInterval from the ssh config.
