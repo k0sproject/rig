@@ -315,14 +315,14 @@ func knownhostsCallback(path string, permissive, hash bool) (ssh.HostKeyCallback
 func knownhostsGlobalCallback(path string, permissive bool) (ssh.HostKeyCallback, error) {
 	cb, err := hostkey.KnownHostsReadOnlyFileCallback(path, permissive)
 	if err != nil {
-		return nil, fmt.Errorf("%w: create host key validator: %w", protocol.ErrNonRetryable, err)
+		return nil, fmt.Errorf("create host key validator: %w", err)
 	}
 	return cb, nil
 }
 
 func isPermissive(ctx context.Context, c *Connection) bool {
 	if c.sshConfig.StrictHostKeyChecking.IsFalse() {
-		log.Trace(ctx, "config StrictHostkeyChecking is set to 'no'", log.KeyHost, c)
+		log.Trace(ctx, "config StrictHostKeyChecking is set to 'no'", log.KeyHost, c)
 		return true
 	}
 

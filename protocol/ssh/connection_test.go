@@ -588,6 +588,25 @@ func unsetKnownHostsEnv(t *testing.T) {
 	})
 }
 
+func TestHostkeyCallbackUserNoneFallsBackToGlobalKnownHostsFile(t *testing.T) {
+	unsetKnownHostsEnv(t)
+
+	khPath := filepath.Join(t.TempDir(), "ssh_known_hosts")
+	require.NoError(t, os.WriteFile(khPath, []byte(""), 0o600))
+
+	c := &Connection{
+		sshConfig: &sshconfig.Config{
+			// "none" is the OpenSSH sentinel meaning "skip user known_hosts".
+			UserKnownHostsFile:   []string{"none"},
+			GlobalKnownHostsFile: []string{khPath},
+		},
+	}
+
+	cb, err := c.hostkeyCallback(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, cb)
+}
+
 func TestHostkeyCallbackFallsBackToGlobalKnownHostsFile(t *testing.T) {
 	unsetKnownHostsEnv(t)
 
