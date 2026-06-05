@@ -149,6 +149,10 @@ func wrapReadOnlyCallback(hkc ssh.HostKeyCallback, permissive bool) ssh.HostKeyC
 		var keyErr *knownhosts.KeyError
 		if !errors.As(err, &keyErr) {
 			// unexpected error unrelated to key matching (e.g. address parsing, IO)
+			if permissive {
+				fmt.Fprintln(os.Stderr, "Ignored an SSH host key error for", remote, "because StrictHostKeyChecking is set to 'no' in ssh config")
+				return nil
+			}
 			return fmt.Errorf("%w: %w", ErrHostKeyMismatch, err)
 		}
 		if len(keyErr.Want) > 0 {
