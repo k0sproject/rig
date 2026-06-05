@@ -40,10 +40,11 @@ func (o OptionArguments) SetIfUnset(key string, value any) {
 	o.Set(key, value)
 }
 
-// IsSet reports whether the option has been set.
+// IsSet reports whether the option has been set to a non-nil value.
+// A nil value is treated as unset, consistent with [OptionArguments.Set] deleting nil-valued keys.
 func (o OptionArguments) IsSet(key string) bool {
-	_, ok := o[key]
-	return ok
+	v, ok := o[key]
+	return ok && v != nil
 }
 
 // valToString converts a single ssh_config value to its string representation.
