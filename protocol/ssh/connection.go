@@ -25,7 +25,10 @@ import (
 	"golang.org/x/term"
 )
 
-var errNotConnected = errors.New("not connected")
+var (
+	errNotConnected   = errors.New("not connected")
+	errNotRegularFile = errors.New("not a regular file")
+)
 
 // Connection describes an SSH connection.
 type Connection struct {
@@ -383,6 +386,8 @@ func globalKnownHostsCallback(ctx context.Context, paths []string, permissive bo
 		log.Trace(ctx, "trying global known_hosts file", log.KeyFile, f)
 		exp, err := homedir.Expand(f)
 		if err != nil {
+			lastErr = err
+			log.Trace(ctx, "skipping global known_hosts file (expand failed)", log.KeyFile, f, log.KeyError, err)
 			continue
 		}
 		if exp != "/dev/null" {
@@ -395,6 +400,7 @@ func globalKnownHostsCallback(ctx context.Context, paths []string, permissive bo
 				continue
 			}
 			if !stat.Mode().IsRegular() {
+				lastErr = fmt.Errorf("%w: %s", errNotRegularFile, exp)
 				log.Trace(ctx, "skipping non-regular global known_hosts file", log.KeyFile, exp)
 				continue
 			}
