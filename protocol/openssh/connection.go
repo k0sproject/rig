@@ -140,11 +140,11 @@ func (c *Connection) SetDefaults() {
 			continue
 		}
 		if c.Options.IsSet(key) {
-			c.Log().Debug("keeping user-supplied option (skipping default)", "key", key, "value", c.Options[key])
+			c.Log().Debug("keeping user-supplied option (skipping default)", "key", key)
 			continue
 		}
 		c.Options.SetIfUnset(key, val)
-		c.Log().Debug("applied default option", "key", key, "value", val)
+		c.Log().Debug("applied default option", "key", key)
 	}
 	if c.DisableMultiplexing {
 		delete(c.Options, "ControlMaster")
