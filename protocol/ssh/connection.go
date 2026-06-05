@@ -318,7 +318,7 @@ func knownhostsCallback(path string, permissive, hash bool) (ssh.HostKeyCallback
 func knownhostsGlobalCallback(path string, permissive bool) (ssh.HostKeyCallback, error) {
 	cb, err := hostkey.KnownHostsReadOnlyFileCallback(path, permissive)
 	if err != nil {
-		return nil, fmt.Errorf("create host key validator: %w", err)
+		return nil, fmt.Errorf("create host key validator for %s: %w", path, err)
 	}
 	return cb, nil
 }

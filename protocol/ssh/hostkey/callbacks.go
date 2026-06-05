@@ -75,6 +75,10 @@ func KnownHostsReadOnlyFileCallback(path string, permissive bool) (ssh.HostKeyCa
 		return InsecureIgnoreHostKeyCallback, nil
 	}
 
+	if !fileExists(path) {
+		return nil, fmt.Errorf("%w: %s is not a regular file", ErrCheckHostKey, path)
+	}
+
 	mu.Lock()
 	defer mu.Unlock()
 
