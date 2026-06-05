@@ -42,7 +42,8 @@ func TestKnownHostsReadOnlyFileCallbackDoesNotAppendUnknownHost(t *testing.T) {
 	require.NoError(t, err)
 
 	signer := newTestSigner(t)
-	addr, _ := net.ResolveTCPAddr("tcp", "192.0.2.1:22")
+	addr, err := net.ResolveTCPAddr("tcp", "192.0.2.1:22")
+	require.NoError(t, err)
 
 	cbErr := cb("192.0.2.1:22", addr, signer.PublicKey())
 	require.Error(t, cbErr, "unknown host must be rejected in strict mode")
@@ -61,7 +62,8 @@ func TestKnownHostsReadOnlyFileCallbackPermissiveAcceptsUnknownHost(t *testing.T
 	require.NoError(t, err)
 
 	signer := newTestSigner(t)
-	addr, _ := net.ResolveTCPAddr("tcp", "192.0.2.1:22")
+	addr, err := net.ResolveTCPAddr("tcp", "192.0.2.1:22")
+	require.NoError(t, err)
 
 	require.NoError(t, cb("192.0.2.1:22", addr, signer.PublicKey()), "permissive mode must accept unknown host without error")
 
@@ -79,7 +81,8 @@ func TestKnownHostsReadOnlyFileCallbackUnknownHostIsHostKeyMismatch(t *testing.T
 	require.NoError(t, err)
 
 	signer := newTestSigner(t)
-	addr, _ := net.ResolveTCPAddr("tcp", "192.0.2.1:22")
+	addr, err := net.ResolveTCPAddr("tcp", "192.0.2.1:22")
+	require.NoError(t, err)
 
 	cbErr := cb("192.0.2.1:22", addr, signer.PublicKey())
 	require.ErrorIs(t, cbErr, hostkey.ErrHostKeyMismatch, "unknown host in read-only strict mode must return ErrHostKeyMismatch so callers treat it as non-retryable")
@@ -96,6 +99,7 @@ func TestKnownHostsReadOnlyFileCallbackAcceptsKnownHost(t *testing.T) {
 	cb, err := hostkey.KnownHostsReadOnlyFileCallback(khFile, false)
 	require.NoError(t, err)
 
-	addr, _ := net.ResolveTCPAddr("tcp", "192.0.2.1:22")
+	addr, err := net.ResolveTCPAddr("tcp", "192.0.2.1:22")
+	require.NoError(t, err)
 	require.NoError(t, cb("192.0.2.1:22", addr, signer.PublicKey()))
 }

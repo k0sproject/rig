@@ -581,7 +581,9 @@ func unsetKnownHostsEnv(t *testing.T) {
 	require.NoError(t, os.Unsetenv("SSH_KNOWN_HOSTS"))
 	t.Cleanup(func() {
 		if ok {
-			_ = os.Setenv("SSH_KNOWN_HOSTS", prev)
+			require.NoError(t, os.Setenv("SSH_KNOWN_HOSTS", prev))
+		} else {
+			require.NoError(t, os.Unsetenv("SSH_KNOWN_HOSTS"))
 		}
 	})
 }
