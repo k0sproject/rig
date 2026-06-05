@@ -372,30 +372,44 @@ func (c *Connection) hostkeyCallback(ctx context.Context) (ssh.HostKeyCallback, 
 		return knownhostsCallback(khPath, permissive, hash)
 	}
 
-	for _, f := range c.sshConfig.GlobalKnownHostsFile {
-		log.Trace(ctx, "trying global known_hosts file", log.KeyHost, c, log.KeyFile, f)
+	return globalKnownHostsCallback(ctx, c.sshConfig.GlobalKnownHostsFile, permissive)
+}
+
+func globalKnownHostsCallback(ctx context.Context, paths []string, permissive bool) (ssh.HostKeyCallback, error) {
+	var lastErr error
+	for _, f := range paths {
+		log.Trace(ctx, "trying global known_hosts file", log.KeyFile, f)
 		exp, err := homedir.Expand(f)
 		if err != nil {
 			continue
 		}
-		stat, err := os.Stat(exp)
-		if err != nil {
-			log.Trace(ctx, "skipping global known_hosts file", log.KeyHost, c, log.KeyFile, exp, log.KeyError, err)
-			continue
-		}
-		if !stat.Mode().IsRegular() {
-			log.Trace(ctx, "skipping non-regular global known_hosts file", log.KeyHost, c, log.KeyFile, exp)
-			continue
+		if exp != "/dev/null" {
+			stat, err := os.Stat(exp)
+			if err != nil {
+				if !errors.Is(err, os.ErrNotExist) {
+					lastErr = err
+				}
+				log.Trace(ctx, "skipping global known_hosts file", log.KeyFile, exp, log.KeyError, err)
+				continue
+			}
+			if !stat.Mode().IsRegular() {
+				log.Trace(ctx, "skipping non-regular global known_hosts file", log.KeyFile, exp)
+				continue
+			}
 		}
 		cb, err := knownhostsGlobalCallback(exp, permissive)
 		if err != nil {
-			log.Trace(ctx, "skipping unusable global known_hosts file", log.KeyHost, c, log.KeyFile, exp, log.KeyError, err)
+			lastErr = err
+			log.Trace(ctx, "skipping unusable global known_hosts file", log.KeyFile, exp, log.KeyError, err)
 			continue
 		}
-		log.Trace(ctx, "using global known_hosts file", log.KeyHost, c, log.KeyFile, exp)
+		log.Trace(ctx, "using global known_hosts file", log.KeyFile, exp)
 		return cb, nil
 	}
 
+	if lastErr != nil {
+		return nil, fmt.Errorf("%w: global known_hosts: %w", protocol.ErrNonRetryable, lastErr)
+	}
 	return nil, fmt.Errorf("%w: no known_hosts file found", protocol.ErrNonRetryable)
 }
 

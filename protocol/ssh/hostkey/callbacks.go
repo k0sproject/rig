@@ -71,6 +71,10 @@ func KnownHostsFileCallback(path string, permissive, hash bool) (ssh.HostKeyCall
 // This is appropriate for system-wide files such as /etc/ssh/ssh_known_hosts that
 // should not be modified by unprivileged users.
 func KnownHostsReadOnlyFileCallback(path string, permissive bool) (ssh.HostKeyCallback, error) {
+	if path == "/dev/null" {
+		return InsecureIgnoreHostKeyCallback, nil
+	}
+
 	mu.Lock()
 	defer mu.Unlock()
 

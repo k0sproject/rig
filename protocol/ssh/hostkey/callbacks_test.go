@@ -93,7 +93,7 @@ func TestKnownHostsReadOnlyFileCallbackAcceptsKnownHost(t *testing.T) {
 
 	dir := t.TempDir()
 	khFile := filepath.Join(dir, "ssh_known_hosts")
-	line := knownhosts.Line([]string{"192.0.2.1:22"}, signer.PublicKey())
+	line := knownhosts.Line([]string{knownhosts.Normalize("192.0.2.1:22")}, signer.PublicKey())
 	require.NoError(t, os.WriteFile(khFile, []byte(line+"\n"), 0o644))
 
 	cb, err := hostkey.KnownHostsReadOnlyFileCallback(khFile, false)
