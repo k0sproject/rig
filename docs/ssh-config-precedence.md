@@ -3,8 +3,9 @@
 When the pure-Go SSH protocol establishes a connection it builds its effective
 configuration from three sources, in decreasing priority order:
 
-1. **Native fields** (`address`, `user`, `port`, `keyPath`, …)
-   Strongly-typed fields on `ssh.Config`. These always win.
+1. **Native fields** (`address`, `user`, `keyPath`, …)
+   Strongly-typed fields on `ssh.Config`. Once set to a non-empty/non-zero
+   value these win over all other sources.
 
 2. **`options`** (`ssh.Config.SSHConfigOptions`, YAML key `options`)
    A map of raw ssh_config directives, e.g. `{"Ciphers": "aes128-ctr"}`.
@@ -26,14 +27,19 @@ ssh:
   # for this host if not already provided above
 ```
 
-## Native field defaults
+## Native field defaults and port handling
 
-Native fields carry Go struct defaults (e.g. `user` defaults to `root`,
-`port` defaults to `22`). Because native fields have the highest priority,
-these defaults also win over `options` and `~/.ssh/config`. If you need
-`~/.ssh/config` or `options` to control a value that has a native
-equivalent, set the native field explicitly to its zero/empty value in your
-configuration.
+Several native fields carry Go struct defaults applied before precedence is
+evaluated (e.g. `user` defaults to `root`). Once defaults are applied the
+field is no longer empty, so it wins over `options` and `~/.ssh/config`
+just like an explicitly set value would.
+
+`port` is a special case: a port of `22` (the SSH default, whether explicit
+or filled in by the Go zero value) is intentionally treated as "not
+explicitly set" and does **not** propagate into the ssh_config layer. This
+means `~/.ssh/config` can still supply a per-host port when the rig
+configuration leaves `port` at `22` or omits it entirely. Set `port` to any
+other value to have it take precedence over `~/.ssh/config`.
 
 ## OpenSSH protocol
 

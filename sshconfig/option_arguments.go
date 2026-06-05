@@ -40,11 +40,14 @@ func (o OptionArguments) SetIfUnset(key string, value any) {
 	o.Set(key, value)
 }
 
-// IsSet reports whether the option has been set to a non-nil value.
-// A nil value is treated as unset, consistent with [OptionArguments.Set] deleting nil-valued keys.
+// IsSet reports whether the option key is present in the map.
+// A key with a nil value (e.g. from YAML "key: null") is treated as set,
+// so that nil can act as an explicit delete sentinel that prevents
+// [OptionArguments.SetIfUnset] from applying defaults. Use [OptionArguments.Set]
+// with a nil value to remove a key entirely (making it unset again).
 func (o OptionArguments) IsSet(key string) bool {
-	v, ok := o[key]
-	return ok && v != nil
+	_, ok := o[key]
+	return ok
 }
 
 // valToString converts a single ssh_config value to its string representation.

@@ -31,6 +31,19 @@ func TestOptionArgumentsSetIsSet(t *testing.T) {
 	}
 }
 
+func TestOptionArgumentsNilValueIsSentinel(t *testing.T) {
+	// A map constructed with an explicit nil value (e.g. from YAML "key: null")
+	// must be treated as set so that SetIfUnset does not override it.
+	o := sshconfig.OptionArguments{"BatchMode": nil}
+	if !o.IsSet("BatchMode") {
+		t.Error("IsSet(BatchMode) = false for explicit nil value, want true")
+	}
+	o.SetIfUnset("BatchMode", true)
+	if o["BatchMode"] != nil {
+		t.Errorf("SetIfUnset overwrote nil sentinel; got %v, want nil", o["BatchMode"])
+	}
+}
+
 func TestOptionArgumentsSetNilDeletes(t *testing.T) {
 	o := sshconfig.OptionArguments{"Port": 22, "User": "alice"}
 	o.Set("Port", nil)

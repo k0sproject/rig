@@ -133,16 +133,23 @@ func (c *Connection) SetDefaults() {
 	if c.Options == nil {
 		c.Options = make(sshconfig.OptionArguments)
 	}
-	for k, v := range DefaultOptionArguments {
-		if v == nil {
-			delete(c.Options, k)
+	for key, val := range DefaultOptionArguments {
+		if val == nil {
+			delete(c.Options, key)
+			c.Log().Debug("removing option (default is nil/delete)", "key", key)
 			continue
 		}
-		c.Options.SetIfUnset(k, v)
+		if c.Options.IsSet(key) {
+			c.Log().Debug("keeping user-supplied option (skipping default)", "key", key, "value", c.Options[key])
+			continue
+		}
+		c.Options.SetIfUnset(key, val)
+		c.Log().Debug("applied default option", "key", key, "value", val)
 	}
 	if c.DisableMultiplexing {
 		delete(c.Options, "ControlMaster")
 		delete(c.Options, "ControlPath")
+		c.Log().Debug("multiplexing disabled — removed ControlMaster and ControlPath")
 	}
 }
 
