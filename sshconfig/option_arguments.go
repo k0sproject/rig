@@ -1,11 +1,15 @@
 package sshconfig
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"reflect"
 	"strings"
 )
+
+// ErrEmptySlice is returned when a slice option value is empty.
+var ErrEmptySlice = errors.New("empty slice is not a valid value")
 
 // OptionArguments holds ssh_config options as key-value pairs. Values may be
 // strings, booleans, integers, or other fmt-printable types. Booleans are
@@ -102,6 +106,9 @@ func (o OptionArguments) ToArgs() []string {
 			continue
 		}
 		if strs, ok := sliceToStrings(val); ok {
+			if len(strs) == 0 {
+				continue
+			}
 			sep := " "
 			if isCSVKey(key) {
 				sep = ","
@@ -131,6 +138,9 @@ func (o OptionArguments) ApplyTo(setter *Setter) error {
 		}
 		var err error
 		if strs, ok := sliceToStrings(val); ok {
+			if len(strs) == 0 {
+				return fmt.Errorf("ssh option %q: %w", key, ErrEmptySlice)
+			}
 			if isCSVKey(key) {
 				err = setter.Set(key, strings.Join(strs, ","))
 			} else {
