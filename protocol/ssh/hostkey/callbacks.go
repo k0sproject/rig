@@ -164,7 +164,7 @@ func wrapReadOnlyCallback(hkc ssh.HostKeyCallback, permissive bool) ssh.HostKeyC
 		if permissive {
 			return nil
 		}
-		return fmt.Errorf("%w: %w", ErrHostKeyMismatch, err)
+		return fmt.Errorf("%w: unknown host: %w", ErrHostKeyMismatch, err)
 	})
 }
 
