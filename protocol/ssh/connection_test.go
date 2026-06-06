@@ -321,7 +321,11 @@ func TestClientConfigIdentitiesOnlyAgentFiltering(t *testing.T) {
 	require.NoError(t, keyring.Add(agent.AddedKey{PrivateKey: privA}))
 	require.NoError(t, keyring.Add(agent.AddedKey{PrivateKey: privB}))
 
-	dir := t.TempDir()
+	// Use /tmp directly: t.TempDir() produces paths exceeding the 104-byte
+	// unix socket path limit on macOS.
+	dir, err := os.MkdirTemp("/tmp", "rig")
+	require.NoError(t, err)
+	t.Cleanup(func() { os.RemoveAll(dir) })
 	socketPath := filepath.Join(dir, "agent.sock")
 	ln, err := net.Listen("unix", socketPath)
 	require.NoError(t, err)
@@ -895,4 +899,173 @@ func TestLocalAddrBindInterface(t *testing.T) {
 		c := &Connection{sshConfig: &sshconfig.Config{BindAddress: "2001:db8::1", AddressFamily: "inet", BindInterface: "rig-no-such-iface"}}
 		require.Nil(t, c.localAddr(ctx))
 	})
+}
+
+// makeCertForSigner generates a CA-signed SSH user certificate for the given signer.
+func makeCertForSigner(t *testing.T, signer ssh.Signer) *ssh.Certificate {
+	t.Helper()
+	_, caPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	caSigner, err := ssh.NewSignerFromKey(caPriv)
+	require.NoError(t, err)
+	cert := &ssh.Certificate{
+		Key:         signer.PublicKey(),
+		CertType:    ssh.UserCert,
+		KeyId:       "test",
+		ValidAfter:  0,
+		ValidBefore: ssh.CertTimeInfinity,
+	}
+	require.NoError(t, cert.SignCert(rand.Reader, caSigner))
+	return cert
+}
+
+// writeCert marshals cert to authorized_keys format and writes it to path.
+func writeCert(t *testing.T, path string, cert *ssh.Certificate) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(path, ssh.MarshalAuthorizedKey(cert), 0o600))
+}
+
+// TestCertSignerForSignerImplicit verifies that the implicit <keypath>-cert.pub
+// path is loaded and produces a cert signer when the cert matches the key.
+func TestCertSignerForSignerImplicit(t *testing.T) {
+	ctx := context.Background()
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	signer, err := ssh.NewSignerFromKey(priv)
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "id_ed25519")
+	cert := makeCertForSigner(t, signer)
+	writeCert(t, keyPath+"-cert.pub", cert)
+
+	c := &Connection{sshConfig: &sshconfig.Config{}}
+	cs := c.certSignerForSigner(ctx, signer, keyPath)
+
+	require.NotNil(t, cs, "implicit cert path must produce a cert signer")
+	_, ok := cs.PublicKey().(*ssh.Certificate)
+	require.True(t, ok, "cert signer must present a certificate as its public key")
+}
+
+// TestCertSignerForSignerExplicit verifies that explicit CertificateFile entries
+// are tried when the implicit path is absent.
+func TestCertSignerForSignerExplicit(t *testing.T) {
+	ctx := context.Background()
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	signer, err := ssh.NewSignerFromKey(priv)
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "id_ed25519")
+	// no implicit cert
+	certPath := filepath.Join(dir, "explicit-cert.pub")
+	cert := makeCertForSigner(t, signer)
+	writeCert(t, certPath, cert)
+
+	c := &Connection{sshConfig: &sshconfig.Config{CertificateFile: []string{certPath}}}
+	cs := c.certSignerForSigner(ctx, signer, keyPath)
+
+	require.NotNil(t, cs, "explicit CertificateFile must produce a cert signer")
+	_, ok := cs.PublicKey().(*ssh.Certificate)
+	require.True(t, ok, "cert signer must present a certificate as its public key")
+}
+
+// TestCertSignerForSignerExplicitUnexpanded verifies that a CertificateFile entry
+// with a tilde prefix is expanded before use, covering configs constructed without
+// the sshconfig parser's Finalize step.
+func TestCertSignerForSignerExplicitUnexpanded(t *testing.T) {
+	ctx := context.Background()
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	signer, err := ssh.NewSignerFromKey(priv)
+	require.NoError(t, err)
+
+	// Redirect HOME to a temp dir so ~ expansion is hermetic and never touches
+	// the real home directory.
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+	t.Setenv("USERPROFILE", fakeHome)
+
+	certPath := filepath.Join(fakeHome, "id_ed25519-cert.pub")
+	cert := makeCertForSigner(t, signer)
+	writeCert(t, certPath, cert)
+
+	// Pass the unexpanded tilde path as CertificateFile would be before Finalize.
+	c := &Connection{sshConfig: &sshconfig.Config{CertificateFile: []string{"~/id_ed25519-cert.pub"}}}
+	cs := c.certSignerForSigner(ctx, signer, filepath.Join(t.TempDir(), "id_ed25519"))
+
+	require.NotNil(t, cs, "unexpanded CertificateFile tilde path must still resolve")
+}
+
+// TestCertSignerForSignerMismatch verifies that a cert whose key does not match
+// the signer is silently skipped.
+func TestCertSignerForSignerMismatch(t *testing.T) {
+	ctx := context.Background()
+	_, privA, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	signerA, err := ssh.NewSignerFromKey(privA)
+	require.NoError(t, err)
+
+	_, privB, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	signerB, err := ssh.NewSignerFromKey(privB)
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "id_ed25519")
+	// cert is for key B, but signer is A
+	cert := makeCertForSigner(t, signerB)
+	writeCert(t, keyPath+"-cert.pub", cert)
+
+	c := &Connection{sshConfig: &sshconfig.Config{}}
+	cs := c.certSignerForSigner(ctx, signerA, keyPath)
+	require.Nil(t, cs, "mismatched cert must be skipped")
+}
+
+// TestCertSignerForSignerMissingFile verifies that a missing cert file is
+// silently skipped without error.
+func TestCertSignerForSignerMissingFile(t *testing.T) {
+	ctx := context.Background()
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	signer, err := ssh.NewSignerFromKey(priv)
+	require.NoError(t, err)
+
+	c := &Connection{sshConfig: &sshconfig.Config{}}
+	cs := c.certSignerForSigner(ctx, signer, filepath.Join(t.TempDir(), "id_ed25519"))
+	require.Nil(t, cs, "missing cert file must return nil without error")
+}
+
+// TestLoadKeySignersIncludesCertSigner verifies that loadKeySigners prepends
+// the cert signer before the plain signer when a certificate is available.
+func TestLoadKeySignersIncludesCertSigner(t *testing.T) {
+	ctx := context.Background()
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	signer, err := ssh.NewSignerFromKey(priv)
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "id_ed25519")
+
+	privBlock, err := ssh.MarshalPrivateKey(priv, "")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(keyPath, pem.EncodeToMemory(privBlock), 0o600))
+
+	cert := makeCertForSigner(t, signer)
+	writeCert(t, keyPath+"-cert.pub", cert)
+
+	signerCache.Delete(keyPath)
+	t.Cleanup(func() { signerCache.Delete(keyPath) })
+
+	c := &Connection{sshConfig: &sshconfig.Config{}, keyPaths: []string{keyPath}}
+
+	signers := c.loadKeySigners(ctx, nil)
+	require.Len(t, signers, 2, "must have cert signer and plain signer")
+
+	_, isCert := signers[0].PublicKey().(*ssh.Certificate)
+	require.True(t, isCert, "first signer must be the cert signer (cert takes priority)")
+	_, isCert = signers[1].PublicKey().(*ssh.Certificate)
+	require.False(t, isCert, "second signer must be the plain signer")
 }

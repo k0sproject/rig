@@ -513,9 +513,64 @@ func (c *Connection) loadAgentSigners(ctx context.Context) ([]ssh.Signer, func()
 	return signers, closeAgent
 }
 
+// certSignerForSigner tries to find a certificate for signer. Explicit
+// CertificateFile entries are tried first (skipping "none"), then the implicit
+// keyPath+"-cert.pub" as fallback. keyPath must already be expanded (caller's
+// responsibility). Each candidate is expanded with homedir.Expand so that
+// CertificateFile entries set programmatically (without the parser's Finalize)
+// also work. Returns nil when no matching certificate is found.
+func (c *Connection) certSignerForSigner(ctx context.Context, signer ssh.Signer, keyPath string) ssh.Signer {
+	candidates := make([]string, 0, len(c.sshConfig.CertificateFile)+1)
+	for _, p := range c.sshConfig.CertificateFile {
+		if p != "none" {
+			candidates = append(candidates, p)
+		}
+	}
+	candidates = append(candidates, keyPath+"-cert.pub")
+	for _, certPath := range candidates {
+		expanded, err := homedir.Expand(certPath)
+		if err != nil {
+			log.Trace(ctx, "expand certificate file path failed", log.FileAttr(certPath), log.ErrorAttr(err))
+			continue
+		}
+		certPath = expanded
+		data, err := os.ReadFile(certPath)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				log.Trace(ctx, "read certificate file failed", log.FileAttr(certPath), log.ErrorAttr(err))
+			}
+			continue
+		}
+		pub, _, _, _, err := ssh.ParseAuthorizedKey(data)
+		if err != nil {
+			log.Trace(ctx, "parse certificate file failed", log.FileAttr(certPath), log.ErrorAttr(err))
+			continue
+		}
+		cert, ok := pub.(*ssh.Certificate)
+		if !ok {
+			log.Trace(ctx, "not a certificate", log.FileAttr(certPath))
+			continue
+		}
+		if !bytes.Equal(cert.Key.Marshal(), signer.PublicKey().Marshal()) {
+			log.Trace(ctx, "certificate key does not match identity", log.FileAttr(certPath))
+			continue
+		}
+		cs, err := ssh.NewCertSigner(cert, signer)
+		if err != nil {
+			log.Trace(ctx, "create cert signer failed", log.FileAttr(certPath), log.ErrorAttr(err))
+			continue
+		}
+		c.Log().Debug("using certificate for authentication", log.KeyFile, certPath)
+		return cs
+	}
+	return nil
+}
+
 // loadKeySigners loads signers for each configured key path, using signerCache
 // to avoid re-parsing keys. Agent-backed signers (for .pub files or encrypted
-// keys) are not cached because they require a live agent connection.
+// keys) are not cached because they require a live agent connection. When a
+// certificate is found for a key (implicit <path>-cert.pub or CertificateFile),
+// the cert signer is offered first and the plain signer is offered as fallback.
 func (c *Connection) loadKeySigners(ctx context.Context, agentSigners []ssh.Signer) []ssh.Signer {
 	var keySigners []ssh.Signer
 	for _, keyPath := range c.keyPaths {
@@ -528,6 +583,9 @@ func (c *Connection) loadKeySigners(ctx context.Context, agentSigners []ssh.Sign
 			switch v := cached.(type) {
 			case ssh.Signer:
 				log.Trace(ctx, "using cached signer", log.FileAttr(keyPath))
+				if cs := c.certSignerForSigner(ctx, v, keyPath); cs != nil {
+					keySigners = append(keySigners, cs)
+				}
 				keySigners = append(keySigners, v)
 			case error:
 				log.Trace(ctx, "already discarded key", log.FileAttr(keyPath), log.ErrorAttr(v))
@@ -545,6 +603,9 @@ func (c *Connection) loadKeySigners(ctx context.Context, agentSigners []ssh.Sign
 		} else {
 			if !fromAgent {
 				signerCache.Store(keyPath, signer)
+			}
+			if cs := c.certSignerForSigner(ctx, signer, keyPath); cs != nil {
+				keySigners = append(keySigners, cs)
 			}
 			keySigners = append(keySigners, signer)
 		}
