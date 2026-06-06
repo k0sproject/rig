@@ -559,21 +559,22 @@ func (c *Connection) certSignerFromFile(ctx context.Context, certPath string, si
 
 // certSignerForSigner tries to find a certificate for signer. Explicit
 // CertificateFile entries are tried first (skipping "none"), then the implicit
-// keyPath+"-cert.pub" as fallback unless "none" appears in CertificateFile,
-// which disables certificate loading entirely (matching sshconfig semantics).
-// keyPath must already be expanded (caller's responsibility). Each candidate is
-// expanded with homedir.Expand so that CertificateFile entries set
-// programmatically (without the parser's Finalize) also work. Returns nil when
-// no matching certificate is found.
+// keyPath+"-cert.pub" as fallback. When "none" appears in CertificateFile the
+// implicit fallback is suppressed; note that sshconfig.Setter.Finalize()
+// normalizes a lone ["none"] to nil, so this guard only takes effect for
+// programmatically-constructed configs that skip Finalize. keyPath must already
+// be expanded (caller's responsibility). Each candidate is expanded with
+// homedir.Expand so that CertificateFile entries set programmatically also work.
+// Returns nil when no matching certificate is found.
 func (c *Connection) certSignerForSigner(ctx context.Context, signer ssh.Signer, keyPath string) ssh.Signer {
-	disableImplicit := slices.Contains(c.sshConfig.CertificateFile, "none")
+	hasNone := slices.Contains(c.sshConfig.CertificateFile, "none")
 	candidates := make([]string, 0, len(c.sshConfig.CertificateFile)+1)
 	for _, p := range c.sshConfig.CertificateFile {
 		if p != "none" {
 			candidates = append(candidates, p)
 		}
 	}
-	if !disableImplicit {
+	if !hasNone {
 		candidates = append(candidates, keyPath+"-cert.pub")
 	}
 	for _, certPath := range candidates {

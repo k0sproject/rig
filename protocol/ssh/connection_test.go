@@ -321,9 +321,13 @@ func TestClientConfigIdentitiesOnlyAgentFiltering(t *testing.T) {
 	require.NoError(t, keyring.Add(agent.AddedKey{PrivateKey: privA}))
 	require.NoError(t, keyring.Add(agent.AddedKey{PrivateKey: privB}))
 
-	// Use /tmp directly: t.TempDir() produces paths exceeding the 104-byte
-	// unix socket path limit on macOS.
-	dir, err := os.MkdirTemp("/tmp", "rig")
+	// On darwin, os.TempDir() returns a long $TMPDIR path that exceeds the
+	// 104-byte unix socket path limit; use /tmp which is always short there.
+	baseDir := ""
+	if runtime.GOOS == "darwin" {
+		baseDir = "/tmp"
+	}
+	dir, err := os.MkdirTemp(baseDir, "rig")
 	require.NoError(t, err)
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	socketPath := filepath.Join(dir, "agent.sock")
@@ -1037,9 +1041,11 @@ func TestCertSignerForSignerMissingFile(t *testing.T) {
 	require.Nil(t, cs, "missing cert file must return nil without error")
 }
 
-// TestCertSignerForSignerNoneDisablesImplicit verifies that "none" in
-// CertificateFile disables the implicit <keyPath>-cert.pub fallback so that
-// even a matching cert on disk is not offered.
+// TestCertSignerForSignerNoneDisablesImplicit verifies that a literal "none"
+// entry in CertificateFile disables the implicit <keyPath>-cert.pub fallback.
+// This covers the programmatic / pre-Finalize case: sshconfig.Setter.Finalize()
+// normalizes a lone ["none"] to nil, so parser-loaded configs reach this code
+// with a nil slice instead (and the implicit path is tried as normal).
 func TestCertSignerForSignerNoneDisablesImplicit(t *testing.T) {
 	ctx := context.Background()
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
