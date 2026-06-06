@@ -478,11 +478,11 @@ type Config struct {
 
 	// If set to yes, ssh(1) will additionally check the host IP
 	// address in the known_hosts file.  This allows it to
-	// detect if a host key changed due to DNS spoofing and will
-	// add addresses of destination hosts to ~/.ssh/known_hosts
-	// in the process, regardless of the setting of
-	// StrictHostKeyChecking.  If the option is set to no (the
-	// default), the check will not be executed.
+	// detect if a host key changed due to DNS spoofing.
+	// Note: unlike OpenSSH, enabling this option does not add
+	// additional IP entries to known_hosts; the check is read-only.
+	// If the option is set to no (the default), the check will not
+	// be executed.
 	CheckHostIP options.BooleanOption
 
 	// Specifies the ciphers allowed and their order of

@@ -8,12 +8,18 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
+
+// lookupHost resolves a hostname to IP addresses. Overridable in tests.
+var lookupHost = net.LookupHost
+
+const devNull = "/dev/null"
 
 var (
 	// ErrHostKeyMismatch is returned when the host key does not match the host key or a key in known_hosts file.
@@ -47,7 +53,7 @@ var KnownHostsPathFromEnv = func() (string, bool) {
 
 // KnownHostsFileCallback returns a HostKeyCallback that uses a known hosts file to verify host keys.
 func KnownHostsFileCallback(path string, permissive, hash bool) (ssh.HostKeyCallback, error) {
-	if path == "/dev/null" {
+	if path == devNull {
 		return InsecureIgnoreHostKeyCallback, nil
 	}
 
@@ -71,7 +77,7 @@ func KnownHostsFileCallback(path string, permissive, hash bool) (ssh.HostKeyCall
 // This is appropriate for system-wide files such as /etc/ssh/ssh_known_hosts that
 // should not be modified by unprivileged users.
 func KnownHostsReadOnlyFileCallback(path string, permissive bool) (ssh.HostKeyCallback, error) {
-	if path == "/dev/null" {
+	if path == devNull {
 		return InsecureIgnoreHostKeyCallback, nil
 	}
 
@@ -92,6 +98,56 @@ func KnownHostsReadOnlyFileCallback(path string, permissive bool) (ssh.HostKeyCa
 	}
 
 	return wrapReadOnlyCallback(hkc, permissive), nil
+}
+
+// KnownHostsFileCallbackWithIPCheck is like KnownHostsFileCallback but also
+// verifies the connecting IP address. It parses the known_hosts file once,
+// sharing the checker between hostname and IP verification.
+func KnownHostsFileCallbackWithIPCheck(path string, permissive, hash bool) (ssh.HostKeyCallback, error) {
+	if path == devNull {
+		return InsecureIgnoreHostKeyCallback, nil
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if err := ensureFile(path); err != nil {
+		return nil, err
+	}
+
+	hkc, err := knownhosts.New(path)
+	if err != nil {
+		return nil, fmt.Errorf("%w: knownhosts callback: %w", ErrCheckHostKey, err)
+	}
+
+	return wrapCheckHostIP(wrapCallback(hkc, path, permissive, hash), hkc, permissive), nil
+}
+
+// KnownHostsReadOnlyFileCallbackWithIPCheck is like KnownHostsReadOnlyFileCallback
+// but also verifies the connecting IP address. It parses the known_hosts file once,
+// sharing the checker between hostname and IP verification.
+func KnownHostsReadOnlyFileCallbackWithIPCheck(path string, permissive bool) (ssh.HostKeyCallback, error) {
+	if path == devNull {
+		return InsecureIgnoreHostKeyCallback, nil
+	}
+
+	stat, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrCheckHostKey, err)
+	}
+	if !stat.Mode().IsRegular() {
+		return nil, fmt.Errorf("%w: %s is not a regular file", ErrCheckHostKey, path)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	hkc, err := knownhosts.New(path)
+	if err != nil {
+		return nil, fmt.Errorf("%w: knownhosts callback: %w", ErrCheckHostKey, err)
+	}
+
+	return wrapCheckHostIP(wrapReadOnlyCallback(hkc, permissive), hkc, permissive), nil
 }
 
 // extends a knownhosts callback to not return an error when the key
@@ -178,6 +234,116 @@ func wrapReadOnlyCallback(hkc ssh.HostKeyCallback, permissive bool) ssh.HostKeyC
 		}
 		return fmt.Errorf("%w: unknown host: %w", ErrHostKeyMismatch, err)
 	})
+}
+
+// WithCheckHostIP wraps cb to also verify the connecting IP address in
+// known_hosts. When the remote address is a TCP connection the actual connected
+// IP is checked directly; otherwise all DNS-resolved addresses are checked.
+// If the IP is found in known_hosts with a different key (potential DNS
+// spoofing), ErrHostKeyMismatch is returned. DNS resolution failures are
+// non-fatal. Skipped when hostname is already an IP address. Unlike OpenSSH,
+// this implementation never writes IP addresses to known_hosts.
+func WithCheckHostIP(cb ssh.HostKeyCallback, path string, permissive bool) (ssh.HostKeyCallback, error) {
+	if path == devNull {
+		return cb, nil
+	}
+	mu.Lock()
+	rawChecker, err := knownhosts.New(path)
+	mu.Unlock()
+	if err != nil {
+		return nil, fmt.Errorf("%w: check-host-ip: %w", ErrCheckHostKey, err)
+	}
+	return wrapCheckHostIP(cb, rawChecker, permissive), nil
+}
+
+// checkResolvedIP checks a single resolved IP address against rawChecker.
+// Returns an error for a known key mismatch (potential DNS spoofing) and, in
+// strict mode, also for unexpected checker errors (IO, address parsing).
+// Must be called with mu held.
+func checkResolvedIP(rawChecker ssh.HostKeyCallback, addr, port string, remote net.Addr, key ssh.PublicKey, permissive bool) error {
+	effectivePort := port
+	ipAddr := &net.TCPAddr{IP: net.ParseIP(addr)}
+	if tcp, ok := remote.(*net.TCPAddr); ok {
+		ipAddr.Port = tcp.Port
+		effectivePort = strconv.Itoa(tcp.Port)
+	} else if p, err := strconv.Atoi(port); err == nil {
+		ipAddr.Port = p
+	}
+	ipHost := net.JoinHostPort(addr, effectivePort)
+	ipErr := rawChecker(ipHost, ipAddr, key)
+	if ipErr == nil {
+		return nil
+	}
+	var keyErr *knownhosts.KeyError
+	if !errors.As(ipErr, &keyErr) {
+		// unexpected error (e.g. IO, address parsing) — surface in strict mode
+		if permissive {
+			fmt.Fprintln(os.Stderr, "Ignored SSH host key check error for resolved IP", addr, "because StrictHostKeyChecking is set to 'no' in ssh config")
+			return nil
+		}
+		return fmt.Errorf("%w: resolved IP %s: %w", ErrHostKeyMismatch, addr, ipErr)
+	}
+	if len(keyErr.Want) == 0 {
+		return nil // unknown IP in detection-only mode is not an error
+	}
+	if permissive {
+		fmt.Fprintln(os.Stderr, "Ignored SSH host key mismatch for resolved IP", addr, "because StrictHostKeyChecking is set to 'no' in ssh config")
+		return nil
+	}
+	return fmt.Errorf("%w: resolved IP %s: %w", ErrHostKeyMismatch, addr, ipErr)
+}
+
+func wrapCheckHostIP(callback, rawChecker ssh.HostKeyCallback, permissive bool) ssh.HostKeyCallback {
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		host, port, err := net.SplitHostPort(hostname)
+		if err != nil {
+			// hostname has no port — use it as-is and derive the port from the remote address
+			host = hostname
+			if tcp, ok := remote.(*net.TCPAddr); ok {
+				port = strconv.Itoa(tcp.Port)
+			}
+		}
+
+		// Perform the IP check before invoking callback so that a spoofed key is
+		// never written to known_hosts when a mismatch is detected.
+		if net.ParseIP(host) == nil && port != "" {
+			if ipErr := checkHostIP(rawChecker, host, port, remote, key, permissive); ipErr != nil {
+				return ipErr
+			}
+		}
+
+		return callback(hostname, remote, key)
+	}
+}
+
+// checkHostIP verifies the connecting IP address in known_hosts. When the
+// remote is a TCP connection the actual connected IP is checked directly;
+// otherwise all DNS-resolved addresses are checked. DNS resolution failures
+// are non-fatal.
+func checkHostIP(rawChecker ssh.HostKeyCallback, host, port string, remote net.Addr, key ssh.PublicKey, permissive bool) error {
+	// When the connected address is known, check only that IP to avoid
+	// false positives from multi-homed hostnames (round-robin/CDN).
+	if tcp, ok := remote.(*net.TCPAddr); ok && tcp.IP != nil {
+		mu.Lock()
+		err := checkResolvedIP(rawChecker, tcp.IP.String(), port, remote, key, permissive)
+		mu.Unlock()
+		return err
+	}
+
+	addrs, dnsErr := lookupHost(host)
+	if dnsErr != nil {
+		return nil //nolint:nilerr // DNS resolution failures are non-fatal per doc comment.
+	}
+
+	var loopErr error
+	mu.Lock()
+	for _, addr := range addrs {
+		if loopErr = checkResolvedIP(rawChecker, addr, port, remote, key, permissive); loopErr != nil {
+			break
+		}
+	}
+	mu.Unlock()
+	return loopErr
 }
 
 func fileExists(path string) bool {

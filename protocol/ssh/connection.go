@@ -337,20 +337,32 @@ func (c *Connection) IsWindows() bool {
 	return c.detectWindows(ctx)
 }
 
-func knownhostsCallback(path string, permissive, hash bool) (ssh.HostKeyCallback, error) {
-	cb, err := hostkey.KnownHostsFileCallback(path, permissive, hash)
+func knownhostsCallback(path string, permissive, hash, checkIP bool) (ssh.HostKeyCallback, error) {
+	var err error
+	var callback ssh.HostKeyCallback
+	if checkIP {
+		callback, err = hostkey.KnownHostsFileCallbackWithIPCheck(path, permissive, hash)
+	} else {
+		callback, err = hostkey.KnownHostsFileCallback(path, permissive, hash)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("%w: create host key validator: %w", protocol.ErrNonRetryable, err)
 	}
-	return cb, nil
+	return callback, nil
 }
 
-func knownhostsGlobalCallback(path string, permissive bool) (ssh.HostKeyCallback, error) {
-	cb, err := hostkey.KnownHostsReadOnlyFileCallback(path, permissive)
+func knownhostsGlobalCallback(path string, permissive, checkIP bool) (ssh.HostKeyCallback, error) {
+	var err error
+	var callback ssh.HostKeyCallback
+	if checkIP {
+		callback, err = hostkey.KnownHostsReadOnlyFileCallbackWithIPCheck(path, permissive)
+	} else {
+		callback, err = hostkey.KnownHostsReadOnlyFileCallback(path, permissive)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("create host key validator for %s: %w", path, err)
 	}
-	return cb, nil
+	return callback, nil
 }
 
 func isPermissive(ctx context.Context, c *Connection) bool {
@@ -376,13 +388,18 @@ func (c *Connection) hostkeyCallback(ctx context.Context) (ssh.HostKeyCallback, 
 
 	permissive := isPermissive(ctx, c)
 	hash := shouldHash(ctx, c)
+	checkIP := c.sshConfig.CheckHostIP.IsTrue()
+
+	if checkIP {
+		log.Trace(ctx, "CheckHostIP enabled, IP verification active", log.KeyHost, c)
+	}
 
 	if path, ok := hostkey.KnownHostsPathFromEnv(); ok {
 		if path == "" {
 			return hostkey.InsecureIgnoreHostKeyCallback, nil
 		}
 		c.Log().Debug("using known_hosts file from SSH_KNOWN_HOSTS", log.KeyHost, c, log.KeyFile, path)
-		return knownhostsCallback(path, permissive, hash)
+		return knownhostsCallback(path, permissive, hash, checkIP)
 	}
 
 	var khPath string
@@ -402,13 +419,13 @@ func (c *Connection) hostkeyCallback(ctx context.Context) (ssh.HostKeyCallback, 
 
 	if khPath != "" {
 		log.Trace(ctx, "using known_hosts file", log.KeyHost, c, log.KeyFile, khPath)
-		return knownhostsCallback(khPath, permissive, hash)
+		return knownhostsCallback(khPath, permissive, hash, checkIP)
 	}
 
-	return globalKnownHostsCallback(ctx, c.sshConfig.GlobalKnownHostsFile, permissive)
+	return globalKnownHostsCallback(ctx, c.sshConfig.GlobalKnownHostsFile, permissive, checkIP)
 }
 
-func globalKnownHostsCallback(ctx context.Context, paths []string, permissive bool) (ssh.HostKeyCallback, error) {
+func globalKnownHostsCallback(ctx context.Context, paths []string, permissive, checkIP bool) (ssh.HostKeyCallback, error) {
 	var lastErr error
 	for _, f := range paths {
 		log.Trace(ctx, "trying global known_hosts file", log.KeyFile, f)
@@ -433,7 +450,7 @@ func globalKnownHostsCallback(ctx context.Context, paths []string, permissive bo
 				continue
 			}
 		}
-		cb, err := knownhostsGlobalCallback(exp, permissive)
+		cb, err := knownhostsGlobalCallback(exp, permissive, checkIP)
 		if err != nil {
 			lastErr = err
 			log.Trace(ctx, "skipping unusable global known_hosts file", log.KeyFile, exp, log.KeyError, err)

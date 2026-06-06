@@ -796,6 +796,39 @@ func TestHostkeyCallbackSkipsMissingGlobalKnownHostsFile(t *testing.T) {
 	require.True(t, os.IsNotExist(statErr), "hostkeyCallback must not create missing global known_hosts files")
 }
 
+func TestHostkeyCallbackCheckHostIPEnabled(t *testing.T) {
+	unsetKnownHostsEnv(t)
+
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	signer, err := ssh.NewSignerFromKey(priv)
+	require.NoError(t, err)
+
+	// Write known_hosts with a single IP entry — the callback is exercised
+	// with that IP as hostname so WithCheckHostIP skips the DNS lookup.
+	addr, err := net.ResolveTCPAddr("tcp", "192.0.2.1:22")
+	require.NoError(t, err)
+	line := string(ssh.MarshalAuthorizedKey(signer.PublicKey()))
+	khPath := filepath.Join(t.TempDir(), "known_hosts")
+	require.NoError(t, os.WriteFile(khPath,
+		[]byte("[192.0.2.1]:22 "+line),
+		0o600))
+
+	c := &Connection{
+		sshConfig: &sshconfig.Config{
+			UserKnownHostsFile: []string{khPath},
+			CheckHostIP:        options.BooleanOption("yes"),
+		},
+	}
+
+	cb, err := c.hostkeyCallback(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, cb)
+
+	// IP hostname: WithCheckHostIP must skip DNS and accept the known key.
+	require.NoError(t, cb("192.0.2.1:22", addr, signer.PublicKey()))
+}
+
 func TestSelectBindAddr(t *testing.T) {
 	loopback4 := &net.IPNet{IP: net.ParseIP("127.0.0.1"), Mask: net.CIDRMask(8, 32)}
 	linkLocal4 := &net.IPNet{IP: net.ParseIP("169.254.1.1"), Mask: net.CIDRMask(16, 32)}
