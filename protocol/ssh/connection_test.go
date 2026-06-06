@@ -787,3 +787,112 @@ func TestHostkeyCallbackSkipsMissingGlobalKnownHostsFile(t *testing.T) {
 	_, statErr := os.Stat(missing)
 	require.True(t, os.IsNotExist(statErr), "hostkeyCallback must not create missing global known_hosts files")
 }
+
+func TestSelectBindAddr(t *testing.T) {
+	loopback4 := &net.IPNet{IP: net.ParseIP("127.0.0.1"), Mask: net.CIDRMask(8, 32)}
+	linkLocal4 := &net.IPNet{IP: net.ParseIP("169.254.1.1"), Mask: net.CIDRMask(16, 32)}
+	global4 := &net.IPNet{IP: net.ParseIP("192.168.1.10"), Mask: net.CIDRMask(24, 32)}
+	global6 := &net.IPNet{IP: net.ParseIP("2001:db8::1"), Mask: net.CIDRMask(32, 128)}
+
+	cases := []struct {
+		name   string
+		addrs  []net.Addr
+		family string
+		wantIP net.IP
+	}{
+		{"empty list returns nil", nil, "tcp", nil},
+		{"loopback excluded", []net.Addr{loopback4}, "tcp", nil},
+		{"link-local excluded", []net.Addr{linkLocal4}, "tcp", nil},
+		{"global IPv4 selected for tcp", []net.Addr{global4}, "tcp", global4.IP},
+		{"global IPv4 selected for tcp4", []net.Addr{global4}, "tcp4", global4.IP},
+		{"global IPv4 skipped for tcp6", []net.Addr{global4}, "tcp6", nil},
+		{"global IPv6 selected for tcp", []net.Addr{global6}, "tcp", global6.IP},
+		{"global IPv6 selected for tcp6", []net.Addr{global6}, "tcp6", global6.IP},
+		{"global IPv6 skipped for tcp4", []net.Addr{global6}, "tcp4", nil},
+		{"prefers first global in mixed list", []net.Addr{loopback4, global4, global6}, "tcp", global4.IP},
+		{"tcp4 skips leading IPv6 and picks IPv4", []net.Addr{global6, global4}, "tcp4", global4.IP},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := selectBindAddr(tc.addrs, tc.family)
+			if tc.wantIP == nil {
+				require.Nil(t, got)
+			} else {
+				require.NotNil(t, got)
+				require.True(t, tc.wantIP.Equal(got), "got %v, want %v", got, tc.wantIP)
+			}
+		})
+	}
+}
+
+func TestLocalAddrBindAddress(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("valid IPv4 returns TCPAddr", func(t *testing.T) {
+		c := &Connection{sshConfig: &sshconfig.Config{BindAddress: "10.0.0.1"}}
+		addr := c.localAddr(ctx)
+		require.NotNil(t, addr)
+		tcp, ok := addr.(*net.TCPAddr)
+		require.True(t, ok)
+		require.True(t, net.ParseIP("10.0.0.1").Equal(tcp.IP))
+	})
+
+	t.Run("valid IPv6 returns TCPAddr", func(t *testing.T) {
+		c := &Connection{sshConfig: &sshconfig.Config{BindAddress: "::1"}}
+		addr := c.localAddr(ctx)
+		require.NotNil(t, addr)
+		tcp, ok := addr.(*net.TCPAddr)
+		require.True(t, ok)
+		require.True(t, net.ParseIP("::1").Equal(tcp.IP))
+	})
+
+	t.Run("invalid IP returns nil", func(t *testing.T) {
+		c := &Connection{sshConfig: &sshconfig.Config{BindAddress: "not-an-ip"}}
+		require.Nil(t, c.localAddr(ctx))
+	})
+
+	t.Run("IPv6 BindAddress with AddressFamily inet returns nil", func(t *testing.T) {
+		c := &Connection{sshConfig: &sshconfig.Config{BindAddress: "2001:db8::1", AddressFamily: "inet"}}
+		require.Nil(t, c.localAddr(ctx))
+	})
+
+	t.Run("IPv4 BindAddress with AddressFamily inet6 returns nil", func(t *testing.T) {
+		c := &Connection{sshConfig: &sshconfig.Config{BindAddress: "10.0.0.1", AddressFamily: "inet6"}}
+		require.Nil(t, c.localAddr(ctx))
+	})
+
+	t.Run("IPv4 BindAddress with AddressFamily inet returns TCPAddr", func(t *testing.T) {
+		c := &Connection{sshConfig: &sshconfig.Config{BindAddress: "10.0.0.1", AddressFamily: "inet"}}
+		addr := c.localAddr(ctx)
+		require.NotNil(t, addr)
+		tcp, ok := addr.(*net.TCPAddr)
+		require.True(t, ok)
+		require.True(t, net.ParseIP("10.0.0.1").Equal(tcp.IP))
+	})
+
+	t.Run("both fields unset returns nil", func(t *testing.T) {
+		c := &Connection{sshConfig: &sshconfig.Config{}}
+		require.Nil(t, c.localAddr(ctx))
+	})
+}
+
+func TestLocalAddrBindInterface(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("nonexistent interface returns nil", func(t *testing.T) {
+		c := &Connection{sshConfig: &sshconfig.Config{BindInterface: "rig-no-such-iface"}}
+		require.Nil(t, c.localAddr(ctx))
+	})
+
+	t.Run("invalid BindAddress falls through to BindInterface", func(t *testing.T) {
+		// BindAddress is unusable; BindInterface is probed next (nonexistent → nil).
+		c := &Connection{sshConfig: &sshconfig.Config{BindAddress: "not-an-ip", BindInterface: "rig-no-such-iface"}}
+		require.Nil(t, c.localAddr(ctx))
+	})
+
+	t.Run("mismatched BindAddress falls through to BindInterface", func(t *testing.T) {
+		// BindAddress family conflicts with AddressFamily; BindInterface is probed next.
+		c := &Connection{sshConfig: &sshconfig.Config{BindAddress: "2001:db8::1", AddressFamily: "inet", BindInterface: "rig-no-such-iface"}}
+		require.Nil(t, c.localAddr(ctx))
+	})
+}

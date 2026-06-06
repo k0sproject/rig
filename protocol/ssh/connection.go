@@ -26,6 +26,11 @@ import (
 	"golang.org/x/term"
 )
 
+const (
+	dialTCP4 = "tcp4"
+	dialTCP6 = "tcp6"
+)
+
 var (
 	errNotConnected   = errors.New("not connected")
 	errNotRegularFile = errors.New("not a regular file")
@@ -766,12 +771,96 @@ func (c *Connection) startKeepalive() {
 func (c *Connection) dialNetwork() string {
 	switch c.sshConfig.AddressFamily {
 	case "inet":
-		return "tcp4"
+		return dialTCP4
 	case "inet6":
-		return "tcp6"
+		return dialTCP6
 	default:
 		return "tcp"
 	}
+}
+
+// selectBindAddr picks the first global-unicast IP from addrs that matches the
+// dial family: IPv4-only for "tcp4", IPv6-only for "tcp6", either for "tcp".
+func selectBindAddr(addrs []net.Addr, family string) net.IP {
+	for _, addr := range addrs {
+		var candidate net.IP
+		switch v := addr.(type) {
+		case *net.IPNet:
+			candidate = v.IP
+		case *net.IPAddr:
+			candidate = v.IP
+		}
+		if candidate == nil || !candidate.IsGlobalUnicast() {
+			continue
+		}
+		switch family {
+		case dialTCP4:
+			if candidate.To4() == nil {
+				continue
+			}
+		case dialTCP6:
+			if candidate.To4() != nil {
+				continue
+			}
+		}
+		return candidate
+	}
+	return nil
+}
+
+// resolveBindAddress parses c.sshConfig.BindAddress and checks it is compatible
+// with the configured dial family. Returns nil (with a trace log) if the address
+// is invalid or incompatible, so localAddr can fall through to BindInterface.
+func (c *Connection) resolveBindAddress(ctx context.Context) net.IP {
+	bindIP := net.ParseIP(c.sshConfig.BindAddress)
+	if bindIP == nil {
+		log.Trace(ctx, "BindAddress is not a valid IP, ignoring", "bind_address", c.sshConfig.BindAddress)
+		return nil
+	}
+	switch c.dialNetwork() {
+	case dialTCP4:
+		if bindIP.To4() == nil {
+			log.Trace(ctx, "BindAddress is IPv6 but AddressFamily is inet, ignoring", "bind_address", c.sshConfig.BindAddress)
+			return nil
+		}
+	case dialTCP6:
+		if bindIP.To4() != nil {
+			log.Trace(ctx, "BindAddress is IPv4 but AddressFamily is inet6, ignoring", "bind_address", c.sshConfig.BindAddress)
+			return nil
+		}
+	}
+	log.Trace(ctx, "binding to BindAddress", "bind_address", c.sshConfig.BindAddress)
+	return bindIP
+}
+
+// localAddr returns the local address to bind for outgoing connections based on
+// BindAddress or BindInterface from the ssh config. Returns nil if neither is set.
+func (c *Connection) localAddr(ctx context.Context) net.Addr {
+	if c.sshConfig.BindAddress != "" {
+		if bindIP := c.resolveBindAddress(ctx); bindIP != nil {
+			return &net.TCPAddr{IP: bindIP}
+		}
+	}
+	if c.sshConfig.BindInterface != "" {
+		iface, err := net.InterfaceByName(c.sshConfig.BindInterface)
+		if err != nil {
+			log.Trace(ctx, "BindInterface not found, ignoring", "bind_interface", c.sshConfig.BindInterface, log.ErrorAttr(err))
+			return nil
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			log.Trace(ctx, "failed to list addresses for BindInterface, ignoring", "bind_interface", c.sshConfig.BindInterface, log.ErrorAttr(err))
+			return nil
+		}
+		ip := selectBindAddr(addrs, c.dialNetwork())
+		if ip == nil {
+			log.Trace(ctx, "no suitable address found for BindInterface, ignoring", "bind_interface", c.sshConfig.BindInterface)
+			return nil
+		}
+		log.Trace(ctx, "binding to BindInterface address", "bind_interface", c.sshConfig.BindInterface, "addr", ip)
+		return &net.TCPAddr{IP: ip}
+	}
+	return nil
 }
 
 // connectDeadline returns the earliest of the context deadline and the configured
@@ -810,7 +899,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 	}
 
 	deadline := c.connectDeadline(ctx)
-	conn, err := (&net.Dialer{Deadline: deadline}).DialContext(ctx, c.dialNetwork(), dst)
+	conn, err := (&net.Dialer{Deadline: deadline, LocalAddr: c.localAddr(ctx)}).DialContext(ctx, c.dialNetwork(), dst)
 	if err != nil {
 		return fmt.Errorf("ssh dial: %w", err)
 	}
