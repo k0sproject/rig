@@ -1037,6 +1037,58 @@ func TestCertSignerForSignerMissingFile(t *testing.T) {
 	require.Nil(t, cs, "missing cert file must return nil without error")
 }
 
+// TestCertSignerForSignerNoneDisablesImplicit verifies that "none" in
+// CertificateFile disables the implicit <keyPath>-cert.pub fallback so that
+// even a matching cert on disk is not offered.
+func TestCertSignerForSignerNoneDisablesImplicit(t *testing.T) {
+	ctx := context.Background()
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	signer, err := ssh.NewSignerFromKey(priv)
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "id_ed25519")
+	cert := makeCertForSigner(t, signer)
+	writeCert(t, keyPath+"-cert.pub", cert)
+
+	c := &Connection{sshConfig: &sshconfig.Config{CertificateFile: []string{"none"}}}
+	cs := c.certSignerForSigner(ctx, signer, keyPath)
+	require.Nil(t, cs, "CertificateFile=none must disable implicit cert loading")
+}
+
+// TestCertSignerForSignerSkipsHostCert verifies that host certificates are
+// skipped and not offered as user authentication.
+func TestCertSignerForSignerSkipsHostCert(t *testing.T) {
+	ctx := context.Background()
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	signer, err := ssh.NewSignerFromKey(priv)
+	require.NoError(t, err)
+
+	_, caPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	caSigner, err := ssh.NewSignerFromKey(caPriv)
+	require.NoError(t, err)
+
+	hostCert := &ssh.Certificate{
+		Key:         signer.PublicKey(),
+		CertType:    ssh.HostCert,
+		KeyId:       "host",
+		ValidAfter:  0,
+		ValidBefore: ssh.CertTimeInfinity,
+	}
+	require.NoError(t, hostCert.SignCert(rand.Reader, caSigner))
+
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "id_ed25519")
+	writeCert(t, keyPath+"-cert.pub", hostCert)
+
+	c := &Connection{sshConfig: &sshconfig.Config{}}
+	cs := c.certSignerForSigner(ctx, signer, keyPath)
+	require.Nil(t, cs, "host certificate must be skipped")
+}
+
 // TestLoadKeySignersIncludesCertSigner verifies that loadKeySigners prepends
 // the cert signer before the plain signer when a certificate is available.
 func TestLoadKeySignersIncludesCertSigner(t *testing.T) {

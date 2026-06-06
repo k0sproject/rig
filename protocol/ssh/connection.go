@@ -513,55 +513,73 @@ func (c *Connection) loadAgentSigners(ctx context.Context) ([]ssh.Signer, func()
 	return signers, closeAgent
 }
 
+// certSignerFromFile loads a user certificate from certPath and combines it
+// with signer. Returns nil if the file is missing, not a user certificate, or
+// its key does not match signer.
+func (c *Connection) certSignerFromFile(ctx context.Context, certPath string, signer ssh.Signer) ssh.Signer {
+	expanded, err := homedir.Expand(certPath)
+	if err != nil {
+		log.Trace(ctx, "expand certificate file path failed", log.FileAttr(certPath), log.ErrorAttr(err))
+		return nil
+	}
+	certPath = expanded
+	data, err := os.ReadFile(certPath)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			log.Trace(ctx, "read certificate file failed", log.FileAttr(certPath), log.ErrorAttr(err))
+		}
+		return nil
+	}
+	pub, _, _, _, err := ssh.ParseAuthorizedKey(data)
+	if err != nil {
+		log.Trace(ctx, "parse certificate file failed", log.FileAttr(certPath), log.ErrorAttr(err))
+		return nil
+	}
+	cert, ok := pub.(*ssh.Certificate)
+	if !ok {
+		log.Trace(ctx, "not a certificate", log.FileAttr(certPath))
+		return nil
+	}
+	if cert.CertType != ssh.UserCert {
+		log.Trace(ctx, "skipping non-user certificate", log.FileAttr(certPath))
+		return nil
+	}
+	if !bytes.Equal(cert.Key.Marshal(), signer.PublicKey().Marshal()) {
+		log.Trace(ctx, "certificate key does not match identity", log.FileAttr(certPath))
+		return nil
+	}
+	cs, err := ssh.NewCertSigner(cert, signer)
+	if err != nil {
+		log.Trace(ctx, "create cert signer failed", log.FileAttr(certPath), log.ErrorAttr(err))
+		return nil
+	}
+	c.Log().Debug("using certificate for authentication", log.KeyFile, certPath)
+	return cs
+}
+
 // certSignerForSigner tries to find a certificate for signer. Explicit
 // CertificateFile entries are tried first (skipping "none"), then the implicit
-// keyPath+"-cert.pub" as fallback. keyPath must already be expanded (caller's
-// responsibility). Each candidate is expanded with homedir.Expand so that
-// CertificateFile entries set programmatically (without the parser's Finalize)
-// also work. Returns nil when no matching certificate is found.
+// keyPath+"-cert.pub" as fallback unless "none" appears in CertificateFile,
+// which disables certificate loading entirely (matching sshconfig semantics).
+// keyPath must already be expanded (caller's responsibility). Each candidate is
+// expanded with homedir.Expand so that CertificateFile entries set
+// programmatically (without the parser's Finalize) also work. Returns nil when
+// no matching certificate is found.
 func (c *Connection) certSignerForSigner(ctx context.Context, signer ssh.Signer, keyPath string) ssh.Signer {
+	disableImplicit := slices.Contains(c.sshConfig.CertificateFile, "none")
 	candidates := make([]string, 0, len(c.sshConfig.CertificateFile)+1)
 	for _, p := range c.sshConfig.CertificateFile {
 		if p != "none" {
 			candidates = append(candidates, p)
 		}
 	}
-	candidates = append(candidates, keyPath+"-cert.pub")
+	if !disableImplicit {
+		candidates = append(candidates, keyPath+"-cert.pub")
+	}
 	for _, certPath := range candidates {
-		expanded, err := homedir.Expand(certPath)
-		if err != nil {
-			log.Trace(ctx, "expand certificate file path failed", log.FileAttr(certPath), log.ErrorAttr(err))
-			continue
+		if cs := c.certSignerFromFile(ctx, certPath, signer); cs != nil {
+			return cs
 		}
-		certPath = expanded
-		data, err := os.ReadFile(certPath)
-		if err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
-				log.Trace(ctx, "read certificate file failed", log.FileAttr(certPath), log.ErrorAttr(err))
-			}
-			continue
-		}
-		pub, _, _, _, err := ssh.ParseAuthorizedKey(data)
-		if err != nil {
-			log.Trace(ctx, "parse certificate file failed", log.FileAttr(certPath), log.ErrorAttr(err))
-			continue
-		}
-		cert, ok := pub.(*ssh.Certificate)
-		if !ok {
-			log.Trace(ctx, "not a certificate", log.FileAttr(certPath))
-			continue
-		}
-		if !bytes.Equal(cert.Key.Marshal(), signer.PublicKey().Marshal()) {
-			log.Trace(ctx, "certificate key does not match identity", log.FileAttr(certPath))
-			continue
-		}
-		cs, err := ssh.NewCertSigner(cert, signer)
-		if err != nil {
-			log.Trace(ctx, "create cert signer failed", log.FileAttr(certPath), log.ErrorAttr(err))
-			continue
-		}
-		c.Log().Debug("using certificate for authentication", log.KeyFile, certPath)
-		return cs
 	}
 	return nil
 }
