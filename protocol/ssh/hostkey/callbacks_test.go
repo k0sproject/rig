@@ -109,9 +109,15 @@ func TestKnownHostsReadOnlyFileCallbackAcceptsKnownHost(t *testing.T) {
 // restores the original on cleanup.
 func stubLookupHost(t *testing.T, fn func(string) ([]string, error)) {
 	t.Helper()
+	hostkey.LookupHostMu.Lock()
 	prev := *hostkey.LookupHostFunc
 	*hostkey.LookupHostFunc = fn
-	t.Cleanup(func() { *hostkey.LookupHostFunc = prev })
+	hostkey.LookupHostMu.Unlock()
+	t.Cleanup(func() {
+		hostkey.LookupHostMu.Lock()
+		*hostkey.LookupHostFunc = prev
+		hostkey.LookupHostMu.Unlock()
+	})
 }
 
 // writeKnownHostsFile writes the given lines to a temp known_hosts file and

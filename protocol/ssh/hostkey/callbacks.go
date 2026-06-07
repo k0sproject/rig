@@ -17,7 +17,11 @@ import (
 )
 
 // lookupHost resolves a hostname to IP addresses. Overridable in tests.
-var lookupHost = net.LookupHost
+// Access must be serialized with lookupHostMu.
+var (
+	lookupHostMu sync.Mutex
+	lookupHost   = net.LookupHost
+)
 
 const devNull = "/dev/null"
 
@@ -330,7 +334,11 @@ func checkHostIP(rawChecker ssh.HostKeyCallback, host, port string, remote net.A
 		return err
 	}
 
-	addrs, dnsErr := lookupHost(host)
+	lookupHostMu.Lock()
+	resolve := lookupHost
+	lookupHostMu.Unlock()
+
+	addrs, dnsErr := resolve(host)
 	if dnsErr != nil {
 		return nil //nolint:nilerr // DNS resolution failures are non-fatal per doc comment.
 	}
