@@ -388,7 +388,10 @@ func (c *Connection) hostkeyCallback(ctx context.Context) (ssh.HostKeyCallback, 
 
 	permissive := isPermissive(ctx, c)
 	hash := shouldHash(ctx, c)
-	checkIP := c.sshConfig.CheckHostIP.IsTrue()
+	// CheckHostIP is skipped when HostKeyAlias is set: the alias may not resolve
+	// to the actual TCP address, so IP verification against known_hosts would
+	// give wrong results. This matches OpenSSH behaviour.
+	checkIP := c.sshConfig.CheckHostIP.IsTrue() && c.sshConfig.HostKeyAlias == ""
 
 	if checkIP {
 		log.Trace(ctx, "CheckHostIP enabled, IP verification active", log.KeyHost, c)
@@ -675,6 +678,10 @@ func (c *Connection) clientConfig(ctx context.Context) (*ssh.ClientConfig, func(
 	hkc, err := c.hostkeyCallback(ctx)
 	if err != nil {
 		return nil, func() {}, err
+	}
+	if c.sshConfig.HostKeyAlias != "" {
+		log.Trace(ctx, "using HostKeyAlias for known_hosts lookup", log.KeyHost, c, "alias", c.sshConfig.HostKeyAlias)
+		hkc = hostkey.WithAlias(hkc, c.sshConfig.HostKeyAlias)
 	}
 	config.HostKeyCallback = hkc
 

@@ -14,12 +14,14 @@ import (
 	"time"
 
 	"github.com/k0sproject/rig/v2/protocol"
+	"github.com/k0sproject/rig/v2/protocol/ssh/hostkey"
 	"github.com/k0sproject/rig/v2/sshconfig"
 	"github.com/k0sproject/rig/v2/sshconfig/options"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	ssh "golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // withConfigParser temporarily installs a hermetic ssh config parser built from
@@ -826,6 +828,53 @@ func TestHostkeyCallbackCheckHostIPEnabled(t *testing.T) {
 	require.NotNil(t, cb)
 
 	// IP hostname: WithCheckHostIP must skip DNS and accept the known key.
+	require.NoError(t, cb("192.0.2.1:22", addr, signer.PublicKey()))
+}
+
+// TestHostkeyCallbackHostKeyAliasDisablesCheckHostIP verifies that when
+// HostKeyAlias is set, IP verification (CheckHostIP) is suppressed even when
+// CheckHostIP is also enabled. A mismatching key stored under the real IP
+// in known_hosts must not cause ErrHostKeyMismatch.
+func TestHostkeyCallbackHostKeyAliasDisablesCheckHostIP(t *testing.T) {
+	unsetKnownHostsEnv(t)
+
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	signer, err := ssh.NewSignerFromKey(priv)
+	require.NoError(t, err)
+
+	// spoofSigner represents a different key stored under the real IP address —
+	// the entry that CheckHostIP would flag as a mismatch when both are present.
+	_, spoofPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	spoofSigner, err := ssh.NewSignerFromKey(spoofPriv)
+	require.NoError(t, err)
+
+	// Populate known_hosts with the correct key under the alias and a DIFFERENT
+	// key under the actual TCP IP to simulate what CheckHostIP would detect.
+	aliasEntry := knownhosts.Line([]string{knownhosts.Normalize("alias-host:22")}, signer.PublicKey())
+	ipEntry := knownhosts.Line([]string{knownhosts.Normalize("192.0.2.1:22")}, spoofSigner.PublicKey())
+	khPath := filepath.Join(t.TempDir(), "known_hosts")
+	require.NoError(t, os.WriteFile(khPath, []byte(aliasEntry+"\n"+ipEntry+"\n"), 0o600))
+
+	c := &Connection{
+		sshConfig: &sshconfig.Config{
+			UserKnownHostsFile: []string{khPath},
+			CheckHostIP:        options.BooleanOption("yes"),
+			HostKeyAlias:       "alias-host",
+		},
+	}
+
+	cb, err := c.hostkeyCallback(context.Background())
+	require.NoError(t, err)
+
+	// Wrap with alias as clientConfig does.
+	cb = hostkey.WithAlias(cb, "alias-host")
+
+	addr, err := net.ResolveTCPAddr("tcp", "192.0.2.1:22")
+	require.NoError(t, err)
+
+	// Must succeed: alias lookup finds the correct key; IP check is suppressed.
 	require.NoError(t, cb("192.0.2.1:22", addr, signer.PublicKey()))
 }
 

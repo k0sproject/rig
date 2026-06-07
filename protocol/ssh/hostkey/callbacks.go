@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
@@ -158,8 +159,7 @@ func KnownHostsReadOnlyFileCallbackWithIPCheck(path string, permissive bool) (ss
 // is not found in the known_hosts file but instead adds it to the file as new
 // entry.
 func wrapCallback(hkc ssh.HostKeyCallback, path string, permissive, hash bool) ssh.HostKeyCallback {
-	// TODO this should use the HostKeyAlias from the ssh config. It should also support the
-	// "accept-new" of StrictHostNameChecking and possibly some other options.
+	// TODO this should also support the "accept-new" of StrictHostKeyChecking and possibly some other options.
 	return ssh.HostKeyCallback(func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 		mu.Lock()
 		defer mu.Unlock()
@@ -385,6 +385,74 @@ func ensureFile(path string) error {
 		return fmt.Errorf("failed to close known_hosts file: %w", err)
 	}
 	return nil
+}
+
+// aliasAddr wraps a net.Addr but returns alias (with the pre-derived port) from String.
+// This lets the alias be used as the known_hosts entry instead of the real IP.
+// The port is carried explicitly so that non-TCP remote addresses (whose String()
+// may not include a port) produce a consistent entry.
+type aliasAddr struct {
+	alias string
+	port  string
+	orig  net.Addr
+}
+
+func (a aliasAddr) Network() string {
+	if a.orig == nil {
+		return "tcp"
+	}
+	return a.orig.Network()
+}
+
+func (a aliasAddr) String() string {
+	if a.port != "" {
+		return net.JoinHostPort(a.alias, a.port)
+	}
+	return a.alias
+}
+
+// WithAlias wraps callback so that alias replaces the actual hostname for all
+// known_hosts lookups and new-entry storage. This implements the HostKeyAlias
+// ssh_config option: connecting through a bastion or tunnel stores the entry
+// under the logical alias, not the TCP address.
+func WithAlias(callback ssh.HostKeyCallback, alias string) ssh.HostKeyCallback {
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		if alias == "" {
+			return fmt.Errorf("%w: HostKeyAlias must not be empty", ErrHostKeyMismatch)
+		}
+		if strings.IndexFunc(alias, unicode.IsSpace) >= 0 {
+			return fmt.Errorf("%w: HostKeyAlias %q contains whitespace", ErrHostKeyMismatch, alias)
+		}
+		if strings.ContainsRune(alias, ',') {
+			return fmt.Errorf("%w: HostKeyAlias %q contains comma", ErrHostKeyMismatch, alias)
+		}
+		// Reject aliases that already embed a port — the port comes from the
+		// connection, not the alias.
+		if _, _, err := net.SplitHostPort(alias); err == nil {
+			return fmt.Errorf("%w: HostKeyAlias %q must not include a port", ErrHostKeyMismatch, alias)
+		}
+		// Unbracket IPv6 literals so net.JoinHostPort re-brackets correctly
+		// (e.g. "[2001:db8::1]" → "2001:db8::1" → "[2001:db8::1]:22").
+		bareAlias := alias
+		if len(alias) >= 2 && alias[0] == '[' && alias[len(alias)-1] == ']' {
+			bareAlias = alias[1 : len(alias)-1]
+		}
+		_, port, err := net.SplitHostPort(hostname)
+		if err != nil {
+			// hostname has no port — try to derive it from remote
+			port = ""
+			if tcp, ok := remote.(*net.TCPAddr); ok && tcp.Port > 0 {
+				port = strconv.Itoa(tcp.Port)
+			}
+		}
+		var aliasHostname string
+		if port != "" {
+			aliasHostname = net.JoinHostPort(bareAlias, port)
+		} else {
+			aliasHostname = bareAlias
+		}
+		return callback(aliasHostname, aliasAddr{alias: bareAlias, port: port, orig: remote}, key)
+	}
 }
 
 // create human-readable SSH-key strings e.g. "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTY....".

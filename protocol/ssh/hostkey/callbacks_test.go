@@ -237,6 +237,129 @@ func TestWithCheckHostIPDNSFailureIsNonFatal(t *testing.T) {
 	require.NoError(t, wrapped("example.com:22", addr, legit.PublicKey()), "DNS failure must be non-fatal")
 }
 
+func TestWithAliasStoresEntryUnderAlias(t *testing.T) {
+	signer := newTestSigner(t)
+	khFile := writeKnownHostsFile(t) // empty
+
+	base, err := hostkey.KnownHostsFileCallback(khFile, false, false)
+	require.NoError(t, err)
+
+	wrapped := hostkey.WithAlias(base, "my-alias")
+
+	addr, err := net.ResolveTCPAddr("tcp", "10.0.0.5:22")
+	require.NoError(t, err)
+
+	// First call: unknown host → appended under alias, not the IP.
+	require.NoError(t, wrapped("10.0.0.5:22", addr, signer.PublicKey()))
+
+	contents, err := os.ReadFile(khFile)
+	require.NoError(t, err)
+	require.Contains(t, string(contents), "my-alias", "entry must be stored under the alias")
+	require.NotContains(t, string(contents), "10.0.0.5", "real IP must not appear in known_hosts")
+
+	// Second call: now known under alias → accepted without error.
+	require.NoError(t, wrapped("10.0.0.5:22", addr, signer.PublicKey()), "aliased host must be accepted on second connection")
+}
+
+func TestWithAliasLookupByAlias(t *testing.T) {
+	signer := newTestSigner(t)
+
+	// Pre-populate known_hosts with the alias, not the IP.
+	line := knownhosts.Line([]string{knownhosts.Normalize("my-alias:22")}, signer.PublicKey())
+	khFile := writeKnownHostsFile(t, line)
+
+	base, err := hostkey.KnownHostsFileCallback(khFile, false, false)
+	require.NoError(t, err)
+
+	wrapped := hostkey.WithAlias(base, "my-alias")
+
+	addr, err := net.ResolveTCPAddr("tcp", "10.0.0.5:22")
+	require.NoError(t, err)
+
+	require.NoError(t, wrapped("10.0.0.5:22", addr, signer.PublicKey()), "pre-existing alias entry must match")
+}
+
+func TestWithAliasRejectsInvalidAliases(t *testing.T) {
+	signer := newTestSigner(t)
+	khFile := writeKnownHostsFile(t)
+
+	base, err := hostkey.KnownHostsFileCallback(khFile, false, false)
+	require.NoError(t, err)
+
+	addr, err := net.ResolveTCPAddr("tcp", "10.0.0.5:22")
+	require.NoError(t, err)
+
+	invalid := []string{
+		"",                  // empty — produces malformed host pattern
+		"my alias",          // space
+		"tab\there",         // tab
+		"newline\nhere",     // newline
+		"cr\rhere",          // carriage return
+		"host1,host2",       // comma — would inject multiple patterns
+		"example.com:2222",  // alias already contains a port
+		"[::1]:22",          // bracketed IPv6 with port
+	}
+	for _, alias := range invalid {
+		wrapped := hostkey.WithAlias(base, alias)
+		err := wrapped("10.0.0.5:22", addr, signer.PublicKey())
+		require.ErrorIs(t, err, hostkey.ErrHostKeyMismatch, "alias %q must be rejected", alias)
+	}
+}
+
+func TestWithAliasBracketedIPv6(t *testing.T) {
+	signer := newTestSigner(t)
+
+	// Pre-populate known_hosts using the bracketed host+port form that knownhosts.Normalize produces.
+	line := knownhosts.Line([]string{knownhosts.Normalize("[2001:db8::1]:22")}, signer.PublicKey())
+	khFile := writeKnownHostsFile(t, line)
+
+	base, err := hostkey.KnownHostsFileCallback(khFile, false, false)
+	require.NoError(t, err)
+
+	// Caller passes the bracketed form as the alias (as ssh_config may produce).
+	wrapped := hostkey.WithAlias(base, "[2001:db8::1]")
+
+	addr, err := net.ResolveTCPAddr("tcp", "10.0.0.5:22")
+	require.NoError(t, err)
+
+	require.NoError(t, wrapped("10.0.0.5:22", addr, signer.PublicKey()),
+		"bracketed IPv6 alias must be unbracketed before JoinHostPort and match the known_hosts entry")
+}
+
+func TestWithAliasNilRemoteDoesNotPanic(t *testing.T) {
+	signer := newTestSigner(t)
+	khFile := writeKnownHostsFile(t)
+
+	base, err := hostkey.KnownHostsFileCallback(khFile, false, false)
+	require.NoError(t, err)
+
+	wrapped := hostkey.WithAlias(base, "my-alias")
+
+	// nil remote must not panic; the new entry is appended under the alias.
+	require.NotPanics(t, func() {
+		_ = wrapped("10.0.0.5:22", nil, signer.PublicKey())
+	})
+}
+
+func TestWithAliasMismatchedKeyReturnsError(t *testing.T) {
+	right := newTestSigner(t)
+	wrong := newTestSigner(t)
+
+	line := knownhosts.Line([]string{knownhosts.Normalize("my-alias:22")}, right.PublicKey())
+	khFile := writeKnownHostsFile(t, line)
+
+	base, err := hostkey.KnownHostsFileCallback(khFile, false, false)
+	require.NoError(t, err)
+
+	wrapped := hostkey.WithAlias(base, "my-alias")
+
+	addr, err := net.ResolveTCPAddr("tcp", "10.0.0.5:22")
+	require.NoError(t, err)
+
+	err = wrapped("10.0.0.5:22", addr, wrong.PublicKey())
+	require.ErrorIs(t, err, hostkey.ErrHostKeyMismatch)
+}
+
 func TestWithCheckHostIPPermissiveDowngradesToWarning(t *testing.T) {
 	legit := newTestSigner(t)
 	spoof := newTestSigner(t)
