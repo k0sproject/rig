@@ -720,7 +720,7 @@ func TestHostkeyCallbackUserNoneFallsBackToGlobalKnownHostsFile(t *testing.T) {
 		},
 	}
 
-	cb, err := c.hostkeyCallback(context.Background())
+	cb, err := c.hostkeyCallback(context.Background(), false)
 	require.NoError(t, err)
 	require.NotNil(t, cb)
 }
@@ -741,7 +741,7 @@ func TestHostkeyCallbackUserNoneAfterValidPathFallsBackToGlobal(t *testing.T) {
 		},
 	}
 
-	cb, err := c.hostkeyCallback(context.Background())
+	cb, err := c.hostkeyCallback(context.Background(), false)
 	require.NoError(t, err)
 	require.NotNil(t, cb)
 }
@@ -760,7 +760,7 @@ func TestHostkeyCallbackFallsBackToGlobalKnownHostsFile(t *testing.T) {
 		},
 	}
 
-	cb, err := c.hostkeyCallback(context.Background())
+	cb, err := c.hostkeyCallback(context.Background(), false)
 	require.NoError(t, err)
 	require.NotNil(t, cb)
 }
@@ -775,7 +775,7 @@ func TestHostkeyCallbackNoKnownHostsFile(t *testing.T) {
 		},
 	}
 
-	_, err := c.hostkeyCallback(context.Background())
+	_, err := c.hostkeyCallback(context.Background(), false)
 	require.Error(t, err)
 }
 
@@ -791,7 +791,7 @@ func TestHostkeyCallbackSkipsMissingGlobalKnownHostsFile(t *testing.T) {
 		},
 	}
 
-	_, err := c.hostkeyCallback(context.Background())
+	_, err := c.hostkeyCallback(context.Background(), false)
 	require.Error(t, err, "missing global known_hosts must not be created — should fall through to error")
 
 	_, statErr := os.Stat(missing)
@@ -823,7 +823,7 @@ func TestHostkeyCallbackCheckHostIPEnabled(t *testing.T) {
 		},
 	}
 
-	cb, err := c.hostkeyCallback(context.Background())
+	cb, err := c.hostkeyCallback(context.Background(), true)
 	require.NoError(t, err)
 	require.NotNil(t, cb)
 
@@ -865,7 +865,7 @@ func TestHostkeyCallbackHostKeyAliasDisablesCheckHostIP(t *testing.T) {
 		},
 	}
 
-	cb, err := c.hostkeyCallback(context.Background())
+	cb, err := c.hostkeyCallback(context.Background(), false)
 	require.NoError(t, err)
 
 	// Wrap with alias as clientConfig does.

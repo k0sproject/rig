@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"slices"
 	"strconv"
 	"strings"
@@ -27,8 +28,9 @@ import (
 )
 
 const (
-	dialTCP4 = "tcp4"
-	dialTCP6 = "tcp6"
+	dialTCP4      = "tcp4"
+	dialTCP6      = "tcp6"
+	sshConfigNone = "none"
 )
 
 var (
@@ -52,12 +54,53 @@ type Connection struct {
 	once      sync.Once
 	mu        sync.Mutex
 
-	client  *ssh.Client
-	bastion *Connection
+	client               *ssh.Client
+	bastion              *Connection
+	proxyCmd             *exec.Cmd
+	bastionFromProxyJump bool
 
 	done chan struct{}
 
 	keyPaths []string
+}
+
+// wireProxyJumpBastion configures the bastion from ProxyJump when no explicit Bastion is set.
+// Only the first hop is used; multi-hop ProxyJump chains are not supported.
+func (c *Connection) wireProxyJumpBastion(options *Options) error {
+	if c.Bastion != nil || len(c.sshConfig.ProxyJump) == 0 {
+		return nil
+	}
+
+	jump := c.sshConfig.ProxyJump[0]
+	if jump == "" || jump == sshConfigNone {
+		return nil
+	}
+
+	bastionCfg, err := parseProxyJump(jump, c.User)
+	if err != nil {
+		return fmt.Errorf("ProxyJump: %w", err)
+	}
+	// Inherit explicit auth from the main connection so the bastion can
+	// authenticate with the same pre-loaded keys, key path, and passphrase callback.
+	// The bastion connection is established first (before any key is cached), so it
+	// needs the same PasswordCallback to decrypt encrypted identity files.
+	bastionCfg.AuthMethods = c.AuthMethods
+	bastionCfg.KeyPath = c.KeyPath
+	bastionCfg.PasswordCallback = c.PasswordCallback
+	options.InjectLoggerTo(bastionCfg, log.KeyProtocol, "ssh-bastion")
+	c.Bastion = bastionCfg
+	c.bastionFromProxyJump = true
+	c.Log().Debug("using ProxyJump as bastion", "jump", jump)
+	return nil
+}
+
+// configureKeepalive applies the ServerAliveInterval from ssh config if no explicit keepalive option was provided.
+func (c *Connection) configureKeepalive(options *Options) {
+	if options.KeepAliveInterval == nil && c.sshConfig.ServerAliveInterval > 0 {
+		d := c.sshConfig.ServerAliveInterval
+		options.KeepAliveInterval = &d
+		c.Log().Debug("enabling keepalive from ssh config ServerAliveInterval", "interval", d)
+	}
 }
 
 // NewConnection creates a new SSH connection. Error is currently always nil.
@@ -110,15 +153,15 @@ func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
 	}
 	c.Log().Debug("resolved final port", "port", c.Port)
 
+	if err := c.wireProxyJumpBastion(options); err != nil {
+		return nil, err
+	}
+
 	// If no explicit keepalive option was provided, honor ServerAliveInterval from the ssh config.
 	// Note: platform-embedded defaults are included (e.g. macOS defaults to 30s), so a rig binary
 	// built on macOS will enable keepalive for all connections unless explicitly overridden.
 	// Pass WithKeepAlive(0) to disable keepalive regardless of the ssh config value.
-	if options.KeepAliveInterval == nil && c.sshConfig.ServerAliveInterval > 0 {
-		d := c.sshConfig.ServerAliveInterval
-		options.KeepAliveInterval = &d
-		c.Log().Debug("enabling keepalive from ssh config ServerAliveInterval", "interval", d)
-	}
+	c.configureKeepalive(options)
 
 	return c, nil
 }
@@ -261,6 +304,13 @@ func (c *Connection) disconnect() {
 	}
 	c.client.Close()
 	c.client = nil
+	if c.proxyCmd != nil {
+		if c.proxyCmd.Process != nil {
+			_ = c.proxyCmd.Process.Kill()
+			go c.proxyCmd.Wait() //nolint:errcheck
+		}
+		c.proxyCmd = nil
+	}
 	if c.bastion != nil {
 		c.bastion.Disconnect()
 		c.bastion = nil
@@ -382,16 +432,12 @@ func shouldHash(ctx context.Context, c *Connection) bool {
 	return false
 }
 
-func (c *Connection) hostkeyCallback(ctx context.Context) (ssh.HostKeyCallback, error) {
+func (c *Connection) hostkeyCallback(ctx context.Context, checkIP bool) (ssh.HostKeyCallback, error) {
 	knownHostsMU.Lock()
 	defer knownHostsMU.Unlock()
 
 	permissive := isPermissive(ctx, c)
 	hash := shouldHash(ctx, c)
-	// CheckHostIP is skipped when HostKeyAlias is set: the alias may not resolve
-	// to the actual TCP address, so IP verification against known_hosts would
-	// give wrong results. This matches OpenSSH behaviour.
-	checkIP := c.sshConfig.CheckHostIP.IsTrue() && c.sshConfig.HostKeyAlias == ""
 
 	if checkIP {
 		log.Trace(ctx, "CheckHostIP enabled, IP verification active", log.KeyHost, c)
@@ -401,7 +447,7 @@ func (c *Connection) hostkeyCallback(ctx context.Context) (ssh.HostKeyCallback, 
 		if path == "" {
 			return hostkey.InsecureIgnoreHostKeyCallback, nil
 		}
-		c.Log().Debug("using known_hosts file from SSH_KNOWN_HOSTS", log.KeyHost, c, log.KeyFile, path)
+		c.Log().Debug("using known_hosts file from SSH_KNOWN_HOSTS", log.HostAttr(c), log.KeyFile, path)
 		return knownhostsCallback(path, permissive, hash, checkIP)
 	}
 
@@ -409,7 +455,7 @@ func (c *Connection) hostkeyCallback(ctx context.Context) (ssh.HostKeyCallback, 
 
 	// "none" anywhere in the list disables user known_hosts entirely; check
 	// the full list before committing to any path.
-	if !slices.Contains(c.sshConfig.UserKnownHostsFile, "none") {
+	if !slices.Contains(c.sshConfig.UserKnownHostsFile, sshConfigNone) {
 		for _, f := range c.sshConfig.UserKnownHostsFile {
 			log.Trace(ctx, "trying known_hosts file from ssh config", log.KeyHost, c, log.KeyFile, f)
 			exp, err := homedir.Expand(f)
@@ -501,7 +547,7 @@ func mergeSigners(keySigners, agentSigners []ssh.Signer) []ssh.Signer {
 // nil signers with a no-op closer. A successful agent connection is logged at
 // debug level.
 func (c *Connection) loadAgentSigners(ctx context.Context) ([]ssh.Signer, func()) {
-	if string(c.sshConfig.IdentityAgent) == "none" {
+	if string(c.sshConfig.IdentityAgent) == sshConfigNone {
 		log.Trace(ctx, "IdentityAgent is 'none', skipping ssh agent")
 		return nil, func() {}
 	}
@@ -587,10 +633,10 @@ func (c *Connection) certSignerFromFile(ctx context.Context, certPath string, si
 // homedir.Expand so that CertificateFile entries set programmatically also work.
 // Returns nil when no matching certificate is found.
 func (c *Connection) certSignerForSigner(ctx context.Context, signer ssh.Signer, keyPath string) ssh.Signer {
-	hasNone := slices.Contains(c.sshConfig.CertificateFile, "none")
+	hasNone := slices.Contains(c.sshConfig.CertificateFile, sshConfigNone)
 	candidates := make([]string, 0, len(c.sshConfig.CertificateFile)+1)
 	for _, p := range c.sshConfig.CertificateFile {
-		if p != "none" {
+		if p != sshConfigNone {
 			candidates = append(candidates, p)
 		}
 	}
@@ -675,7 +721,11 @@ func (c *Connection) clientConfig(ctx context.Context) (*ssh.ClientConfig, func(
 		User: c.User,
 	}
 
-	hkc, err := c.hostkeyCallback(ctx)
+	// CheckHostIP is skipped when HostKeyAlias is set: the alias may not resolve
+	// to the actual TCP address, so IP verification against known_hosts would
+	// give wrong results. This matches OpenSSH behaviour.
+	checkIP := c.sshConfig.CheckHostIP.IsTrue() && c.sshConfig.HostKeyAlias == ""
+	hkc, err := c.hostkeyCallback(ctx, checkIP)
 	if err != nil {
 		return nil, func() {}, err
 	}
@@ -789,7 +839,7 @@ func (c *Connection) connectViaBastion(ctx context.Context, dst string, config *
 	if !ok {
 		return fmt.Errorf("%w: bastion connection is not an SSH connection", protocol.ErrNonRetryable)
 	}
-	c.Log().Debug("connecting to bastion", log.HostAttr(c), "bastion", bastionSSH)
+	c.Log().Debug("connecting to bastion", log.HostAttr(c), "bastion", net.JoinHostPort(c.Bastion.Address, strconv.Itoa(c.Bastion.Port)))
 	if err := bastionSSH.Connect(ctx); err != nil {
 		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
 			return fmt.Errorf("%w: bastion connect: %w", protocol.ErrNonRetryable, err)
@@ -998,6 +1048,17 @@ func (c *Connection) Connect(ctx context.Context) error {
 
 	dst := net.JoinHostPort(c.Address, strconv.Itoa(c.Port))
 
+	// Intentional behavior: ProxyCommand wins over a ProxyJump-derived bastion.
+	// OpenSSH uses first-match semantics (whichever of ProxyCommand/ProxyJump
+	// appears first in ssh_config wins), but directive order is not preserved by
+	// the sshconfig parser, so that cannot be replicated here. In practice both
+	// directives being set simultaneously is rare (they come from different Host
+	// blocks) and ProxyCommand-wins is a safe default.
+	// An explicitly-configured Bastion (not from ProxyJump) always takes priority.
+	if c.sshConfig.ProxyCommand != "" && c.sshConfig.ProxyCommand != sshConfigNone && (c.Bastion == nil || c.bastionFromProxyJump) {
+		return c.connectViaProxyCommand(ctx, dst, config, agentClose)
+	}
+
 	if c.Bastion != nil {
 		return c.connectViaBastion(ctx, dst, config, agentClose)
 	}
@@ -1085,7 +1146,7 @@ func (c *Connection) pkeySigner(ctx context.Context, agentSigners []ssh.Signer, 
 		}
 
 		if c.PasswordCallback != nil {
-			log.Trace(ctx, "asking for a password to decrypt key", log.HostAttr(c), log.KeyFile, path)
+			log.Trace(ctx, "asking for a password to decrypt key", log.KeyFile, path)
 			pass, err := c.PasswordCallback()
 			if err != nil {
 				return nil, false, skipCache(fmt.Errorf("%w: failed to get password: %w", protocol.ErrNonRetryable, err))
