@@ -167,10 +167,7 @@ func startProxyProcess(pcmd, dst string) (pconn *cmdConn, proc *exec.Cmd, killPr
 		return nil, nil, nil, fmt.Errorf("%w: proxy command start: %w", protocol.ErrNonRetryable, err)
 	}
 	pconn = &cmdConn{stdin: stdinPipe, stdout: stdoutPipe, remote: proxyAddr{hostport: dst}}
-	killProc = func() {
-		_ = proc.Process.Kill()
-		go proc.Wait() //nolint:errcheck
-	}
+	killProc = buildKillFunc(proc)
 	return pconn, proc, killProc, nil
 }
 
@@ -219,14 +216,18 @@ func (c *Connection) connectViaProxyCommand(ctx context.Context, dst string, con
 	case <-dialCtx.Done():
 		_ = pconn.Close()
 		killProc()
-		// Drain the handshake goroutine asynchronously — it may not unblock
-		// immediately even after pipe close/process kill, so blocking here
-		// would defeat context cancellation.
-		go func() {
-			if r := <-resultCh; r.ncc != nil {
+		// resultCh is buffered (cap 1), so a non-blocking receive covers the race
+		// where the handshake completed concurrently with the context firing.
+		// If the goroutine hasn't written yet, the pipe close and process kill above
+		// will cause ssh.NewClientConn to fail; it will then write to the buffered
+		// channel and exit without blocking.
+		select {
+		case r := <-resultCh:
+			if r.ncc != nil {
 				_ = r.ncc.Close()
 			}
-		}()
+		default:
+		}
 		agentClose()
 		return fmt.Errorf("proxy command connect: %w", dialCtx.Err())
 	case result = <-resultCh:
