@@ -216,17 +216,24 @@ func (c *Connection) connectViaProxyCommand(ctx context.Context, dst string, con
 	case <-dialCtx.Done():
 		_ = pconn.Close()
 		killProc()
-		// resultCh is buffered (cap 1), so a non-blocking receive covers the race
-		// where the handshake completed concurrently with the context firing.
-		// If the goroutine hasn't written yet, the pipe close and process kill above
-		// will cause ssh.NewClientConn to fail; it will then write to the buffered
-		// channel and exit without blocking.
+		// Try a non-blocking drain first: if the handshake goroutine already wrote
+		// its result, close any ssh.Conn it produced and we're done.
+		// If it hasn't finished yet, the pipe close and process kill above will
+		// cause ssh.NewClientConn to return (pipe EOF / broken pipe), so the
+		// goroutine will write to the buffered channel and exit without blocking.
+		// The spawned goroutine closes any ssh.Conn that happened to complete just
+		// as the context fired.
 		select {
 		case r := <-resultCh:
 			if r.ncc != nil {
 				_ = r.ncc.Close()
 			}
 		default:
+			go func() {
+				if r := <-resultCh; r.ncc != nil {
+					_ = r.ncc.Close()
+				}
+			}()
 		}
 		agentClose()
 		return fmt.Errorf("proxy command connect: %w", dialCtx.Err())
