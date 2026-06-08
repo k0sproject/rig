@@ -306,8 +306,7 @@ func (c *Connection) disconnect() {
 	c.client = nil
 	if c.proxyCmd != nil {
 		if c.proxyCmd.Process != nil {
-			_ = c.proxyCmd.Process.Kill()
-			go c.proxyCmd.Wait() //nolint:errcheck
+			buildKillFunc(c.proxyCmd)()
 		}
 		c.proxyCmd = nil
 	}
