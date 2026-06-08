@@ -24,6 +24,10 @@ endif
 lint:
 	golangci-lint run -v $(fixparam)
 
+.PHONY: schemas
+schemas:
+	$(MAKE) -C internal/jsonschema
+
 FUZZ_TIME := 10s
 .PHONY: fuzz
 fuzz:

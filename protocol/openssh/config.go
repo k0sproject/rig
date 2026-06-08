@@ -12,13 +12,13 @@ import (
 
 // Config describes the configuration options for an OpenSSH connection.
 type Config struct {
-	Address             string                    `yaml:"address" validate:"required"`
-	User                *string                   `yaml:"user"`
-	Port                *int                      `yaml:"port"`
-	KeyPath             *string                   `yaml:"keyPath,omitempty"`
-	ConfigPath          *string                   `yaml:"configPath,omitempty"`
-	Options             sshconfig.OptionArguments `yaml:"options,omitempty"`
-	DisableMultiplexing bool                      `yaml:"disableMultiplexing,omitempty"`
+	Address             string                    `yaml:"address" json:"address" validate:"required" jsonschema:"required,description=Address of the remote host"`
+	User                *string                   `yaml:"user" json:"user,omitempty" jsonschema:"description=Optional SSH user"`
+	Port                *int                      `yaml:"port" json:"port,omitempty" jsonschema:"minimum=1,maximum=65535,description=Optional SSH port"`
+	KeyPath             *string                   `yaml:"keyPath,omitempty" json:"keyPath,omitempty" jsonschema:"description=Path to SSH private key"`
+	ConfigPath          *string                   `yaml:"configPath,omitempty" json:"configPath,omitempty" jsonschema:"description=Path to SSH config file"`
+	Options             sshconfig.OptionArguments `yaml:"options,omitempty" json:"options,omitempty" jsonschema:"description=Additional SSH options as ssh_config key-value pairs"`
+	DisableMultiplexing bool                      `yaml:"disableMultiplexing,omitempty" json:"disableMultiplexing,omitempty" jsonschema:"default=false,description=Disable SSH connection multiplexing"`
 }
 
 // Connection returns a new OpenSSH connection based on the configuration.

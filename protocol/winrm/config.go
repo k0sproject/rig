@@ -13,19 +13,19 @@ import (
 
 // Config describes the configuration options for a WinRM connection.
 type Config struct {
-	log.LoggerInjectable `yaml:"-"`
-	Address              string      `yaml:"address" validate:"required,hostname_rfc1123|ip"`
-	User                 string      `yaml:"user" validate:"omitempty,gt=2" default:"Administrator"`
-	Port                 int         `yaml:"port" default:"5985" validate:"gt=0,lte=65535"`
-	Password             string      `yaml:"password,omitempty"`
-	UseHTTPS             bool        `yaml:"useHTTPS" default:"false"`
-	Insecure             bool        `yaml:"insecure" default:"false"`
-	UseNTLM              bool        `yaml:"useNTLM" default:"false"`
-	CACertPath           string      `yaml:"caCertPath,omitempty" validate:"omitempty,file"`
-	CertPath             string      `yaml:"certPath,omitempty" validate:"omitempty,file"`
-	KeyPath              string      `yaml:"keyPath,omitempty" validate:"omitempty,file"`
-	TLSServerName        string      `yaml:"tlsServerName,omitempty" validate:"omitempty,hostname_rfc1123|ip"`
-	Bastion              *ssh.Config `yaml:"bastion,omitempty"`
+	log.LoggerInjectable `yaml:"-" json:"-"`
+	Address              string      `yaml:"address" json:"address" validate:"required,hostname_rfc1123|ip" jsonschema:"required,description=Address of the remote host"`
+	User                 string      `yaml:"user" json:"user,omitempty" validate:"omitempty,gt=2" default:"Administrator" jsonschema:"minLength=3,default=Administrator,description=User to authenticate as"`
+	Port                 int         `yaml:"port" json:"port,omitempty" default:"5985" validate:"gt=0,lte=65535" jsonschema:"minimum=1,maximum=65535,description=WinRM port (default 5985, or 5986 when useHTTPS is true)"`
+	Password             string      `yaml:"password,omitempty" json:"password,omitempty" jsonschema:"minLength=1,description=Password for WinRM authentication"`
+	UseHTTPS             bool        `yaml:"useHTTPS" json:"useHTTPS,omitempty" default:"false" jsonschema:"default=false,description=Use HTTPS for WinRM"`
+	Insecure             bool        `yaml:"insecure" json:"insecure,omitempty" default:"false" jsonschema:"default=false,description=Accept invalid TLS certificates"`
+	UseNTLM              bool        `yaml:"useNTLM" json:"useNTLM,omitempty" default:"false" jsonschema:"default=false,description=Use NTLM authentication"`
+	CACertPath           string      `yaml:"caCertPath,omitempty" json:"caCertPath,omitempty" validate:"omitempty,file" jsonschema:"description=Path to CA certificate"`
+	CertPath             string      `yaml:"certPath,omitempty" json:"certPath,omitempty" validate:"omitempty,file" jsonschema:"minLength=1,description=Path to client certificate"`
+	KeyPath              string      `yaml:"keyPath,omitempty" json:"keyPath,omitempty" validate:"omitempty,file" jsonschema:"minLength=1,description=Path to client key"`
+	TLSServerName        string      `yaml:"tlsServerName,omitempty" json:"tlsServerName,omitempty" validate:"omitempty,hostname_rfc1123|ip" jsonschema:"description=TLS server name override"`
+	Bastion              *ssh.Config `yaml:"bastion,omitempty" json:"bastion,omitempty" jsonschema:"description=Optional SSH bastion"`
 }
 
 // SetDefaults sets various default values.
@@ -55,6 +55,20 @@ func (c *Config) SetDefaults() {
 	}
 }
 
+// validateAuth checks that a complete authentication method is configured.
+func (c *Config) validateAuth() error {
+	if c.User == "" && c.Password == "" && c.CertPath == "" && c.KeyPath == "" {
+		return fmt.Errorf("%w: no authentication method set (provide user+password or certPath+keyPath)", protocol.ErrValidationFailed)
+	}
+	if (c.CertPath == "") != (c.KeyPath == "") {
+		return fmt.Errorf("%w: certPath and keyPath must both be set for certificate authentication", protocol.ErrValidationFailed)
+	}
+	if (c.User == "") != (c.Password == "") && c.CertPath == "" {
+		return fmt.Errorf("%w: user and password must both be set for password authentication", protocol.ErrValidationFailed)
+	}
+	return nil
+}
+
 // Validate checks the configuration for any invalid values.
 func (c *Config) Validate() error {
 	if c.Address == "" {
@@ -71,11 +85,7 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if c.User == "" && c.Password == "" && c.CertPath == "" && c.KeyPath == "" {
-		return fmt.Errorf("%w: no authentication method set (user+pass, certificate)", protocol.ErrValidationFailed)
-	}
-
-	return nil
+	return c.validateAuth()
 }
 
 // Connection returns a new WinRM Connection based on the configuration.

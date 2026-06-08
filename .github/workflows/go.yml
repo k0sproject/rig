@@ -23,6 +23,21 @@ jobs:
       run: |
         go test -v ./...
 
+  schema-validation:
+    runs-on: ubuntu-latest
+    needs: unit-test
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+
+    - name: Test schema validation
+      run: go test -v ./...
+      working-directory: internal/jsonschema
+
   govulncheck:
     runs-on: ubuntu-latest
     needs: unit-test

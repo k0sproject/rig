@@ -17,13 +17,13 @@ type PasswordCallback func() (secret string, err error)
 
 // Config describes an SSH connection's configuration.
 type Config struct {
-	log.LoggerInjectable `yaml:"-"`
-	Address              string           `yaml:"address" validate:"required,hostname_rfc1123|ip"`
-	User                 string           `yaml:"user" validate:"required" default:"root"`
-	Port                 int              `yaml:"port" default:"22" validate:"gt=0,lte=65535"`
-	KeyPath              *string          `yaml:"keyPath" validate:"omitempty"`
-	Bastion              *Config          `yaml:"bastion,omitempty"`
-	PasswordCallback     PasswordCallback `yaml:"-"`
+	log.LoggerInjectable `yaml:"-" json:"-"`
+	Address              string           `yaml:"address" json:"address" validate:"required,hostname_rfc1123|ip" jsonschema:"required,description=Address of the remote host (IP or hostname)"`
+	User                 string           `yaml:"user" json:"user,omitempty" validate:"required" default:"root" jsonschema:"minLength=1,default=root,description=User to log in as"`
+	Port                 int              `yaml:"port" json:"port,omitempty" default:"22" validate:"gt=0,lte=65535" jsonschema:"minimum=1,maximum=65535,default=22,description=SSH port (default 22)"`
+	KeyPath              *string          `yaml:"keyPath" json:"keyPath,omitempty" validate:"omitempty" jsonschema:"description=Path to SSH private key"`
+	Bastion              *Config          `yaml:"bastion,omitempty" json:"bastion,omitempty" jsonschema:"description=Optional bastion host"`
+	PasswordCallback     PasswordCallback `yaml:"-" json:"-"`
 
 	// SSHConfigOptions provides supplementary ssh_config options that fill gaps not
 	// covered by the native fields above. They take priority over ~/.ssh/config but
@@ -34,14 +34,14 @@ type Config struct {
 	// connection time. An unknown key name is an error.
 	// See docs/ssh-config-precedence.md for the full precedence rules.
 	// YAML key: options.
-	SSHConfigOptions sshconfig.OptionArguments `yaml:"options,omitempty"`
+	SSHConfigOptions sshconfig.OptionArguments `yaml:"options,omitempty" json:"options,omitempty" jsonschema:"description=Additional SSH options as ssh_config key-value pairs"`
 
 	// AuthMethods can be used to pass in a list of crypto/ssh.AuthMethod objects
 	// for example to use a private key from memory:
 	//   ssh.PublicKeys(privateKey)
 	// For convenience, you can use ParseSSHPrivateKey() to parse a private key:
 	//   authMethods, err := ssh.ParseSSHPrivateKey(key, rig.DefaultPassphraseCallback)
-	AuthMethods []ssh.AuthMethod `yaml:"-"`
+	AuthMethods []ssh.AuthMethod `yaml:"-" json:"-"`
 }
 
 // Connection returns a new Connection object based on the configuration.

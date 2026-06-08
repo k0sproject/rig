@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/k0sproject/rig/v2/ssh",
+  "$ref": "#/$defs/SSH",
+  "$defs": {
+    "OptionArguments": {
+      "type": "object"
+    },
+    "SSH": {
+      "properties": {
+        "address": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "hostname"
+            },
+            {
+              "type": "string",
+              "format": "ipv4"
+            },
+            {
+              "type": "string",
+              "format": "ipv6"
+            }
+          ],
+          "description": "Address of the remote host (IP or hostname)"
+        },
+        "user": {
+          "type": "string",
+          "minLength": 1,
+          "description": "User to log in as",
+          "default": "root"
+        },
+        "port": {
+          "type": "integer",
+          "maximum": 65535,
+          "minimum": 1,
+          "description": "SSH port (default 22)",
+          "default": 22
+        },
+        "keyPath": {
+          "type": "string",
+          "description": "Path to SSH private key"
+        },
+        "bastion": {
+          "$ref": "#/$defs/SSH",
+          "description": "Optional bastion host"
+        },
+        "options": {
+          "$ref": "#/$defs/OptionArguments",
+          "description": "Additional SSH options as ssh_config key-value pairs"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "address"
+      ]
+    }
+  }
+}
