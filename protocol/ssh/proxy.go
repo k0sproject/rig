@@ -230,15 +230,6 @@ func (c *Connection) connectViaProxyCommand(ctx context.Context, dst string, con
 		agentClose()
 		return fmt.Errorf("proxy command connect: %w", dialCtx.Err())
 	case result = <-resultCh:
-		if ctxErr := dialCtx.Err(); ctxErr != nil {
-			if result.ncc != nil {
-				_ = result.ncc.Close()
-			}
-			_ = pconn.Close()
-			killProc()
-			agentClose()
-			return fmt.Errorf("proxy command connect: %w", ctxErr)
-		}
 	}
 
 	agentClose()
