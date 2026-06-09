@@ -38,6 +38,11 @@ jobs:
       run: go test -v ./...
       working-directory: internal/jsonschema
 
+    - name: Check schemas are up to date
+      run: |
+        make -C internal/jsonschema json yaml
+        git diff --exit-code schemas/
+
   govulncheck:
     runs-on: ubuntu-latest
     needs: unit-test
