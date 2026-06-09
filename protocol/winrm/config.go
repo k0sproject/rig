@@ -16,7 +16,7 @@ type Config struct {
 	log.LoggerInjectable `yaml:"-" json:"-"`
 	Address              string      `yaml:"address" json:"address" validate:"required,hostname_rfc1123|ip" jsonschema:"required,description=Address of the remote host"`
 	User                 string      `yaml:"user" json:"user,omitempty" validate:"omitempty,gt=2" default:"Administrator" jsonschema:"minLength=3,default=Administrator,description=User to authenticate as"`
-	Port                 int         `yaml:"port" json:"port,omitempty" default:"5985" validate:"gt=0,lte=65535" jsonschema:"minimum=1,maximum=65535,description=WinRM port (default 5985, or 5986 when useHTTPS is true)"`
+	Port                 int         `yaml:"port" json:"port,omitempty" default:"5985" validate:"gt=0,lte=65535" jsonschema:"minimum=1,maximum=65535,description=WinRM port (default 5985; 5986 when useHTTPS is true)"`
 	Password             string      `yaml:"password,omitempty" json:"password,omitempty" jsonschema:"minLength=1,description=Password for WinRM authentication"`
 	UseHTTPS             bool        `yaml:"useHTTPS" json:"useHTTPS,omitempty" default:"false" jsonschema:"default=false,description=Use HTTPS for WinRM"`
 	Insecure             bool        `yaml:"insecure" json:"insecure,omitempty" default:"false" jsonschema:"default=false,description=Accept invalid TLS certificates"`

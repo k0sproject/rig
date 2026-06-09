@@ -100,7 +100,7 @@
           "type": "integer",
           "maximum": 65535,
           "minimum": 1,
-          "description": "WinRM port (default 5985"
+          "description": "WinRM port (default 5985; 5986 when useHTTPS is true)"
         },
         "password": {
           "type": "string",
