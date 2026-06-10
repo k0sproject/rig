@@ -3,7 +3,6 @@ package os
 
 import (
 	"errors"
-	"fmt"
 )
 
 // ErrArchNotDetected is returned by Arch when no architecture was detected during OS resolution.
@@ -36,6 +35,8 @@ var archNormalize = map[string]string{
 	"arm-32":   archArm,
 	"i386":     arch386,
 	"i686":     arch386,
+	// riscv64
+	"riscv64": "riscv64",
 	// Windows PROCESSOR_ARCHITECTURE values
 	"AMD64":   archAmd64,
 	"X86_64":  archAmd64,
@@ -58,8 +59,9 @@ type Release struct {
 
 // Arch returns the host CPU architecture as a normalized GOARCH string
 // (amd64, arm64, arm, 386). Returns ErrArchNotDetected if the architecture
-// was not detected during OS resolution, or ErrUnrecognizedArch if the raw
-// value is not a known architecture.
+// was not detected during OS resolution. Known architecture values are
+// normalized to their GOARCH equivalents; unrecognized values are returned
+// as-is with a nil error so callers can use the raw value.
 func (o *Release) Arch() (string, error) {
 	if o.arch == "" {
 		return "", ErrArchNotDetected
@@ -67,7 +69,7 @@ func (o *Release) Arch() (string, error) {
 	if goarch, ok := archNormalize[o.arch]; ok {
 		return goarch, nil
 	}
-	return "", fmt.Errorf("%w: %q", ErrUnrecognizedArch, o.arch)
+	return o.arch, nil
 }
 
 // String returns a human readable representation of the release information.

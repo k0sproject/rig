@@ -30,10 +30,12 @@ func TestArch(t *testing.T) {
 		{raw: "AARCH64", want: "arm64"},
 		{raw: "x86", want: "386"},
 		{raw: "I386", want: "386"},
+		// riscv64 normalizes to itself
+		{raw: "riscv64", want: "riscv64"},
+		// unknown arches pass through as-is
+		{raw: "sparc64", want: "sparc64"},
 		// Error cases
 		{raw: "", wantErr: ErrArchNotDetected},
-		{raw: "sparc64", wantErr: ErrUnrecognizedArch},
-		{raw: "riscv64", wantErr: ErrUnrecognizedArch},
 	}
 
 	for _, tc := range tests {
