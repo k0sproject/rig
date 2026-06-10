@@ -114,6 +114,8 @@ func (f *uploadFS) UserHomeDir() string                                   { pani
 func (f *uploadFS) Base(_ string) string                                  { panic("not implemented") }
 func (f *uploadFS) CommandExist(_ string) bool                            { panic("not implemented") }
 func (f *uploadFS) Reboot(_ context.Context) error                        { panic("not implemented") }
+func (f *uploadFS) NativePath(_ string) string                            { panic("not implemented") }
+func (f *uploadFS) ShellQuote(_ string) string                            { panic("not implemented") }
 
 // uploadFile is a minimal File stub that captures written bytes.
 type uploadFile struct {

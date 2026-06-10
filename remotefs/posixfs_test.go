@@ -423,3 +423,42 @@ func TestPosixFSFollow(t *testing.T) {
 		require.Error(t, fs.Follow(context.Background(), path, io.Discard))
 	})
 }
+
+func TestPosixNativePath(t *testing.T) {
+	mr := rigtest.NewMockRunner()
+	pfs := remotefs.NewPosixFS(mr)
+
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{"/usr/local/bin", "/usr/local/bin"},
+		{"relative/path", "relative/path"},
+		{"no-slashes", "no-slashes"},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		require.Equal(t, tc.want, pfs.NativePath(tc.input))
+	}
+}
+
+func TestPosixShellQuote(t *testing.T) {
+	mr := rigtest.NewMockRunner()
+	pfs := remotefs.NewPosixFS(mr)
+
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{"", "''"},
+		{"hello", "hello"},
+		{"hello world", "'hello world'"},
+		{"$var", "'$var'"},
+		{"$(cmd)", "'$(cmd)'"},
+		{"it's", "'it'\"'\"'s'"},
+		{`back\slash`, `'back\slash'`},
+	}
+	for _, tc := range cases {
+		require.Equal(t, tc.want, pfs.ShellQuote(tc.input), "input: %q", tc.input)
+	}
+}

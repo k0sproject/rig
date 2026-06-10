@@ -894,6 +894,16 @@ func (s *PosixFS) Base(p string) string {
 	return path.Base(p)
 }
 
+// NativePath returns the path unchanged; on POSIX systems the native separator is already a forward slash.
+func (s *PosixFS) NativePath(p string) string {
+	return p
+}
+
+// ShellQuote returns a shell-escaped version of str, safe for use as a single argument in a POSIX shell command.
+func (s *PosixFS) ShellQuote(str string) string {
+	return shellescape.Quote(str)
+}
+
 // CommandExist reports whether the named command is available on the remote host.
 func (s *PosixFS) CommandExist(name string) bool {
 	_, err := s.LookPath(name)

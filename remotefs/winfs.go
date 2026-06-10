@@ -370,6 +370,17 @@ func (s *WinFS) CommandExist(name string) bool {
 	return err == nil
 }
 
+// NativePath converts forward slashes in path to backslashes, returning a Windows-native path.
+func (s *WinFS) NativePath(p string) string {
+	return ps.ToWindowsPath(p)
+}
+
+// ShellQuote returns a single-quoted version of str, safe for use as a single argument in a PowerShell command.
+// Single-quoting prevents PowerShell variable interpolation (e.g. $var, $()) and is safe with untrusted input.
+func (s *WinFS) ShellQuote(str string) string {
+	return ps.SingleQuote(str)
+}
+
 // Touch creates a new file with the given name if it does not exist.
 // Without ts, the file's modification time is set to the current time. When ts
 // is supplied, the file's modification time is set to the first timestamp provided.

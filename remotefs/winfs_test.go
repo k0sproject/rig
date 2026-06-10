@@ -352,3 +352,44 @@ func TestWinFSChmod(t *testing.T) {
 	})
 }
 
+func TestWindowsNativePath(t *testing.T) {
+	mr := rigtest.NewMockRunner()
+	mr.Windows = true
+	fs := remotefs.NewWindowsFS(mr)
+
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{"foo/bar/baz", `foo\bar\baz`},
+		{`already\windows`, `already\windows`},
+		{"no-slashes", "no-slashes"},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		require.Equal(t, tc.want, fs.NativePath(tc.input))
+	}
+}
+
+func TestWindowsShellQuote(t *testing.T) {
+	mr := rigtest.NewMockRunner()
+	mr.Windows = true
+	fs := remotefs.NewWindowsFS(mr)
+
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{"hello", "'hello'"},
+		{"hello world", "'hello world'"},
+		{"say 'it'", "'say `'it`''"},
+		{"$var", "'$var'"},
+		{"$(evil)", "'$(evil)'"},
+		{"back`tick", "'back``tick'"},
+		{"", "''"},
+	}
+	for _, tc := range cases {
+		require.Equal(t, tc.want, fs.ShellQuote(tc.input), "input: %q", tc.input)
+	}
+}
+

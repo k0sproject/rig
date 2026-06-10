@@ -88,6 +88,8 @@ func (f *patchFS) UserHomeDir() string                                   { panic
 func (f *patchFS) Base(_ string) string                                  { panic("not implemented") }
 func (f *patchFS) CommandExist(_ string) bool                            { panic("not implemented") }
 func (f *patchFS) Reboot(_ context.Context) error                        { panic("not implemented") }
+func (f *patchFS) NativePath(_ string) string                            { panic("not implemented") }
+func (f *patchFS) ShellQuote(_ string) string                            { panic("not implemented") }
 
 var _ remotefs.FS = (*patchFS)(nil)
 
