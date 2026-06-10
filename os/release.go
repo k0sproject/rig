@@ -8,7 +8,9 @@ import (
 // ErrArchNotDetected is returned by Arch when no architecture was detected during OS resolution.
 var ErrArchNotDetected = errors.New("architecture not detected")
 
-// ErrUnrecognizedArch is returned by Arch when the raw architecture string is not a known value.
+// ErrUnrecognizedArch is no longer returned by Arch; unrecognized values are passed through as-is.
+//
+// Deprecated: Arch now returns raw unrecognized values with a nil error.
 var ErrUnrecognizedArch = errors.New("unrecognized architecture")
 
 const (
@@ -57,11 +59,10 @@ type Release struct {
 	arch        string
 }
 
-// Arch returns the host CPU architecture as a normalized GOARCH string
-// (amd64, arm64, arm, 386). Returns ErrArchNotDetected if the architecture
-// was not detected during OS resolution. Known architecture values are
-// normalized to their GOARCH equivalents; unrecognized values are returned
-// as-is with a nil error so callers can use the raw value.
+// Arch returns the host CPU architecture. Known architecture strings are
+// normalized to their GOARCH equivalents (e.g. "x86_64" → "amd64"). Unrecognized
+// values are returned as-is with a nil error so callers can handle raw platform
+// strings. Returns ErrArchNotDetected if no architecture was detected during OS resolution.
 func (o *Release) Arch() (string, error) {
 	if o.arch == "" {
 		return "", ErrArchNotDetected
