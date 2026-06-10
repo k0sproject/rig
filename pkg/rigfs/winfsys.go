@@ -95,7 +95,7 @@ func (fsys *WinFsys) Remove(name string) error {
 		return fsys.removeDir(name)
 	}
 
-	if err := fsys.conn.Exec(fmt.Sprintf("del %s", ps.DoubleQuotePath(name))); err != nil {
+	if err := fsys.conn.Exec(fmt.Sprintf("cmd.exe /c del %s", ps.DoubleQuotePath(name))); err != nil {
 		return fmt.Errorf("remove %s: %w", name, err)
 	}
 
@@ -108,7 +108,7 @@ func (fsys *WinFsys) RemoveAll(name string) error {
 		return fsys.removeDirAll(name)
 	}
 
-	if err := fsys.conn.Exec(fmt.Sprintf("del %s", ps.DoubleQuotePath(name))); err != nil {
+	if err := fsys.conn.Exec(fmt.Sprintf("cmd.exe /c del %s", ps.DoubleQuotePath(name))); err != nil {
 		return fmt.Errorf("remove %s: %w", name, err)
 	}
 
@@ -116,14 +116,14 @@ func (fsys *WinFsys) RemoveAll(name string) error {
 }
 
 func (fsys *WinFsys) removeDir(name string) error {
-	if err := fsys.conn.Exec(fmt.Sprintf("rmdir /q %s", ps.DoubleQuotePath(name))); err != nil {
+	if err := fsys.conn.Exec(fmt.Sprintf("cmd.exe /c rmdir /q %s", ps.DoubleQuotePath(name))); err != nil {
 		return fmt.Errorf("rmdir %s: %w", name, err)
 	}
 	return nil
 }
 
 func (fsys *WinFsys) removeDirAll(name string) error {
-	if err := fsys.conn.Exec(fmt.Sprintf("rmdir /s /q %s", ps.DoubleQuotePath(name))); err != nil {
+	if err := fsys.conn.Exec(fmt.Sprintf("cmd.exe /c rmdir /s /q %s", ps.DoubleQuotePath(name))); err != nil {
 		return fmt.Errorf("rmdir %s: %w", name, err)
 	}
 
