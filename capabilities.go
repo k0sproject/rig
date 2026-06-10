@@ -1,6 +1,7 @@
 package rig
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -197,4 +198,18 @@ func (c *Client) Capabilities() Capabilities {
 	}
 
 	return caps
+}
+
+// CheckSudo eagerly validates that privileged command execution is available
+// on the remote host. It returns nil if [Client.Sudo] would succeed, or a
+// wrapped error describing why privilege escalation is unavailable.
+//
+// A context is accepted for API consistency and to allow future
+// implementations to perform an active liveness check, but is not used today.
+func (c *Client) CheckSudo(_ context.Context) error {
+	_, err := sudoAvailable(c.SudoRunner())
+	if err != nil {
+		return fmt.Errorf("privilege check failed: %w", err)
+	}
+	return nil
 }

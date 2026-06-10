@@ -152,6 +152,50 @@ func TestClientCapabilities(t *testing.T) {
 	})
 }
 
+func TestCheckSudo(t *testing.T) {
+	ctx := context.Background()
+	mockErr := errors.New("mock error")
+
+	t.Run("success", func(t *testing.T) {
+		conn := rigtest.NewMockConnection()
+		client, err := rig.NewClient(
+			rig.WithConnection(conn),
+			rig.WithSudoProvider(func(_ cmd.Runner) (cmd.Runner, error) {
+				return rigtest.NewMockRunner(), nil
+			}),
+		)
+		require.NoError(t, err)
+		require.NoError(t, client.Connect(ctx))
+		require.NoError(t, client.CheckSudo(ctx))
+	})
+
+	t.Run("provider error", func(t *testing.T) {
+		conn := rigtest.NewMockConnection()
+		client, err := rig.NewClient(
+			rig.WithConnection(conn),
+			rig.WithSudoProvider(func(_ cmd.Runner) (cmd.Runner, error) {
+				return nil, mockErr
+			}),
+		)
+		require.NoError(t, err)
+		require.NoError(t, client.Connect(ctx))
+		require.ErrorIs(t, client.CheckSudo(ctx), mockErr)
+	})
+
+	t.Run("nil runner", func(t *testing.T) {
+		conn := rigtest.NewMockConnection()
+		client, err := rig.NewClient(
+			rig.WithConnection(conn),
+			rig.WithSudoProvider(func(_ cmd.Runner) (cmd.Runner, error) {
+				return nil, nil
+			}),
+		)
+		require.NoError(t, err)
+		require.NoError(t, client.Connect(ctx))
+		require.Error(t, client.CheckSudo(ctx))
+	})
+}
+
 func TestInitSystemString(t *testing.T) {
 	cases := []struct {
 		want string
