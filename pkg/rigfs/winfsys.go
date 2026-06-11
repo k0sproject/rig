@@ -42,7 +42,7 @@ var statCmdTemplate = `if (Test-Path -LiteralPath %[1]s) {
 func (fsys *WinFsys) Stat(name string) (fs.FileInfo, error) {
 	out, err := fsys.conn.ExecOutput(ps.Cmd(fmt.Sprintf(statCmdTemplate, ps.DoubleQuotePath(name))), fsys.opts...)
 	if err != nil {
-		return nil, &fs.PathError{Op: OpStat, Path: name, Err: fmt.Errorf("%w: %w", err, fs.ErrNotExist)}
+		return nil, &fs.PathError{Op: OpStat, Path: name, Err: err}
 	}
 
 	fi := &winFileInfo{fsys: fsys}
