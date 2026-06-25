@@ -296,6 +296,39 @@ type OSSuite struct {
 	ConnectedSuite
 }
 
+// TestSudoCompoundCommands guards against regressing the sudo decorator into handing
+// compound shell expressions to sudo verbatim. v2 already wraps commands in
+// `sudo -n -- "${SHELL-sh}" -c <quoted>` (see sudo.Sudo), so this is a regression guard,
+// not a bug fix. It only has teeth when the suite runs as a non-root user with passwordless
+// escalation (the rig_test_regular_user path in test.sh).
+func (s *OSSuite) TestSudoCompoundCommands() {
+	if s.Host.IsWindows() {
+		s.T().Skip("sudo not supported on windows")
+		return
+	}
+	if _, err := s.Host.Sudo().ExecOutput("true"); err != nil {
+		s.T().Skip("passwordless privilege escalation (sudo/doas) not configured")
+		return
+	}
+
+	s.Run("Pipeline elevates the whole expression", func() {
+		// If only the first stage were wrapped, "id -u" would report the unprivileged
+		// login user's uid instead of 0. The exit code stays 0, so the value must be
+		// asserted, not just the error.
+		out, err := s.Host.Sudo().ExecOutput("true | id -u")
+		s.Require().NoError(err)
+		s.Equal("0", strings.TrimSpace(out))
+	})
+
+	s.Run("Subshell group", func() {
+		// Handing "(exit 1) || echo recovered" to sudo verbatim is a parse error near "("
+		// that aborts the whole line before the "||" branch can run.
+		out, err := s.Host.Sudo().ExecOutput("(exit 1) || echo recovered")
+		s.Require().NoError(err)
+		s.Equal("recovered", strings.TrimSpace(out))
+	})
+}
+
 func (s *OSSuite) TestStat() {
 	s.Run("File does not exist", func() {
 		stat, err := s.fs.Stat(s.TempPath("doesnotexist"))
