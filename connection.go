@@ -266,16 +266,16 @@ func sudoNoop(cmd string) string {
 }
 
 // sudoSudo wraps the command in a shell invocation under sudo. Passing the command to
-// "${SHELL-sh}" -c as a single quoted argument ensures compound expressions (pipes,
+// "${SHELL:-sh}" -c as a single quoted argument ensures compound expressions (pipes,
 // boolean lists, subshells, redirections) and inline KEY=VALUE assignments are interpreted
 // by a shell rather than handed to sudo verbatim. This mirrors the doas decorator and the
 // rig v2 sudo behavior.
 func sudoSudo(cmd string) string {
-	return `sudo -n -- "${SHELL-sh}" -c ` + shellescape.Quote(cmd)
+	return `sudo -n -- "${SHELL:-sh}" -c ` + shellescape.Quote(cmd)
 }
 
 func sudoDoas(cmd string) string {
-	return `doas -n -- "${SHELL-sh}" -c ` + shellescape.Quote(cmd)
+	return `doas -n -- "${SHELL:-sh}" -c ` + shellescape.Quote(cmd)
 }
 
 // sudoWindows is a no-op: the session already has effective administrator privileges.
@@ -295,7 +295,7 @@ func (c *Connection) discoverSudo() {
 			c.SetSudofn(sudoSudo)
 			return
 		}
-		if c.Exec(`doas -n -- "${SHELL-sh}" -c true`) == nil {
+		if c.Exec(`doas -n -- "${SHELL:-sh}" -c true`) == nil {
 			// user has passwordless doas
 			c.SetSudofn(sudoDoas)
 		}

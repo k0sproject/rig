@@ -171,22 +171,22 @@ func TestSudoSudo(t *testing.T) {
 		{
 			name: "simple command",
 			cmd:  "ls /tmp",
-			want: `sudo -n -- "${SHELL-sh}" -c 'ls /tmp'`,
+			want: `sudo -n -- "${SHELL:-sh}" -c 'ls /tmp'`,
 		},
 		{
 			name: "compound command with subshell groups",
 			cmd:  "(systemctl start k0sworker) || (rc-service k0sworker start)",
-			want: `sudo -n -- "${SHELL-sh}" -c '(systemctl start k0sworker) || (rc-service k0sworker start)'`,
+			want: `sudo -n -- "${SHELL:-sh}" -c '(systemctl start k0sworker) || (rc-service k0sworker start)'`,
 		},
 		{
 			name: "pipeline",
 			cmd:  "cat /etc/passwd | grep root",
-			want: `sudo -n -- "${SHELL-sh}" -c 'cat /etc/passwd | grep root'`,
+			want: `sudo -n -- "${SHELL:-sh}" -c 'cat /etc/passwd | grep root'`,
 		},
 		{
 			name: "leading environment assignment",
 			cmd:  "FOO=bar printenv FOO",
-			want: `sudo -n -- "${SHELL-sh}" -c 'FOO=bar printenv FOO'`,
+			want: `sudo -n -- "${SHELL:-sh}" -c 'FOO=bar printenv FOO'`,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
