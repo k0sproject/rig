@@ -309,6 +309,39 @@ func (s *ConfigurerSuite) TestCommandExist() {
 	})
 }
 
+// TestSudoCompoundCommands guards against the regression fixed in #394 (reported
+// against k0smotron#1500): the sudo decorator used to prepend "sudo -- " to the
+// command, handing compound shell expressions to sudo verbatim. This test only has
+// teeth when the suite runs as a non-root user with passwordless escalation (see the
+// rig_test_regular_user path in test.sh); as root the decorator is a no-op.
+func (s *ConfigurerSuite) TestSudoCompoundCommands() {
+	if s.Host.IsWindows() {
+		s.T().Skip("sudo not supported on windows")
+		return
+	}
+	if _, err := s.Host.Sudo("true"); err != nil {
+		s.T().Skip("passwordless privilege escalation (sudo/doas) not configured")
+		return
+	}
+
+	s.Run("Pipeline elevates the whole expression", func() {
+		// Old behavior ran only the first stage under sudo, so "id -u" reported the
+		// unprivileged login user's uid instead of 0. The exit code stayed 0, so the
+		// value must be asserted, not just the error.
+		out, err := s.Host.ExecOutput("true | id -u", exec.Sudo(s.Host))
+		s.Require().NoError(err)
+		s.Equal("0", strings.TrimSpace(out))
+	})
+
+	s.Run("Subshell group", func() {
+		// "sudo -- (exit 1) || echo recovered" is a parse error near "(" that aborts the
+		// whole line before the "||" branch can run, so the old code failed with exit 2.
+		out, err := s.Host.ExecOutput("(exit 1) || echo recovered", exec.Sudo(s.Host))
+		s.Require().NoError(err)
+		s.Equal("recovered", strings.TrimSpace(out))
+	})
+}
+
 func (s *ConfigurerSuite) TestStat() {
 	s.Run("File does not exist", func() {
 		stat, err := s.Host.Configurer.Stat(s.Host, s.TempPath("doesnotexist"))
