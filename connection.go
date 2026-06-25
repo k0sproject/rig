@@ -18,7 +18,6 @@ import (
 	rigos "github.com/k0sproject/rig/os"
 	ps "github.com/k0sproject/rig/pkg/powershell"
 	"github.com/k0sproject/rig/pkg/rigfs"
-	"github.com/mattn/go-shellwords"
 )
 
 const osWindows = "windows"
@@ -266,30 +265,13 @@ func sudoNoop(cmd string) string {
 	return cmd
 }
 
+// sudoSudo wraps the command in a shell invocation under sudo. Passing the command to
+// "${SHELL-sh}" -c as a single quoted argument ensures compound expressions (pipes,
+// boolean lists, subshells, redirections) and inline KEY=VALUE assignments are interpreted
+// by a shell rather than handed to sudo verbatim. This mirrors the doas decorator and the
+// rig v2 sudo behavior.
 func sudoSudo(cmd string) string {
-	parts, err := shellwords.Parse(cmd)
-	if err != nil {
-		return "sudo -- " + cmd
-	}
-
-	var idx int
-	for i, p := range parts {
-		if strings.Contains(p, "=") {
-			idx = i + 1
-			continue
-		}
-		break
-	}
-
-	if idx == 0 {
-		return "sudo -- " + cmd
-	}
-
-	for i, p := range parts {
-		parts[i] = shellescape.Quote(p)
-	}
-
-	return fmt.Sprintf("sudo %s -- %s", strings.Join(parts[0:idx], " "), strings.Join(parts[idx:], " "))
+	return `sudo -n -- "${SHELL-sh}" -c ` + shellescape.Quote(cmd)
 }
 
 func sudoDoas(cmd string) string {
