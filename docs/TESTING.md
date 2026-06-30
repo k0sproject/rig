@@ -1,18 +1,18 @@
 # Testing with rigtest
 
 The `rigtest` package lets you unit-test code that talks to hosts without a real host.
-You program canned responses for the commands your code will run, exercise your logic,
-and assert on what was executed — all in-process.
+You program canned responses for the commands your code will run and you can then assert
+on what was executed.
 
-## Which mock to use
+## Mocks
 
 There are two, and the choice depends on what your code holds a reference to:
 
 - **`MockRunner`** (`rigtest.NewMockRunner()`) is a full `cmd.Runner`. Use it to test code
-  that runs commands directly — anything that calls `Exec`, `ExecOutput`, `ExecContext`,
+  that runs commands directly, anything that calls `Exec`, `ExecOutput`, `ExecContext`,
   `Proc`, etc. on a runner.
 - **`MockConnection`** (`rigtest.NewMockConnection()`) is a `protocol.Connection`. Use it
-  when your code needs a real `*rig.Client` — e.g. you want to drive `client.FS()`,
+  when your code needs a real `*rig.Client`, for example if you want to drive `client.FS()`,
   `client.OS()`, `client.Sudo()`, or `client.Service()`. Hand it to `NewClient`:
 
   ```go
@@ -31,9 +31,9 @@ assertions) works the same on either; reach for the embedded connection
 (`mr.MockConnection`) when an API wants a `protocol.Connection`.
 
 Set `mc.Windows = true` (or `mr.MockConnection.Windows = true`) to make the mock report a
-Windows host, so `IsWindows()`-gated code paths are exercised.
+Windows host, so `IsWindows()` gated code paths are exercised.
 
-## Programming command responses
+## Cannded command responses
 
 Responses are matcher → behavior pairs. The behaviors:
 
@@ -76,7 +76,7 @@ specific matchers before broader ones.
 
 ### What happens to unmatched commands
 
-By default, a command that matches **no** matcher **succeeds with empty output**. This is
+By default, a command that matches no matcher succeeds with empty output. This is
 convenient (you only program the commands you care about) but can hide a typo in your
 code's command string. To make unmatched commands fail instead, set a default error:
 
@@ -138,11 +138,11 @@ rigtest.Trace(func() {
 This is the fastest way to discover, for example, that OS detection runs `cat /etc/os-release`
 rather than whatever you guessed.
 
-## The key gotcha: match the real command, not the method
+## Match the real command, not the method
 
-Mocks match on the **command string that actually runs over the wire**, not on the Go
+Mocks match on the command string that actually runs on the host, not on the Go
 method you called. When you test code that goes through a provider — `client.FS()`,
-`client.OS()`, `client.Service()` — program the matcher for the *underlying* command, not
+`client.OS()`, `client.Service()` create the matcher for the underlying command, not
 the method name. For example, `client.FS().SystemTime()` runs `date -u +%s` on the host, so
 the mock is keyed on that:
 
@@ -150,8 +150,5 @@ the mock is keyed on that:
 mr.AddCommandOutput(rigtest.Contains("date -u +%s"), "1700000000")
 ```
 
-If you're not sure what command a provider emits, use the `Trace` helper above to find out.
-This is also the single most common reason a test breaks during a v0.x → v2 migration: work
-that used to be a `Configurer` method now runs through `h.FS()`, changing the command a
-mock must match. See the "Test and mock migration" section of
-[MIGRATING-from-v0.x.md](MIGRATING-from-v0.x.md).
+If you're not sure what command a provider emits, use the `Trace` helper above or look at the
+source to find out.

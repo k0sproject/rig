@@ -175,7 +175,7 @@ runner.AddCommandOutput(rigtest.Equal("hostname"), "node-01\n")
 out, _ := runner.ExecOutput("hostname")   // "node-01\n" — no host required
 ```
 
-Program command responses, assert on what ran, and capture logs — see
+Program command responses, assert on what ran, and capture logs, see
 **[docs/TESTING.md](docs/TESTING.md)**.
 
 ### Extensible by injection
