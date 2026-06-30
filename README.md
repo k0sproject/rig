@@ -190,6 +190,9 @@ client, _ := rig.NewClient(
 )
 ```
 
+To teach rig about a new package manager, init system, or OS — using the same detection
+registries rig uses internally — see **[docs/EXTENDING.md](docs/EXTENDING.md)**.
+
 ### A complete `ssh_config` parser
 
 The [`sshconfig`](sshconfig/README.md) package is a from-scratch parser for OpenSSH's
