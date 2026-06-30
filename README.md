@@ -175,6 +175,9 @@ runner.AddCommandOutput(rigtest.Equal("hostname"), "node-01\n")
 out, _ := runner.ExecOutput("hostname")   // "node-01\n" — no host required
 ```
 
+Program command responses, assert on what ran, and capture logs — see
+**[docs/TESTING.md](docs/TESTING.md)**.
+
 ### Extensible by injection
 
 Every provider (filesystem, OS release, package manager, init system, logger) can be swapped at construction with a `With*` option, so you can pin behaviour, stub a
