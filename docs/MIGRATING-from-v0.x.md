@@ -29,7 +29,7 @@ client around instead of passing an option.
 
 v0.x routed filesystem and OS operations through a `Configurer` interface implemented
 separately per Linux distro, Windows, Darwin, etc. v2 provides `remotefs.OS` — a
-single interface backed by OS-aware implementations that selects the right
+single interface backed by OS-aware implementations that select the right
 implementation automatically. Operations like `FileExist`, `WriteFile`, `Hostname`,
 `LookPath`, and `TempDir` are now direct method calls on the FS handle.
 

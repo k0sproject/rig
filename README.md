@@ -11,7 +11,7 @@ machine with one consistent, testable API.**
 Connect to a host once and you get command execution, a remote filesystem that
 implements the standard library's `io/fs`, automatic OS/distro detection, sudo
 escalation, service control, and package management the same way whether the
-target is Linux over SSH, Windows over WinRM or the machine you're running  on.
+target is Linux over SSH, Windows over WinRM or the machine you're running on.
 
 <br clear="left"/>
 
@@ -66,7 +66,7 @@ func main() {
 
 ### One API for any transport
 
-The same `*rig.Client` drives the internal go `crypto/ssh` client, the system `ssh` binary (OpenSSH, with connection
+The same `*rig.Client` drives the internal `golang.org/x/crypto/ssh` based client, the system `ssh` binary (OpenSSH, with connection
 multiplexing), WinRM, or the pseudo-connection to local machine. Pick a protocol by handing `NewClient` a
 connection or for config-driven apps or embed `CompositeConfig` / `ClientWithConfig` to your `host` struct:
 
@@ -94,7 +94,7 @@ hosts:
 ```
 
 SSH connections honour your `~/.ssh/config`'s host aliases, `IdentityFile`,
-`UserKnownHostsFile` and a number of other ssh config options. Host-key handling follows OpenSSH conventions and respect and update `~/.ssh/known_hosts`.
+`UserKnownHostsFile` and a number of other ssh config options. Host-key handling follows OpenSSH conventions and respects and updates `~/.ssh/known_hosts`.
 
 ### The remote filesystem is an `fs.FS`
 
@@ -115,7 +115,7 @@ err = fs.WalkDir(fsys, "/var/log", func(p string, d fs.DirEntry, err error) erro
 
 It also exposes a richer, `os`-like surface — `WriteFile`, `MkdirAll`, `Rename`,
 `Chmod`, `Stat`, `OpenFile` (honouring `os.O_EXCL` & friends), plus OS-aware
-`NativePath`/`ShellQuote` so the same code is correct on Windows and Linux targets. The function signatures mimick those found in stdlib. Atomic uploads with checksum verification come built in:
+`NativePath`/`ShellQuote` so the same code is correct on Windows and Linux targets. The function signatures mimic those found in stdlib. Atomic uploads with checksum verification come built in:
 
 ```go
 err = remotefs.Upload(client.FS(), "local/binary", "/usr/local/bin/tool",
@@ -124,7 +124,7 @@ err = remotefs.Upload(client.FS(), "local/binary", "/usr/local/bin/tool",
 
 ### Sudo is just another client
 
-`client.Sudo()` returns a clone of the regular runner whose every command is privilege-escalated (sudo, doas or Windows runas. detected automatically):
+`client.Sudo()` returns a clone of the regular runner whose every command is privilege-escalated (sudo, doas or Windows runas, detected automatically):
 
 ```go
 sudo := client.Sudo()
