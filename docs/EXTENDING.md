@@ -1,18 +1,16 @@
 # Extending rig
 
 Rig detects a host's OS, init system, package manager, and privilege-escalation
-mechanism automatically. When you need to teach it about something it doesn't ship —
+mechanism automatically. When you need to teach it about something it doesn't ship like
 a package manager it doesn't know, a custom init system, an unusual OS — you do it
-through the same **provider registry** mechanism rig uses internally. There is no
-separate plugin API to learn; you register a factory and hand it to `NewClient`.
+through the same **provider registry** mechanism rig uses internally. 
 
 > **Coming from v0.x?** This replaces the `rig/os` modules and the
-> `rig/os/registry` package. The monolithic `Configurer` is gone — its
+> `rig/os/registry` package. The monolithic `Configurer` is gone. Its
 > responsibilities are split across the per-subsystem providers described below.
-> (For an application's *own* OS-dispatch table — the closest analogue to a v0.x
-> configurer — see the "OS module registry" section of
-> [MIGRATING-from-v0.x.md](MIGRATING-from-v0.x.md); that is consumer-side code, not
-> a rig API.)
+> (For an application's *own* OS-dispatch table which is the closest analogue to a v0.x
+> configurer, see the "OS module registry" section of
+> [MIGRATING-from-v0.x.md](MIGRATING-from-v0.x.md).)
 
 ## The provider model
 
@@ -39,9 +37,9 @@ they compose directly. The subsystems and their types:
 
 Each package also exposes a `DefaultRegistry()` (a memoized singleton holding rig's
 built-in factories) and `NewRegistry()` (an empty one). The default client uses
-`packagemanager.DefaultRegistry().Get` and friends.
+`packagemanager.DefaultRegistry().Get` and similar for the other providers.
 
-## Worked example: a custom package manager
+## Example: a custom package manager
 
 A `PackageManager` is three methods:
 
@@ -93,8 +91,9 @@ can't serve, so the registry can fall through to the next candidate.
 
 ### Wiring it in
 
-**Per client (recommended for overrides or isolation).** Build a registry with your
-factory first, add whichever built-ins you still want as fallbacks, and inject it:
+#### Per client
+
+Build a registry with your factory first, add whichever built-ins you still want as fallbacks, and inject it:
 
 ```go
 reg := packagemanager.NewRegistry()
@@ -109,14 +108,15 @@ client, err := rig.NewClient(
 ```
 
 Order matters: factories are tried in registration order, so put a factory that should
-**override** a built-in ahead of it. (To keep every built-in as a fallback without
-listing them, register your factory and then re-register the defaults — or use the
-global approach below if you only want to *add* support, not override it.)
+override a built-in ahead of it. (To keep every built-in as a fallback without
+listing them, register your factory and then re-register the defaults or use the
+global approach below if you only want to add support, not override it.)
 
-**Globally (simplest, when you only add support).** Append your factory to the shared
-default registry from an `init()`. It becomes available to every client built with
-default options. Because built-ins are registered first, yours is used only when none of
-them match — which is exactly right for a genuinely new package manager:
+#### Globally
+
+Append your factory to the shared default registry from an `init()`. It becomes available to
+every client built with default options. Because built-ins are registered first, yours is
+used only when none of them match:
 
 ```go
 func init() {
@@ -124,11 +124,11 @@ func init() {
 }
 ```
 
-## Init system and OS release follow the same shape
+## Init system and OS release
 
 The mechanism is identical; only the factory's input/output types differ.
 
-**Init system** — implement `initsystem.ServiceManager` (`StartService`, `StopService`,
+For init system, implement `initsystem.ServiceManager` (`StartService`, `StopService`,
 `EnableService`, `DisableService`, `ServiceIsRunning`, `ServiceScriptPath`), then:
 
 ```go
@@ -143,40 +143,36 @@ func RegisterMyInit(reg *initsystem.Registry) {
 // rig.NewClient(rig.WithConnection(conn), rig.WithInitSystemProvider(reg.Get))
 ```
 
-**OS release** — return a populated `*rigos.Release` (the `os` package is conventionally
-imported as `rigos` to avoid clashing with the standard library's `os`):
+OS releases return a populated `*rigos.Release`:
 
 ```go
-import rigos "github.com/k0sproject/rig/v2/os"
+import os "github.com/k0sproject/rig/v2/os"
 
-func RegisterMyOS(reg *rigos.Registry) {
-	reg.Register(func(c cmd.SimpleRunner) (*rigos.Release, bool) {
+func RegisterMyOS(reg *os.Registry) {
+	reg.Register(func(c cmd.SimpleRunner) (*os.Release, bool) {
 		if c.Exec("test -f /etc/myos-release") != nil {
 			return nil, false
 		}
-		return &rigos.Release{ID: "myos", Version: "1.0"}, true
+		return &os.Release{ID: "myos", Version: "1.0"}, true
 	})
 }
 // rig.NewClient(rig.WithConnection(conn), rig.WithOSReleaseProvider(reg.Get))
 ```
 
-`sudo` (factory takes a `cmd.Runner` and returns a sudo-decorated `cmd.Runner`) and
+`sudo` (factory takes a `cmd.Runner` and returns a sudo-decorating `cmd.Runner`) and
 `remotefs` work the same way through `WithSudoProvider` and `WithRemoteFSProvider`.
 
 ## When a one-off stub is enough
 
-If you don't need host detection at all — for tests, or to pin a value — skip the
+If you don't need host detection at all for tests, or to pin a value, skip the
 registry and pass a provider function directly. It has the same signature as
 `Registry.Get`:
 
 ```go
 client, _ := rig.NewClient(
 	rig.WithConnection(conn),
-	rig.WithOSReleaseProvider(func(cmd.SimpleRunner) (*rigos.Release, error) {
-		return &rigos.Release{ID: "alpine", Version: "3.18.0"}, nil
+	rig.WithOSReleaseProvider(func(cmd.SimpleRunner) (*os.Release, error) {
+		return &os.Release{ID: "alpine", Version: "3.18.0"}, nil
 	}),
 )
 ```
-
-This is the right tool for stubbing a subsystem in a unit test; the registry pattern is
-for adding real, detected support.
