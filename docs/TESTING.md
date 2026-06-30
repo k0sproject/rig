@@ -33,7 +33,7 @@ assertions) works the same on either; reach for the embedded connection
 Set `mc.Windows = true` (or `mr.MockConnection.Windows = true`) to make the mock report a
 Windows host, so `IsWindows()` gated code paths are exercised.
 
-## Cannded command responses
+## Canned command responses
 
 Responses are matcher → behavior pairs. The behaviors:
 

@@ -129,7 +129,7 @@ err = remotefs.Upload(client.FS(), "local/binary", "/usr/local/bin/tool",
 ```go
 sudo := client.Sudo()
 sudo.Exec("systemctl restart k0s")            // runs as root
-err := sudo.FS().WriteFile("/etc/motd", b, 0o644)
+err := sudo.FS().WriteFile("/etc/motd", []byte("hello\n"), 0o644)
 if err := client.CheckSudo(ctx); err != nil { /* escalation unavailable */ }
 ```
 
