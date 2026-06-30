@@ -2,8 +2,8 @@
 
 Rig detects a host's OS, init system, package manager, and privilege-escalation
 mechanism automatically. When you need to teach it about something it doesn't ship like
-a package manager it doesn't know, a custom init system, an unusual OS — you do it
-through the same **provider registry** mechanism rig uses internally. 
+a package manager it doesn't know (until you make a PR), you do it through the same
+provider registry mechanism rig uses internally. 
 
 > **Coming from v0.x?** This replaces the `rig/os` modules and the
 > `rig/os/registry` package. The monolithic `Configurer` is gone. Its
