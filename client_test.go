@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/k0sproject/rig/v2"
@@ -13,6 +15,7 @@ import (
 	"github.com/k0sproject/rig/v2/packagemanager"
 	"github.com/k0sproject/rig/v2/remotefs"
 	"github.com/k0sproject/rig/v2/rigtest"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v2"
 )
@@ -402,4 +405,199 @@ func TestClientExecInteractiveNotSupported(t *testing.T) {
 	err = client.ExecInteractive(context.Background(), "sh", nil, nil, nil)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "interactive")
+}
+
+var errNotRoot = errors.New("not root")
+
+// forceSudo makes the sudo registry deterministically select the "sudo"
+// decorator against a mock connection. The mock otherwise succeeds on every
+// command, which the root check would read as "already root" and both the sudo
+// and doas probes would pass (leaving the choice to registry iteration order).
+// It fails the UID0/root probe and the doas probe so only sudo qualifies.
+func forceSudo(conn *rigtest.MockConnection) {
+	conn.AddCommand(rigtest.Contains("id -u"), func(_ *rigtest.A) error { return errNotRoot })
+	conn.AddCommand(rigtest.Contains("doas -n"), func(_ *rigtest.A) error { return errNotRoot })
+}
+
+// gateRecorder records the commands presented to a CommandGate and can be
+// configured to allow or deny them.
+type gateRecorder struct {
+	mu    sync.Mutex
+	seen  []string
+	allow bool
+}
+
+func (g *gateRecorder) confirm(_, command string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.seen = append(g.seen, command)
+	return g.allow
+}
+
+func (g *gateRecorder) commands() []string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return append([]string(nil), g.seen...)
+}
+
+func TestConfirmFuncGatesSudoCommandOnce(t *testing.T) {
+	conn := rigtest.NewMockConnection()
+	forceSudo(conn)
+	conn.AddCommand(rigtest.Contains("systemctl restart nginx"), func(_ *rigtest.A) error { return nil })
+
+	rec := &gateRecorder{allow: true}
+	client, err := rig.NewClient(rig.WithConnection(conn), rig.WithConfirmFunc(rec.confirm))
+	require.NoError(t, err)
+	require.NoError(t, client.Connect(context.Background()))
+
+	require.NoError(t, client.Sudo().ExecContext(context.Background(), "systemctl restart nginx"))
+
+	seen := rec.commands()
+	// Exactly one prompt: the sudo-availability probe is Ungated and must not
+	// be presented, and the sudo wrapping must not cause a double prompt.
+	require.Len(t, seen, 1, "expected exactly one gated command, got %v", seen)
+	assert.Contains(t, seen[0], "systemctl restart nginx")
+	assert.Contains(t, seen[0], "sudo -n", "gate must see the fully sudo-wrapped command")
+}
+
+func TestConfirmFuncSudoProbeIsUngated(t *testing.T) {
+	conn := rigtest.NewMockConnection()
+	forceSudo(conn)
+
+	rec := &gateRecorder{allow: false} // deny everything
+	client, err := rig.NewClient(rig.WithConnection(conn), rig.WithConfirmFunc(rec.confirm))
+	require.NoError(t, err)
+	require.NoError(t, client.Connect(context.Background()))
+
+	// Denying the gate must not disable sudo: the probe runs Ungated, so the
+	// sudo runner is a real sudo executor and rejection surfaces on the actual
+	// command rather than silently downgrading to a non-sudo runner.
+	err = client.Sudo().ExecContext(context.Background(), "id")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, cmd.ErrCommandRejected)
+
+	// All privilege probes (sudo/doas availability, UID-0) are Ungated, so the
+	// only command the gate should have seen is the real, sudo-wrapped "id".
+	// A leaked probe would show up as an extra entry here.
+	seen := rec.commands()
+	require.Len(t, seen, 1, "gate must see only the real command, not the ungated probes; got %v", seen)
+	assert.Contains(t, seen[0], "id", "gate must see the real command")
+	assert.NotContains(t, seen[0], "true", "the sudo probe (true) must not be presented to the gate")
+}
+
+func TestConfirmFuncRejectionBlocksExecution(t *testing.T) {
+	conn := rigtest.NewMockConnection()
+	conn.AddCommand(rigtest.Match("."), func(_ *rigtest.A) error { return nil })
+
+	rec := &gateRecorder{allow: false}
+	client, err := rig.NewClient(rig.WithConnection(conn), rig.WithConfirmFunc(rec.confirm))
+	require.NoError(t, err)
+	require.NoError(t, client.Connect(context.Background()))
+
+	err = client.ExecContext(context.Background(), "rm -rf /data")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, cmd.ErrCommandRejected)
+	assert.NoError(t, conn.NotReceived(rigtest.Contains("rm -rf /data")), "rejected command must not reach the host")
+}
+
+func TestCommandGateContextErrorNotRejection(t *testing.T) {
+	conn := rigtest.NewMockConnection()
+	conn.AddCommand(rigtest.Match("."), func(_ *rigtest.A) error { return nil })
+
+	// A gate that returns a context error (e.g. it honored cancellation while
+	// prompting) must surface as cancellation, not as an explicit rejection.
+	gate := cmd.CommandGateFunc(func(_ context.Context, _, _ string) error {
+		return context.Canceled
+	})
+	client, err := rig.NewClient(rig.WithConnection(conn), rig.WithCommandGate(gate))
+	require.NoError(t, err)
+	require.NoError(t, client.Connect(context.Background()))
+
+	err = client.ExecContext(context.Background(), "uptime")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled, "context error must pass through")
+	assert.NotErrorIs(t, err, cmd.ErrCommandRejected, "cancellation must not look like a rejection")
+	assert.NoError(t, conn.NotReceived(rigtest.Contains("uptime")), "command must not reach the host")
+}
+
+func TestConfirmFuncNilDisablesGating(t *testing.T) {
+	conn := rigtest.NewMockConnection()
+	conn.AddCommand(rigtest.Match("."), func(_ *rigtest.A) error { return nil })
+
+	client, err := rig.NewClient(rig.WithConnection(conn), rig.WithConfirmFunc(nil))
+	require.NoError(t, err)
+	require.NoError(t, client.Connect(context.Background()))
+
+	// A nil confirm func must disable gating rather than panic on invocation.
+	require.NoError(t, client.ExecContext(context.Background(), "echo hello"))
+	require.NoError(t, conn.Received(rigtest.Contains("echo hello")))
+}
+
+func TestConfirmFuncGatesExecInteractive(t *testing.T) {
+	conn := &interactiveConn{MockConnection: rigtest.NewMockConnection()}
+
+	rec := &gateRecorder{allow: true}
+	client, err := rig.NewClient(rig.WithConnection(conn), rig.WithConfirmFunc(rec.confirm))
+	require.NoError(t, err)
+	require.NoError(t, client.Connect(context.Background()))
+
+	require.NoError(t, client.ExecInteractive(context.Background(), "top", nil, nil, nil))
+	assert.Equal(t, "top", conn.receivedCmd, "allowed interactive command must start the session")
+	assert.Contains(t, rec.commands(), "top", "the interactive command must be presented to the gate")
+}
+
+func TestConfirmFuncRejectsExecInteractive(t *testing.T) {
+	conn := &interactiveConn{MockConnection: rigtest.NewMockConnection()}
+
+	rec := &gateRecorder{allow: false}
+	client, err := rig.NewClient(rig.WithConnection(conn), rig.WithConfirmFunc(rec.confirm))
+	require.NoError(t, err)
+	require.NoError(t, client.Connect(context.Background()))
+
+	err = client.ExecInteractive(context.Background(), "top", nil, nil, nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, cmd.ErrCommandRejected)
+	assert.Empty(t, conn.receivedCmd, "rejected interactive command must not start the session")
+}
+
+func TestExecInteractiveCancelledContextSkipsGate(t *testing.T) {
+	conn := &interactiveConn{MockConnection: rigtest.NewMockConnection()}
+
+	rec := &gateRecorder{allow: true}
+	client, err := rig.NewClient(rig.WithConnection(conn), rig.WithConfirmFunc(rec.confirm))
+	require.NoError(t, err)
+	require.NoError(t, client.Connect(context.Background()))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err = client.ExecInteractive(ctx, "top", nil, nil, nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled, "cancelled context must propagate")
+	assert.NotErrorIs(t, err, cmd.ErrCommandRejected, "cancellation must not look like a rejection")
+	assert.Empty(t, rec.commands(), "gate must not be consulted for a cancelled session")
+	assert.Empty(t, conn.receivedCmd, "cancelled session must not start")
+}
+
+func TestConfirmFuncGatesFilesystemOps(t *testing.T) {
+	conn := rigtest.NewMockConnection()
+	forceSudo(conn)
+
+	rec := &gateRecorder{allow: true}
+	client, err := rig.NewClient(rig.WithConnection(conn), rig.WithConfirmFunc(rec.confirm))
+	require.NoError(t, err)
+	require.NoError(t, client.Connect(context.Background()))
+
+	// Touch the filesystem service on the sudo client; its lazy detection runs
+	// commands through the sudo runner, proving the gate propagates to FS.
+	_, _ = client.Sudo().FS().Stat("/etc/hostname")
+
+	var sawSudoWrapped bool
+	for _, c := range rec.commands() {
+		if strings.Contains(c, "sudo -n") {
+			sawSudoWrapped = true
+			break
+		}
+	}
+	assert.True(t, sawSudoWrapped, "filesystem operations on a sudo client must be gated, got %v", rec.commands())
 }

@@ -133,6 +133,43 @@ func ExampleClient_Sudo() {
 	// uid=0(root)
 }
 
+// ExampleWithConfirmFunc demonstrates gating every command behind a
+// confirmation callback. The callback receives the host and the redacted
+// command; returning false aborts the command with [cmd.ErrCommandRejected]
+// before it reaches the host. This applies to the client and every runner it
+// derives (sudo, filesystem, services).
+func ExampleWithConfirmFunc() {
+	conn := rigtest.NewMockConnection()
+	conn.AddCommand(rigtest.Match("."), func(_ *rigtest.A) error { return nil })
+
+	client, err := rig.NewClient(
+		rig.WithConnection(conn),
+		rig.WithConfirmFunc(func(_, command string) bool {
+			allowed := !strings.Contains(command, "rm -rf")
+			fmt.Printf("confirm %q -> %v\n", command, allowed)
+			return allowed
+		}),
+	)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	// An approved command runs normally.
+	if err := client.Exec("systemctl restart nginx"); err != nil {
+		fmt.Println("restart:", err)
+	}
+
+	// A rejected command never reaches the host.
+	if err := client.Exec("rm -rf /important"); errors.Is(err, cmd.ErrCommandRejected) {
+		fmt.Println("blocked")
+	}
+	// Output:
+	// confirm "systemctl restart nginx" -> true
+	// confirm "rm -rf /important" -> false
+	// blocked
+}
+
 // ExampleClient_FS demonstrates using Client.FS to read a file from the remote
 // host via the fs.FS interface.
 func ExampleClient_FS() {

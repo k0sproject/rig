@@ -50,6 +50,7 @@ type Executor struct {
 	isWin      func() bool
 	osKnown    atomic.Bool
 	tracer     Tracer
+	gate       CommandGate
 }
 
 func isWinFunc(conn protocol.ProcessStarter) func() bool {
@@ -80,6 +81,16 @@ func NewExecutor(conn protocol.ProcessStarter, decorators ...DecorateFunc) *Exec
 // command-execution method.
 func (r *Executor) SetTracer(t Tracer) {
 	r.tracer = t
+}
+
+// SetCommandGate installs a [CommandGate] that is consulted by the Start and
+// Exec family of methods before a command runs. A nil gate disables gating.
+// The gate is not consulted by [Executor.StartProcess], which exists only to
+// satisfy the connection interface for runner chaining. SetCommandGate must
+// not be called concurrently with Start, Exec, or any other command-execution
+// method.
+func (r *Executor) SetCommandGate(gate CommandGate) {
+	r.gate = gate
 }
 
 func (r *Executor) formatCommandForOS(command string, execOpts *ExecOptions, isWindows bool) string {
@@ -285,9 +296,38 @@ func decodeEncoded(cmd string) string {
 	return strings.Join(parts, " ")
 }
 
+// closeAll closes every closer, ignoring individual close errors.
+func closeAll(closers []io.Closer) {
+	for _, c := range closers {
+		_ = c.Close()
+	}
+}
+
+// gateCommand consults the runner's [CommandGate] for the given command, which
+// must already be in redacted, human-readable form. It returns nil when there
+// is no gate, when the command opts out via [Ungated], or when the gate allows
+// the command. A non-nil return means the command must not be started: a
+// rejection wraps [ErrCommandRejected], while a context cancellation/deadline
+// is wrapped without [ErrCommandRejected] so that errors.Is reports the context
+// error but not a rejection, letting callers tell the two apart.
+func (r *Executor) gateCommand(ctx context.Context, execOpts *ExecOptions, redacted string) error {
+	if r.gate == nil || execOpts.SkipGate() {
+		return nil
+	}
+	err := r.gate.AllowCommand(ctx, r.String(), redacted)
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		log.Trace(ctx, "command gate cancelled", log.HostAttr(r), log.KeyCommand, redacted, log.KeyError, err)
+		return fmt.Errorf("command gate: %w", err)
+	}
+	log.Trace(ctx, "command rejected by gate", log.HostAttr(r), log.KeyCommand, redacted, log.KeyError, err)
+	return fmt.Errorf("%w: %w", ErrCommandRejected, err)
+}
+
 // Start starts the command and returns a Waiter.
 func (r *Executor) Start(ctx context.Context, command string, opts ...ExecOption) (protocol.Waiter, error) {
-	log.Trace(ctx, "starting command", log.HostAttr(r), log.KeyCommand, command)
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("runner context error: %w", ctx.Err())
 	}
@@ -320,8 +360,24 @@ func (r *Executor) Start(ctx context.Context, command string, opts ...ExecOption
 	// non-prefixed commands through cmd.exe.
 	cmd := r.formatCommand(command, execOpts)
 
+	// redactedCmd is the human-readable command (secrets masked, PowerShell
+	// -EncodedCommand decoded), computed once and reused for gating and every
+	// log line below. Tracer callbacks deliberately receive the raw formatted
+	// cmd, as their contract documents.
+	redactedCmd := execOpts.Redact(decodeEncoded(cmd))
+
+	// Consult the gate before emitting any command-logging or tracer
+	// lifecycle events so a rejected command produces no dangling
+	// "executing"/CommandFormatted/ProcessStarted events.
+	if err := r.gateCommand(ctx, execOpts, redactedCmd); err != nil {
+		closeAll(traceClosers)
+		return nil, err
+	}
+
+	log.Trace(ctx, "starting command", log.HostAttr(r), log.KeyCommand, redactedCmd)
+
 	if execOpts.LogCommand() {
-		r.Log().Debug("executing command", log.KeyCommand, execOpts.Redact(decodeEncoded(cmd)))
+		r.Log().Debug("executing command", log.KeyCommand, redactedCmd)
 	}
 
 	if tracer != nil {
@@ -334,18 +390,14 @@ func (r *Executor) Start(ctx context.Context, command string, opts ...ExecOption
 
 	waiter, err := r.connection.StartProcess(ctx, cmd, execOpts.Stdin(), stdout, stderr) //nolint:contextcheck // Stdin() uses trace logger which takes context
 	if err != nil {
-		for _, c := range traceClosers {
-			_ = c.Close()
-		}
-		log.Trace(ctx, "start process failed", log.HostAttr(r), log.KeyCommand, cmd, log.KeyError, err)
+		closeAll(traceClosers)
+		log.Trace(ctx, "start process failed", log.HostAttr(r), log.KeyCommand, redactedCmd, log.KeyError, err)
 		return nil, fmt.Errorf("runner start command: %w", err)
 	}
 
 	if waiter == nil {
-		for _, c := range traceClosers {
-			_ = c.Close()
-		}
-		log.Trace(ctx, "start process returned nil waiter", log.HostAttr(r), log.KeyCommand, cmd, log.KeyError, err)
+		closeAll(traceClosers)
+		log.Trace(ctx, "start process returned nil waiter", log.HostAttr(r), log.KeyCommand, redactedCmd, log.KeyError, errInternal)
 		return nil, fmt.Errorf("%w: connection returned no error but a nil waiter", errInternal)
 	}
 
@@ -405,20 +457,22 @@ func (r *Executor) ExecOutputContext(ctx context.Context, command string, opts .
 
 	opts = append(opts, Stdout(out))
 
-	log.Trace(ctx, "starting command for execoutput", log.HostAttr(r), log.KeyCommand, command)
+	// Start gates the command and logs it once in its canonical redacted,
+	// decoded, fully decorated form. These traces only mark the execoutput
+	// lifecycle, so they deliberately omit the command to avoid re-deriving
+	// (and drifting from) that canonical form.
 	proc, err := r.Start(ctx, command, opts...)
 	if err != nil {
 		return "", fmt.Errorf("start command: %w", err)
 	}
-	log.Trace(ctx, "waiting on command", log.HostAttr(r), log.KeyCommand, command)
+	log.Trace(ctx, "waiting on command", log.HostAttr(r))
 	if err := proc.Wait(); err != nil {
-		log.Trace(ctx, "waiting returned an error", log.HostAttr(r), log.KeyCommand, command, log.KeyError, err)
+		log.Trace(ctx, "waiting returned an error", log.HostAttr(r), log.KeyError, err)
 		return "", fmt.Errorf("command result: %w", err)
 	}
 
-	log.Trace(ctx, "command finished", log.HostAttr(r), log.KeyCommand, command)
-	execOpts := Build(opts...)
-	return execOpts.FormatOutput(out.String()), nil
+	log.Trace(ctx, "command finished", log.HostAttr(r))
+	return Build(opts...).FormatOutput(out.String()), nil
 }
 
 // ExecOutput executes the command and returns the stdout output or an error.
@@ -435,14 +489,17 @@ func (r *Executor) ExecReaderContext(ctx context.Context, command string, opts .
 		return pipeR
 	}
 	opts = append(opts, Stdout(pipeW))
+	// ExecContext -> Start gates and logs the command once in its canonical
+	// redacted, decoded form. These traces only mark the execreader lifecycle,
+	// so they deliberately omit the command to avoid re-deriving it here.
 	go func() {
 		if err := r.ExecContext(ctx, command, opts...); err != nil {
-			log.Trace(ctx, "execreader: execcontext returned an error", log.HostAttr(r), log.KeyCommand, command, log.KeyError, err)
+			log.Trace(ctx, "execreader: execcontext returned an error", log.HostAttr(r), log.KeyError, err)
 			pipeW.CloseWithError(fmt.Errorf("exec reader: %w", err))
 		} else {
 			pipeW.Close()
 		}
-		log.Trace(ctx, "execreader: execcontext finished", log.HostAttr(r), log.KeyCommand, command)
+		log.Trace(ctx, "execreader: execcontext finished", log.HostAttr(r))
 	}()
 	return pipeR
 }

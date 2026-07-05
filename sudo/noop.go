@@ -15,7 +15,9 @@ func RegisterUID0Noop(repository *Registry) {
 		if c.IsWindows() {
 			return nil, false
 		}
-		if c.Exec(`[ "$(id -u)" = 0 ]`) != nil {
+		// Ungated: a CommandGate that rejects this probe would silently change
+		// sudo detection, so it must always run.
+		if c.Exec(`[ "$(id -u)" = 0 ]`, cmd.Ungated()) != nil {
 			return nil, false
 		}
 		return cmd.NewExecutor(c, Noop), true
