@@ -17,9 +17,9 @@ func TestCmdGolden(t *testing.T) {
 		want  string
 	}{
 		{
-			name:  "simple one-liner uses -Command",
+			name:  "simple one-liner is base64 encoded",
 			input: "Get-Service k0s",
-			want:  `powershell.exe -NonInteractive -ExecutionPolicy Unrestricted -NoP -Command "$ProgressPreference='SilentlyContinue'; Get-Service k0s"`,
+			want:  `powershell.exe -NonInteractive -ExecutionPolicy Unrestricted -NoP -E JABQAHIAbwBnAHIAZQBzAHMAUAByAGUAZgBlAHIAZQBuAGMAZQA9ACcAUwBpAGwAZQBuAHQAbAB5AEMAbwBuAHQAaQBuAHUAZQAnADsAIABHAGUAdAAtAFMAZQByAHYAaQBjAGUAIABrADAAcwA=`,
 		},
 		{
 			name:  "pipe metachar forces -EncodedCommand",
@@ -39,7 +39,7 @@ func TestCmdGolden(t *testing.T) {
 		{
 			name:  "begin block skips ProgressPreference prefix",
 			input: "begin { $x = 1 } process { Write-Output $x }",
-			want:  `powershell.exe -NonInteractive -ExecutionPolicy Unrestricted -NoP -Command "begin { $x = 1 } process { Write-Output $x }"`,
+			want:  `powershell.exe -NonInteractive -ExecutionPolicy Unrestricted -NoP -E YgBlAGcAaQBuACAAewAgACQAeAAgAD0AIAAxACAAfQAgAHAAcgBvAGMAZQBzAHMAIAB7ACAAVwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAkAHgAIAB9AA==`,
 		},
 	}
 
