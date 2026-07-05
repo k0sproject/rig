@@ -107,15 +107,16 @@ func EncodeCmd(psCmd string) string {
 }
 
 // Cmd builds a command-line for executing a PowerShell command or script.
-// Scripts that contain newlines, double-quotes, or cmd.exe metacharacters
-// are passed via -EncodedCommand to avoid shell expansion; simple one-liners
-// are passed via -Command so they remain readable in logs.
-// cmd.exe metacharacters guarded: " % ! ^ & | < >.
+// The command is always passed via -EncodedCommand (base64 UTF-16LE): the
+// payload is opaque to both cmd.exe and PowerShell, so it survives intact
+// regardless of the outer login shell. This matters when the remote host runs
+// OpenSSH with DefaultShell=PowerShell, where a plain -Command "..." argument
+// would be parsed and its $-tokens expanded by the outer shell before the
+// inner powershell.exe ever sees them. The trade-off is unreadable command
+// lines, but the runner's debug log decodes -EncodedCommand back to the
+// original script.
 func Cmd(psCmd string) string {
-	if strings.ContainsAny(psCmd, "\n\r\"%!^&|<>") {
-		return "powershell.exe -NonInteractive -ExecutionPolicy Unrestricted -NoP -E " + EncodeCmd(psCmd)
-	}
-	return "powershell.exe -NonInteractive -ExecutionPolicy Unrestricted -NoP -Command \"" + withProgressPreference(psCmd) + "\""
+	return "powershell.exe -NonInteractive -ExecutionPolicy Unrestricted -NoP -E " + EncodeCmd(psCmd)
 }
 
 // SingleQuote quotes and escapes a string in a format that is accepted by powershell scriptlets
