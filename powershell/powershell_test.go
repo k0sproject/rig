@@ -11,11 +11,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCmdSimpleUsesCommand(t *testing.T) {
+func TestCmdSimpleUsesEncoded(t *testing.T) {
+	// Even a trivial one-liner is base64-encoded: the payload must be opaque to
+	// an outer PowerShell login shell (OpenSSH DefaultShell=PowerShell) that
+	// would otherwise expand its $-tokens before the inner powershell.exe runs.
 	out := powershell.Cmd("$env:COMPUTERNAME")
-	require.Contains(t, out, "-Command")
-	require.NotContains(t, out, " -E ")
-	require.Contains(t, out, "$env:COMPUTERNAME")
+	require.Contains(t, out, " -E ")
+	require.NotContains(t, out, "-Command")
+	require.Contains(t, decodeCmd(t, out), "$env:COMPUTERNAME")
 }
 
 func TestCmdNewlineUsesEncoded(t *testing.T) {
@@ -32,13 +35,7 @@ func TestCmdDoubleQuoteUsesEncoded(t *testing.T) {
 
 func TestCmdSimpleInjectsProgressPreference(t *testing.T) {
 	out := powershell.Cmd("$env:COMPUTERNAME")
-	require.Contains(t, out, "$ProgressPreference='SilentlyContinue'")
-}
-
-func TestCmdSimpleReadableInLogs(t *testing.T) {
-	script := "[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()"
-	out := powershell.Cmd(script)
-	require.True(t, strings.Contains(out, script), "simple script should be visible in the command string")
+	require.Contains(t, decodeCmd(t, out), "$ProgressPreference='SilentlyContinue'")
 }
 
 func TestCmdPercentUsesEncoded(t *testing.T) {
@@ -57,9 +54,7 @@ func TestCmdExclamationUsesEncoded(t *testing.T) {
 
 func TestCmdCmdExeMetacharsUseEncoded(t *testing.T) {
 	// These cmd.exe metacharacters can alter semantics when the command is
-	// executed via cmd.exe /c and must go through -EncodedCommand.
-	// Note: () are NOT included — they are protected inside the double-quoted
-	// -Command "..." argument and are ubiquitous in PowerShell method calls.
+	// executed via cmd.exe /c; -EncodedCommand keeps them opaque to the shell.
 	metacharScripts := []string{
 		`Write-Output ^escaped`,     // ^ escape character
 		`Get-Process & Get-Service`, // & command chaining
@@ -77,7 +72,19 @@ func TestCmdCmdExeMetacharsUseEncoded(t *testing.T) {
 func TestCmdBeginBlockSkipsProgressPrefix(t *testing.T) {
 	script := "begin { } process { Get-Date }"
 	out := powershell.Cmd(script)
-	require.NotContains(t, out, "$ProgressPreference")
+	// Decode first: the output is base64, so a raw substring check would pass
+	// trivially and prove nothing about the injected prefix.
+	require.NotContains(t, decodeCmd(t, out), "$ProgressPreference")
+}
+
+// decodeCmd extracts the -EncodedCommand payload from a full Cmd() command
+// line and decodes it back to the original PowerShell script.
+func decodeCmd(t *testing.T, cmd string) string {
+	t.Helper()
+	const marker = " -E "
+	idx := strings.Index(cmd, marker)
+	require.NotEqual(t, -1, idx, "command must use -EncodedCommand: %q", cmd)
+	return decodeEncodeCmd(t, cmd[idx+len(marker):])
 }
 
 // decodeEncodeCmd decodes a base64+UTF-16LE payload produced by EncodeCmd.
@@ -108,7 +115,7 @@ func TestCmdBeginBlockNoSpaceSkipsProgressPrefix(t *testing.T) {
 	// "begin{" without a space before the brace is also a valid begin block.
 	script := "begin{ } process { Get-Date }"
 	out := powershell.Cmd(script)
-	require.NotContains(t, out, "$ProgressPreference")
+	require.NotContains(t, decodeCmd(t, out), "$ProgressPreference")
 }
 
 func TestCmdBeginBlockCaseInsensitiveSkipsProgressPrefix(t *testing.T) {
@@ -118,7 +125,7 @@ func TestCmdBeginBlockCaseInsensitiveSkipsProgressPrefix(t *testing.T) {
 		"BEGIN { } PROCESS { Get-Date }",
 	} {
 		out := powershell.Cmd(script)
-		require.NotContains(t, out, "$ProgressPreference", "script: %s", script)
+		require.NotContains(t, decodeCmd(t, out), "$ProgressPreference", "script: %s", script)
 	}
 }
 
