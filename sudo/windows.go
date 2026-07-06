@@ -16,7 +16,9 @@ func RegisterWindowsNoop(repository *Registry) {
 			return nil, false
 		}
 		const isAdminCmd = `if (-not (New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { exit 1 }`
-		if runner.Exec(isAdminCmd, cmd.PS()) != nil {
+		// Ungated: a CommandGate that rejects this probe would silently change
+		// privilege detection, so it must always run.
+		if runner.Exec(isAdminCmd, cmd.PS(), cmd.Ungated()) != nil {
 			return nil, false
 		}
 		return cmd.NewExecutor(runner, Noop), true
