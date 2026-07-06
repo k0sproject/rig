@@ -16,7 +16,9 @@ func RegisterSudo(repository *Registry) {
 		if c.IsWindows() {
 			return nil, false
 		}
-		if c.Exec(Sudo("true")) != nil {
+		// Ungated: a CommandGate that rejects this probe would silently
+		// disable sudo rather than surface an error, so it must always run.
+		if c.Exec(Sudo("true"), cmd.Ungated()) != nil {
 			return nil, false
 		}
 		return cmd.NewExecutor(c, Sudo), true

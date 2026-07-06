@@ -51,6 +51,8 @@ type ExecOptions struct {
 	traceOut      io.Writer
 	traceErr      io.Writer
 	outputClosers []io.Closer
+
+	skipGate bool
 }
 
 // Format returns the command string with all per-call decorators applied.
@@ -69,6 +71,11 @@ func (o *ExecOptions) AllowWinStderr() bool {
 // LogCommand returns true if the command should be logged, false if not.
 func (o *ExecOptions) LogCommand() bool {
 	return o.logCommand
+}
+
+// SkipGate returns true if the [CommandGate] should not be consulted for this command.
+func (o *ExecOptions) SkipGate() bool {
+	return o.skipGate
 }
 
 var (
@@ -334,6 +341,15 @@ func Decorate(decorator DecorateFunc) ExecOption {
 func Logger(l log.Logger) ExecOption {
 	return func(o *ExecOptions) {
 		o.SetLogger(l)
+	}
+}
+
+// Ungated exec option for exempting a single command from the runner's
+// [CommandGate]. Use it for internal probes and detection commands that must
+// run unconditionally, so a rejecting gate cannot silently change behavior.
+func Ungated() ExecOption {
+	return func(o *ExecOptions) {
+		o.skipGate = true
 	}
 }
 

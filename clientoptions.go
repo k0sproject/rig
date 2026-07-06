@@ -1,6 +1,7 @@
 package rig
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -14,7 +15,10 @@ import (
 	"github.com/k0sproject/rig/v2/sudo"
 )
 
-var errNilOSRelease = errors.New("os release provider returned nil release without error")
+var (
+	errNilOSRelease    = errors.New("os release provider returned nil release without error")
+	errConfirmDeclined = errors.New("declined by confirmation callback")
+)
 
 // ConnectionFactory can create connections. When a connection is not given, the factory is used
 // to build a connection.
@@ -33,6 +37,7 @@ type ClientOptions struct {
 	connection        protocol.Connection
 	connectionFactory ConnectionFactory
 	runner            cmd.Runner
+	commandGate       cmd.CommandGate
 	retryConnection   bool
 	providersContainer
 }
@@ -135,6 +140,7 @@ func (o *ClientOptions) Clone() *ClientOptions {
 		connection:         o.connection,
 		connectionFactory:  o.connectionFactory,
 		runner:             o.runner,
+		commandGate:        o.commandGate,
 		retryConnection:    o.retryConnection,
 		providersContainer: o.providersContainer,
 	}
@@ -199,6 +205,53 @@ func WithRunner(runner cmd.Runner) ClientOption {
 	return func(o *ClientOptions) {
 		o.runner = runner
 	}
+}
+
+// WithCommandGate installs a [cmd.CommandGate] that is consulted before
+// commands run on the client and all of its derived runners (sudo, filesystem,
+// services). Returning a non-nil error from the gate aborts the command,
+// wrapped in [cmd.ErrCommandRejected]; a context cancellation/deadline error is
+// the exception and propagates as a context error without [cmd.ErrCommandRejected].
+// Use [WithConfirmFunc] for the common case of a yes/no confirmation prompt.
+// See [cmd.CommandGate] for exactly which commands are gated and which internal
+// paths are not.
+//
+// The gate reaches a runner only if that runner implements
+// [cmd.CommandGateSetter]. The default runner does; a custom runner supplied
+// via [WithRunner] that does not implement it runs ungated, and the client
+// logs a warning during setup.
+func WithCommandGate(gate cmd.CommandGate) ClientOption {
+	return func(o *ClientOptions) {
+		o.commandGate = gate
+	}
+}
+
+// WithConfirmFunc installs a confirmation callback consulted before commands
+// run on the client and all of its derived runners (sudo, filesystem,
+// services). The callback receives the host string and the human-readable,
+// redacted command; returning false aborts the command with
+// [cmd.ErrCommandRejected]. This is a convenience wrapper around
+// [WithCommandGate]; see [cmd.CommandGate] for which commands are gated. A nil
+// fn disables gating, matching WithCommandGate(nil).
+//
+// One exception: [Client.ExecInteractive] runs directly on the connection, so
+// its command reaches the callback raw — undecorated and unredacted. Avoid
+// logging the callback argument as-is if interactive commands may carry
+// secrets.
+func WithConfirmFunc(fn func(host, command string) bool) ClientOption {
+	if fn == nil {
+		return WithCommandGate(nil)
+	}
+	gate := cmd.CommandGateFunc(func(ctx context.Context, host, command string) error {
+		if err := ctx.Err(); err != nil {
+			return err //nolint:wrapcheck // pass the context error through unchanged so it isn't misread as a rejection
+		}
+		if fn(host, command) {
+			return nil
+		}
+		return errConfirmDeclined
+	})
+	return WithCommandGate(gate)
 }
 
 // WithConnectionFactory is a functional option that sets the connection factory to use for connecting.

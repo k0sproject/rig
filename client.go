@@ -228,6 +228,7 @@ func (c *Client) setup(opts ...ClientOption) error {
 
 		c.Runner = c.options.GetRunner(c.connection)
 		log.InjectLogger(logger, c.Runner)
+		c.injectCommandGate(c.Runner)
 
 		c.SudoProvider = c.options.GetSudoProvider(c.Runner)
 		c.InitSystemProvider = c.options.GetInitSystemProvider(c.Runner)
@@ -236,6 +237,24 @@ func (c *Client) setup(opts ...ClientOption) error {
 		c.OSReleaseProvider = c.options.GetOSReleaseProvider(c.Runner)
 	})
 	return c.initErr
+}
+
+// injectCommandGate installs the configured [cmd.CommandGate] onto the given
+// runner when the runner supports it. This is how a gate set once on the client
+// reaches every derived runner: the base runner here, and sudo runners via the
+// re-run of setup during [Client.Clone]. A nil configured gate is applied too,
+// clearing any gate a reused runner may already carry so that
+// WithCommandGate(nil) reliably disables gating.
+func (c *Client) injectCommandGate(runner cmd.Runner) {
+	setter, ok := runner.(cmd.CommandGateSetter)
+	if !ok {
+		if c.options.commandGate != nil {
+			c.Log().Warn("command gate configured but the runner does not support it; commands will run ungated",
+				"runner", fmt.Sprintf("%T", runner))
+		}
+		return
+	}
+	setter.SetCommandGate(c.options.commandGate)
 }
 
 // Service returns a manager for a named service on the remote host using
@@ -371,14 +390,38 @@ var errInteractiveNotSupported = errors.New("the connection does not provide int
 
 // ExecInteractive executes a command on the host and passes stdin/stdout/stderr as-is to the session.
 // The session is terminated when ctx is cancelled or its deadline is exceeded.
-func (c *Client) ExecInteractive(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) error {
-	if conn, ok := c.connection.(protocol.InteractiveExecer); ok {
-		if err := conn.ExecInteractive(ctx, cmd, stdin, stdout, stderr); err != nil {
-			return fmt.Errorf("exec interactive: %w", err)
-		}
-		return nil
+//
+// A configured [cmd.CommandGate] is consulted for the command before the
+// session starts. Because interactive exec runs directly on the connection
+// rather than through the runner, the gate sees the raw command as given here,
+// without sudo/shell decoration or secret redaction, and commands typed inside
+// the interactive session are not gated.
+func (c *Client) ExecInteractive(ctx context.Context, command string, stdin io.Reader, stdout, stderr io.Writer) error {
+	conn, ok := c.connection.(protocol.InteractiveExecer)
+	if !ok {
+		return errInteractiveNotSupported
 	}
-	return errInteractiveNotSupported
+	// Short-circuit a cancelled/expired context before consulting the gate, so
+	// a gate implementation is never asked to prompt for a doomed session. This
+	// mirrors Executor.Start.
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("exec interactive: %w", err)
+	}
+	if gate := c.options.commandGate; gate != nil {
+		if err := gate.AllowCommand(ctx, c.String(), command); err != nil {
+			// A context cancellation/deadline is not a rejection: wrap it
+			// without cmd.ErrCommandRejected so errors.Is reports the context
+			// error but not a rejection, letting callers distinguish the two.
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return fmt.Errorf("exec interactive: %w", err)
+			}
+			return fmt.Errorf("exec interactive: %w: %w", cmd.ErrCommandRejected, err)
+		}
+	}
+	if err := conn.ExecInteractive(ctx, command, stdin, stdout, stderr); err != nil {
+		return fmt.Errorf("exec interactive: %w", err)
+	}
+	return nil
 }
 
 // The provider Getters would be available and working via the embedding already, but the

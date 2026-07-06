@@ -16,7 +16,9 @@ func RegisterDoas(repository *Registry) {
 		if c.IsWindows() {
 			return nil, false
 		}
-		if c.Exec(Doas("true")) != nil {
+		// Ungated: a CommandGate that rejects this probe would silently
+		// disable doas rather than surface an error, so it must always run.
+		if c.Exec(Doas("true"), cmd.Ungated()) != nil {
 			return nil, false
 		}
 		return cmd.NewExecutor(c, Doas), true

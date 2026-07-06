@@ -17,6 +17,9 @@ var (
 
 	// ErrWroteStderr is returned when a windows command writes to stderr, unless AllowWinStderr is set.
 	ErrWroteStderr = errors.New("command wrote output to stderr")
+
+	// ErrCommandRejected is returned when a [CommandGate] refuses to allow a command to run.
+	ErrCommandRejected = errors.New("command rejected")
 )
 
 // DecorateFunc is a function that takes a string and returns a decorated string.
