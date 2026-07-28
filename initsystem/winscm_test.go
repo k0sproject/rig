@@ -45,6 +45,9 @@ func TestWinSCMStartService(t *testing.T) {
 		script := decodePSCmd(t, mr.LastCommand())
 		require.Contains(t, script, "Start-Service")
 		require.Contains(t, script, "-ErrorAction Stop")
+		// Suppresses the benign StartPending progress warning that otherwise
+		// lands on stderr and trips ErrWroteStderr on a slow/cold start.
+		require.Contains(t, script, "-WarningAction SilentlyContinue")
 		require.Contains(t, script, "'myservice'")
 	})
 	t.Run("failure", func(t *testing.T) {
@@ -63,6 +66,8 @@ func TestWinSCMStopService(t *testing.T) {
 		script := decodePSCmd(t, mr.LastCommand())
 		require.Contains(t, script, "Stop-Service")
 		require.Contains(t, script, "-ErrorAction Stop")
+		// Suppresses the benign StopPending progress warning (see StartService).
+		require.Contains(t, script, "-WarningAction SilentlyContinue")
 		require.Contains(t, script, "'myservice'")
 	})
 	t.Run("failure", func(t *testing.T) {
@@ -81,6 +86,8 @@ func TestWinSCMRestartService(t *testing.T) {
 		script := decodePSCmd(t, mr.LastCommand())
 		require.Contains(t, script, "Restart-Service")
 		require.Contains(t, script, "-ErrorAction Stop")
+		// Suppresses the benign start/stop progress warnings (see StartService).
+		require.Contains(t, script, "-WarningAction SilentlyContinue")
 		require.Contains(t, script, "'myservice'")
 	})
 	t.Run("failure", func(t *testing.T) {

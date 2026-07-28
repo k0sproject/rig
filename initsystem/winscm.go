@@ -20,16 +20,28 @@ type WinSCM struct{}
 func (WinSCM) String() string { return "winscm" }
 
 // StartService starts a service.
+//
+// -WarningAction SilentlyContinue suppresses the benign "Waiting for service
+// '…' to start..." progress warning that Start-Service emits when a service
+// stays in StartPending for a moment (common on a cold first start). That
+// warning goes to the warning stream, which lands on stderr under a subprocess,
+// and rig treats any Windows stderr output as a failure. -ErrorAction Stop
+// still turns a genuine start failure into a terminating (non-zero) error, so
+// real failures are still detected.
 func (c WinSCM) StartService(ctx context.Context, h cmd.ContextRunner, s string) error {
-	if err := h.ExecContext(ctx, "$ErrorActionPreference='Stop'\nStart-Service "+ps.SingleQuote(s)+" -ErrorAction Stop", cmd.PS()); err != nil {
+	if err := h.ExecContext(ctx, "$ErrorActionPreference='Stop'\nStart-Service "+ps.SingleQuote(s)+" -ErrorAction Stop -WarningAction SilentlyContinue", cmd.PS()); err != nil {
 		return fmt.Errorf("failed to start service %s: %w", s, err)
 	}
 	return nil
 }
 
 // StopService stops a service.
+//
+// -WarningAction SilentlyContinue suppresses the benign "Waiting for service
+// '…' to stop..." progress warning (StopPending) for the same reason as
+// StartService; -ErrorAction Stop still surfaces genuine failures.
 func (c WinSCM) StopService(ctx context.Context, h cmd.ContextRunner, s string) error {
-	if err := h.ExecContext(ctx, "$ErrorActionPreference='Stop'\nStop-Service "+ps.SingleQuote(s)+" -ErrorAction Stop", cmd.PS()); err != nil {
+	if err := h.ExecContext(ctx, "$ErrorActionPreference='Stop'\nStop-Service "+ps.SingleQuote(s)+" -ErrorAction Stop -WarningAction SilentlyContinue", cmd.PS()); err != nil {
 		return fmt.Errorf("failed to stop service %s: %w", s, err)
 	}
 	return nil
@@ -41,8 +53,12 @@ func (c WinSCM) ServiceScriptPath(_ context.Context, _ cmd.ContextRunner, _ stri
 }
 
 // RestartService restarts a service.
+//
+// -WarningAction SilentlyContinue suppresses the benign "Waiting for service
+// '…' to start/stop..." progress warnings for the same reason as StartService;
+// -ErrorAction Stop still surfaces genuine failures.
 func (c WinSCM) RestartService(ctx context.Context, h cmd.ContextRunner, s string) error {
-	if err := h.ExecContext(ctx, "$ErrorActionPreference='Stop'\nRestart-Service "+ps.SingleQuote(s)+" -ErrorAction Stop", cmd.PS()); err != nil {
+	if err := h.ExecContext(ctx, "$ErrorActionPreference='Stop'\nRestart-Service "+ps.SingleQuote(s)+" -ErrorAction Stop -WarningAction SilentlyContinue", cmd.PS()); err != nil {
 		return fmt.Errorf("failed to restart service %s: %w", s, err)
 	}
 	return nil
