@@ -590,6 +590,55 @@ func TestRegistryDetection(t *testing.T) {
 		require.ErrorIs(t, err, initsystem.ErrNoInitSystem)
 		require.NoError(t, mr.NotReceived(rigtest.Contains("openrc")))
 	})
+
+	t.Run("SysVinit not detected when systemd is present", func(t *testing.T) {
+		reg := initsystem.NewRegistry()
+		initsystem.RegisterSysVinit(reg)
+
+		// A systemd host: /etc/init.d exists (LSB compat) but systemd is present.
+		// SysVinit must decline so it never shadows systemd.
+		mr := rigtest.NewMockRunner()
+		mr.ErrDefault = errExec
+		mr.AddCommandSuccess(rigtest.Contains("/etc/init.d"))
+		mr.AddCommandSuccess(rigtest.Contains("stat /run/systemd/system"))
+
+		_, err := reg.Get(mr)
+		require.ErrorIs(t, err, initsystem.ErrNoInitSystem)
+	})
+
+	// Regression test for https://github.com/k0sproject/rig/issues/409: in a mixed
+	// Linux+Windows cluster, a Windows host resolving first swaps WinSCM to the front
+	// of the shared factory slice, demoting Systemd behind SysVinit. A subsequently
+	// resolved systemd Linux host must still resolve to Systemd, not SysVinit.
+	t.Run("Systemd wins on a systemd host after a Windows host resolved first (issue #409)", func(t *testing.T) {
+		reg := initsystem.NewRegistry()
+		// Same order as DefaultRegistry.
+		initsystem.RegisterSystemd(reg)
+		initsystem.RegisterOpenRC(reg)
+		initsystem.RegisterUpstart(reg)
+		initsystem.RegisterSysVinit(reg)
+		initsystem.RegisterWinSCM(reg)
+		initsystem.RegisterRunit(reg)
+		initsystem.RegisterLaunchd(reg)
+
+		// Windows host resolves first -> WinSCM matches and is moved to the front.
+		win := rigtest.NewMockRunner()
+		win.Windows = true
+		mgr, err := reg.Get(win)
+		require.NoError(t, err)
+		assert.IsType(t, &initsystem.WinSCM{}, mgr)
+
+		// Ubuntu-like systemd host: both `stat /run/systemd/system` and
+		// `test -d /etc/init.d` succeed. Must resolve to Systemd.
+		ubuntu := rigtest.NewMockRunner()
+		ubuntu.ErrDefault = errExec
+		ubuntu.AddCommandSuccess(rigtest.Contains("stat /run/systemd/system"))
+		ubuntu.AddCommandSuccess(rigtest.Contains("/etc/init.d"))
+
+		mgr, err = reg.Get(ubuntu)
+		require.NoError(t, err)
+		assert.IsType(t, initsystem.Systemd{}, mgr)
+	})
 }
 
 // Compile-time interface checks.
