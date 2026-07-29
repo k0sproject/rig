@@ -604,6 +604,13 @@ func TestRegistryDetection(t *testing.T) {
 
 		_, err := reg.Get(mr)
 		require.ErrorIs(t, err, initsystem.ErrNoInitSystem)
+
+		// Assert SysVinit actually exercised both probes: it passed the
+		// /etc/init.d check and then declined on the systemd-present check. This
+		// keeps the test specific so it cannot pass without running the intended
+		// detection logic.
+		require.NoError(t, mr.Received(rigtest.Contains("/etc/init.d")))
+		require.NoError(t, mr.Received(rigtest.Contains("stat /run/systemd/system")))
 	})
 
 	// Regression test for https://github.com/k0sproject/rig/issues/409: in a mixed
