@@ -402,13 +402,13 @@ func (s *PosixFS) ChownTreeInt(name string, uid, gid int) error {
 // and falls back to wget. Returns a descriptive error if neither is available.
 func (s *PosixFS) DownloadURL(url, dst string) error {
 	if _, err := s.LookPath("curl"); err == nil {
-		if err := s.Exec(sh.Command("curl", "-sSLf", "-o", dst, "--", url)); err != nil {
+		if err := s.Exec(sh.Command("curl", "-C -", "-sSLf", "-o", dst, "--", url)); err != nil {
 			return fmt.Errorf("download %s: %w", url, err)
 		}
 		return nil
 	}
 	if _, err := s.LookPath("wget"); err == nil {
-		if err := s.Exec(sh.Command("wget", "-qO", dst, "--", url)); err != nil {
+		if err := s.Exec(sh.Command("wget", "-c", "-qO", dst, "--", url)); err != nil {
 			return fmt.Errorf("download %s: %w", url, err)
 		}
 		return nil
