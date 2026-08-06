@@ -79,9 +79,11 @@ func Test_isAuthError(t *testing.T) {
 }
 
 // Test_authErrorWrapping verifies that the classification/wrapping logic used in
-// probe produces ErrNonRetryable for auth errors and leaves other errors retryable.
-// probe itself is not called here because it requires a live WinRM client; see the
-// todo item for WinRM integration tests.
+// probe tags auth errors with ErrAuthFailed and leaves other errors untagged,
+// and that neither is marked non-retryable -- a credential rejection is the
+// remote host's answer and is routinely transient while a host is still being
+// provisioned. probe itself is not called here because it requires a live WinRM
+// client; see the todo item for WinRM integration tests.
 func Test_authErrorWrapping(t *testing.T) {
 	authErr := fmt.Errorf("create shell: http error 401: Unauthorized")
 	nonAuthErr := fmt.Errorf("dial tcp 10.0.0.1:5985: connect: connection refused")
@@ -89,19 +91,19 @@ func Test_authErrorWrapping(t *testing.T) {
 	tests := []struct {
 		name           string
 		startErr       error
-		wantNonRetry   bool
+		wantAuthFailed bool
 		wantErrContain string
 	}{
 		{
-			name:           "auth failure becomes ErrNonRetryable",
+			name:           "auth failure is tagged ErrAuthFailed",
 			startErr:       authErr,
-			wantNonRetry:   true,
+			wantAuthFailed: true,
 			wantErrContain: authErr.Error(),
 		},
 		{
-			name:           "network failure stays retryable",
+			name:           "network failure is not tagged",
 			startErr:       nonAuthErr,
-			wantNonRetry:   false,
+			wantAuthFailed: false,
 			wantErrContain: nonAuthErr.Error(),
 		},
 	}
@@ -113,7 +115,7 @@ func Test_authErrorWrapping(t *testing.T) {
 			// against a real WinRM server is deferred to the todo item for WinRM tests.
 			var err error
 			if isAuthError(tt.startErr) {
-				err = fmt.Errorf("%w: %w", protocol.ErrNonRetryable, tt.startErr)
+				err = fmt.Errorf("%w: %w", ErrAuthFailed, tt.startErr)
 			} else {
 				err = tt.startErr
 			}
@@ -121,9 +123,12 @@ func Test_authErrorWrapping(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected an error, got nil")
 			}
-			gotNonRetry := errors.Is(err, protocol.ErrNonRetryable)
-			if gotNonRetry != tt.wantNonRetry {
-				t.Errorf("errors.Is(err, ErrNonRetryable) = %v, want %v (err: %v)", gotNonRetry, tt.wantNonRetry, err)
+			if got := errors.Is(err, ErrAuthFailed); got != tt.wantAuthFailed {
+				t.Errorf("errors.Is(err, ErrAuthFailed) = %v, want %v (err: %v)", got, tt.wantAuthFailed, err)
+			}
+			// Neither case may abort a caller's retry loop.
+			if errors.Is(err, protocol.ErrNonRetryable) {
+				t.Errorf("err must not be ErrNonRetryable, a rejection can clear once the host finishes provisioning (err: %v)", err)
 			}
 			if tt.wantErrContain != "" {
 				if msg := err.Error(); !strings.Contains(msg, tt.wantErrContain) {
@@ -136,24 +141,24 @@ func Test_authErrorWrapping(t *testing.T) {
 
 func TestConnect_probeClassification(t *testing.T) {
 	tests := []struct {
-		name         string
-		statusCode   int
-		wantNonRetry bool
+		name           string
+		statusCode     int
+		wantAuthFailed bool
 	}{
 		{
-			name:         "401 becomes ErrNonRetryable",
-			statusCode:   http.StatusUnauthorized,
-			wantNonRetry: true,
+			name:           "401 becomes ErrAuthFailed",
+			statusCode:     http.StatusUnauthorized,
+			wantAuthFailed: true,
 		},
 		{
-			name:         "403 becomes ErrNonRetryable",
-			statusCode:   http.StatusForbidden,
-			wantNonRetry: true,
+			name:           "403 becomes ErrAuthFailed",
+			statusCode:     http.StatusForbidden,
+			wantAuthFailed: true,
 		},
 		{
-			name:         "500 stays retryable",
-			statusCode:   http.StatusInternalServerError,
-			wantNonRetry: false,
+			name:           "500 is not an auth failure",
+			statusCode:     http.StatusInternalServerError,
+			wantAuthFailed: false,
 		},
 	}
 
@@ -195,9 +200,14 @@ func TestConnect_probeClassification(t *testing.T) {
 				t.Fatal("Connect() succeeded against stub server, want error")
 			}
 
-			gotNonRetry := errors.Is(err, protocol.ErrNonRetryable)
-			if gotNonRetry != tt.wantNonRetry {
-				t.Errorf("Connect() errors.Is(err, ErrNonRetryable) = %v, want %v (err: %v)", gotNonRetry, tt.wantNonRetry, err)
+			if got := errors.Is(err, ErrAuthFailed); got != tt.wantAuthFailed {
+				t.Errorf("Connect() errors.Is(err, ErrAuthFailed) = %v, want %v (err: %v)", got, tt.wantAuthFailed, err)
+			}
+
+			// No HTTP status from the remote may abort a caller's retry loop: the
+			// response can differ once the host finishes provisioning.
+			if errors.Is(err, protocol.ErrNonRetryable) {
+				t.Errorf("Connect() must not return ErrNonRetryable for an HTTP %d (err: %v)", tt.statusCode, err)
 			}
 
 			if conn.IsConnected() {
