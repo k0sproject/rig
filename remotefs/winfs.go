@@ -450,7 +450,7 @@ func (s *WinFS) ChownTreeInt(name string, _, _ int) error {
 func (s *WinFS) DownloadURL(url, dst string) error {
 	script := fmt.Sprintf(`$ProgressPreference='SilentlyContinue'
 try {
-  Invoke-WebRequest -Uri %s -OutFile %s -UseBasicParsing -ErrorAction Stop | Out-Null
+  Invoke-WebRequest -Resume -Uri %s -OutFile %s -UseBasicParsing -ErrorAction Stop | Out-Null
 } catch {
   Write-Error $_.Exception.Message
   exit 1
