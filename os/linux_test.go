@@ -120,3 +120,28 @@ REDHAT_SUPPORT_PRODUCT_VERSION="8.9"`
 		t.Errorf("Arch() returned wrong value: %q != 'amd64'", arch)
 	}
 }
+
+// TestResolveLinuxRequiresAnID pins the condition ResolveLinuxCompat keys its
+// self-exclusion off. An os-release that does not name the distribution is not a
+// usable result, so ResolveLinux has to decline and leave the host to the compat
+// resolver, which can still identify it from its package manager.
+func TestResolveLinuxRequiresAnID(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		osRelease string
+	}{
+		{"no ID field", "PRETTY_NAME=\"Something\"\nVERSION_ID=\"1.0\"\n"},
+		{"empty file", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mr := rigtest.NewMockRunner()
+			mr.AddCommandOutput(rigtest.Equal("uname -m"), "x86_64")
+			mr.AddCommand(rigtest.HasPrefix("uname"), func(_ *rigtest.A) error { return nil })
+			mr.AddCommandOutput(rigtest.Equal(osReleaseCommand), tc.osRelease)
+
+			if _, ok := ResolveLinux(mr); ok {
+				t.Error("ResolveLinux claimed a host whose os-release does not name the distribution")
+			}
+		})
+	}
+}

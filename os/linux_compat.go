@@ -43,6 +43,21 @@ func ResolveLinuxCompat(conn cmd.SimpleRunner) (*Release, bool) {
 		return nil, false
 	}
 
+	// ResolveLinux identifies any host whose os-release names the distribution,
+	// and this resolver matches every Linux host, so it has to stand down for
+	// those rather than rely on being consulted afterwards. Deciding it from the
+	// host keeps the two complementary however the registry happens to be
+	// ordered, including once a caller has added resolvers of their own. yum
+	// (defers to dnf) and SysVinit (defers to systemd) exclude themselves the
+	// same way.
+	if _, ok := readOSRelease(conn); ok {
+		log.Trace(context.Background(), "linux compat resolver: os-release identifies the host, deferring to the standard resolver",
+			log.HostAttr(conn),
+		)
+
+		return nil, false
+	}
+
 	release := &Release{
 		ID:   "linux",
 		Name: "Linux (compatibility mode)",
@@ -79,8 +94,8 @@ func ResolveLinuxCompat(conn cmd.SimpleRunner) (*Release, bool) {
 }
 
 // RegisterLinuxCompat registers the Linux compatibility resolver to a provider.
-// It should be registered after ResolveLinux so it only activates when the
-// standard os-release files are absent.
+// It excludes itself on any host ResolveLinux can identify, so it does not matter
+// when it is registered relative to the other resolvers.
 func RegisterLinuxCompat(provider *Registry) {
 	provider.Register(ResolveLinuxCompat)
 }

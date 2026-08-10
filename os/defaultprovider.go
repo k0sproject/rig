@@ -13,9 +13,11 @@ var (
 	DefaultRegistry = sync.OnceValue(func() *Registry {
 		provider := NewRegistry()
 		provider.Register(ResolveLinux)
-		provider.Register(ResolveLinuxCompat)
 		provider.Register(ResolveWindows)
 		provider.Register(ResolveDarwin)
+		// Registered last because it is the last resort, but it does not depend on
+		// that: it declines any host ResolveLinux can identify. See readOSRelease.
+		provider.Register(ResolveLinuxCompat)
 		return provider
 	})
 
