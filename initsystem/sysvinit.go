@@ -87,11 +87,20 @@ func (i SysVinit) DisableService(ctx context.Context, h cmd.ContextRunner, s str
 
 // RegisterSysVinit registers SysVinit in a repository.
 func RegisterSysVinit(repo *Registry) {
-	repo.Register(func(c cmd.ContextRunner) (ServiceManager, bool) {
-		if c.IsWindows() {
+	repo.Register(func(runner cmd.ContextRunner) (ServiceManager, bool) {
+		if runner.IsWindows() {
 			return nil, false
 		}
-		if c.ExecContext(context.Background(), "test -d /etc/init.d") != nil {
+		if runner.ExecContext(context.Background(), "test -d /etc/init.d") != nil {
+			return nil, false
+		}
+		// /etc/init.d exists on virtually every systemd distro too (kept for LSB
+		// compatibility), so the probe above is not specific enough on its own: it
+		// makes SysVinit match systemd hosts. Require systemd to be ABSENT as well,
+		// mirroring RegisterSystemd's probe, so a systemd host never resolves to
+		// SysVinit regardless of factory ordering in the shared registry.
+		// See https://github.com/k0sproject/rig/issues/409.
+		if runner.ExecContext(context.Background(), "stat /run/systemd/system") == nil {
 			return nil, false
 		}
 
