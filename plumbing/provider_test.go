@@ -206,3 +206,117 @@ func TestGetLetsASelfExcludingFactoryBeRegisteredFirst(t *testing.T) {
 		})
 	}
 }
+
+// TestRegisterFirstOverridesAnAlreadyRegisteredFactory covers the case
+// self-exclusion cannot reach: a caller has to take precedence over a factory
+// matching a superset of their inputs, and cannot make it stand down because it is
+// not theirs to change. Registering ahead of it is the only lever they have.
+func TestRegisterFirstOverridesAnAlreadyRegisteredFactory(t *testing.T) {
+	p := plumbing.NewProvider[string, string](errors.New("no factory available"))
+
+	// A catch-all already in the registry, the way os.ResolveLinuxCompat is.
+	p.Register(func(string) (string, bool) {
+		return "builtin", true
+	})
+
+	p.RegisterFirst(func(in string) (string, bool) {
+		if in == "mine" {
+			return "override", true
+		}
+
+		return "", false
+	})
+
+	got, err := p.Get("mine")
+	require.NoError(t, err)
+	assert.Equal(t, "override", got, "the catch-all answered ahead of a factory registered with RegisterFirst")
+
+	// Inputs the caller's factory declines still reach the catch-all.
+	got, err = p.Get("anything")
+	require.NoError(t, err)
+	assert.Equal(t, "builtin", got)
+}
+
+// TestRegisterFirstStaysAheadOfLaterRegistrations asserts the ordering holds
+// against factories added after the RegisterFirst call, not just before it. A
+// registry stays open for registration, so a caller cannot rely on having been
+// last to register.
+func TestRegisterFirstStaysAheadOfLaterRegistrations(t *testing.T) {
+	p := plumbing.NewProvider[string, string](errors.New("no factory available"))
+
+	p.RegisterFirst(func(string) (string, bool) {
+		return "first", true
+	})
+	p.Register(func(string) (string, bool) {
+		return "later", true
+	})
+
+	got, err := p.Get("anything")
+	require.NoError(t, err)
+	assert.Equal(t, "first", got)
+}
+
+// TestRegisterFirstPutsTheLatestCallInFront pins what happens when more than one
+// caller asks for precedence: each call goes to the very front, so the most recent
+// one wins rather than being queued behind the earlier ones.
+func TestRegisterFirstPutsTheLatestCallInFront(t *testing.T) {
+	p := plumbing.NewProvider[string, string](errors.New("no factory available"))
+
+	p.Register(func(string) (string, bool) {
+		return "registered", true
+	})
+	p.RegisterFirst(func(string) (string, bool) {
+		return "earlier", true
+	})
+	p.RegisterFirst(func(string) (string, bool) {
+		return "latest", true
+	})
+
+	got, err := p.Get("anything")
+	require.NoError(t, err)
+	assert.Equal(t, "latest", got, "an earlier RegisterFirst call answered ahead of the most recent one")
+
+	all, err := p.GetAll("anything")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"latest", "earlier", "registered"}, all)
+}
+
+// TestRegisterFirstIsSafeDuringLookups registers while lookups are in flight,
+// which is the case that matters under -race: RegisterFirst inserts into the same
+// slice Get reads.
+func TestRegisterFirstIsSafeDuringLookups(t *testing.T) {
+	p := plumbing.NewProvider[string, string](errors.New("no factory available"))
+	p.Register(func(string) (string, bool) {
+		return "builtin", true
+	})
+
+	const workers = 32
+
+	var wg sync.WaitGroup
+	wg.Add(workers * 2)
+	for range workers {
+		go func() {
+			defer wg.Done()
+			p.RegisterFirst(func(in string) (string, bool) {
+				if in == "mine" {
+					return "override", true
+				}
+
+				return "", false
+			})
+		}()
+		go func() {
+			defer wg.Done()
+			// Declined by every factory added above, so this is answered by the
+			// built-in however many of them have landed by now.
+			got, err := p.Get("anything")
+			assert.NoError(t, err)
+			assert.Equal(t, "builtin", got)
+		}()
+	}
+	wg.Wait()
+
+	got, err := p.Get("mine")
+	require.NoError(t, err)
+	assert.Equal(t, "override", got)
+}
