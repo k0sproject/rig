@@ -15,10 +15,7 @@ var (
 	// DefaultRegistry is the default sudo repository.
 	DefaultRegistry = sync.OnceValue(func() *Registry {
 		provider := NewRegistry()
-		RegisterWindowsNoop(provider)
-		RegisterUID0Noop(provider)
-		RegisterSudo(provider)
-		RegisterDoas(provider)
+		RegisterDefaults(provider)
 		return provider
 	})
 )
@@ -36,4 +33,21 @@ type Registry = plumbing.Provider[cmd.Runner, cmd.Runner]
 // NewRegistry returns a new sudo repository.
 func NewRegistry() *Registry {
 	return plumbing.NewProvider[cmd.Runner, cmd.Runner](ErrNoSudo)
+}
+
+// RegisterDefaults registers the sudo methods rig ships with, which is what
+// DefaultRegistry holds. Use it to build a registry of your own without having to
+// list them, and without missing methods added in later versions.
+//
+// The order matters here and is part of what this registers: a root host with sudo
+// installed matches both RegisterUID0Noop and RegisterSudo, and it is registered
+// first so such a host runs its commands unmodified.
+//
+// The factories are appended, so one of your own that has to take precedence over
+// them must be registered before this call, or with Registry.RegisterFirst.
+func RegisterDefaults(provider *Registry) {
+	RegisterWindowsNoop(provider)
+	RegisterUID0Noop(provider)
+	RegisterSudo(provider)
+	RegisterDoas(provider)
 }

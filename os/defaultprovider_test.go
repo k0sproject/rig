@@ -3,6 +3,7 @@ package os
 import (
 	"testing"
 
+	"github.com/k0sproject/rig/v2/cmd"
 	ps "github.com/k0sproject/rig/v2/powershell"
 	"github.com/k0sproject/rig/v2/rigtest"
 )
@@ -134,5 +135,81 @@ func TestDefaultRegistryStillFallsBackToCompat(t *testing.T) {
 	}
 	if len(rel.IDLike) != 1 || rel.IDLike[0] != "debian" {
 		t.Errorf("IDLike: got %v, want [debian]", rel.IDLike)
+	}
+}
+
+// TestRegisterDefaultsBuildsTheDefaultRegistry checks that a registry assembled
+// with RegisterDefaults answers like DefaultRegistry, since that is what lets a
+// caller build one of their own without listing the resolvers by hand.
+func TestRegisterDefaultsBuildsTheDefaultRegistry(t *testing.T) {
+	registry := NewRegistry()
+	RegisterDefaults(registry)
+
+	rel, err := registry.Get(linuxRunner(ubuntuOSRelease))
+	if err != nil {
+		t.Fatalf("resolving a Linux host failed: %v", err)
+	}
+	if rel.ID != "ubuntu" || rel.Version != "22.04" {
+		t.Errorf("got ID %q version %q, want %q %q", rel.ID, rel.Version, "ubuntu", "22.04")
+	}
+
+	// The compat resolver came along with the rest and is still reached last.
+	rel, err = registry.Get(linuxRunner(""))
+	if err != nil {
+		t.Fatalf("compat fallback was not reached: %v", err)
+	}
+	if rel.ID != "linux" {
+		t.Errorf("ID: got %q, want %q", rel.ID, "linux")
+	}
+}
+
+// myOSResolver resolves the hosts of a fleet that has no os-release file, which is
+// the case ResolveLinuxCompat also claims. It stands down for hosts os-release can
+// name so it does not shadow ResolveLinux in turn.
+func myOSResolver(conn cmd.SimpleRunner) (*Release, bool) {
+	if _, ok := readOSRelease(conn); ok {
+		return nil, false
+	}
+
+	return &Release{ID: "myos", Version: "1.0"}, true
+}
+
+// TestRegisterFirstOverridesTheCompatResolver covers what RegisterFirst is for.
+// ResolveLinuxCompat matches every Linux host os-release cannot name, so a
+// resolver a caller appends for such a host is never reached, and they cannot fix
+// that with self-exclusion because ResolveLinuxCompat is not theirs to change.
+func TestRegisterFirstOverridesTheCompatResolver(t *testing.T) {
+	appended := NewRegistry()
+	RegisterDefaults(appended)
+	appended.Register(myOSResolver)
+
+	rel, err := appended.Get(linuxRunner(""))
+	if err != nil {
+		t.Fatalf("resolving a Linux host with no os-release failed: %v", err)
+	}
+	if rel.ID != "linux" {
+		t.Errorf("appended resolver: got ID %q, want %q -- a resolver added with Register is expected to land behind the catch-all", rel.ID, "linux")
+	}
+
+	prepended := NewRegistry()
+	RegisterDefaults(prepended)
+	prepended.RegisterFirst(myOSResolver)
+
+	rel, err = prepended.Get(linuxRunner(""))
+	if err != nil {
+		t.Fatalf("resolving a Linux host with no os-release failed: %v", err)
+	}
+	if rel.ID != "myos" || rel.Version != "1.0" {
+		t.Errorf("got ID %q version %q, want %q %q -- the compat resolver answered ahead of one added with RegisterFirst",
+			rel.ID, rel.Version, "myos", "1.0")
+	}
+
+	// A host os-release can name is still resolved by ResolveLinux.
+	rel, err = prepended.Get(linuxRunner(ubuntuOSRelease))
+	if err != nil {
+		t.Fatalf("resolving a Linux host failed: %v", err)
+	}
+	if rel.ID != "ubuntu" || rel.Version != "22.04" {
+		t.Errorf("got ID %q version %q, want %q %q", rel.ID, rel.Version, "ubuntu", "22.04")
 	}
 }
