@@ -2,6 +2,7 @@ package plumbing_test
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -238,12 +239,15 @@ func TestRegisterFirstOverridesAnAlreadyRegisteredFactory(t *testing.T) {
 }
 
 // TestRegisterFirstStaysAheadOfLaterRegistrations asserts the ordering holds
-// against factories added after the RegisterFirst call, not just before it. A
-// registry stays open for registration, so a caller cannot rely on having been
-// last to register.
+// against factories on both sides of the call: the ones already there, and the
+// ones added afterwards. A registry stays open for registration, so a caller
+// cannot rely on having been the last to register either.
 func TestRegisterFirstStaysAheadOfLaterRegistrations(t *testing.T) {
 	p := plumbing.NewProvider[string, string](errors.New("no factory available"))
 
+	p.Register(func(string) (string, bool) {
+		return "earlier", true
+	})
 	p.RegisterFirst(func(string) (string, bool) {
 		return "first", true
 	})
@@ -254,6 +258,10 @@ func TestRegisterFirstStaysAheadOfLaterRegistrations(t *testing.T) {
 	got, err := p.Get("anything")
 	require.NoError(t, err)
 	assert.Equal(t, "first", got)
+
+	all, err := p.GetAll("anything")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"first", "earlier", "later"}, all)
 }
 
 // TestRegisterFirstPutsTheLatestCallInFront pins what happens when more than one
@@ -279,6 +287,42 @@ func TestRegisterFirstPutsTheLatestCallInFront(t *testing.T) {
 	all, err := p.GetAll("anything")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"latest", "earlier", "registered"}, all)
+}
+
+// ExampleProvider_RegisterFirst shows a caller taking precedence over a factory
+// the registry already holds. Registering their own would leave it behind the
+// catch-all, which matches every input and is consulted first.
+func ExampleProvider_RegisterFirst() {
+	registry := plumbing.NewProvider[string, string](errors.New("no factory available"))
+
+	// Already in the registry, standing in for one of rig's built-ins.
+	registry.Register(func(string) (string, bool) {
+		return "builtin", true
+	})
+
+	registry.RegisterFirst(func(input string) (string, bool) {
+		if input == "myhost" {
+			return "mine", true
+		}
+
+		return "", false
+	})
+
+	mine, err := registry.Get("myhost")
+	if err != nil {
+		fmt.Println(err)
+
+		return
+	}
+	other, err := registry.Get("otherhost")
+	if err != nil {
+		fmt.Println(err)
+
+		return
+	}
+	fmt.Println(mine, other)
+	// Output:
+	// mine builtin
 }
 
 // TestRegisterFirstIsSafeDuringLookups registers while lookups are in flight,
