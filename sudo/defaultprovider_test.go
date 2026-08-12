@@ -31,9 +31,10 @@ func sudoerRunner() *rigtest.MockRunner {
 	return mr
 }
 
-// TestDefaultRegistryPrefersNoopForRoot pins the registration order in
-// DefaultRegistry, where RegisterUID0Noop comes before RegisterSudo so a root
-// host runs commands unmodified rather than wrapping them in sudo needlessly.
+// TestDefaultRegistryPrefersNoopForRoot pins the registration order that
+// RegisterDefaults lays down and DefaultRegistry is built from, where
+// RegisterUID0Noop comes before RegisterSudo so a root host runs commands
+// unmodified rather than wrapping them in sudo needlessly.
 //
 // Because a root host with sudo installed matches both factories, this only holds
 // while lookups are answered in registration order. Get used to move the factory

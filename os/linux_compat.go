@@ -37,7 +37,8 @@ var packageManagerID = []struct {
 // configurers can still match via the IDLike fallback chain.
 //
 // It matches every such host, so a resolver of your own for one of them has to be
-// registered with Registry.RegisterFirst to be reached at all.
+// registered ahead of it: before it in a registry you assemble yourself, or with
+// Registry.RegisterFirst in one that already holds it.
 func ResolveLinuxCompat(conn cmd.SimpleRunner) (*Release, bool) {
 	if conn.IsWindows() {
 		return nil, false
@@ -99,7 +100,8 @@ func ResolveLinuxCompat(conn cmd.SimpleRunner) (*Release, bool) {
 // RegisterLinuxCompat registers the Linux compatibility resolver to a provider.
 // It excludes itself on any host ResolveLinux can identify, so the two can be
 // registered in either order. It still matches every other Linux host, so a
-// resolver that has to win against it needs Registry.RegisterFirst.
+// resolver that has to win against it belongs ahead of this call, or in
+// Registry.RegisterFirst if the registry already holds it.
 func RegisterLinuxCompat(provider *Registry) {
 	provider.Register(ResolveLinuxCompat)
 }
