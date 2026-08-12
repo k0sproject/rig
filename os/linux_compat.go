@@ -28,12 +28,16 @@ var packageManagerID = []struct {
 	{"apt-get", "", []string{"debian"}, ""},
 }
 
-// ResolveLinuxCompat is a fallback resolver for Linux hosts where /etc/os-release
-// and /usr/lib/os-release are absent (distroless containers, minimal images, etc.).
-// It probes for well-known package managers and synthesizes a *Release from the
-// result. Unambiguous mappings (apk → alpine, pacman → arch, etc.) set ID directly;
+// ResolveLinuxCompat is a fallback resolver for Linux hosts that os-release cannot
+// name: /etc/os-release and /usr/lib/os-release are both absent (distroless
+// containers, minimal images, etc.), unreadable, or do not carry an ID. It probes
+// for well-known package managers and synthesizes a *Release from the result.
+// Unambiguous mappings (apk → alpine, pacman → arch, etc.) set ID directly;
 // family-based managers set IDLike only, leaving ID as "linux", so downstream
 // configurers can still match via the IDLike fallback chain.
+//
+// It matches every such host, so a resolver of your own for one of them has to be
+// registered with Registry.RegisterFirst to be reached at all.
 func ResolveLinuxCompat(conn cmd.SimpleRunner) (*Release, bool) {
 	if conn.IsWindows() {
 		return nil, false
@@ -46,8 +50,7 @@ func ResolveLinuxCompat(conn cmd.SimpleRunner) (*Release, bool) {
 	// ResolveLinux identifies any host whose os-release names the distribution,
 	// and this resolver matches every Linux host, so it has to stand down for
 	// those rather than rely on being consulted afterwards. Deciding it from the
-	// host keeps the two complementary however the registry happens to be
-	// ordered, including once a caller has added resolvers of their own. yum
+	// host keeps the two complementary wherever either sits in a registry. yum
 	// (defers to dnf) and SysVinit (defers to systemd) exclude themselves the
 	// same way.
 	if _, ok := readOSRelease(conn); ok {
@@ -94,8 +97,9 @@ func ResolveLinuxCompat(conn cmd.SimpleRunner) (*Release, bool) {
 }
 
 // RegisterLinuxCompat registers the Linux compatibility resolver to a provider.
-// It excludes itself on any host ResolveLinux can identify, so it does not matter
-// when it is registered relative to the other resolvers.
+// It excludes itself on any host ResolveLinux can identify, so the two can be
+// registered in either order. It still matches every other Linux host, so a
+// resolver that has to win against it needs Registry.RegisterFirst.
 func RegisterLinuxCompat(provider *Registry) {
 	provider.Register(ResolveLinuxCompat)
 }
