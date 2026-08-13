@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -257,15 +258,10 @@ func (c *Connection) Connect(ctx context.Context) error {
 	args = append(args, opts.ToArgs()...)
 	args = append(args, c.args()...)
 
-	cmd := exec.CommandContext(ctx, "ssh", args...)
-	errBuf := bytes.NewBuffer(nil)
-	cmd.Stderr = errBuf
-
-	log.Trace(ctx, "starting ssh control master", log.KeyHost, c, log.KeyCommand, strings.Join(args, " "))
-	if err := cmd.Run(); err != nil {
+	if err := c.runControlMaster(ctx, args); err != nil {
 		c.isConnected = false
 		c.controlMutex.Unlock()
-		return classifyConnectError(err, errBuf.String(), "failed to start ssh multiplexing control master")
+		return err
 	}
 
 	c.isConnected = true
@@ -278,6 +274,67 @@ func (c *Connection) Connect(ctx context.Context) error {
 	c.prewarmWindows(ctx)
 
 	return nil
+}
+
+// runControlMaster starts the multiplexing control master described by args and
+// waits for the foreground ssh process to exit.
+//
+// The master's stderr is captured in a temporary file rather than an in-memory
+// writer. "ssh -N -f" daemonizes: once authentication succeeds it forks a
+// background control master that stays alive for ControlPersist and inherits
+// the stderr it was handed. os/exec wires any writer that is not an *os.File
+// through an os.Pipe and a copier goroutine, and cmd.Wait does not return until
+// that goroutine sees EOF -- which cannot happen while the daemon holds the
+// write end open. Connect would therefore block for the full ControlPersist
+// (ten minutes by default) even though the foreground ssh had already exited
+// successfully. An *os.File is dup'd straight into the child instead, so no
+// copier is started and Wait returns with the foreground process no matter what
+// the daemon keeps open.
+//
+// This only ever bit the success path: an authentication or host key failure
+// exits before the fork, so the pipe closed and Wait returned promptly.
+func (c *Connection) runControlMaster(ctx context.Context, args []string) error {
+	stderrFile, err := os.CreateTemp("", "rig-ssh-master-*.stderr")
+	if err != nil {
+		return fmt.Errorf("create ssh control master stderr file: %w", err)
+	}
+	defer func() {
+		_ = stderrFile.Close()
+		// The daemonized master keeps its inherited handle to this file. On unix
+		// the unlink succeeds anyway and the space is reclaimed once the master
+		// exits; on Windows it may fail while the handle is held, which is left
+		// best-effort rather than reported as a connection failure.
+		_ = os.Remove(stderrFile.Name())
+	}()
+
+	cmd := exec.CommandContext(ctx, "ssh", args...)
+	cmd.Stderr = stderrFile
+
+	log.Trace(ctx, "starting ssh control master", log.KeyHost, c, log.KeyCommand, strings.Join(args, " "))
+	if err := cmd.Run(); err != nil {
+		return classifyConnectError(err, readStderrFile(stderrFile), "failed to start ssh multiplexing control master")
+	}
+	return nil
+}
+
+// readStderrFile reads back what a subprocess wrote to f. A read failure yields
+// an empty string rather than an error, because the contents are folded into an
+// error that already carries the real cause and an I/O error from the readback
+// would displace it. The contents are more than extra context, though: they are
+// what classifyConnectError matches on, so an unreadable file costs accuracy --
+// a host key failure loses protocol.ErrNonRetryable and a credential rejection
+// loses protocol.ErrAuthFailed, leaving a plain retryable error carrying the
+// stage prefix and the exit status.
+//
+// It opens the path rather than seeking f itself: os/exec dups f's descriptor
+// into the child, and dup'd descriptors share a file offset, so rewinding f
+// would move the write position of any process still holding that descriptor.
+func readStderrFile(f *os.File) string {
+	out, err := os.ReadFile(f.Name())
+	if err != nil {
+		return ""
+	}
+	return string(out)
 }
 
 // prewarmWindows calls detectWindows with a short bounded context derived from
