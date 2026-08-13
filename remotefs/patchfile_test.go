@@ -56,9 +56,9 @@ func (f *patchFS) ReadDir(_ string) ([]fs.DirEntry, error) { panic("not implemen
 func (f *patchFS) OpenFile(_ string, _ int, _ fs.FileMode) (remotefs.File, error) {
 	panic("not implemented")
 }
-func (f *patchFS) Sha256(_ string) (string, error)  { panic("not implemented") }
-func (f *patchFS) DownloadURL(_, _ string) error    { panic("not implemented") }
-func (f *patchFS) RemoveAll(_ string) error         { panic("not implemented") }
+func (f *patchFS) Sha256(_ string) (string, error)                       { panic("not implemented") }
+func (f *patchFS) DownloadURL(_, _ string) error                         { panic("not implemented") }
+func (f *patchFS) RemoveAll(_ string) error                              { panic("not implemented") }
 func (f *patchFS) Mkdir(_ string, _ fs.FileMode) error                   { panic("not implemented") }
 func (f *patchFS) MkdirTemp(_, _ string) (string, error)                 { panic("not implemented") }
 func (f *patchFS) FileExist(_ string) bool                               { panic("not implemented") }
@@ -464,15 +464,16 @@ func TestPatchFilePosix(t *testing.T) {
 	// handler below (for MkdirAll's Stat("/etc")) does not fire first.
 	// 0x81a4 = 0o100644 (regular file, rw-r--r--).
 	mr.AddCommandOutput(rigtest.Match(`stat -c .+ -- /etc/env`), "0x81a4 12 1234567890.000000000 ///etc/env//")
-	// ReadFile via cat.
-	mr.AddCommandOutput(rigtest.Contains("cat"), "FOO=old\nBAR=keep\n")
+	// ReadFile via cat. Matched by prefix so it does not also catch the "cat >"
+	// redirect that WriteFile uses.
+	mr.AddCommandOutput(rigtest.HasPrefix("cat "), "FOO=old\nBAR=keep\n")
 	// WriteFileAtomic: MkdirAll probes Stat("/etc") — return directory so no install -d is needed.
 	// 0x41ed = 0o040755 (directory, rwxr-xr-x). This fires for any remaining stat -c call.
 	mr.AddCommandOutput(rigtest.Contains("stat -c"), "0x41ed 0 1234567890.000000000 ///etc//")
 	// CreateTemp.
 	mr.AddCommandOutput(rigtest.Contains("mktemp"), "/etc/.tmp-abc123")
-	// WriteFile via install -D + stdin.
-	mr.AddCommandSuccess(rigtest.Contains("install"))
+	// WriteFile via mkdir + umask + a cat redirect fed from stdin.
+	mr.AddCommandSuccess(rigtest.Contains("cat >"))
 	// Chmod.
 	mr.AddCommandSuccess(rigtest.Contains("chmod"))
 	// Rename.

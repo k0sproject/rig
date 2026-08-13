@@ -197,6 +197,151 @@ func TestPosixTouch(t *testing.T) {
 	})
 }
 
+func TestPosixWriteFile(t *testing.T) {
+	// The command must not name /dev/stdin as an input file: the uutils
+	// reimplementation of coreutils refuses non-regular files there.
+	t.Run("command", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		var got []byte
+		mr.AddCommand(rigtest.Contains("cat >"), func(a *rigtest.A) error {
+			var err error
+			got, err = io.ReadAll(a.Stdin)
+			return err
+		})
+		f := remotefs.NewPosixFS(mr)
+		require.NoError(t, f.WriteFile("/etc/k0s/k0s.yaml", []byte("hello"), 0o600))
+		require.Equal(t,
+			"mkdir -p -- /etc/k0s && umask 0177 && cat >/etc/k0s/k0s.yaml && chmod -- 0600 /etc/k0s/k0s.yaml",
+			mr.LastCommand(),
+		)
+		require.Equal(t, "hello", string(got))
+		require.NoError(t, mr.NotReceived(rigtest.Contains("/dev/stdin")))
+	})
+
+	t.Run("umask complements the requested permissions", func(t *testing.T) {
+		for _, tc := range []struct {
+			name  string
+			perm  fs.FileMode
+			umask string
+			chmod string
+		}{
+			{name: "executable", perm: 0o755, umask: "umask 022", chmod: "chmod -- 0755 /tmp/f"},
+			{name: "world readable", perm: 0o644, umask: "umask 0133", chmod: "chmod -- 0644 /tmp/f"},
+			{name: "no permissions", perm: 0, umask: "umask 0777", chmod: "chmod -- 0 /tmp/f"},
+			// The special bits are translated to their POSIX octal digit. A
+			// umask only covers the nine permission bits, so they are applied
+			// by the chmod alone.
+			{name: "setuid", perm: fs.ModeSetuid | 0o600, umask: "umask 0177", chmod: "chmod -- 04600 /tmp/f"},
+			{name: "setgid", perm: fs.ModeSetgid | 0o755, umask: "umask 022", chmod: "chmod -- 02755 /tmp/f"},
+			{name: "sticky", perm: fs.ModeSticky | 0o770, umask: "umask 07 &&", chmod: "chmod -- 01770 /tmp/f"},
+			// File type bits have no chmod representation and are ignored.
+			{name: "type bits ignored", perm: fs.ModeDir | 0o755, umask: "umask 022", chmod: "chmod -- 0755 /tmp/f"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				mr := rigtest.NewMockRunner()
+				mr.AddCommandSuccess(rigtest.Contains("cat >"))
+				f := remotefs.NewPosixFS(mr)
+				require.NoError(t, f.WriteFile("/tmp/f", []byte("x"), tc.perm))
+				require.Contains(t, mr.LastCommand(), tc.umask)
+				require.Contains(t, mr.LastCommand(), tc.chmod)
+			})
+		}
+	})
+
+	t.Run("quotes paths with spaces", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandSuccess(rigtest.Contains("cat >"))
+		f := remotefs.NewPosixFS(mr)
+		require.NoError(t, f.WriteFile("/tmp/my dir/file", []byte("x"), 0o644))
+		require.Equal(t,
+			`mkdir -p -- '/tmp/my dir' && umask 0133 && cat >'/tmp/my dir/file' && chmod -- 0644 '/tmp/my dir/file'`,
+			mr.LastCommand(),
+		)
+	})
+
+	t.Run("command fails", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandFailure(rigtest.Contains("cat >"), errors.New("permission denied"))
+		f := remotefs.NewPosixFS(mr)
+		err := f.WriteFile("/etc/k0s/k0s.yaml", []byte("hello"), 0o600)
+		require.ErrorContains(t, err, "write file /etc/k0s/k0s.yaml")
+	})
+}
+
+// modeCases covers the fs.FileMode → POSIX octal translation shared by every
+// command that takes a mode. The special bits live in the high bits of an
+// fs.FileMode, so formatting one directly would produce a nonsensical number.
+var modeCases = []struct {
+	name string
+	mode fs.FileMode
+	want string
+}{
+	{name: "permission bits", mode: 0o750, want: "0750"},
+	{name: "setuid", mode: fs.ModeSetuid | 0o755, want: "04755"},
+	{name: "setgid", mode: fs.ModeSetgid | 0o775, want: "02775"},
+	{name: "sticky", mode: fs.ModeSticky | 0o777, want: "01777"},
+	// File type bits have no chmod representation and are ignored.
+	{name: "type bits ignored", mode: fs.ModeDir | 0o700, want: "0700"},
+}
+
+func TestPosixMkdir(t *testing.T) {
+	for _, tc := range modeCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mr := rigtest.NewMockRunner()
+			mr.AddCommandSuccess(rigtest.Contains("mkdir"))
+			f := remotefs.NewPosixFS(mr)
+			require.NoError(t, f.Mkdir("/tmp/dir", tc.mode))
+			require.Equal(t, "mkdir -m "+tc.want+" /tmp/dir", mr.LastCommand())
+		})
+	}
+}
+
+func TestPosixMkdirAll(t *testing.T) {
+	// MkdirAll stats the target first; an unmatched stat yields no output, which
+	// reads as "does not exist" and lets it proceed to install.
+	for _, tc := range modeCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mr := rigtest.NewMockRunner()
+			mr.AddCommandSuccess(rigtest.Contains("install"))
+			f := remotefs.NewPosixFS(mr)
+			require.NoError(t, f.MkdirAll("/tmp/a/b", tc.mode))
+			require.Equal(t, "install -d -m "+tc.want+" /tmp/a/b", mr.LastCommand())
+		})
+	}
+}
+
+func TestPosixOpenFileCreate(t *testing.T) {
+	for _, tc := range modeCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mr := rigtest.NewMockRunner()
+			// initStat probes for GNU stat.
+			mr.AddCommandSuccess(rigtest.Equal("stat -c %n /"))
+			var created bool
+			// 0x81a4 = 0o100644 (regular file, rw-r--r--). The file only exists
+			// once install has run.
+			mr.AddCommand(rigtest.Contains("-- /tmp/new"), func(a *rigtest.A) error {
+				if !created {
+					return nil
+				}
+				_, err := a.Stdout.Write([]byte("0x81a4 0 1234567890.000000000 ///tmp/new//\n"))
+				return err
+			})
+			mr.AddCommand(rigtest.Contains("install"), func(_ *rigtest.A) error {
+				created = true
+				return nil
+			})
+			// 0x41ed = 0o40755 (directory, rwxr-xr-x) for the parent.
+			mr.AddCommandOutput(rigtest.Contains("stat -c"), "0x41ed 0 1234567890.000000000 ///tmp//")
+
+			f := remotefs.NewPosixFS(mr)
+			file, err := f.OpenFile("/tmp/new", os.O_CREATE|os.O_WRONLY, tc.mode)
+			require.NoError(t, err)
+			require.NoError(t, file.Close())
+			require.NoError(t, mr.Received(rigtest.Equal("install -m "+tc.want+" /dev/null /tmp/new")))
+		})
+	}
+}
+
 func TestPosixDir(t *testing.T) {
 	f := remotefs.NewPosixFS(rigtest.NewMockRunner())
 	require.Equal(t, "/foo/bar", f.Dir("/foo/bar/baz"))
@@ -226,6 +371,27 @@ func TestPosixCommandExist(t *testing.T) {
 		mr.AddCommandFailure(rigtest.Equal("command -v curl"), errors.New("not found"))
 		f := remotefs.NewPosixFS(mr)
 		require.False(t, f.CommandExist("curl"))
+	})
+}
+
+func TestPosixChmod(t *testing.T) {
+	t.Run("modes", func(t *testing.T) {
+		for _, tc := range modeCases {
+			t.Run(tc.name, func(t *testing.T) {
+				mr := rigtest.NewMockRunner()
+				mr.AddCommandSuccess(rigtest.Contains("chmod"))
+				f := remotefs.NewPosixFS(mr)
+				require.NoError(t, f.Chmod("/tmp/file", tc.mode))
+				require.Equal(t, "chmod "+tc.want+" /tmp/file", mr.LastCommand())
+			})
+		}
+	})
+
+	t.Run("not exist", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandFailure(rigtest.Contains("chmod"), errors.New("No such file or directory"))
+		f := remotefs.NewPosixFS(mr)
+		require.ErrorIs(t, f.Chmod("/tmp/file", 0o644), fs.ErrNotExist)
 	})
 }
 
@@ -273,7 +439,6 @@ func TestPosixChownTreeInt(t *testing.T) {
 		require.ErrorIs(t, f.ChownTreeInt("/srv", 0, 0), fs.ErrNotExist)
 	})
 }
-
 
 func TestPosixInitStat(t *testing.T) {
 	// initStat selects between GNU and BSD stat by inspecting stat's capabilities.

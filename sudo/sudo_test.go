@@ -42,6 +42,11 @@ func TestSudoGolden(t *testing.T) {
 			want:  `sudo -n -- "${SHELL-sh}" -c 'k0s install controller --config /etc/k0s/k0s.yaml'`,
 		},
 		{
+			name:  "write-file compound with a redirect stays inside the sudo shell",
+			input: "mkdir -p -- /etc/k0s && umask 0177 && cat >/etc/k0s/k0s.yaml && chmod -- 0600 /etc/k0s/k0s.yaml",
+			want:  `sudo -n -- "${SHELL-sh}" -c 'mkdir -p -- /etc/k0s && umask 0177 && cat >/etc/k0s/k0s.yaml && chmod -- 0600 /etc/k0s/k0s.yaml'`,
+		},
+		{
 			name:  "command that already uses shell pipes",
 			input: "journalctl -u k0s | tail -20",
 			want:  `sudo -n -- "${SHELL-sh}" -c 'journalctl -u k0s | tail -20'`,

@@ -177,6 +177,25 @@ func posixBitsToFileMode(bits int64) fs.FileMode {
 	return mode
 }
 
+// fileModeToPosixBits is the inverse of posixBitsToFileMode for the bits chmod
+// understands: the permission bits plus setuid, setgid and sticky. The file
+// type bits have no chmod representation and are ignored.
+func fileModeToPosixBits(mode fs.FileMode) int64 {
+	bits := int64(mode.Perm())
+
+	if mode&fs.ModeSetuid != 0 {
+		bits |= 0o4000
+	}
+	if mode&fs.ModeSetgid != 0 {
+		bits |= 0o2000
+	}
+	if mode&fs.ModeSticky != 0 {
+		bits |= 0o1000
+	}
+
+	return bits
+}
+
 func (s *PosixFS) parseStat(stat string) (*FileInfo, error) {
 	// output looks like: 0x81a4 0 1699970097.220228000 //test_20231114155456.txt//
 	parts := strings.SplitN(stat, " ", 4)
@@ -339,9 +358,11 @@ func (s *PosixFS) Truncate(name string, size int64) error {
 	return nil
 }
 
-// Chmod changes the mode of the named file to mode.
+// Chmod changes the mode of the named file to mode. The permission bits and
+// the setuid, setgid and sticky bits are applied; the file type bits are
+// ignored, as chmod has no representation for them.
 func (s *PosixFS) Chmod(name string, mode fs.FileMode) error {
-	if err := s.Exec(sh.Command("chmod", fmt.Sprintf("%#o", mode), name)); err != nil {
+	if err := s.Exec(sh.Command("chmod", fmt.Sprintf("%#o", fileModeToPosixBits(mode)), name)); err != nil {
 		if isNotExist(err) {
 			return PathError("chmod", name, fs.ErrNotExist)
 		}
@@ -540,7 +561,7 @@ func (s *PosixFS) openNew(name string, flags int, perm fs.FileMode) (fs.FileInfo
 		return nil, PathErrorf(OpOpen, name, "%w: failed to stat parent directory", fs.ErrInvalid)
 	}
 
-	if err := s.Exec(sh.Command("install", "-m", fmt.Sprintf("%#o", perm), "/dev/null", name)); err != nil {
+	if err := s.Exec(sh.Command("install", "-m", fmt.Sprintf("%#o", fileModeToPosixBits(perm)), "/dev/null", name)); err != nil {
 		return nil, PathError(OpOpen, name, err)
 	}
 
@@ -698,6 +719,9 @@ func (s *PosixFS) TempDir() string {
 
 // MkdirAll creates a new directory structure with the specified name and permission bits.
 // If the directory already exists, MkDirAll does nothing and returns nil.
+//
+// The permission bits and the setgid, setuid and sticky bits of perm are
+// applied; the file type bits are ignored.
 func (s *PosixFS) MkdirAll(name string, perm fs.FileMode) error {
 	if existing, err := s.Stat(name); err == nil {
 		if existing.IsDir() {
@@ -706,7 +730,7 @@ func (s *PosixFS) MkdirAll(name string, perm fs.FileMode) error {
 		return fmt.Errorf("mkdir %s: %w", name, fs.ErrExist)
 	}
 
-	if err := s.Exec(sh.Command("install", "-d", "-m", fmt.Sprintf("%#o", perm), name)); err != nil {
+	if err := s.Exec(sh.Command("install", "-d", "-m", fmt.Sprintf("%#o", fileModeToPosixBits(perm)), name)); err != nil {
 		return fmt.Errorf("mkdir %s: %w", name, err)
 	}
 
@@ -714,17 +738,50 @@ func (s *PosixFS) MkdirAll(name string, perm fs.FileMode) error {
 }
 
 // Mkdir creates a new directory with the specified name and permission bits.
+//
+// The permission bits and the setgid, setuid and sticky bits of perm are
+// applied; the file type bits are ignored.
 func (s *PosixFS) Mkdir(name string, perm fs.FileMode) error {
-	if err := s.Exec(sh.Command("mkdir", "-m", fmt.Sprintf("%#o", perm), name)); err != nil {
+	if err := s.Exec(sh.Command("mkdir", "-m", fmt.Sprintf("%#o", fileModeToPosixBits(perm)), name)); err != nil {
 		return PathError("mkdir", name, err)
 	}
 
 	return nil
 }
 
-// WriteFile writes data to a file named by filename.
+// WriteFile writes data to a file named by filename. Any missing parent
+// directories are created.
+//
+// The file is created via a shell redirect instead of `install -m ... /dev/stdin`
+// because the uutils (Rust) reimplementation of coreutils, the default on Ubuntu
+// 25.10 and later, fails with "install: No such file or directory" when the
+// source is /dev/stdin and the destination already exists — which is exactly
+// what writing to a mktemp'd file does. See
+// https://github.com/uutils/coreutils/issues/12407.
+//
+// The umask keeps a newly created file from being more permissive than perm
+// while the content is written; the trailing chmod then applies perm's
+// permission bits along with its setuid, setgid and sticky bits, also to a file
+// that already existed. The file type bits of perm are ignored, as chmod has no
+// representation for them. A umask only covers the nine permission bits, so the
+// special bits come from the chmod alone — which is the safe ordering anyway, as
+// the content is fully written by then. The umask is set after mkdir so that it
+// does not affect the mode of the created parent directories.
+//
+// Missing parent directories get the remote default mode (0777 minus the remote
+// umask) instead of the fixed 0755 that GNU `install -D` used. Use MkdirAll if
+// the parent directories need a specific mode.
 func (s *PosixFS) WriteFile(filename string, data []byte, perm fs.FileMode) error {
-	if err := s.Exec(sh.Command("install", "-D", "-m", fmt.Sprintf("%#o", perm), "/dev/stdin", filename), cmd.Stdin(bytes.NewReader(data))); err != nil {
+	mode := fileModeToPosixBits(perm)
+
+	// "--" precedes the mode because BSD chmod stops parsing options at the
+	// first operand, where "chmod 0644 -- file" would treat "--" as a filename.
+	command := sh.CommandBuilder(sh.Command("mkdir", "-p", "--", s.Dir(filename))).
+		Raw("&&").Raw(fmt.Sprintf("umask %#o", fs.ModePerm&^perm.Perm())).
+		Raw("&&").Raw("cat").OutToFile(filename).
+		Raw("&&").Raw(sh.Command("chmod", "--", fmt.Sprintf("%#o", mode), filename))
+
+	if err := s.Exec(command.String(), cmd.Stdin(bytes.NewReader(data))); err != nil {
 		return fmt.Errorf("write file %s: %w", filename, err)
 	}
 	return nil
