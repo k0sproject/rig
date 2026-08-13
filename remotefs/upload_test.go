@@ -97,8 +97,8 @@ func (f *uploadFS) Chtimes(_ string, _, _ int64) error                    { pani
 func (f *uploadFS) Touch(_ string, _ ...time.Time) error                  { panic("not implemented") }
 func (f *uploadFS) Truncate(_ string, _ int64) error                      { panic("not implemented") }
 func (f *uploadFS) Getenv(_ string) string                                { panic("not implemented") }
-func (f *uploadFS) DownloadURL(_ string, _ string) error          { panic("not implemented") }
-func (f *uploadFS) FileContains(_ string, _ string) (bool, error) { panic("not implemented") }
+func (f *uploadFS) DownloadURL(_ string, _ string) error                  { panic("not implemented") }
+func (f *uploadFS) FileContains(_ string, _ string) (bool, error)         { panic("not implemented") }
 func (f *uploadFS) Follow(_ context.Context, _ string, _ io.Writer) error { panic("not implemented") }
 func (f *uploadFS) IsContainer() (bool, error)                            { panic("not implemented") }
 func (f *uploadFS) Hostname() (string, error)                             { panic("not implemented") }

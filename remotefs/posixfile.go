@@ -125,7 +125,10 @@ func (f *PosixFile) Write(p []byte) (int, error) {
 		limitedReader := bytes.NewReader(remaining[:toWrite])
 
 		err := f.fs.Exec(
-			sh.Command("dd", "if=/dev/stdin", "of="+f.path, fmt.Sprintf("bs=%d", bs), fmt.Sprintf("count=%d", count), fmt.Sprintf("seek=%d", skip), "conv=notrunc"),
+			// "if=" is omitted because dd reads stdin by default. Naming
+			// /dev/stdin adds nothing and only invites the kind of breakage
+			// documented in PosixFS.WriteFile.
+			sh.Command("dd", "of="+f.path, fmt.Sprintf("bs=%d", bs), fmt.Sprintf("count=%d", count), fmt.Sprintf("seek=%d", skip), "conv=notrunc"),
 			cmd.Stdin(limitedReader),
 		)
 		if err != nil {
@@ -183,7 +186,8 @@ func (f *PosixFile) CopyFrom(src io.Reader) (int64, error) {
 	counter := &iostream.ByteCounter{}
 
 	err := f.fs.Exec(
-		sh.Command("dd", "if=/dev/stdin", "of="+f.path, fmt.Sprintf("bs=%d", f.fsBlockSize()), fmt.Sprintf("seek=%d", f.pos), "conv=notrunc"),
+		// "if=" is omitted so dd reads stdin, see the note in Write above.
+		sh.Command("dd", "of="+f.path, fmt.Sprintf("bs=%d", f.fsBlockSize()), fmt.Sprintf("seek=%d", f.pos), "conv=notrunc"),
 		cmd.Stdin(io.TeeReader(src, counter)),
 	)
 	if err != nil {

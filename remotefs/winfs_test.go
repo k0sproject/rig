@@ -215,7 +215,6 @@ func TestWindowsChownVariantsNotSupported(t *testing.T) {
 	require.ErrorIs(t, f.ChownTreeInt("/tmp", 0, 0), remotefs.ErrNotSupported)
 }
 
-
 func TestWindowsCreateTemp(t *testing.T) {
 	t.Run("ok", func(t *testing.T) {
 		mr := rigtest.NewMockRunner()
@@ -371,4 +370,3 @@ func TestWindowsShellQuote(t *testing.T) {
 		require.Equal(t, tc.want, fs.ShellQuote(tc.input), "input: %q", tc.input)
 	}
 }
-
