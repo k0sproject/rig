@@ -58,14 +58,21 @@ func isAuthError(stderr string) bool {
 // on the next attempt, so it is non-retryable. A credential rejection is the
 // remote's answer and may clear once it finishes provisioning, so it is tagged
 // but left retryable. Everything else is returned with only the stage prefix.
+//
+// The captured stderr is appended in parentheses when it carries anything; ssh
+// can fail before writing a word of it, and an empty "()" only adds noise.
 func classifyConnectError(err error, stderr, stage string) error {
+	var detail string
+	if out := strings.TrimSpace(stderr); out != "" {
+		detail = " (" + out + ")"
+	}
 	switch {
 	case isHostKeyError(stderr):
-		return fmt.Errorf("%w: host key verification failed: %w (%s)", protocol.ErrNonRetryable, err, stderr)
+		return fmt.Errorf("%w: %s: host key verification failed: %w%s", protocol.ErrNonRetryable, stage, err, detail)
 	case isAuthError(stderr):
-		return fmt.Errorf("%w: %s: %w (%s)", protocol.ErrAuthFailed, stage, err, stderr)
+		return fmt.Errorf("%w: %s: %w%s", protocol.ErrAuthFailed, stage, err, detail)
 	default:
-		return fmt.Errorf("%s: %w (%s)", stage, err, stderr)
+		return fmt.Errorf("%s: %w%s", stage, err, detail)
 	}
 }
 
