@@ -5,10 +5,13 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/pem"
+	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +26,68 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
+
+// errAuthRejected is what test SSH servers return when refusing a credential.
+var errAuthRejected = errors.New("auth rejected")
+
+// startSSHServer starts an in-process SSH server on a random loopback port using
+// the given config and returns its listen address. It serves no channels: every
+// channel-open request is rejected. The listener is closed by t.Cleanup.
+func startSSHServer(t *testing.T, cfg *ssh.ServerConfig) string {
+	t.Helper()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { ln.Close() })
+
+	go func() {
+		for {
+			conn, lErr := ln.Accept()
+			if lErr != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				sconn, chans, reqs, hsErr := ssh.NewServerConn(c, cfg)
+				if hsErr != nil {
+					return
+				}
+				defer sconn.Close()
+				go ssh.DiscardRequests(reqs)
+				for newChan := range chans {
+					newChan.Reject(ssh.UnknownChannelType, "not supported") //nolint:errcheck
+				}
+			}(conn)
+		}
+	}()
+
+	return ln.Addr().String()
+}
+
+// newHostSigner generates an ephemeral ed25519 host key for a test SSH server.
+func newHostSigner(t *testing.T) ssh.Signer {
+	t.Helper()
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	signer, err := ssh.NewSignerFromKey(priv)
+	require.NoError(t, err)
+	return signer
+}
+
+// pinHostKey writes a known_hosts file pinning hostSigner's public key for addr
+// and points SSH_KNOWN_HOSTS at it, so host key verification is exercised rather
+// than bypassed. knownhosts.Normalize converts "host:port" to "[host]:port" for
+// non-22 ports, which is the form the validator looks up.
+func pinHostKey(t *testing.T, addr string, hostSigner ssh.Signer) {
+	t.Helper()
+	line := fmt.Sprintf("%s %s\n",
+		knownhosts.Normalize(addr),
+		strings.TrimRight(string(ssh.MarshalAuthorizedKey(hostSigner.PublicKey())), "\n"),
+	)
+	path := filepath.Join(t.TempDir(), "known_hosts")
+	require.NoError(t, os.WriteFile(path, []byte(line), 0o600))
+	t.Setenv("SSH_KNOWN_HOSTS", path)
+}
 
 // withConfigParser temporarily installs a hermetic ssh config parser built from
 // the given ssh_config content and restores the previous parser afterwards.
@@ -486,6 +551,99 @@ func newBlockingSSHClient(t *testing.T) *ssh.Client {
 	client := ssh.NewClient(clientConn, clientChans, clientReqs)
 	t.Cleanup(func() { client.Close() })
 	return client
+}
+
+func Test_isAuthError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "nil error",
+			err:  nil,
+			want: false,
+		},
+		{
+			name: "handshake exhausted all methods",
+			err:  errors.New("ssh: handshake failed: ssh: unable to authenticate, attempted methods [none publickey], no supported methods remain"),
+			want: true,
+		},
+		{
+			name: "wrapped handshake failure",
+			err:  fmt.Errorf("ssh dial: %w", errors.New("ssh: unable to authenticate, attempted methods [none], no supported methods remain")),
+			want: true,
+		},
+		{
+			name: "connection refused",
+			err:  errors.New("dial tcp 10.0.0.1:22: connect: connection refused"),
+			want: false,
+		},
+		{
+			name: "host key mismatch",
+			err:  errors.New("ssh: handshake failed: host key mismatch"),
+			want: false,
+		},
+		{
+			name: "remote command permission denied",
+			err:  errors.New("Process exited with status 1: cat: /etc/shadow: Permission denied"),
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, isAuthError(tt.err), "isAuthError(%v)", tt.err)
+		})
+	}
+}
+
+// TestConnectAuthFailure drives Connect against an in-process SSH server that
+// refuses every credential it is offered. The resulting error must be tagged
+// protocol.ErrAuthFailed so callers can fail fast on bad credentials, but must
+// not be non-retryable: the same credentials can start working once the remote
+// finishes provisioning.
+func TestConnectAuthFailure(t *testing.T) {
+	withConfigParser(t, "")
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	hostSigner := newHostSigner(t)
+	cfg := &ssh.ServerConfig{
+		ServerVersion: "SSH-2.0-test-linux",
+		PasswordCallback: func(_ ssh.ConnMetadata, _ []byte) (*ssh.Permissions, error) {
+			return nil, errAuthRejected
+		},
+	}
+	cfg.AddHostKey(hostSigner)
+
+	serverAddr := startSSHServer(t, cfg)
+	pinHostKey(t, serverAddr, hostSigner)
+
+	serverHost, serverPortStr, err := net.SplitHostPort(serverAddr)
+	require.NoError(t, err)
+	serverPort, err := strconv.Atoi(serverPortStr)
+	require.NoError(t, err)
+
+	conn, err := NewConnection(Config{
+		Address:     serverHost,
+		Port:        serverPort,
+		User:        "test",
+		AuthMethods: []ssh.AuthMethod{ssh.Password("wrong")},
+	})
+	require.NoError(t, err)
+	t.Cleanup(conn.Disconnect)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err = conn.Connect(ctx)
+	require.Error(t, err, "Connect must fail against a server that rejects every credential")
+	require.ErrorIs(t, err, protocol.ErrAuthFailed)
+	require.NotErrorIs(t, err, protocol.ErrNonRetryable,
+		"a credential rejection can clear once the remote finishes provisioning")
+	require.ErrorContains(t, err, "ssh dial",
+		"the tag must come from the direct-connect handshake, not some other path")
+	require.False(t, conn.IsConnected())
 }
 
 // TestDialWithDeadlineContextCancelled verifies that dialWithDeadline aborts

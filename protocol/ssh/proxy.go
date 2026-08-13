@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/k0sproject/rig/v2/protocol"
-	"github.com/k0sproject/rig/v2/protocol/ssh/hostkey"
 	ssh "golang.org/x/crypto/ssh"
 )
 
@@ -245,10 +244,7 @@ func (c *Connection) connectViaProxyCommand(ctx context.Context, dst string, con
 	if result.err != nil {
 		_ = pconn.Close()
 		killProc()
-		if errors.Is(result.err, hostkey.ErrHostKeyMismatch) {
-			return fmt.Errorf("%w: %w", protocol.ErrNonRetryable, result.err)
-		}
-		return fmt.Errorf("proxy command ssh connect: %w", result.err)
+		return classifyHandshakeError(result.err, "proxy command ssh connect")
 	}
 
 	c.mu.Lock()

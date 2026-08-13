@@ -23,6 +23,11 @@ var (
 	// ErrValidationFailed is returned when a validation check fails.
 	// An alias of protocol.ErrValidationFailed for easier access without importing subpackages.
 	ErrValidationFailed = protocol.ErrValidationFailed
+
+	// ErrAuthFailed is returned when the remote host rejects the supplied credentials.
+	// It is not an ErrNonRetryable, see the protocol.ErrAuthFailed documentation for why.
+	// An alias of protocol.ErrAuthFailed for easier access without importing subpackages.
+	ErrAuthFailed = protocol.ErrAuthFailed
 )
 
 // PackageManagerProvider is a type alias for packagemanager.Provider.

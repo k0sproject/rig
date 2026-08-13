@@ -32,6 +32,50 @@ func isHostKeyError(stderr string) bool {
 		strings.Contains(stderr, "REMOTE HOST IDENTIFICATION HAS CHANGED")
 }
 
+// isAuthError reports whether ssh stderr output indicates the remote rejected
+// every authentication method that was offered. The openssh client reports this
+// as "Permission denied" followed by the parenthesised list of methods it tried,
+// for example:
+//
+//	user@host: Permission denied (publickey,password).
+//
+// The method list is what makes the match specific: a bare "Permission denied"
+// is also produced by the remote command and by unreadable local key files,
+// neither of which is a credential rejection.
+func isAuthError(stderr string) bool {
+	_, rest, found := strings.Cut(stderr, "Permission denied (")
+	if !found {
+		return false
+	}
+	methods, _, closed := strings.Cut(rest, ")")
+	return closed && methods != ""
+}
+
+// classifyConnectError describes a failed ssh client invocation with the
+// sentinel its stderr points to, prefixed with the stage that produced it.
+//
+// A host key failure is a security decision that will not come out differently
+// on the next attempt, so it is non-retryable. A credential rejection is the
+// remote's answer and may clear once it finishes provisioning, so it is tagged
+// but left retryable. Everything else is returned with only the stage prefix.
+//
+// The captured stderr is appended in parentheses when it carries anything; ssh
+// can fail before writing a word of it, and an empty "()" only adds noise.
+func classifyConnectError(err error, stderr, stage string) error {
+	var detail string
+	if out := strings.TrimSpace(stderr); out != "" {
+		detail = " (" + out + ")"
+	}
+	switch {
+	case isHostKeyError(stderr):
+		return fmt.Errorf("%w: %s: host key verification failed: %w%s", protocol.ErrNonRetryable, stage, err, detail)
+	case isAuthError(stderr):
+		return fmt.Errorf("%w: %s: %w%s", protocol.ErrAuthFailed, stage, err, detail)
+	default:
+		return fmt.Errorf("%s: %w%s", stage, err, detail)
+	}
+}
+
 // Connection is a rig.Connection implementation that uses the system openssh client "ssh" to connect to remote hosts.
 // The connection is by default multiplexec over a control master, so that subsequent connections don't need to re-authenticate.
 type Connection struct {
@@ -192,11 +236,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 			err = proc.Wait()
 		}
 		if err != nil {
-			errOut := errBuf.String()
-			if isHostKeyError(errOut) {
-				return fmt.Errorf("%w: host key verification failed: %w (%s)", protocol.ErrNonRetryable, err, errOut)
-			}
-			return fmt.Errorf("failed to connect: %w", err)
+			return classifyConnectError(err, errBuf.String(), "failed to connect")
 		}
 		c.controlMutex.Lock()
 		c.isConnected = true
@@ -225,11 +265,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 	if err := cmd.Run(); err != nil {
 		c.isConnected = false
 		c.controlMutex.Unlock()
-		errOut := errBuf.String()
-		if isHostKeyError(errOut) {
-			return fmt.Errorf("%w: host key verification failed: %w (%s)", protocol.ErrNonRetryable, err, errOut)
-		}
-		return fmt.Errorf("failed to start ssh multiplexing control master: %w (%s)", err, errOut)
+		return classifyConnectError(err, errBuf.String(), "failed to start ssh multiplexing control master")
 	}
 
 	c.isConnected = true
