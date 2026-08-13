@@ -12,8 +12,7 @@ var (
 	// DefaultRegistry is the default registry of remote filesystem implementations.
 	DefaultRegistry = sync.OnceValue(func() *Registry {
 		r := NewRegistry()
-		RegisterWindows(r)
-		RegisterPosix(r)
+		RegisterDefaults(r)
 		return r
 	})
 
@@ -33,6 +32,17 @@ type Registry = plumbing.Provider[cmd.Runner, FS]
 // NewRegistry creates a new Registry.
 func NewRegistry() *Registry {
 	return plumbing.NewProvider[cmd.Runner, FS](ErrNoFS)
+}
+
+// RegisterDefaults registers the filesystem implementations rig ships with, which
+// is what DefaultRegistry holds. Use it to build a registry of your own without
+// having to list them, and without missing implementations added in later versions.
+//
+// The factories are appended, so one of your own that has to take precedence over
+// them must be registered before this call, or with Registry.RegisterFirst.
+func RegisterDefaults(r *Registry) {
+	RegisterWindows(r)
+	RegisterPosix(r)
 }
 
 // RegisterWindows registers the Windows filesystem implementation.

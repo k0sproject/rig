@@ -59,13 +59,7 @@ var (
 	// DefaultRegistry is the default repository for init systems.
 	DefaultRegistry = sync.OnceValue(func() *Registry {
 		provider := NewRegistry()
-		RegisterSystemd(provider)
-		RegisterOpenRC(provider)
-		RegisterUpstart(provider)
-		RegisterSysVinit(provider)
-		RegisterWinSCM(provider)
-		RegisterRunit(provider)
-		RegisterLaunchd(provider)
+		RegisterDefaults(provider)
 		return provider
 	})
 
@@ -85,4 +79,20 @@ type Registry = plumbing.Provider[cmd.ContextRunner, ServiceManager]
 // NewRegistry returns a new Registry.
 func NewRegistry() *Registry {
 	return plumbing.NewProvider[cmd.ContextRunner, ServiceManager](ErrNoInitSystem)
+}
+
+// RegisterDefaults registers the init systems rig ships with, which is what
+// DefaultRegistry holds. Use it to build a registry of your own without having to
+// list them, and without missing init systems added in later versions.
+//
+// The factories are appended, so one of your own that has to take precedence over
+// them must be registered before this call, or with Registry.RegisterFirst.
+func RegisterDefaults(provider *Registry) {
+	RegisterSystemd(provider)
+	RegisterOpenRC(provider)
+	RegisterUpstart(provider)
+	RegisterSysVinit(provider)
+	RegisterWinSCM(provider)
+	RegisterRunit(provider)
+	RegisterLaunchd(provider)
 }

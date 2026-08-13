@@ -24,15 +24,7 @@ var (
 	// DefaultRegistry is the default repository of package managers.
 	DefaultRegistry = sync.OnceValue(func() *Registry {
 		provider := NewRegistry()
-		RegisterApk(provider)
-		RegisterApt(provider)
-		RegisterYum(provider)
-		RegisterDnf(provider)
-		RegisterPacman(provider)
-		RegisterZypper(provider)
-		RegisterWindowsMultiManager(provider)
-		RegisterHomebrew(provider)
-		RegisterMacports(provider)
+		RegisterDefaults(provider)
 		return provider
 	})
 	// ErrNoPackageManager is returned when no supported package manager is found.
@@ -48,4 +40,22 @@ type Registry = plumbing.Provider[cmd.ContextRunner, PackageManager]
 // NewRegistry creates a new instance of the specialized Registry.
 func NewRegistry() *Registry {
 	return plumbing.NewProvider[cmd.ContextRunner, PackageManager](ErrNoPackageManager)
+}
+
+// RegisterDefaults registers the package managers rig ships with, which is what
+// DefaultRegistry holds. Use it to build a registry of your own without having to
+// list them, and without missing package managers added in later versions.
+//
+// The factories are appended, so one of your own that has to take precedence over
+// them must be registered before this call, or with Registry.RegisterFirst.
+func RegisterDefaults(provider *Registry) {
+	RegisterApk(provider)
+	RegisterApt(provider)
+	RegisterYum(provider)
+	RegisterDnf(provider)
+	RegisterPacman(provider)
+	RegisterZypper(provider)
+	RegisterWindowsMultiManager(provider)
+	RegisterHomebrew(provider)
+	RegisterMacports(provider)
 }

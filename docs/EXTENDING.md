@@ -19,9 +19,10 @@ Every pluggable subsystem follows one shape:
 - A **`Factory`** is a detection closure: `func(runner) (Impl, bool)`. It inspects the
   host and returns `(impl, true)` if it can serve this host, or `(nil, false)` to pass.
 - A **`Registry`** holds an ordered list of factories. `Registry.Get(runner)` tries them
-  in registration order and returns the first match (the matched factory is then moved to
-  the front to speed up subsequent hosts in a multi-host run). If none match, it returns
-  the subsystem's "not found" error.
+  in registration order and returns the first match. If none match, it returns
+  the subsystem's "not found" error. A lookup never reorders the list, so what one host
+  resolved to cannot change what the next one resolves to. `Register` appends;
+  `RegisterFirst` puts a factory at the front, ahead of everything else.
 - A **`With*Provider`** client option injects a registry's `Get` method into a client.
 
 `Registry.Get` has exactly the signature the matching `With*Provider` option expects, so
@@ -36,7 +37,8 @@ they compose directly. The subsystems and their types:
 | Remote filesystem | `remotefs` | `cmd.Runner` | `remotefs.FS` | `WithRemoteFSProvider` |
 
 Each package also exposes a `DefaultRegistry()` (a memoized singleton holding rig's
-built-in factories) and `NewRegistry()` (an empty one). The default client uses
+built-in factories), `NewRegistry()` (an empty one) and `RegisterDefaults(reg)`
+(rig's built-ins, added to a registry of yours). The default client uses
 `packagemanager.DefaultRegistry().Get` and similar for the other providers.
 
 ## Example: a custom package manager
@@ -93,13 +95,12 @@ can't serve, so the registry can fall through to the next candidate.
 
 #### Per client
 
-Build a registry with your factory first, add whichever built-ins you still want as fallbacks, and inject it:
+Build a registry with your factory first, add the built-ins behind it, and inject it:
 
 ```go
 reg := packagemanager.NewRegistry()
-mypkg.RegisterFoo(reg)              // tried first → wins when foopkg is present
-packagemanager.RegisterApt(reg)     // fall back to the built-ins you care about
-packagemanager.RegisterApk(reg)
+mypkg.RegisterFoo(reg)               // tried first → wins when foopkg is present
+packagemanager.RegisterDefaults(reg) // then everything rig ships
 
 client, err := rig.NewClient(
 	rig.WithConnection(conn),
@@ -108,21 +109,55 @@ client, err := rig.NewClient(
 ```
 
 Order matters: factories are tried in registration order, so put a factory that should
-override a built-in ahead of it. (To keep every built-in as a fallback without
-listing them, register your factory and then re-register the defaults or use the
-global approach below if you only want to add support, not override it.)
+override a built-in ahead of it. `RegisterDefaults` appends, so calling it before
+`RegisterFoo` would leave your factory behind the built-ins. If you only want a few
+of them, the individual `RegisterApt`/`RegisterApk`/… functions are still there —
+at the cost of not picking up managers rig adds in later versions.
 
 #### Globally
 
-Append your factory to the shared default registry from an `init()`. It becomes available to
-every client built with default options. Because built-ins are registered first, yours is
-used only when none of them match:
+Add your factory to the shared default registry from an `init()`. It becomes available to
+every client built with default options. `Register` appends, so yours is used only when
+none of the built-ins match:
 
 ```go
 func init() {
 	mypkg.RegisterFoo(packagemanager.DefaultRegistry())
 }
 ```
+
+#### Overriding a built-in
+
+Appending is not enough when a built-in matches the same hosts your factory does —
+it is consulted first, so yours is never reached. `RegisterFirst` puts a factory at
+the very front, ahead of everything registered before or after it.
+
+A `RegisterFoo`-style helper picks `Register` on the caller's behalf, so export the
+factory itself if you want to leave them the choice:
+
+```go
+// In mypkg, alongside RegisterFoo.
+func FooFactory(c cmd.ContextRunner) (packagemanager.PackageManager, bool) {
+	// ...same detection as above...
+}
+
+// In the consumer.
+func init() {
+	packagemanager.DefaultRegistry().RegisterFirst(mypkg.FooFactory)
+}
+```
+
+This is the lever for the case rig's own factories solve by self-exclusion, where a
+factory matching a superset of another's hosts declines the ones the more specific
+factory handles — `os.ResolveLinuxCompat` stands down for any host `os-release` can
+name, `yum` for a host with `dnf`, SysVinit for a host with systemd. That is the
+better pattern where it is available, but it is only available to whoever owns the
+broad factory. A caller cannot make a built-in stand down for a factory that did not
+exist when it was written, and `RegisterFirst` is what they use instead.
+
+Two things to know about it: where it is called more than once the most recent call
+wins, and a resolved value is memoized per host, so register from an `init()` or
+before constructing clients rather than after.
 
 ## Init system and OS release
 
