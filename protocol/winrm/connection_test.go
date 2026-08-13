@@ -115,7 +115,7 @@ func Test_authErrorWrapping(t *testing.T) {
 			// against a real WinRM server is deferred to the todo item for WinRM tests.
 			var err error
 			if isAuthError(tt.startErr) {
-				err = fmt.Errorf("%w: %w", ErrAuthFailed, tt.startErr)
+				err = fmt.Errorf("%w: %w", protocol.ErrAuthFailed, tt.startErr)
 			} else {
 				err = tt.startErr
 			}
@@ -123,8 +123,8 @@ func Test_authErrorWrapping(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected an error, got nil")
 			}
-			if got := errors.Is(err, ErrAuthFailed); got != tt.wantAuthFailed {
-				t.Errorf("errors.Is(err, ErrAuthFailed) = %v, want %v (err: %v)", got, tt.wantAuthFailed, err)
+			if got := errors.Is(err, protocol.ErrAuthFailed); got != tt.wantAuthFailed {
+				t.Errorf("errors.Is(err, protocol.ErrAuthFailed) = %v, want %v (err: %v)", got, tt.wantAuthFailed, err)
 			}
 			// Neither case may abort a caller's retry loop.
 			if errors.Is(err, protocol.ErrNonRetryable) {
@@ -200,8 +200,8 @@ func TestConnect_probeClassification(t *testing.T) {
 				t.Fatal("Connect() succeeded against stub server, want error")
 			}
 
-			if got := errors.Is(err, ErrAuthFailed); got != tt.wantAuthFailed {
-				t.Errorf("Connect() errors.Is(err, ErrAuthFailed) = %v, want %v (err: %v)", got, tt.wantAuthFailed, err)
+			if got := errors.Is(err, protocol.ErrAuthFailed); got != tt.wantAuthFailed {
+				t.Errorf("Connect() errors.Is(err, protocol.ErrAuthFailed) = %v, want %v (err: %v)", got, tt.wantAuthFailed, err)
 			}
 
 			// No HTTP status from the remote may abort a caller's retry loop: the

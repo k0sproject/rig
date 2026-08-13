@@ -86,12 +86,12 @@ func (c *Connection) IsWindows() bool {
 }
 
 // probe runs a no-op command to verify the connection is alive and authenticated.
-// HTTP 401/403 responses are wrapped as ErrAuthFailed.
+// HTTP 401/403 responses are tagged with protocol.ErrAuthFailed.
 func (c *Connection) probe(ctx context.Context) error {
 	proc, err := c.StartProcess(ctx, "cmd.exe /c exit 0", nil, nil, nil)
 	if err != nil {
 		if isAuthError(err) {
-			return fmt.Errorf("%w: %w", ErrAuthFailed, err)
+			return fmt.Errorf("%w: %w", protocol.ErrAuthFailed, err)
 		}
 		return err
 	}
@@ -100,18 +100,6 @@ func (c *Connection) probe(ctx context.Context) error {
 	}
 	return nil
 }
-
-// ErrAuthFailed is returned when the remote host rejects the supplied
-// credentials with an HTTP 401 or 403.
-//
-// This is deliberately not wrapped in protocol.ErrNonRetryable. A rejection is
-// the remote host's answer, and on Windows it is routinely transient: the WinRM
-// listener starts answering before provisioning has finished configuring
-// authentication, so a host that has just booted returns 401 for a while with
-// entirely correct credentials. Callers that provision hosts need to wait
-// through that, and callers that want to fail fast on bad credentials can test
-// for this error explicitly.
-var ErrAuthFailed = errors.New("authentication failed")
 
 // isAuthError reports whether err looks like an HTTP 401/403 response from the
 // WinRM library. The library returns untyped formatted errors so we match by

@@ -38,6 +38,41 @@ var (
 	errNotRegularFile = errors.New("not a regular file")
 )
 
+// isAuthError reports whether err is the handshake failure golang.org/x/crypto/ssh
+// returns once every configured authentication method has been refused by the
+// remote. The library returns an untyped formatted error, so this matches by
+// substring on the message it builds in client_auth.go:
+//
+//	"ssh: unable to authenticate, attempted methods [...], no supported methods remain"
+//
+// Only a rejection by the remote counts. Failing to assemble any usable
+// authentication method locally is a configuration fault and stays
+// protocol.ErrNonRetryable.
+func isAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "ssh: unable to authenticate")
+}
+
+// classifyHandshakeError describes a failed SSH handshake with the sentinel that
+// fits it, prefixed with the stage that produced it.
+//
+// A host key mismatch is a security decision that will not come out differently
+// on the next attempt, so it is non-retryable. A credential rejection is the
+// remote's answer and may clear once it finishes provisioning, so it is tagged
+// but left retryable. Everything else is returned with only the stage prefix.
+func classifyHandshakeError(err error, stage string) error {
+	switch {
+	case errors.Is(err, hostkey.ErrHostKeyMismatch):
+		return fmt.Errorf("%w: %s: %w", protocol.ErrNonRetryable, stage, err)
+	case isAuthError(err):
+		return fmt.Errorf("%w: %s: %w", protocol.ErrAuthFailed, stage, err)
+	default:
+		return fmt.Errorf("%s: %w", stage, err)
+	}
+}
+
 // Connection describes an SSH connection.
 type Connection struct {
 	log.LoggerInjectable `yaml:"-"`
@@ -863,10 +898,7 @@ func (c *Connection) connectViaBastion(ctx context.Context, dst string, config *
 	agentClose()
 	if err != nil {
 		_ = bconn.Close()
-		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
-			return fmt.Errorf("%w: bastion client connect: %w", protocol.ErrNonRetryable, err)
-		}
-		return fmt.Errorf("bastion client connect: %w", err)
+		return classifyHandshakeError(err, "bastion client connect")
 	}
 	if !deadline.IsZero() {
 		_ = bconn.SetDeadline(time.Time{})
@@ -1074,10 +1106,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 	agentClose()
 	if err != nil {
 		_ = conn.Close()
-		if errors.Is(err, hostkey.ErrHostKeyMismatch) {
-			return fmt.Errorf("%w: %w", protocol.ErrNonRetryable, err)
-		}
-		return fmt.Errorf("ssh dial: %w", err)
+		return classifyHandshakeError(err, "ssh dial")
 	}
 	_ = conn.SetDeadline(time.Time{})
 	c.mu.Lock()

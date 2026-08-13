@@ -15,6 +15,25 @@ var (
 	// ErrNonRetryable is returned when retrying an operation will not result in a
 	// different outcome.
 	ErrNonRetryable = errors.New("operation cannot be completed")
+
+	// ErrAuthFailed is returned when the remote host rejects the credentials it
+	// was given. Protocol implementations tag their authentication failures with
+	// it: an HTTP 401/403 on WinRM, an exhausted authentication handshake on SSH.
+	//
+	// It covers credentials the remote received and refused. It does not cover
+	// local configuration faults such as having no usable authentication method
+	// to offer in the first place -- those are ErrNonRetryable, because nothing
+	// about the local configuration changes between attempts.
+	//
+	// ErrAuthFailed is deliberately not wrapped in ErrNonRetryable. A rejection is
+	// the remote host's answer, and it is routinely transient while a host is
+	// still being provisioned: WinRM starts answering before authentication has
+	// been configured, and sshd accepts connections before authorized_keys has
+	// been written. A caller that provisions hosts and then connects to them
+	// needs to wait through that window, so retrying is left enabled by default.
+	// Callers that would rather fail fast on bad credentials can test for this
+	// error explicitly and stop their own retry loop.
+	ErrAuthFailed = errors.New("authentication failed")
 )
 
 // Waiter is a process that can be waited to finish.

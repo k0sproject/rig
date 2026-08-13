@@ -2,22 +2,18 @@ package ssh
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"runtime"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	ssh "golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // TestMain handles the helper-proxy subprocess invoked by TestConnectViaProxyCommand.
@@ -49,13 +45,9 @@ func TestMain(m *testing.M) {
 func startMinimalSSHServer(t *testing.T) (addr string, hostSigner ssh.Signer) {
 	t.Helper()
 
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	hostSigner, err = ssh.NewSignerFromKey(priv)
-	require.NoError(t, err)
-
+	hostSigner = newHostSigner(t)
 	cfg := &ssh.ServerConfig{
-		NoClientAuth:  true,
+		NoClientAuth: true,
 		// "linux" in the version string causes isKnownPosix() to return true,
 		// short-circuiting the ver.exe probe in detectWindows and avoiding a
 		// reconnect loop that would block the test for the full context duration.
@@ -63,32 +55,7 @@ func startMinimalSSHServer(t *testing.T) (addr string, hostSigner ssh.Signer) {
 	}
 	cfg.AddHostKey(hostSigner)
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	t.Cleanup(func() { ln.Close() })
-
-	go func() {
-		for {
-			conn, lErr := ln.Accept()
-			if lErr != nil {
-				return
-			}
-			go func(c net.Conn) {
-				defer c.Close()
-				sconn, chans, reqs, hsErr := ssh.NewServerConn(c, cfg)
-				if hsErr != nil {
-					return
-				}
-				defer sconn.Close()
-				go ssh.DiscardRequests(reqs)
-				for newChan := range chans {
-					newChan.Reject(ssh.UnknownChannelType, "not supported") //nolint:errcheck
-				}
-			}(conn)
-		}
-	}()
-
-	return ln.Addr().String(), hostSigner
+	return startSSHServer(t, cfg), hostSigner
 }
 
 // TestParseProxyJump exercises the ProxyJump parser for various formats.
@@ -369,17 +336,7 @@ func TestConnectViaProxyCommand(t *testing.T) {
 	serverPort, err := strconv.Atoi(serverPortStr)
 	require.NoError(t, err)
 
-	// Pin the host key: MarshalAuthorizedKey already includes the key type.
-	// knownhosts.Normalize converts "host:port" to "[host]:port" for non-22 ports.
-	hostPub := hostSigner.PublicKey()
-	normalizedAddr := knownhosts.Normalize(serverAddr)
-	knownHostsLine := fmt.Sprintf("%s %s\n",
-		normalizedAddr,
-		strings.TrimRight(string(ssh.MarshalAuthorizedKey(hostPub)), "\n"),
-	)
-	khFile := t.TempDir() + "/known_hosts"
-	require.NoError(t, os.WriteFile(khFile, []byte(knownHostsLine), 0o600))
-	t.Setenv("SSH_KNOWN_HOSTS", khFile)
+	pinHostKey(t, serverAddr, hostSigner)
 
 	// Build ProxyCommand: re-invoke this test binary in helper-proxy mode.
 	// All env vars are passed via t.Setenv so the child inherits them — inline
