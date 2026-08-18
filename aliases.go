@@ -90,8 +90,9 @@ func GetOSRelease(runner cmd.SimpleRunner) (*os.Release, error) {
 	return os, nil
 }
 
-// NewRunner returns a new cmd.Runner for the connection.
+// NewRunner returns a new cmd.Runner for the connection. Like the runner a
+// [Client] sets up, it imposes a POSIX shell on non-Windows hosts.
 // Currently the error is always nil.
 func NewRunner(conn protocol.Connection) (cmd.Runner, error) {
-	return cmd.NewExecutor(conn), nil
+	return newDefaultRunner(conn), nil
 }

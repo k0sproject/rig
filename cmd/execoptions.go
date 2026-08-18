@@ -57,10 +57,31 @@ type ExecOptions struct {
 
 // Format returns the command string with all per-call decorators applied.
 func (o *ExecOptions) Format(cmd string) string {
-	for _, decorator := range o.decorateFuncs {
-		cmd = decorator(cmd)
+	return applyDecorators(cmd, o.decorateFuncs, nil)
+}
+
+// formatMasked is [ExecOptions.Format] with a mask applied after every decorator.
+// See [applyDecorators].
+func (o *ExecOptions) formatMasked(cmd string, mask func(string) string) string {
+	return applyDecorators(cmd, o.decorateFuncs, mask)
+}
+
+// hasRedaction reports whether any secrets are registered for redaction.
+func (o *ExecOptions) hasRedaction() bool {
+	return len(o.redactStrings) > 0
+}
+
+// needsMaskedReplay reports whether masking the formatted command could miss a
+// registered secret. Quoting only ever rewrites single quotes and backslashes,
+// so a secret containing neither stays contiguous however many times the command
+// is quoted, and can be masked in the formatted command directly.
+func (o *ExecOptions) needsMaskedReplay() bool {
+	for _, secret := range o.redactStrings {
+		if strings.ContainsAny(secret, `'\`) {
+			return true
+		}
 	}
-	return cmd
+	return false
 }
 
 // AllowWinStderr returns the allowWinStderr option.

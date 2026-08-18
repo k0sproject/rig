@@ -12,6 +12,7 @@ import (
 	"github.com/k0sproject/rig/v2/packagemanager"
 	"github.com/k0sproject/rig/v2/protocol"
 	"github.com/k0sproject/rig/v2/remotefs"
+	"github.com/k0sproject/rig/v2/sh"
 	"github.com/k0sproject/rig/v2/sudo"
 )
 
@@ -179,7 +180,16 @@ func (o *ClientOptions) GetRunner(conn protocol.Connection) cmd.Runner {
 	if o.runner != nil {
 		return o.runner
 	}
+	return newDefaultRunner(conn)
+}
+
+// newDefaultRunner returns rig's default runner for a connection: an executor
+// that imposes a POSIX shell on non-Windows hosts, so that the remote user's
+// login shell does not get to interpret rig's POSIX command strings.
+// See [cmd.Executor.SetShell].
+func newDefaultRunner(conn protocol.Connection) *cmd.Executor {
 	runner := cmd.NewExecutor(conn)
+	runner.SetShell(sh.DefaultShell)
 	return runner
 }
 

@@ -222,7 +222,23 @@ rig_test_key_from_default_location() {
 
 rig_test_regular_user() {
   color_echo "- Testing regular user"
+  run_suite_as_rigtest_user
+}
+
+rig_test_regular_user_fish_login_shell() {
+  color_echo "- Testing regular user with a fish login shell"
+  run_suite_as_rigtest_user fish
+}
+
+# run_suite_as_rigtest_user provisions an unprivileged rigtest-user with
+# passwordless privilege escalation on node0 and runs the suite as that user.
+# $1 is an optional package name for a login shell to install and assign to the
+# user; sshd runs every command through that shell, so a non-POSIX one puts the
+# shell imposition of cmd.Executor.SetShell and the sudo decorators to the test.
+run_suite_as_rigtest_user() {
+  local shellPkg="${1:-}"
   make create-host
+  local sshPort
   sshPort=$(ssh_port node0)
 
   set -- -T -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i .ssh/id_ed25519 -p "$sshPort"
@@ -232,16 +248,28 @@ rig_test_regular_user() {
     return 0
   }
 
-  ssh "$@" root@127.0.0.1 sh -euxC - <<EOF
+  # shellcheck disable=SC2029 # the package name is meant to expand on this side
+  ssh "$@" root@127.0.0.1 "LOGIN_SHELL_PKG='$shellPkg' sh -euxC -" <<'EOF'
+    # The login shell, when one was requested, has to exist before the user that
+    # gets it. command -v fails the script if the package did not deliver it.
+    if [ -n "${LOGIN_SHELL_PKG:-}" ]; then
+      if command -v apk >/dev/null 2>&1; then
+        apk add --no-cache "$LOGIN_SHELL_PKG"
+      else
+        DEBIAN_FRONTEND=noninteractive apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y "$LOGIN_SHELL_PKG"
+      fi
+      set -- -s "$(command -v "$LOGIN_SHELL_PKG")"
+    fi
     if command -v groupadd >/dev/null 2>&1; then
       groupadd --system rig-wheel
       groupadd --system rigtest-user || true
-      useradd -d /var/lib/rigtest-user -g rigtest-user -G rig-wheel -p '*' rigtest-user
+      useradd -d /var/lib/rigtest-user -g rigtest-user -G rig-wheel -p '*' "$@" rigtest-user
       passwd -d rigtest-user || true
     else
       addgroup -S rig-wheel
       addgroup -S rigtest-user || true
-      adduser -D -h /var/lib/rigtest-user -G rigtest-user rigtest-user
+      adduser -D -h /var/lib/rigtest-user -G rigtest-user "$@" rigtest-user
       addgroup rigtest-user rig-wheel
       passwd -u rigtest-user || true
     fi
@@ -269,7 +297,27 @@ EOF
     return 0
   }
 
-  HOME="$(pwd)" go test -v ./ -args -host 127.0.0.1 -port "$sshPort" -user rigtest-user -ssh-keypath .ssh/id_ed25519
+  # Make sure the login shell really is in the way of what rig sends, otherwise this
+  # silently degrades into a copy of rig_test_regular_user. The expansion is the one
+  # that broke sudo detection in k0sproject/k0sctl#1135: a POSIX shell echoes a shell
+  # path, fish refuses to parse it and echoes nothing. Only the output can tell them
+  # apart - fish 3.x still exits 0 after the parse error, which is what made the
+  # original bug so quiet.
+  if [ -n "$shellPkg" ] && [ -n "$(ssh "$@" rigtest-user@127.0.0.1 'echo ${SHELL-sh}' 2>/dev/null)" ]; then
+    RET=1
+    color_echo "login shell $shellPkg parsed a POSIX parameter expansion, it is not in use" >&2
+    return 0
+  fi
+
+  # Provisioning only configures sudo or doas when the image ships one. Where it did,
+  # rig has to find it, and -expect-sudo makes the suite say so instead of skipping the
+  # escalation tests - the failure mode a mangled detection command leads to.
+  local -a sudoArgs=()
+  if ssh "$@" rigtest-user@127.0.0.1 'sudo -n -- true || doas -n -- true' >/dev/null 2>&1; then
+    sudoArgs+=(-expect-sudo)
+  fi
+
+  HOME="$(pwd)" go test -v ./ -args -host 127.0.0.1 -port "$sshPort" -user rigtest-user -ssh-keypath .ssh/id_ed25519 "${sudoArgs[@]}"
 }
 
 rig_test_openssh_client() {

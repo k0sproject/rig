@@ -14,6 +14,48 @@ func TestCommand(t *testing.T) {
 	assert.Equal(t, "echo 'foo bar'", sh.Command("echo", "foo bar"))
 }
 
+func TestShell(t *testing.T) {
+	assert.Equal(t, `/bin/sh -c -- 'echo foo | tee bar'`, sh.Shell("echo foo | tee bar"))
+	assert.Equal(t, `/bin/sh -c -- 'echo foo'`, sh.ShellWith("", "echo foo"))
+	assert.Equal(t, `/usr/xpg4/bin/sh -c -- 'echo foo'`, sh.ShellWith("/usr/xpg4/bin/sh", "echo foo"))
+}
+
+// TestShellQuoting pins the quoting of payloads that a non-POSIX login shell
+// would otherwise reinterpret on the way to the shell that runs them.
+//
+// The expectations were verified by hand by running each wrapped command through
+// sh, bash, dash, zsh, ksh and fish. The integration suite exercises the wrapping
+// end to end on every command it runs, both against the POSIX login shells of its
+// images (bash, dash, ash) and against fish, which the
+// rig_test_regular_user_fish_login_shell case in test/test.sh installs and assigns
+// as the SSH user's login shell. What these fixtures add is the byte-exact quoting,
+// which the integration suite can only observe indirectly.
+func TestShellQuoting(t *testing.T) {
+	tests := []struct {
+		name    string
+		command string
+		want    string
+	}{
+		{name: "plain", command: "true", want: `/bin/sh -c -- true`},
+		{name: "spaces", command: "echo foo bar", want: `/bin/sh -c -- 'echo foo bar'`},
+		{name: "single quotes", command: `bash -c 'true'`, want: `/bin/sh -c -- 'bash -c '"'"'true'"'"''`},
+		{name: "backslash", command: `printf a\b`, want: `/bin/sh -c -- 'printf a'\\'b'`},
+		{name: "consecutive backslashes", command: `printf \\n`, want: `/bin/sh -c -- 'printf '\\''\\'n'`},
+		{
+			// The sed expression from os/darwin.go carries consecutive backslashes.
+			name:    "darwin os release sed expression",
+			command: `sed -E "s/^.*FOR (.+)\\\/\1/"`,
+			want:    `/bin/sh -c -- 'sed -E "s/^.*FOR (.+)'\\''\\''\\'/'\\'1/"'`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, sh.Shell(tt.command))
+		})
+	}
+}
+
 func TestCommandBuilder(t *testing.T) {
 	assert.Equal(t, "echo foo | grep -q foo", sh.CommandBuilder("echo").Arg("foo").Pipe("grep", "-q").Arg("foo").String())
 	assert.Equal(t, "echo foo 'bar baz'", sh.CommandBuilder("echo").Args("foo", "bar baz").String())

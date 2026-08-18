@@ -23,6 +23,14 @@ var (
 )
 
 // DecorateFunc is a function that takes a string and returns a decorated string.
+//
+// It should wrap or transform the command without depending on what the command
+// says, and must not carry state. When a secret containing a quote or a backslash
+// is registered for redaction, the command is formatted a second time from the
+// masked original to build the form shown in logs and to a [CommandGate], so a
+// decorator that is stateful, non-deterministic, or varies with the content of
+// its argument can describe a command that differs from the one sent to the host.
+// All of rig's own decorators are content-independent wrappers.
 type DecorateFunc func(string) string
 
 // Formatter is an interface that can format commands by applying decorators.

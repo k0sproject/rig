@@ -138,6 +138,9 @@ func ExampleClient_Sudo() {
 // command; returning false aborts the command with [cmd.ErrCommandRejected]
 // before it reaches the host. This applies to the client and every runner it
 // derives (sudo, filesystem, services).
+//
+// The command is passed in the exact form it would run in, which on non-Windows
+// hosts includes the POSIX shell rig imposes over the remote user's login shell.
 func ExampleWithConfirmFunc() {
 	conn := rigtest.NewMockConnection()
 	conn.AddCommand(rigtest.Match("."), func(_ *rigtest.A) error { return nil })
@@ -165,8 +168,8 @@ func ExampleWithConfirmFunc() {
 		fmt.Println("blocked")
 	}
 	// Output:
-	// confirm "systemctl restart nginx" -> true
-	// confirm "rm -rf /important" -> false
+	// confirm "/bin/sh -c -- 'systemctl restart nginx'" -> true
+	// confirm "/bin/sh -c -- 'rm -rf /important'" -> false
 	// blocked
 }
 

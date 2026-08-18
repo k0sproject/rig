@@ -5,6 +5,11 @@ import (
 	"github.com/k0sproject/rig/v2/sh/shellescape"
 )
 
+// DefaultShell is the shell rig uses to run commands on non-Windows hosts.
+// An absolute path is used on purpose: the whole point of imposing a shell is
+// to not depend on the remote environment, and that includes PATH.
+const DefaultShell = "/bin/sh"
+
 // CommandBuilder is a builder for shell commands. It is based on string and can be
 // converted to one using string(CommandBuilder("foo")) or calling the String method.
 type CommandBuilder string
@@ -78,6 +83,35 @@ func (c CommandBuilder) Raw(arg string) CommandBuilder {
 // it is here to avoid importing shellescape separately.
 func Quote(s string) string {
 	return shellescape.Quote(s)
+}
+
+// Shell returns the command wrapped in an explicit invocation of [DefaultShell]:
+//
+//	sh.Shell("echo foo | tee bar")
+//	// resulting command: /bin/sh -c -- 'echo foo | tee bar'
+//
+// Use this when a command must be interpreted by a POSIX shell, either because
+// it is a compound expression handed to something that execs directly (like
+// sudo) or because whatever runs it may not be a POSIX shell, such as a remote
+// user's fish login shell.
+//
+// This is the one place a rig command is quoted for a shell nobody chose, so the
+// quoting comes from [shellescape.QuoteForLoginShell], which covers POSIX shells
+// and fish. A csh login shell can still reject a command containing ! or an
+// embedded newline.
+func Shell(command string) string {
+	return ShellWith(DefaultShell, command)
+}
+
+// ShellWith is [Shell] with an explicit shell. An empty shell means [DefaultShell].
+func ShellWith(shell, command string) string {
+	if shell == "" {
+		shell = DefaultShell
+	}
+	// The option terminator keeps a command that starts with a dash from being
+	// read as shell options: `sh -c -x` reports an invalid option instead of
+	// running anything.
+	return shellescape.QuoteForLoginShell(shell) + " -c -- " + shellescape.QuoteForLoginShell(command)
 }
 
 // Command returns a shell escaped command string.
