@@ -3,7 +3,7 @@ KEY_SIZE ?= 4096
 KEY_PASSPHRASE ?= ""
 KEY_PATH ?= ".ssh/id_ed25519"
 REPLICAS ?= 1
-LINUX_IMAGE ?= "quay.io/k0sproject/bootloose-ubuntu20.04"
+LINUX_IMAGE ?= "quay.io/k0sproject/bootloose-ubuntu26.04:latest"
 
 .PHONY: test
 test: gomod 
