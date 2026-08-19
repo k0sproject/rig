@@ -7,10 +7,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Latest and previous release of each distro family that bootloose
+        # ships images for. See the "Choosing the OS image to run" section of
+        # https://github.com/k0sproject/bootloose for the current image list.
         image:
-          - quay.io/k0sproject/bootloose-ubuntu24.04
-          - quay.io/k0sproject/bootloose-debian12
-          - quay.io/k0sproject/bootloose-alpine3.22
+          - quay.io/k0sproject/bootloose-ubuntu26.04:latest
+          - quay.io/k0sproject/bootloose-ubuntu24.04:latest
+          - quay.io/k0sproject/bootloose-debian13:latest
+          - quay.io/k0sproject/bootloose-debian12:latest
+          - quay.io/k0sproject/bootloose-alpine3.23:latest
+          - quay.io/k0sproject/bootloose-alpine3.22:latest
     runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v7
