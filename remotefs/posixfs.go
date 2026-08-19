@@ -29,13 +29,27 @@ var (
 	errGrepFailed              = errors.New("grep failed")
 	errTestFailed              = errors.New("test failed")
 	errStatInitFailed          = errors.New("stat command not found or unsupported stat implementation")
-	statCmdGNU                 = `env -i PATH="$PATH" LC_ALL=C stat -c '%%#f %%s %%.9Y //%%n//' -- %s 2> /dev/null`
-	statCmdBSD                 = `env -i PATH="$PATH" LC_ALL=C stat -f '%%#p %%z %%Fm //%%N//' -- %s 2> /dev/null`
+
+	// The modification time is read from %y, which spells the timestamp out, rather
+	// than from the epoch seconds of %.9Y: the uutils (Rust) reimplementation of
+	// coreutils, the default on Ubuntu 25.10 and later, formats %.9Y through a float
+	// and truncates the outcome onto a 100ns grid, leaving the time it reports up to
+	// ~200ns away from the one the file actually has. %y is exact there, GNU coreutils
+	// prints the same layout, and busybox, which ignores the precision of %.9Y
+	// altogether, does too.
+	statCmdGNU = `env -i PATH="$PATH" LC_ALL=C stat -c '%%#f %%s %%y //%%n//' -- %s 2> /dev/null`
+	statCmdBSD = `env -i PATH="$PATH" LC_ALL=C stat -f '%%#p %%z %%Fm //%%N//' -- %s 2> /dev/null`
 )
 
 const (
 	defaultBlockSize = 4096
 	supportedFlags   = os.O_RDONLY | os.O_WRONLY | os.O_RDWR | os.O_CREATE | os.O_EXCL | os.O_TRUNC | os.O_APPEND | os.O_SYNC
+
+	// statTimeLayout is the timestamp format of stat -c %y under LC_ALL=C: a date, a
+	// time with a fraction of a second and a UTC offset.
+	statTimeLayout = "2006-01-02 15:04:05.999999999 -0700"
+	// statDateLayout is the date the %y timestamp starts with, its first field.
+	statDateLayout = "2006-01-02"
 )
 
 // PosixFS implements fs.FS for a remote filesystem that uses POSIX commands for access.
@@ -71,17 +85,21 @@ func (s *PosixFS) initStat() error {
 	return errStatInitFailed
 }
 
-// second precision touch for busybox.
-func (s *PosixFS) secChtimes(name string, atime, mtime int64) error {
+// chtimes sets the access and modification times of name from timestamps in the
+// -d format of touch, the access time first.
+//
+// The times are set in separate invocations because -d is a single valued option:
+// uutils coreutils rejects a repeated --date outright ("the argument '--date
+// <STRING>' cannot be used multiple times") and GNU touch silently lets the last
+// one win, which would set the access time to the modification timestamp.
+func (s *PosixFS) chtimes(name string, timestamps [2]string) error {
 	accessOrMod := [2]rune{'a', 'm'}
-	// only supports setting one of them at a time
-	for i, t := range [2]int64{atime, mtime} {
-		ts := int64ToTime(t)
-		utc := ts.UTC()
-		cmd := fmt.Sprintf(`[ -e %[3]s ] && env -i PATH="$PATH" LC_ALL=C TZ=UTC touch -%[1]c -d @%[2]d -- %[3]s`,
+	escapedName := shellescape.Quote(name)
+	for i, ts := range timestamps {
+		cmd := fmt.Sprintf(`[ -e %[3]s ] && env -i PATH="$PATH" LC_ALL=C TZ=UTC touch -%[1]c -d %[2]s -- %[3]s`,
 			accessOrMod[i],
-			utc.Unix(),
-			shellescape.Quote(name),
+			ts,
+			escapedName,
 		)
 		if err := s.Exec(cmd); err != nil {
 			return fmt.Errorf("touch %s (%ctime): %w", name, accessOrMod[i], err)
@@ -90,23 +108,23 @@ func (s *PosixFS) secChtimes(name string, atime, mtime int64) error {
 	return nil
 }
 
+// second precision touch for busybox.
+func (s *PosixFS) secChtimes(name string, atime, mtime int64) error {
+	var timestamps [2]string
+	for i, t := range [2]int64{atime, mtime} {
+		timestamps[i] = fmt.Sprintf("@%d", int64ToTime(t).UTC().Unix())
+	}
+	return s.chtimes(name, timestamps)
+}
+
 // nanosecond precision touch for stats that support it.
 func (s *PosixFS) nsecChtimes(name string, atime, mtime int64) error {
-	atimeTS := int64ToTime(atime)
-	mtimeTS := int64ToTime(mtime)
-	utcA := atimeTS.UTC()
-	utcM := mtimeTS.UTC()
-	escapedName := shellescape.Quote(name)
-	cmd := fmt.Sprintf(`[ -e %s ] && env -i PATH="$PATH" LC_ALL=C TZ=UTC touch -a -d %s.%09d -m -d %s.%09d -- %s`,
-		escapedName,
-		utcA.Format("2006-01-02T15:04:05"), utcA.Nanosecond(),
-		utcM.Format("2006-01-02T15:04:05"), utcM.Nanosecond(),
-		escapedName,
-	)
-	if err := s.Exec(cmd); err != nil {
-		return fmt.Errorf("touch (ns) %s: %w", name, err)
+	var timestamps [2]string
+	for i, t := range [2]int64{atime, mtime} {
+		utc := int64ToTime(t).UTC()
+		timestamps[i] = fmt.Sprintf("%s.%09d", utc.Format("2006-01-02T15:04:05"), utc.Nanosecond())
 	}
-	return nil
+	return s.chtimes(name, timestamps)
 }
 
 func (s *PosixFS) initTouch() error {
@@ -196,8 +214,50 @@ func fileModeToPosixBits(mode fs.FileMode) int64 {
 	return bits
 }
 
+// isStatDate reports whether a stat timestamp field is the date a %y timestamp starts
+// with instead of epoch seconds. An epoch can carry a leading minus, but no dash of its own.
+func isStatDate(field string) bool {
+	return len(field) == len(statDateLayout) && field[4] == '-' && field[7] == '-'
+}
+
+// parseStatModTime reads the modification time from the trailing fields of a stat line
+// and returns it along with the remainder, which holds the file name.
+//
+// The %y timestamp of a GNU style stat is spread over three space separated fields -
+// date, time and UTC offset - so it reaches into rest, while the %Fm of a BSD stat is a
+// single epoch field and leaves rest alone.
+func parseStatModTime(field, rest string) (time.Time, string, error) {
+	if isStatDate(field) {
+		timeParts := strings.SplitN(rest, " ", 3)
+		if len(timeParts) != 3 {
+			return time.Time{}, "", fmt.Errorf("%w: timestamp is missing its time or offset", errInvalid)
+		}
+		modTime, err := time.Parse(statTimeLayout, field+" "+timeParts[0]+" "+timeParts[1])
+		if err != nil {
+			return time.Time{}, "", fmt.Errorf("parse timestamp: %w", err)
+		}
+		return modTime, timeParts[2], nil
+	}
+
+	epochParts := strings.SplitN(field, ".", 2)
+	seconds, err := strconv.ParseInt(epochParts[0], 10, 64)
+	if err != nil {
+		return time.Time{}, "", fmt.Errorf("parse epoch seconds: %w", err)
+	}
+	var nanoseconds int64
+	if len(epochParts) == 2 {
+		nanoseconds, err = strconv.ParseInt(epochParts[1], 10, 64)
+		if err != nil {
+			return time.Time{}, "", fmt.Errorf("parse epoch nanoseconds: %w", err)
+		}
+	}
+
+	return time.Unix(seconds, nanoseconds), rest, nil
+}
+
 func (s *PosixFS) parseStat(stat string) (*FileInfo, error) {
-	// output looks like: 0x81a4 0 1699970097.220228000 //test_20231114155456.txt//
+	// output looks like: 0x81a4 0 2023-11-14 15:54:56.220228000 +0000 //test.txt//
+	// or, from a BSD stat: 0x81a4 0 1699970097.220228000 //test.txt//
 	parts := strings.SplitN(stat, " ", 4)
 	if len(parts) != 4 {
 		return nil, fmt.Errorf("%w: parse stat output %s", errInvalid, stat)
@@ -227,20 +287,12 @@ func (s *PosixFS) parseStat(stat string) (*FileInfo, error) {
 	}
 	res.FSize = size
 
-	timeParts := strings.SplitN(parts[2], ".", 2)
-	mtime, err := strconv.ParseInt(timeParts[0], 10, 64)
+	modTime, name, err := parseStatModTime(parts[2], parts[3])
 	if err != nil {
 		return nil, fmt.Errorf("parse stat mtime %s: %w", stat, err)
 	}
-	var mtimeNano int64
-	if len(timeParts) == 2 {
-		mtimeNano, err = strconv.ParseInt(timeParts[1], 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("parse stat mtime ns %s: %w", stat, err)
-		}
-	}
-	res.FModTime = time.Unix(mtime, mtimeNano)
-	res.FName = strings.TrimSuffix(strings.TrimPrefix(parts[3], "//"), "//")
+	res.FModTime = modTime
+	res.FName = strings.TrimSuffix(strings.TrimPrefix(name, "//"), "//")
 
 	return res, nil
 }
