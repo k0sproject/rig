@@ -465,7 +465,7 @@ func (s *FSSuite) TestMkdir() {
 		_ = s.fs.RemoveAll(testPath)
 	}()
 	s.Run("Create directory", func() {
-		s.Require().NoError(s.fs.MkdirAll(testPath, 0755))
+		s.Require().NoError(s.fs.MkdirAll(testPath, 0700))
 	})
 	s.Run("Verify directory exists", func() {
 		stat, err := s.fs.Stat(testPath)
@@ -474,10 +474,10 @@ func (s *FSSuite) TestMkdir() {
 			if s.Host.IsWindows() {
 				s.T().Skip("Windows does not support chmod permissions")
 			}
-			s.Equal(os.FileMode(0755), stat.Mode().Perm())
+			s.Equal(os.FileMode(0700), stat.Mode().Perm())
 			parent, err := s.fs.Stat(s.TempPath("test"))
 			s.Require().NoError(err)
-			s.Equal(os.FileMode(0755), parent.Mode().Perm())
+			s.Equal(os.FileMode(0700), parent.Mode().Perm())
 		})
 	})
 }

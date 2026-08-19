@@ -720,8 +720,21 @@ func (s *PosixFS) TempDir() string {
 // MkdirAll creates a new directory structure with the specified name and permission bits.
 // If the directory already exists, MkDirAll does nothing and returns nil.
 //
-// The permission bits and the setgid, setuid and sticky bits of perm are
-// applied; the file type bits are ignored.
+// The permission bits of perm are applied to every directory that is created,
+// like os.MkdirAll does; directories that already exist are left alone. The
+// setgid, setuid and sticky bits of perm are applied to the last directory of
+// the path only. The file type bits are ignored.
+//
+// The mode comes from a umask instead of `install -d -m ...` because the uutils
+// (Rust) reimplementation of coreutils, the default on Ubuntu 25.10 and later,
+// applies -m only to the last component of the path while GNU install applies it
+// to every directory it creates, leaving the intermediate directories at the
+// remote default mode. A umask covers all of them, but only the nine permission
+// bits, so the special bits need the trailing chmod.
+//
+// Note that a perm without u+wx makes creating nested directories fail for a
+// non-root user, as it does with os.MkdirAll: the intermediate directory can't
+// be written to once it has been created.
 func (s *PosixFS) MkdirAll(name string, perm fs.FileMode) error {
 	if existing, err := s.Stat(name); err == nil {
 		if existing.IsDir() {
@@ -730,7 +743,19 @@ func (s *PosixFS) MkdirAll(name string, perm fs.FileMode) error {
 		return fmt.Errorf("mkdir %s: %w", name, fs.ErrExist)
 	}
 
-	if err := s.Exec(sh.Command("install", "-d", "-m", fmt.Sprintf("%#o", fileModeToPosixBits(perm)), name)); err != nil {
+	mode := fileModeToPosixBits(perm)
+	hasSpecialBits := mode&^int64(fs.ModePerm) != 0
+
+	command := sh.CommandBuilder(fmt.Sprintf("umask %#o", fs.ModePerm&^perm.Perm())).
+		Raw("&&").Raw(sh.Command("mkdir", "-p", "--", name))
+
+	if hasSpecialBits {
+		// "--" precedes the mode because BSD chmod stops parsing options at the
+		// first operand, where "chmod 0644 -- file" would treat "--" as a filename.
+		command = command.Raw("&&").Raw(sh.Command("chmod", "--", fmt.Sprintf("%#o", mode), name))
+	}
+
+	if err := s.Exec(command.String()); err != nil {
 		return fmt.Errorf("mkdir %s: %w", name, err)
 	}
 

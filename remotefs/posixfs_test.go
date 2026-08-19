@@ -298,14 +298,28 @@ func TestPosixMkdir(t *testing.T) {
 
 func TestPosixMkdirAll(t *testing.T) {
 	// MkdirAll stats the target first; an unmatched stat yields no output, which
-	// reads as "does not exist" and lets it proceed to install.
-	for _, tc := range modeCases {
+	// reads as "does not exist" and lets it proceed to create the directories.
+	//
+	// The permission bits come from a umask so that they also apply to the
+	// intermediate directories; only the special bits need a chmod, which reaches
+	// the last directory of the path alone.
+	for _, tc := range []struct {
+		name string
+		mode fs.FileMode
+		want string
+	}{
+		{name: "permission bits", mode: 0o750, want: "umask 027 && mkdir -p -- /tmp/a/b"},
+		{name: "setuid", mode: fs.ModeSetuid | 0o755, want: "umask 022 && mkdir -p -- /tmp/a/b && chmod -- 04755 /tmp/a/b"},
+		{name: "setgid", mode: fs.ModeSetgid | 0o775, want: "umask 02 && mkdir -p -- /tmp/a/b && chmod -- 02775 /tmp/a/b"},
+		{name: "sticky", mode: fs.ModeSticky | 0o777, want: "umask 0 && mkdir -p -- /tmp/a/b && chmod -- 01777 /tmp/a/b"},
+		{name: "type bits ignored", mode: fs.ModeDir | 0o700, want: "umask 077 && mkdir -p -- /tmp/a/b"},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mr := rigtest.NewMockRunner()
-			mr.AddCommandSuccess(rigtest.Contains("install"))
+			mr.AddCommandSuccess(rigtest.Contains("mkdir -p"))
 			f := remotefs.NewPosixFS(mr)
 			require.NoError(t, f.MkdirAll("/tmp/a/b", tc.mode))
-			require.Equal(t, "install -d -m "+tc.want+" /tmp/a/b", mr.LastCommand())
+			require.Equal(t, tc.want, mr.LastCommand())
 		})
 	}
 }
