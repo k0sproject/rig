@@ -8,17 +8,22 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	osexec "os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/k0sproject/rig/v2/cmd"
+	"github.com/k0sproject/rig/v2/protocol/localhost"
 	"github.com/k0sproject/rig/v2/remotefs"
 	"github.com/k0sproject/rig/v2/rigtest"
 	"github.com/k0sproject/rig/v2/sh"
 	"github.com/k0sproject/rig/v2/sudo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/ssh"
 )
 
 func TestPosixMachineID(t *testing.T) {
@@ -802,4 +807,191 @@ func TestPosixNotExistThroughSudo(t *testing.T) {
 	err := remotefs.NewPosixFS(sudoRunner).Chmod(longPath, 0o644)
 	require.ErrorIs(t, err, fs.ErrNotExist, "the full stderr must survive a chained runner")
 	require.NoError(t, mr.Received(rigtest.HasPrefix("sudo")))
+}
+
+// sshExitError stands in for the exit error of the native SSH protocol, whose
+// real type cannot be constructed with a chosen status. sshExitStatusPinned
+// below asserts that the real type has the shape modelled here.
+type sshExitError struct {
+	status int
+}
+
+func (e sshExitError) Error() string { return fmt.Sprintf("Process exited with status %d", e.status) }
+
+func (e sshExitError) ExitStatus() int { return e.status }
+
+// The classification in multiStat reads these two interfaces off the errors the
+// protocols produce. Pinning them here turns an upstream type change into a
+// build failure rather than a silent regression.
+var (
+	_ interface{ ExitStatus() int } = (*ssh.ExitError)(nil)
+	_ interface{ ExitStatus() int } = sshExitError{}
+	_ interface{ ExitCode() int }   = (*osexec.ExitError)(nil)
+)
+
+// exitCommand returns a command line that makes the platform's shell exit with
+// the given code. localhost and openssh run their processes through a local
+// shell, so the fixtures below use the same one the tests run on.
+func exitCommand(code int) (string, []string) {
+	if runtime.GOOS == "windows" {
+		return "cmd.exe", []string{"/c", fmt.Sprintf("exit %d", code)}
+	}
+	return "sh", []string{"-c", fmt.Sprintf("exit %d", code)}
+}
+
+// localExitError runs a local process that exits with the given code and
+// returns the resulting *exec.ExitError. A zero value of that type is
+// unsuitable as a fixture: it reports ExitCode() == -1, which models a process
+// terminated without a code rather than a normal non-zero exit.
+func localExitError(t *testing.T, code int) error {
+	t.Helper()
+	name, args := exitCommand(code)
+	err := osexec.Command(name, args...).Run()
+	require.Error(t, err)
+	var exitErr *osexec.ExitError
+	require.ErrorAs(t, err, &exitErr)
+	require.Equal(t, code, exitErr.ExitCode())
+	return err
+}
+
+// signalKilledError runs a local process that kills itself with SIGKILL and
+// returns the resulting *exec.ExitError, whose ExitCode() is -1.
+//
+// Windows has no signals, and TerminateProcess always supplies a code, so no
+// local process there can report a negative one. The case is skipped rather
+// than approximated: the classification it pins is about the absence of a code,
+// which Windows cannot produce.
+func signalKilledError(t *testing.T) error {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("a local process cannot exit without a code on Windows")
+	}
+	err := osexec.Command("sh", "-c", "kill -9 $$").Run()
+	require.Error(t, err)
+	var exitErr *osexec.ExitError
+	require.ErrorAs(t, err, &exitErr)
+	require.Negative(t, exitErr.ExitCode())
+	return err
+}
+
+func TestPosixStatCommandFailure(t *testing.T) {
+	// A stat that never ran says nothing about the file, so only a stat that ran
+	// on the host and exited non-zero may be reported as fs.ErrNotExist. Every
+	// other failure must surface as itself, with the original cause reachable.
+	cases := []struct {
+		name         string
+		failWith     func(t *testing.T) error
+		wantNotExist bool
+	}{
+		{
+			name:         "remote stat ran and exited 1",
+			failWith:     func(*testing.T) error { return sshExitError{status: 1} },
+			wantNotExist: true,
+		},
+		{
+			name:         "remote command exited 255",
+			failWith:     func(*testing.T) error { return sshExitError{status: 255} },
+			wantNotExist: true,
+		},
+		{
+			name:         "remote command killed by a signal",
+			failWith:     func(*testing.T) error { return sshExitError{status: -1} },
+			wantNotExist: false,
+		},
+		{
+			// A zero status does not describe a failure, so an error carrying one
+			// did not come from a command that ran and failed.
+			name:         "error carrying a zero exit status",
+			failWith:     func(*testing.T) error { return sshExitError{status: 0} },
+			wantNotExist: false,
+		},
+		{
+			name: "session could not be started",
+			failWith: func(*testing.T) error {
+				return errors.New("start session: connection lost")
+			},
+			wantNotExist: false,
+		},
+		{
+			name: "connection died mid-command",
+			failWith: func(*testing.T) error {
+				return fmt.Errorf("start session: %w", io.EOF)
+			},
+			wantNotExist: false,
+		},
+		{
+			name:         "local process ran and exited 1",
+			failWith:     func(t *testing.T) error { return localExitError(t, 1) },
+			wantNotExist: true,
+		},
+		{
+			name:         "openssh client could not connect",
+			failWith:     func(t *testing.T) error { return localExitError(t, 255) },
+			wantNotExist: false,
+		},
+		{
+			name:         "local process killed by a signal",
+			failWith:     signalKilledError,
+			wantNotExist: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			failWith := tc.failWith(t)
+
+			mr := rigtest.NewMockRunner()
+			mr.AddCommandSuccess(rigtest.Equal("stat -c %n /"))
+			mr.AddCommandFailure(rigtest.Contains("LC_ALL=C stat -c"), failWith)
+
+			_, err := remotefs.NewPosixFS(mr).Stat("/etc/app.conf")
+			require.Error(t, err)
+
+			if tc.wantNotExist {
+				require.ErrorIs(t, err, fs.ErrNotExist)
+				return
+			}
+			require.NotErrorIs(t, err, fs.ErrNotExist,
+				"a failure that says nothing about the file must not be reported as ErrNotExist")
+			require.ErrorIs(t, err, failWith, "the original cause must stay reachable")
+		})
+	}
+}
+
+func TestPosixStatLocalhost(t *testing.T) {
+	// The compatibility-critical direction, through the real localhost protocol
+	// with no mocks: an existing file stats cleanly and a missing one is
+	// ErrNotExist.
+	if runtime.GOOS == "windows" {
+		t.Skip("PosixFS is never paired with a Windows host")
+	}
+	dir := t.TempDir()
+	existing := filepath.Join(dir, "existing.conf")
+	require.NoError(t, os.WriteFile(existing, []byte("keep me\n"), 0o600))
+
+	conn, err := localhost.NewConnection()
+	require.NoError(t, err)
+	fsys := remotefs.NewPosixFS(cmd.NewExecutor(conn))
+
+	info, err := fsys.Stat(existing)
+	require.NoError(t, err)
+	require.Equal(t, int64(len("keep me\n")), info.Size())
+
+	_, err = fsys.Stat(filepath.Join(dir, "missing.conf"))
+	require.ErrorIs(t, err, fs.ErrNotExist)
+}
+
+func TestPosixReadDirConnectionLost(t *testing.T) {
+	// A find that died mid-command reports a wrapped io.EOF. That is a lost
+	// connection, not an empty or missing directory, and must not collapse into
+	// fs.ErrNotExist.
+	connLost := fmt.Errorf("start session: %w", io.EOF)
+
+	mr := rigtest.NewMockRunner()
+	mr.AddCommandFailure(rigtest.Contains("find"), connLost)
+
+	_, err := remotefs.NewPosixFS(mr).ReadDir("/etc")
+	require.Error(t, err)
+	require.NotErrorIs(t, err, fs.ErrNotExist)
+	require.ErrorIs(t, err, connLost)
 }

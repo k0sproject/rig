@@ -3,6 +3,7 @@ package remotefs_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"path"
@@ -487,4 +488,38 @@ func TestPatchFilePosix(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, mr.Received(rigtest.Contains("mktemp")))
 	require.NoError(t, mr.Received(rigtest.Contains("mv -f")))
+}
+
+// TestPatchFilePosixStatConnectionLost is the data-loss regression guard: a
+// stat that never ran must not be read as "the file is not there yet", or
+// PatchFile with WithCreate rebuilds the remote file from an empty base and
+// renames it over content it never read.
+func TestPatchFilePosixStatConnectionLost(t *testing.T) {
+	connLost := fmt.Errorf("start session: %w", io.EOF)
+
+	mr := rigtest.NewMockRunner()
+	// initStat probe: select GNU mode.
+	mr.AddCommandSuccess(rigtest.Equal("stat -c %n /"))
+	// Only the stat of the target file is disturbed; every later command
+	// succeeds, which is what a momentary connection blip looks like.
+	mr.AddCommandFailure(rigtest.Match(`stat -c .+ -- /etc/env`), connLost)
+	mr.AddCommandOutput(rigtest.HasPrefix("cat "), "existing_setting = keep_me\n")
+	mr.AddCommandOutput(rigtest.Contains("stat -c"), "0x41ed 0 1234567890.000000000 ///etc//")
+	mr.AddCommandOutput(rigtest.Contains("mktemp"), "/etc/.tmp-abc123")
+	mr.AddCommandSuccess(rigtest.Contains("cat >"))
+	mr.AddCommandSuccess(rigtest.Contains("chmod"))
+	mr.AddCommandSuccess(rigtest.Contains("mv -f"))
+
+	f := remotefs.NewPosixFS(mr)
+	err := remotefs.PatchFile(f, "/etc/env", []remotefs.Patch{
+		remotefs.AppendIfMissing("new_setting = 1"),
+	}, remotefs.WithCreate(0o644))
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, connLost)
+	require.NotErrorIs(t, err, fs.ErrNotExist)
+	// The decisive assertion: nothing was written. Checking only the returned
+	// error would pass against the unfixed code once the write also fails.
+	require.NoError(t, mr.NotReceived(rigtest.Contains("cat >")))
+	require.NoError(t, mr.NotReceived(rigtest.Contains("mv -f")))
 }
