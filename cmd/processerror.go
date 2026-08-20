@@ -26,9 +26,9 @@ type ProcessError struct {
 // form of the command's stderr when it wrote any.
 func (e *ProcessError) Error() string {
 	if e.stderr == "" {
-		return fmt.Sprintf("process finished with error: %s", e.err)
+		return fmt.Sprintf("process finished with error: %v", e.err)
 	}
-	return fmt.Sprintf("process finished with error: %s (%s)", e.err, truncateStderr(e.stderr))
+	return fmt.Sprintf("process finished with error: %v (%s)", e.err, truncateStderr(e.stderr))
 }
 
 // Unwrap returns the error the command finished with.
