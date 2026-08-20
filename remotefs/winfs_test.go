@@ -476,6 +476,7 @@ func TestWindowsRemove(t *testing.T) {
 		mr := newRunner(statMissingJSON, nil)
 		err := remotefs.NewWindowsFS(mr).Remove(name)
 		require.ErrorIs(t, err, fs.ErrNotExist, "os.Remove errors on a missing path")
+		requirePathErrorOp(t, err, remotefs.OpRemove)
 		require.NoError(t, mr.NotReceived(rigtest.Contains("del")))
 	})
 
@@ -485,6 +486,7 @@ func TestWindowsRemove(t *testing.T) {
 		err := remotefs.NewWindowsFS(mr).Remove(name)
 		require.ErrorIs(t, err, connLost, "the transport cause must stay reachable")
 		require.NotErrorIs(t, err, fs.ErrNotExist)
+		requirePathErrorOp(t, err, remotefs.OpRemove)
 		require.NoError(t, mr.NotReceived(rigtest.Contains("del")))
 		require.NoError(t, mr.NotReceived(rigtest.Contains("rmdir")))
 	})
@@ -493,7 +495,9 @@ func TestWindowsRemove(t *testing.T) {
 		delFailed := errors.New("exit code 1")
 		mr := newRunner(statJSON(name, "-a----"), nil)
 		mr.AddCommandFailure(rigtest.Contains("del"), delFailed)
-		require.ErrorIs(t, remotefs.NewWindowsFS(mr).Remove(name), delFailed)
+		err := remotefs.NewWindowsFS(mr).Remove(name)
+		require.ErrorIs(t, err, delFailed)
+		requirePathErrorOp(t, err, remotefs.OpRemove)
 	})
 }
 
@@ -542,6 +546,7 @@ func TestWindowsRemoveAll(t *testing.T) {
 		require.ErrorIs(t, err, connLost, "the transport cause must stay reachable")
 		require.NotErrorIs(t, err, fs.ErrNotExist,
 			"a stat that never ran must not read as 'nothing to remove'")
+		requirePathErrorOp(t, err, remotefs.OpRemoveAll)
 		// The regression guard: the tree survived and the caller was told a
 		// non-recursive rmdir found it non-empty, never mentioning the connection.
 		require.NoError(t, mr.NotReceived(rigtest.Contains("rmdir")))
@@ -552,6 +557,8 @@ func TestWindowsRemoveAll(t *testing.T) {
 		rmdirFailed := errors.New("exit code 145")
 		mr := newRunner(statJSON(name, "d-----"), nil)
 		mr.AddCommandFailure(rigtest.Contains("rmdir"), rmdirFailed)
-		require.ErrorIs(t, remotefs.NewWindowsFS(mr).RemoveAll(name), rmdirFailed)
+		err := remotefs.NewWindowsFS(mr).RemoveAll(name)
+		require.ErrorIs(t, err, rmdirFailed)
+		requirePathErrorOp(t, err, remotefs.OpRemoveAll)
 	})
 }

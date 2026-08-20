@@ -424,6 +424,7 @@ func TestPosixRemove(t *testing.T) {
 		})
 		err := remotefs.NewPosixFS(mr).Remove(name)
 		require.ErrorIs(t, err, fs.ErrNotExist, "os.Remove errors on a missing path")
+		requirePathErrorOp(t, err, remotefs.OpRemove)
 	})
 
 	t.Run("other failures keep their cause", func(t *testing.T) {
@@ -433,6 +434,7 @@ func TestPosixRemove(t *testing.T) {
 		err := remotefs.NewPosixFS(mr).Remove(name)
 		require.ErrorIs(t, err, denied)
 		require.NotErrorIs(t, err, fs.ErrNotExist)
+		requirePathErrorOp(t, err, remotefs.OpRemove)
 	})
 
 	t.Run("RemoveAll accepts a missing path", func(t *testing.T) {

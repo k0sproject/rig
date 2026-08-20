@@ -797,9 +797,9 @@ func (s *PosixFS) Remove(name string) error {
 	// stdin is a terminal.
 	if err := s.Exec(sh.Command("rm", "--", name)); err != nil {
 		if isNotExist(err) {
-			return PathError("remove", name, fs.ErrNotExist)
+			return PathError(OpRemove, name, fs.ErrNotExist)
 		}
-		return fmt.Errorf("delete %s: %w", name, err)
+		return PathError(OpRemove, name, err)
 	}
 	return nil
 }
@@ -834,7 +834,7 @@ func isNotExist(err error) bool {
 // exist is not an error, matching os.RemoveAll.
 func (s *PosixFS) RemoveAll(name string) error {
 	if err := s.Exec(sh.Command("rm", "-rf", name)); err != nil {
-		return fmt.Errorf("remove all %s: %w", name, err)
+		return PathError(OpRemoveAll, name, err)
 	}
 	return nil
 }

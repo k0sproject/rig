@@ -111,40 +111,62 @@ func (s *WinFS) ReadDir(name string) ([]fs.DirEntry, error) {
 
 // Remove deletes the named file or (empty) directory. A path that does not
 // exist is an error, matching os.Remove.
+//
+// Every failure is reported as a *fs.PathError whose Op is OpRemove, so a
+// caller reading it sees the call it made rather than one of the commands used
+// to carry it out.
 func (s *WinFS) Remove(name string) error {
 	existing, err := s.Stat(name)
 	if err != nil {
 		// Covers both a path that is genuinely absent -- an error for os.Remove --
 		// and a stat that could not be performed. Neither may fall through to del:
 		// a transport failure is not evidence of anything about the path.
-		return fmt.Errorf("remove %s: %w", name, err)
+		return PathError(OpRemove, name, pathErrorCause(err))
 	}
 	if existing.IsDir() {
-		return s.removeDir(name)
+		err = s.removeDir(name)
+	} else {
+		err = s.removeFile(name)
+	}
+	if err != nil {
+		return PathError(OpRemove, name, err)
 	}
 
-	return s.removeFile(name)
+	return nil
 }
 
 // RemoveAll deletes the named file or directory and all its child items. A path
 // that does not exist is not an error, matching os.RemoveAll.
+//
+// Failures are reported as a *fs.PathError whose Op is OpRemoveAll, on the same
+// reasoning as Remove.
 func (s *WinFS) RemoveAll(name string) error {
 	existing, err := s.Stat(name)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
+	if errors.Is(err, fs.ErrNotExist) {
 		return nil
-	case err != nil:
-		return fmt.Errorf("remove all %s: %w", name, err)
-	case existing.IsDir():
-		return s.removeDirAll(name)
+	}
+	if err != nil {
+		return PathError(OpRemoveAll, name, pathErrorCause(err))
+	}
+	if existing.IsDir() {
+		err = s.removeDirAll(name)
+	} else {
+		err = s.removeFile(name)
+	}
+	if err != nil {
+		return PathError(OpRemoveAll, name, err)
 	}
 
-	return s.removeFile(name)
+	return nil
 }
+
+// The helpers below name the command that failed but not the path: their
+// callers wrap them in a PathError that carries it, and repeating it would put
+// it in the message twice.
 
 func (s *WinFS) removeFile(name string) error {
 	if err := s.Exec("cmd.exe /c del " + ps.DoubleQuotePath(name)); err != nil {
-		return fmt.Errorf("del %s: %w", name, err)
+		return fmt.Errorf("del: %w", err)
 	}
 
 	return nil
@@ -152,14 +174,14 @@ func (s *WinFS) removeFile(name string) error {
 
 func (s *WinFS) removeDir(name string) error {
 	if err := s.Exec("cmd.exe /c rmdir /q " + ps.DoubleQuotePath(name)); err != nil {
-		return fmt.Errorf("rmdir %s: %w", name, err)
+		return fmt.Errorf("rmdir: %w", err)
 	}
 	return nil
 }
 
 func (s *WinFS) removeDirAll(name string) error {
 	if err := s.Exec("cmd.exe /c rmdir /s /q " + ps.DoubleQuotePath(name)); err != nil {
-		return fmt.Errorf("rmdir %s: %w", name, err)
+		return fmt.Errorf("rmdir /s: %w", err)
 	}
 
 	return nil
