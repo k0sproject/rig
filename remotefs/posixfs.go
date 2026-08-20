@@ -297,6 +297,51 @@ func (s *PosixFS) parseStat(stat string) (*FileInfo, error) {
 	return res, nil
 }
 
+// exitStatuser is satisfied by the exit errors of the native SSH protocol,
+// which report the status the remote command exited with.
+type exitStatuser interface{ ExitStatus() int }
+
+// exitCoder is satisfied by the exit errors of the protocols that run a local
+// process, which report the code that process exited with.
+type exitCoder interface{ ExitCode() int }
+
+// localProcessFailureExit is the exit code the openssh client uses for its own
+// failures instead of relaying a status from the remote host. The openssh
+// protocol runs the ssh binary locally, so a failure to connect surfaces as an
+// ordinary non-zero exit of a local process and is otherwise indistinguishable
+// from a remote command that failed.
+//
+// This is a stat-specific convention, not a general contract. It is only sound
+// here because multiStat runs nothing but stat, and stat exits 0 or 1 when it
+// actually runs -- including for permission denied. It is deliberately not
+// applied to exitStatuser, where a status of 255 is one the remote host really
+// reported.
+const localProcessFailureExit = 255
+
+// commandRanAndFailed reports whether err describes a command that ran on the
+// host and exited non-zero, as opposed to one that never ran at all -- a
+// connection that could not be established, a session that could not be
+// started, or a connection that died mid-command.
+//
+// A negative status means the process was terminated without one, by a signal
+// or by a cancelled context. That is "did not complete", not "ran and failed",
+// so it is rejected on both branches.
+func commandRanAndFailed(err error) bool {
+	var withStatus exitStatuser
+	if errors.As(err, &withStatus) {
+		// x/crypto/ssh initialises its wait message with a status of -1 and only
+		// an "exit-status" request overwrites it, so a remote command killed by a
+		// signal reports -1.
+		return withStatus.ExitStatus() >= 0
+	}
+	var withCode exitCoder
+	if errors.As(err, &withCode) {
+		code := withCode.ExitCode()
+		return code >= 0 && code != localProcessFailureExit
+	}
+	return false
+}
+
 func (s *PosixFS) multiStat(names ...string) ([]fs.FileInfo, error) { //nolint:cyclop // TODO refactor
 	if err := s.initStat(); err != nil {
 		return nil, err
@@ -330,9 +375,12 @@ func (s *PosixFS) multiStat(names ...string) ([]fs.FileInfo, error) { //nolint:c
 			}
 			res = append(res, info)
 		}
-		if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
+		if err := scanner.Err(); err != nil {
 			if len(names) == 1 {
-				return nil, PathError(OpStat, names[0], fs.ErrNotExist)
+				if commandRanAndFailed(err) {
+					return nil, PathError(OpStat, names[0], fs.ErrNotExist)
+				}
+				return nil, PathErrorf(OpStat, names[0], "stat: %w", err)
 			}
 			return res, fmt.Errorf("stat %s: %w", names, err)
 		}
@@ -708,7 +756,7 @@ func (s *PosixFS) ReadDir(name string) ([]fs.DirEntry, error) {
 		items = append(items, scanner.Text())
 	}
 
-	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
+	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("read dir (find) %s: %w", name, err)
 	}
 
