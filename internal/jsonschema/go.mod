@@ -2,7 +2,7 @@ module github.com/k0sproject/rig/v2/internal/jsonschema
 
 go 1.26.0
 
-toolchain go1.26.4
+toolchain go1.26.7
 
 require (
 	github.com/invopop/jsonschema v0.14.0
