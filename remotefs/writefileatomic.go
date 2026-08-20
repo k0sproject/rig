@@ -8,7 +8,7 @@ import (
 // WriteFileAtomic writes data to path atomically: a temp file is created in the
 // same directory, written with restricted permissions, chmod'd to perm, then
 // renamed into place. Parent directories are created as needed. Cleanup of the
-// temp file is always attempted; if Remove fails the error is ignored.
+// temp file is always attempted; if it fails the error is ignored.
 func WriteFileAtomic(host OS, path string, data []byte, perm fs.FileMode) error {
 	dir := host.Dir(path)
 	if err := host.MkdirAll(dir, 0o755); err != nil {
@@ -18,7 +18,9 @@ func WriteFileAtomic(host OS, path string, data []byte, perm fs.FileMode) error 
 	if err != nil {
 		return fmt.Errorf("write-file-atomic %s: %w", path, err)
 	}
-	defer func() { _ = host.Remove(tmp) }()
+	// RemoveAll rather than Remove: on the success path the rename has already
+	// moved tmp away, and only RemoveAll accepts a path that is not there.
+	defer func() { _ = host.RemoveAll(tmp) }()
 	if err := host.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("write-file-atomic %s: %w", path, err)
 	}
