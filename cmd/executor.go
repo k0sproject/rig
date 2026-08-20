@@ -349,17 +349,19 @@ type waiterWrapper struct {
 
 var xmlTagRe = regexp.MustCompile(`<.+?>`)
 
-func formatStderr(stderr string, isWindows bool) string {
-	if stderr != "" {
-		stderr = strings.TrimSpace(strings.ReplaceAll(stderr, "\n", " "))
-		if isWindows {
-			stderr = strings.ReplaceAll(stderr, "\r", "")
-			stderr = strings.TrimPrefix(stderr, "#<CLIXML")
-			stderr = xmlTagRe.ReplaceAllString(stderr, "")
-		}
-		if len(stderr) > 100 {
-			stderr = stderr[:97] + "..."
-		}
+// cleanStderr collapses a command's stderr into a single line and strips the
+// CLIXML framing PowerShell wraps its error records in. It deliberately does not
+// shorten the result: that happens in [ProcessError.Error], so the full output
+// stays available to callers through [StderrOf].
+func cleanStderr(stderr string, isWindows bool) string {
+	if stderr == "" {
+		return ""
+	}
+	stderr = strings.TrimSpace(strings.ReplaceAll(stderr, "\n", " "))
+	if isWindows {
+		stderr = strings.ReplaceAll(stderr, "\r", "")
+		stderr = strings.TrimPrefix(stderr, "#<CLIXML")
+		stderr = xmlTagRe.ReplaceAllString(stderr, "")
 	}
 	return stderr
 }
@@ -373,17 +375,13 @@ func (w *waiterWrapper) Wait() error {
 		_ = c.Close()
 	}
 
-	stderr := formatStderr(w.opts.ErrString(), w.isWindows)
+	stderr := cleanStderr(w.opts.ErrString(), w.isWindows)
 	if waitErr == nil && w.isWindows && !w.opts.AllowWinStderr() && len(stderr) > 0 {
 		waitErr = ErrWroteStderr
 	}
 	var result error
 	if waitErr != nil {
-		if len(stderr) > 0 {
-			result = fmt.Errorf("process finished with error: %w (%s)", waitErr, stderr)
-		} else {
-			result = fmt.Errorf("process finished with error: %w", waitErr)
-		}
+		result = &ProcessError{err: waitErr, stderr: stderr}
 	}
 	if w.tracer != nil {
 		w.tracer.ProcessFinished(w.host, w.formatted, time.Since(w.started), result)
