@@ -829,13 +829,24 @@ var (
 	_ interface{ ExitCode() int }   = (*osexec.ExitError)(nil)
 )
 
+// exitCommand returns a command line that makes the platform's shell exit with
+// the given code. localhost and openssh run their processes through a local
+// shell, so the fixtures below use the same one the tests run on.
+func exitCommand(code int) (string, []string) {
+	if runtime.GOOS == "windows" {
+		return "cmd.exe", []string{"/c", fmt.Sprintf("exit %d", code)}
+	}
+	return "sh", []string{"-c", fmt.Sprintf("exit %d", code)}
+}
+
 // localExitError runs a local process that exits with the given code and
 // returns the resulting *exec.ExitError. A zero value of that type is
-// unsuitable as a fixture: it reports ExitCode() == -1, which models a
-// signal-killed process rather than a normal non-zero exit.
+// unsuitable as a fixture: it reports ExitCode() == -1, which models a process
+// terminated without a code rather than a normal non-zero exit.
 func localExitError(t *testing.T, code int) error {
 	t.Helper()
-	err := osexec.Command("sh", "-c", fmt.Sprintf("exit %d", code)).Run()
+	name, args := exitCommand(code)
+	err := osexec.Command(name, args...).Run()
 	require.Error(t, err)
 	var exitErr *osexec.ExitError
 	require.ErrorAs(t, err, &exitErr)
@@ -845,8 +856,16 @@ func localExitError(t *testing.T, code int) error {
 
 // signalKilledError runs a local process that kills itself with SIGKILL and
 // returns the resulting *exec.ExitError, whose ExitCode() is -1.
+//
+// Windows has no signals, and TerminateProcess always supplies a code, so no
+// local process there can report a negative one. The case is skipped rather
+// than approximated: the classification it pins is about the absence of a code,
+// which Windows cannot produce.
 func signalKilledError(t *testing.T) error {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("a local process cannot exit without a code on Windows")
+	}
 	err := osexec.Command("sh", "-c", "kill -9 $$").Run()
 	require.Error(t, err)
 	var exitErr *osexec.ExitError
