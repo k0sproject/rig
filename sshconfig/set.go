@@ -495,7 +495,7 @@ func (s *Setter) appendPathList(key string, values ...string) error {
 		field.Set(reflect.ValueOf(values))
 	}
 
-	oldValues, ok := field.Interface().([]string)
+	oldValues, ok := reflect.TypeAssert[[]string](field)
 	if !ok {
 		return fmt.Errorf("%w: field %q is not a slice of strings", errInvalidField, key)
 	}
@@ -533,7 +533,7 @@ func (s *Setter) appendStringList(key string, values ...string) error {
 		field.Set(reflect.ValueOf(values))
 		return nil
 	}
-	oldValues, ok := field.Interface().([]string)
+	oldValues, ok := reflect.TypeAssert[[]string](field)
 	if !ok {
 		return fmt.Errorf("%w: field %q is not a slice of strings", errInvalidField, key)
 	}
@@ -598,7 +598,7 @@ func (s *Setter) setRekeyLimitOption(key string, values ...string) error { //nol
 		}
 		return fmt.Errorf("%w: field %q is not a RekeyLimitOption or a string slice", errInvalidField, key)
 	}
-	rk, ok := field.Interface().(options.RekeyLimitOption)
+	rk, ok := reflect.TypeAssert[options.RekeyLimitOption](field)
 	if !ok {
 		return fmt.Errorf("%w: field %q is not a RekeyLimitOption", errInvalidField, key)
 	}
@@ -719,7 +719,7 @@ func (s *Setter) setForwardOption(key string, values ...string) error {
 		res = make(map[string]string)
 	} else {
 		var ok bool
-		res, ok = field.Interface().(map[string]string)
+		res, ok = reflect.TypeAssert[map[string]string](field)
 		if !ok {
 			return fmt.Errorf("%w: field %q is not a map[string]string", errInvalidField, key)
 		}
@@ -759,7 +759,7 @@ func (s *Setter) setSendEnvOption(key string, values ...string) error {
 		}
 		if value[0] == '-' {
 			value = value[1:]
-			oldVals, ok := field.Interface().([]string)
+			oldVals, ok := reflect.TypeAssert[[]string](field)
 			if !ok {
 				return fmt.Errorf("%w: field %q is not a slice of strings", errInvalidField, key)
 			}
@@ -796,7 +796,7 @@ func (s *Setter) setSetEnvOption(key string, values ...string) error {
 	if field.IsNil() {
 		res = make(map[string]string)
 	} else {
-		r, ok := field.Interface().(map[string]string)
+		r, ok := reflect.TypeAssert[map[string]string](field)
 		if !ok {
 			return fmt.Errorf("%w: field %q is not a map of strings", errInvalidField, key)
 		}
@@ -1160,7 +1160,7 @@ func (s *Setter) expandToken(token string) (string, error) { //nolint:cyclop
 		}
 		if f, err := s.get("ProxyJump", reflect.Slice, reflect.String); err == nil {
 			if f.Len() > 0 {
-				if slice, ok := f.Interface().([]string); ok {
+				if slice, ok := reflect.TypeAssert[[]string](f); ok {
 					return strings.Join(slice, ","), nil
 				}
 				return "", fmt.Errorf("%w: failed to convert ProxyJump to string slice", errInvalidValue)
@@ -1257,9 +1257,9 @@ func (s *Setter) ExpandString(key string) (string, error) {
 		var stringer fmt.Stringer
 		var ok bool
 		if field.CanInterface() {
-			stringer, ok = field.Interface().(fmt.Stringer)
+			stringer, ok = reflect.TypeAssert[fmt.Stringer](field)
 		} else if field.CanAddr() {
-			stringer, ok = field.Addr().Interface().(fmt.Stringer)
+			stringer, ok = reflect.TypeAssert[fmt.Stringer](field.Addr())
 		}
 		if !ok {
 			return "", fmt.Errorf("%w: field %q is not a stringer", errInvalidField, key)
@@ -1294,11 +1294,11 @@ func (s *Setter) ExpandSlice(key string) ([]string, error) { //nolint:cyclop
 		case f.Kind() == reflect.String:
 			values = append(values, f.String())
 		case f.CanInterface():
-			if str, ok := f.Interface().(fmt.Stringer); ok {
+			if str, ok := reflect.TypeAssert[fmt.Stringer](f); ok {
 				values = append(values, str.String())
 			}
 		case f.CanAddr():
-			if str, ok := f.Addr().Interface().(fmt.Stringer); ok {
+			if str, ok := reflect.TypeAssert[fmt.Stringer](f.Addr()); ok {
 				values = append(values, str.String())
 			}
 		default:
@@ -1566,9 +1566,9 @@ func (s *Setter) doCanonicalize() bool { //nolint:cyclop
 	ok = false
 
 	if canonicalizeHostname.CanInterface() {
-		cfo, ok = canonicalizeHostname.Interface().(options.CanonicalizeHostnameOption)
+		cfo, ok = reflect.TypeAssert[options.CanonicalizeHostnameOption](canonicalizeHostname)
 	} else if canonicalizeHostname.CanAddr() {
-		cfo, ok = canonicalizeHostname.Addr().Interface().(options.CanonicalizeHostnameOption)
+		cfo, ok = reflect.TypeAssert[options.CanonicalizeHostnameOption](canonicalizeHostname.Addr())
 	}
 
 	if !ok {
@@ -1616,12 +1616,12 @@ func (s *Setter) canonicalizeMaxDots() int {
 func (s *Setter) canonicalDomains() []string {
 	if canonicalDomains, err := s.get("CanonicalDomains", reflect.Slice, reflect.String); err == nil { //nolint:nestif
 		if canonicalDomains.CanInterface() {
-			if cd, ok := canonicalDomains.Interface().([]string); ok {
+			if cd, ok := reflect.TypeAssert[[]string](canonicalDomains); ok {
 				return cd
 			}
 		}
 		if canonicalDomains.CanAddr() {
-			if cd, ok := canonicalDomains.Addr().Interface().([]string); ok {
+			if cd, ok := reflect.TypeAssert[[]string](canonicalDomains.Addr()); ok {
 				return cd
 			}
 		}
