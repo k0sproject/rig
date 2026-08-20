@@ -70,12 +70,12 @@ func (p *printer) stringify(field reflect.Value) (string, bool) {
 		return quote(field.Elem().String()), true
 	}
 	if field.CanInterface() {
-		if s, ok := field.Interface().(fmt.Stringer); ok {
+		if s, ok := reflect.TypeAssert[fmt.Stringer](field); ok {
 			return quote(s.String()), true
 		}
 	}
 	if field.CanAddr() {
-		if s, ok := field.Addr().Interface().(fmt.Stringer); ok {
+		if s, ok := reflect.TypeAssert[fmt.Stringer](field.Addr()); ok {
 			return quote(s.String()), true
 		}
 	}
@@ -154,7 +154,7 @@ func (p *printer) duration(key string) (string, bool) {
 	kind := reflect.TypeFor[time.Duration]().Kind()
 	if field, err := p.get(key, kind); err == nil {
 		if field.CanInterface() {
-			if d, ok := field.Interface().(time.Duration); ok {
+			if d, ok := reflect.TypeAssert[time.Duration](field); ok {
 				return strconv.Itoa(int(d.Seconds())), true
 			}
 		}
@@ -171,7 +171,7 @@ func (p *printer) channeltimeout(key string) (string, bool) {
 	kind := reflect.TypeFor[map[string]time.Duration]().Kind()
 	if field, err := p.get(key, kind); err == nil { //nolint:nestif
 		if field.CanInterface() {
-			if d, ok := field.Interface().(map[string]time.Duration); ok {
+			if d, ok := reflect.TypeAssert[map[string]time.Duration](field); ok {
 				sb := &strings.Builder{}
 				for k, v := range d {
 					if sb.Len() > 0 {
@@ -207,7 +207,7 @@ func (p *printer) forward(key string) (string, bool) {
 	kind := reflect.TypeFor[map[string]string]().Kind()
 	if field, err := p.get(key, kind); err == nil { //nolint:nestif
 		if field.CanInterface() {
-			if d, ok := field.Interface().(map[string]string); ok {
+			if d, ok := reflect.TypeAssert[map[string]string](field); ok {
 				sb := &strings.Builder{}
 				for k, v := range d {
 					if sb.Len() > 0 {

@@ -125,7 +125,7 @@ func marshalText(value reflect.Value) (string, bool, error) {
 		if !v.IsValid() || !v.CanInterface() {
 			continue
 		}
-		m, ok := v.Interface().(encoding.TextMarshaler)
+		m, ok := reflect.TypeAssert[encoding.TextMarshaler](v)
 		if !ok {
 			continue
 		}
@@ -260,7 +260,7 @@ func (e *Encoder) encodeMap(v reflect.Value) error {
 
 func (e *Encoder) encodeField(structField reflect.StructField, fieldValue reflect.Value, info encFieldInfo) error {
 	if info.catchAll {
-		m, ok := fieldValue.Interface().(map[string]string)
+		m, ok := reflect.TypeAssert[map[string]string](fieldValue)
 		if !ok {
 			return fmt.Errorf("%w: field %q with kv tag * must be a map[string]string", ErrInvalidTags, structField.Name)
 		}

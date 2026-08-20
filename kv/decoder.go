@@ -170,7 +170,7 @@ func (ra *reflectAssigner) setupCatchAll(field reflect.Value) error {
 	if field.IsNil() {
 		field.Set(reflect.MakeMap(field.Type()))
 	}
-	mapObj, ok := field.Interface().(map[string]string)
+	mapObj, ok := reflect.TypeAssert[map[string]string](field)
 	if !ok {
 		return fmt.Errorf("%w: field with kv tag * must be a map of string to string", ErrInvalidTags)
 	}
@@ -243,7 +243,7 @@ func (ra *reflectAssigner) assignField(info fieldInfo, value string) error { //n
 	field := info.value
 
 	if field.CanInterface() {
-		if f, ok := field.Interface().(encoding.TextUnmarshaler); ok {
+		if f, ok := reflect.TypeAssert[encoding.TextUnmarshaler](field); ok {
 			if err := f.UnmarshalText([]byte(value)); err != nil {
 				return fmt.Errorf("unmarshal text: %w", err)
 			}

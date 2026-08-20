@@ -1378,8 +1378,7 @@ func ParseSSHPrivateKey(key []byte, callback PasswordCallback) ([]ssh.AuthMethod
 	if err == nil {
 		return []ssh.AuthMethod{ssh.PublicKeys(signer)}, nil
 	}
-	var ppErr *ssh.PassphraseMissingError
-	if !errors.As(err, &ppErr) {
+	if _, ok := errors.AsType[*ssh.PassphraseMissingError](err); !ok {
 		return nil, fmt.Errorf("failed to parse key: %w", err)
 	}
 	if callback == nil {
