@@ -899,6 +899,13 @@ func TestPosixStatCommandFailure(t *testing.T) {
 			wantNotExist: false,
 		},
 		{
+			// A zero status does not describe a failure, so an error carrying one
+			// did not come from a command that ran and failed.
+			name:         "error carrying a zero exit status",
+			failWith:     func(*testing.T) error { return sshExitError{status: 0} },
+			wantNotExist: false,
+		},
+		{
 			name: "session could not be started",
 			failWith: func(*testing.T) error {
 				return errors.New("start session: connection lost")

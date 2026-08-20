@@ -323,21 +323,25 @@ const localProcessFailureExit = 255
 // connection that could not be established, a session that could not be
 // started, or a connection that died mid-command.
 //
-// A negative status means the process was terminated without one, by a signal
-// or by a cancelled context. That is "did not complete", not "ran and failed",
-// so it is rejected on both branches.
+// Only a status strictly greater than zero qualifies. A negative one means the
+// process was terminated without a status, by a signal or by a cancelled
+// context, which is "did not complete" rather than "ran and failed". Zero is
+// rejected because it does not describe a failure at all: neither *ssh.ExitError
+// nor *exec.ExitError is constructed for a successful command, so an error
+// carrying zero comes from something other than a command that ran, and the
+// safe answer for anything unrecognised here is false.
 func commandRanAndFailed(err error) bool {
 	var withStatus exitStatuser
 	if errors.As(err, &withStatus) {
 		// x/crypto/ssh initialises its wait message with a status of -1 and only
 		// an "exit-status" request overwrites it, so a remote command killed by a
 		// signal reports -1.
-		return withStatus.ExitStatus() >= 0
+		return withStatus.ExitStatus() > 0
 	}
 	var withCode exitCoder
 	if errors.As(err, &withCode) {
 		code := withCode.ExitCode()
-		return code >= 0 && code != localProcessFailureExit
+		return code > 0 && code != localProcessFailureExit
 	}
 	return false
 }
