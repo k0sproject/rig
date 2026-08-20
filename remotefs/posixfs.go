@@ -740,8 +740,30 @@ func (s *PosixFS) Remove(name string) error {
 	return nil
 }
 
+// errNoSuchFile is the reason coreutils give for a path that is not there. They
+// print the path first and the reason last, so the reason is exactly what is
+// lost when a message is shortened.
+const errNoSuchFile = "No such file or directory"
+
+// isNotExist reports whether err means the path was not there.
+//
+// Commands that do not report absence in a structured form leave only their
+// diagnostic to go on. That is read from the command's full stderr rather than
+// from the error message, which carries a shortened form: with a long enough
+// path, matching the message alone makes the answer depend on how long the path
+// is. The message is still consulted as a fallback, for errors that do not come
+// from a command and so carry no stderr of their own.
 func isNotExist(err error) bool {
-	return err != nil && (errors.Is(err, fs.ErrNotExist) || strings.Contains(err.Error(), "No such file or directory"))
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return true
+	}
+	if strings.Contains(cmd.StderrOf(err), errNoSuchFile) {
+		return true
+	}
+	return strings.Contains(err.Error(), errNoSuchFile)
 }
 
 // RemoveAll removes path and any children it contains.

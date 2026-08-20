@@ -12,8 +12,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/k0sproject/rig/v2/cmd"
 	"github.com/k0sproject/rig/v2/remotefs"
 	"github.com/k0sproject/rig/v2/rigtest"
+	"github.com/k0sproject/rig/v2/sh"
+	"github.com/k0sproject/rig/v2/sudo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -724,4 +727,79 @@ func TestPosixShellQuote(t *testing.T) {
 	for _, tc := range cases {
 		require.Equal(t, tc.want, pfs.ShellQuote(tc.input), "input: %q", tc.input)
 	}
+}
+
+func TestPosixNotExistByPathLength(t *testing.T) {
+	// Whether a missing file is recognised as such must not depend on how long
+	// its path is. The operations below have no structured way of reporting
+	// absence, so they read the command's diagnostic -- and coreutils put the
+	// path first and the reason last, so a long path is exactly what pushes the
+	// reason out of a shortened message.
+	ops := []struct {
+		name string
+		call func(fsys *remotefs.PosixFS, path string) error
+	}{
+		{"Sha256", func(fsys *remotefs.PosixFS, path string) error {
+			_, err := fsys.Sha256(path)
+			return err
+		}},
+		{"Chmod", func(fsys *remotefs.PosixFS, path string) error {
+			return fsys.Chmod(path, 0o644)
+		}},
+		{"Chown", func(fsys *remotefs.PosixFS, path string) error {
+			return fsys.Chown(path, "root:root")
+		}},
+		{"ChownInt", func(fsys *remotefs.PosixFS, path string) error {
+			return fsys.ChownInt(path, 0, 0)
+		}},
+		{"ChownTree", func(fsys *remotefs.PosixFS, path string) error {
+			return fsys.ChownTree(path, "root:root")
+		}},
+		{"ChownTreeInt", func(fsys *remotefs.PosixFS, path string) error {
+			return fsys.ChownTreeInt(path, 0, 0)
+		}},
+	}
+
+	for _, depth := range []int{0, 12, 24} {
+		dir := "/tmp/" + strings.Repeat("deployments/", depth)
+		missing := dir + "missing.conf"
+		for _, op := range ops {
+			t.Run(fmt.Sprintf("%s/pathlen=%d", op.name, len(missing)), func(t *testing.T) {
+				mr := rigtest.NewMockRunner()
+				mr.AddCommand(rigtest.Contains(missing), func(a *rigtest.A) error {
+					// The coreutils diagnostic, reason last.
+					fmt.Fprintf(a.Stderr, "cannot access '%s': No such file or directory\n", missing)
+					return errors.New("exit status 1")
+				})
+
+				err := op.call(remotefs.NewPosixFS(mr), missing)
+				require.Error(t, err)
+				require.ErrorIs(t, err, fs.ErrNotExist,
+					"a missing file must be recognised at any path length")
+			})
+		}
+	}
+}
+
+func TestPosixNotExistThroughSudo(t *testing.T) {
+	// The production path: a sudo-decorated runner chains a second Executor in
+	// front of the first, so the command's stderr must still reach the error
+	// value the classification reads.
+	longPath := "/tmp/" + strings.Repeat("deployments/", 24) + "missing.conf"
+
+	mr := rigtest.NewMockRunner()
+	mr.AddCommand(rigtest.Contains(longPath), func(a *rigtest.A) error {
+		fmt.Fprintf(a.Stderr, "cannot access '%s': No such file or directory\n", longPath)
+		return errors.New("exit status 1")
+	})
+	sudoRunner := cmd.NewExecutor(mr, sudo.Sudo)
+
+	// A control run first: at this path length the shortened message cannot carry
+	// the reason, so classifying correctly is only possible from the full stderr.
+	require.NotContains(t, sudoRunner.Exec(sh.Command("chmod", "0644", longPath)).Error(),
+		"No such file or directory", "the fixture must not be classifiable from the message")
+
+	err := remotefs.NewPosixFS(sudoRunner).Chmod(longPath, 0o644)
+	require.ErrorIs(t, err, fs.ErrNotExist, "the full stderr must survive a chained runner")
+	require.NoError(t, mr.Received(rigtest.HasPrefix("sudo")))
 }
