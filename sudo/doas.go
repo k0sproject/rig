@@ -2,12 +2,15 @@ package sudo
 
 import (
 	"github.com/k0sproject/rig/v2/cmd"
-	"github.com/k0sproject/rig/v2/sh/shellescape"
+	"github.com/k0sproject/rig/v2/sh"
 )
 
 // Doas is a DecorateFunc that will wrap the given command in a doas call.
+//
+// The command runs through an explicit POSIX shell for the same reasons as in
+// [Sudo].
 func Doas(cmd string) string {
-	return `doas -n -- "${SHELL-sh}" -c ` + shellescape.Quote(cmd)
+	return "doas -n -- " + sh.Shell(cmd)
 }
 
 // RegisterDoas registers a doas DecorateFunc with the given repository.

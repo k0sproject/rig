@@ -407,6 +407,57 @@ func TestClientExecInteractiveNotSupported(t *testing.T) {
 	require.ErrorContains(t, err, "interactive")
 }
 
+// TestPosixShellImposed guards the fix for k0sproject/k0sctl#1135: rig's commands
+// are POSIX, the remote user's login shell is not necessarily POSIX (fish, csh),
+// and sshd runs commands through that login shell. Every command a client sends
+// to a non-Windows host must therefore be handed to an explicit POSIX shell and
+// must not rely on shell features the login shell may not have.
+func TestPosixShellImposed(t *testing.T) {
+	t.Run("plain command", func(t *testing.T) {
+		conn := rigtest.NewMockConnection()
+		client, err := rig.NewClient(rig.WithConnection(conn))
+		require.NoError(t, err)
+		require.NoError(t, client.Exec("echo hello"))
+		rigtest.ReceivedEqual(t, conn, `/bin/sh -c -- 'echo hello'`)
+	})
+
+	t.Run("sudo command", func(t *testing.T) {
+		conn := rigtest.NewMockConnection()
+		forceSudo(conn)
+		client, err := rig.NewClient(rig.WithConnection(conn))
+		require.NoError(t, err)
+		require.NoError(t, client.Sudo().Exec("echo hello"))
+
+		// The inner shell is sudo's (sudo execs directly, so compound commands
+		// need one), the outer shell replaces the login shell. Neither may be
+		// applied twice.
+		rigtest.ReceivedEqual(t, conn, `/bin/sh -c -- 'sudo -n -- /bin/sh -c -- '"'"'echo hello'"'"''`)
+		// The sudo availability probe is the command that actually failed in
+		// k0sctl#1135, so it must be wrapped as well.
+		rigtest.ReceivedEqual(t, conn, `/bin/sh -c -- 'sudo -n -- /bin/sh -c -- true'`)
+		// The root check is the very first command a client sends, and it is
+		// also the one that resolves the host's OS. Wrapping must not depend on
+		// a previous command having established that.
+		rigtest.ReceivedEqual(t, conn, `/bin/sh -c -- '[ "$(id -u)" = 0 ]'`)
+
+		// No command sent while setting sudo up may need a non-POSIX shell to
+		// expand it either - the sudo and doas probes used to interpolate
+		// "${SHELL-sh}", which is a syntax error in fish.
+		for _, command := range conn.Commands() {
+			assert.NotContains(t, command, "${", "commands must not rely on parameter expansion by the login shell")
+		}
+	})
+
+	t.Run("windows host", func(t *testing.T) {
+		conn := rigtest.NewMockConnection()
+		conn.Windows = true
+		client, err := rig.NewClient(rig.WithConnection(conn))
+		require.NoError(t, err)
+		require.NoError(t, client.Exec("echo hello"))
+		rigtest.ReceivedEqual(t, conn, "cmd.exe /C echo hello")
+	})
+}
+
 var errNotRoot = errors.New("not root")
 
 // forceSudo makes the sudo registry deterministically select the "sudo"

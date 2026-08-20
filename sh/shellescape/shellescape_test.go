@@ -21,11 +21,65 @@ func TestQuote(t *testing.T) {
 		{"Single Invalid", ";", `';'`}, // this could be returned as \;
 		{"All Invalid", `;${}`, `';${}'`},
 		{"Clean String", "foo.example.com", `foo.example.com`},
+		// An unquoted backtick would have the shell run the command inside it,
+		// so a filename like this must not come back verbatim.
+		{"Command Substitution", "`id`", "'`id`'"},
+		// Caret is outside the safe set of the implementation this package
+		// replaces, and was a pipe in pre-POSIX shells.
+		{"Caret", "^ID=", `'^ID='`},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.expected, shellescape.Quote(tt.input))
+		})
+	}
+}
+
+func TestQuoteForLoginShell(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "empty", input: "", want: "''"},
+		{name: "nothing to quote", input: "foo", want: "foo"},
+		{name: "spaces", input: "foo bar", want: "'foo bar'"},
+		{name: "single quote", input: "foo'bar", want: `'foo'"'"'bar'`},
+		{name: "backslash leaves the quoted run", input: `foo\bar`, want: `'foo'\\'bar'`},
+		{name: "consecutive backslashes", input: `foo\\bar`, want: `'foo'\\''\\'bar'`},
+		{name: "backslash before quote", input: `\'`, want: `''\\''"'"''`},
+		{name: "other specials stay quoted", input: `$foo ${bar} *`, want: `'$foo ${bar} *'`},
+		// An unquoted backtick would have the shell run the command inside it.
+		{name: "backticks", input: "`id`", want: "'`id`'"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, shellescape.QuoteForLoginShell(tt.input))
+		})
+	}
+}
+
+// TestQuotePreservesInvalidUTF8 guards against decoding the input into runes. A
+// file name on a POSIX host is a byte string that need not be valid UTF-8, and
+// rewriting an invalid byte into U+FFFD would quote a name other than the one
+// asked for. The input here also carries a space and a quote, so both the
+// wrapping and the escaping paths are taken.
+func TestQuotePreservesInvalidUTF8(t *testing.T) {
+	const name = "/tmp/a\xffb 'c"
+
+	tests := []struct {
+		name string
+		got  string
+	}{
+		{"Quote", shellescape.Quote(name)},
+		{"QuoteForLoginShell", shellescape.QuoteForLoginShell(name)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Contains(t, tt.got, "\xff", "the invalid byte must survive verbatim")
+			assert.NotContains(t, tt.got, "�", "the invalid byte must not become the replacement character")
 		})
 	}
 }

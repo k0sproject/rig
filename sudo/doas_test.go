@@ -17,17 +17,17 @@ func TestDoasGolden(t *testing.T) {
 		{
 			name:  "simple command",
 			input: "apt-get install -y docker.io",
-			want:  `doas -n -- "${SHELL-sh}" -c 'apt-get install -y docker.io'`,
+			want:  `doas -n -- /bin/sh -c -- 'apt-get install -y docker.io'`,
 		},
 		{
 			name:  "command with embedded single quotes",
 			input: "bash -c 'systemctl restart k0s'",
-			want:  "doas -n -- \"${SHELL-sh}\" -c 'bash -c '\"'\"'systemctl restart k0s'\"'\"''",
+			want:  "doas -n -- /bin/sh -c -- 'bash -c '\"'\"'systemctl restart k0s'\"'\"''",
 		},
 		{
 			name:  "plain path",
 			input: "cat /etc/k0s/k0s.yaml",
-			want:  `doas -n -- "${SHELL-sh}" -c 'cat /etc/k0s/k0s.yaml'`,
+			want:  `doas -n -- /bin/sh -c -- 'cat /etc/k0s/k0s.yaml'`,
 		},
 	}
 

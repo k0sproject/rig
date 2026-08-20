@@ -73,8 +73,8 @@ func TestCommandBuilderGolden(t *testing.T) {
 		{
 			name: "pipe grep filters output",
 			got:  sh.CommandBuilder("cat /etc/os-release").Pipe("grep", "^ID=").String(),
-			// Note: ^ is not in shellescape's special-char set so ^ID= is not quoted.
-			want: "cat /etc/os-release | grep ^ID=",
+			// ^ is in shellescape's special-char set, so the pattern is quoted.
+			want: "cat /etc/os-release | grep '^ID='",
 		},
 		{
 			name: "stderr to null suppresses errors",

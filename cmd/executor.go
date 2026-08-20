@@ -18,6 +18,7 @@ import (
 	"github.com/k0sproject/rig/v2/iostream"
 	"github.com/k0sproject/rig/v2/log"
 	"github.com/k0sproject/rig/v2/protocol"
+	"github.com/k0sproject/rig/v2/sh"
 )
 
 // validate interfaces.
@@ -51,6 +52,7 @@ type Executor struct {
 	osKnown    atomic.Bool
 	tracer     Tracer
 	gate       CommandGate
+	shell      string
 }
 
 func isWinFunc(conn protocol.ProcessStarter) func() bool {
@@ -93,12 +95,85 @@ func (r *Executor) SetCommandGate(gate CommandGate) {
 	r.gate = gate
 }
 
-func (r *Executor) formatCommandForOS(command string, execOpts *ExecOptions, isWindows bool) string {
-	cmd := r.Format(execOpts.Format(command))
+// SetShell imposes an explicit shell for running commands on non-Windows hosts.
+// When set, commands are wrapped in `<shell> -c <quoted command>` so that the
+// remote user's login shell, which is not guaranteed to be POSIX compatible,
+// never gets to interpret rig's POSIX command strings. POSIX shells and fish are
+// covered; see [shellescape.QuoteForLoginShell] for what a csh login shell can
+// still break.
+// Use [sh.DefaultShell] unless the host is known to keep its POSIX shell
+// somewhere else. An empty shell disables the wrapping.
+//
+// Windows commands are never wrapped, and neither are commands formatted before
+// the host's OS has been determined, in which case [Executor.Explain] reports
+// OSWrappingKnown: false. Decorators that bring a shell of their own, like the
+// ones in the sudo package, keep using [sh.DefaultShell] regardless of this
+// setting; they only need a shell for the command they elevate, and the shell
+// set here still wraps the result.
+//
+// SetShell must not be called concurrently with Start, Exec, or any other
+// command-execution method.
+func (r *Executor) SetShell(shell string) {
+	r.shell = shell
+}
+
+// windowsShellPrefix runs a command that is not an executable through cmd.exe on
+// Windows hosts. We don't know whether the default shell there is cmd or
+// powershell, so non-prefixed commands consistently go through cmd.exe.
+func windowsShellPrefix(cmd string, isWindows bool) string {
 	if isWindows && !isExe(cmd) {
-		cmd = "cmd.exe /C " + cmd
+		return "cmd.exe /C " + cmd
 	}
 	return cmd
+}
+
+// applyDecorators runs the decorators in order. When mask is set it runs after
+// every decorator, so a secret is masked at the first point it appears in full,
+// before a later decorator quotes it into pieces a literal redacter can no
+// longer match.
+func applyDecorators(cmd string, decorators []DecorateFunc, mask func(string) string) string {
+	for _, decorator := range decorators {
+		cmd = decorator(cmd)
+		if mask != nil {
+			cmd = mask(cmd)
+		}
+	}
+	return cmd
+}
+
+func (r *Executor) formatCommandForOS(command string, execOpts *ExecOptions, isWindows bool) string {
+	return windowsShellPrefix(r.Format(execOpts.Format(command)), isWindows)
+}
+
+// parentFormat applies the formatting that every parent runner contributes,
+// masking after each of their decorators when mask is set. A chained runner - the
+// sudo runners wrap the base one - has its command formatted by its parents too,
+// which is how an imposed shell reaches a sudo-decorated command.
+//
+// Start applies this itself and starts the process on the connection underneath
+// the parents (see [Executor.baseConnection]), so that each decorator runs once
+// for a command and the string reported to logs, tracers and a [CommandGate] is
+// the very one that gets sent.
+func (r *Executor) parentFormat(cmd string, mask func(string) string) string {
+	for parent, ok := r.connection.(*Executor); ok; parent, ok = parent.connection.(*Executor) {
+		cmd = parent.format(cmd, mask)
+	}
+	return cmd
+}
+
+// baseConnection returns the first connection in the chain that is not an
+// [Executor], which is the one Start hands a fully formatted command to. Every
+// Executor in between has already contributed its formatting via parentFormat;
+// going through their StartProcess would apply their decorators a second time.
+func (r *Executor) baseConnection() protocol.ProcessStarter {
+	conn := r.connection
+	for {
+		parent, ok := conn.(*Executor)
+		if !ok {
+			return conn
+		}
+		conn = parent.connection
+	}
 }
 
 // formatCommand returns the fully decorated command string.
@@ -106,6 +181,8 @@ func (r *Executor) formatCommand(command string, execOpts *ExecOptions) string {
 	return r.formatCommandForOS(command, execOpts, r.IsWindows())
 }
 
+// explainCommand returns the command as this runner formats it, before any
+// parent runner formats it again, and whether the host's OS was known.
 func (r *Executor) explainCommand(command string, execOpts *ExecOptions) (string, bool) {
 	if !r.osKnown.Load() {
 		return r.formatCommandForOS(command, execOpts, false), false
@@ -113,18 +190,54 @@ func (r *Executor) explainCommand(command string, execOpts *ExecOptions) (string
 	return r.formatCommandForOS(command, execOpts, r.IsWindows()), true
 }
 
+// redactedForm returns the human-readable form of a command for logging and for
+// a [CommandGate]: registered secrets are masked and PowerShell -EncodedCommand
+// payloads are decoded. formatted must be the command as the host receives it,
+// including what parent runners add; with nothing to mask, decoding it is all
+// this has to do.
+//
+// A secret that contains a single quote or a backslash needs more care, because
+// both the sudo decorators and the imposed shell quote what they wrap, and
+// quoting rewrites exactly those two characters - splitting the secret into
+// pieces a literal redacter can no longer match. For those, the command is
+// formatted a second time starting from the masked original, masking again after
+// every decorator so that a secret a decorator introduces itself is caught
+// before the next decorator or the shell wrapping quotes it.
+//
+// That second pass feeds decorators an input the host never sees, so a decorator
+// whose output depends on the content of the command it is given can describe a
+// command that differs from the one sent (see [DecorateFunc]). That is accepted:
+// the alternative is printing the secret. Every other secret - one without a
+// quote or a backslash in it - survives quoting intact and is masked in the
+// formatted command directly, with no second pass at all.
+func (r *Executor) redactedForm(command, formatted string, execOpts *ExecOptions, isWindows bool) string {
+	if !execOpts.hasRedaction() {
+		return decodeEncoded(formatted)
+	}
+	mask := execOpts.Redacter().Redact
+	if !execOpts.needsMaskedReplay() {
+		return mask(decodeEncoded(formatted))
+	}
+	cmd := execOpts.formatMasked(mask(command), mask)
+	cmd = r.format(cmd, mask)
+	cmd = r.parentFormat(windowsShellPrefix(cmd, isWindows), mask)
+	return mask(decodeEncoded(cmd))
+}
+
 // Explain returns the formatted command without running it. Use this to
-// inspect the effect of decorators, sudo wrapping, PowerShell encoding,
-// and redaction without executing anything. Explain never probes the host
+// inspect the effect of decorators, sudo wrapping, shell imposition,
+// PowerShell encoding, and redaction without executing anything. Explain never probes the host
 // to determine OS-specific wrapping; wrapping is included only when the OS
 // has already been determined (see OSWrappingKnown in the returned Explanation).
 func (r *Executor) Explain(command string, opts ...ExecOption) Explanation {
 	execOpts := Build(opts...)
-	formatted, osWrappingKnown := r.explainCommand(command, execOpts)
+	ownFormatted, osWrappingKnown := r.explainCommand(command, execOpts)
+	// What the host receives includes the formatting the parent runners add.
+	formatted := r.parentFormat(ownFormatted, nil)
 	decoded := decodeEncoded(formatted)
 	logged := ""
 	if execOpts.LogCommand() {
-		logged = execOpts.Redact(decoded)
+		logged = r.redactedForm(command, formatted, execOpts, osWrappingKnown && r.IsWindows())
 	}
 	return Explanation{
 		Formatted:       formatted,
@@ -135,12 +248,33 @@ func (r *Executor) Explain(command string, opts ...ExecOption) Explanation {
 	}
 }
 
-// Format returns the command string decorated with the runner's global decorators.
+// Format returns the command string decorated with the runner's global
+// decorators and, when a shell has been imposed via [Executor.SetShell],
+// wrapped in an explicit shell invocation.
 func (r *Executor) Format(cmd string) string {
-	for _, decorator := range r.decorators {
-		cmd = decorator(cmd)
+	return r.format(cmd, nil)
+}
+
+// format applies the global decorators and the imposed shell wrapping, masking
+// after every decorator when mask is set. See [applyDecorators].
+func (r *Executor) format(cmd string, mask func(string) string) string {
+	cmd = applyDecorators(cmd, r.decorators, mask)
+	if r.shellWrapApplies() {
+		cmd = sh.ShellWith(r.shell, cmd)
 	}
 	return cmd
+}
+
+// shellWrapApplies reports whether the imposed shell should wrap a command.
+// The OS check is deliberately probe-free: the command-execution path resolves
+// and caches the host's OS before Format runs (Start evaluates IsWindows to
+// build the formatCommandForOS argument), while Explain must not probe and
+// leaves out OS-specific wrapping until the OS is known.
+func (r *Executor) shellWrapApplies() bool {
+	if r.shell == "" || !r.osKnown.Load() {
+		return false
+	}
+	return !r.isWin()
 }
 
 // Proc returns a Proc bound to this runner for the given command.
@@ -360,11 +494,17 @@ func (r *Executor) Start(ctx context.Context, command string, opts ...ExecOption
 	// non-prefixed commands through cmd.exe.
 	cmd := r.formatCommand(command, execOpts)
 
+	// fullCmd is the command as the host receives it: this runner's formatting
+	// plus what every parent runner contributes. It is both what gets sent (to
+	// the connection underneath the parents, so their decorators are not applied
+	// twice) and what tracers, the gate and the logs describe.
+	fullCmd := r.parentFormat(cmd, nil)
+
 	// redactedCmd is the human-readable command (secrets masked, PowerShell
 	// -EncodedCommand decoded), computed once and reused for gating and every
-	// log line below. Tracer callbacks deliberately receive the raw formatted
-	// cmd, as their contract documents.
-	redactedCmd := execOpts.Redact(decodeEncoded(cmd))
+	// log line below. Tracer callbacks deliberately receive the unredacted
+	// command, as their contract documents.
+	redactedCmd := r.redactedForm(command, fullCmd, execOpts, r.IsWindows())
 
 	// Consult the gate before emitting any command-logging or tracer
 	// lifecycle events so a rejected command produces no dangling
@@ -381,14 +521,14 @@ func (r *Executor) Start(ctx context.Context, command string, opts ...ExecOption
 	}
 
 	if tracer != nil {
-		tracer.CommandFormatted(r.String(), cmd)
+		tracer.CommandFormatted(r.String(), fullCmd)
 	}
 
 	stdout := execOpts.Stdout()
 	stderr := execOpts.Stderr()
 	traceClosers = append(traceClosers, execOpts.OutputClosers()...)
 
-	waiter, err := r.connection.StartProcess(ctx, cmd, execOpts.Stdin(), stdout, stderr) //nolint:contextcheck // Stdin() uses trace logger which takes context
+	waiter, err := r.baseConnection().StartProcess(ctx, fullCmd, execOpts.Stdin(), stdout, stderr) //nolint:contextcheck // Stdin() uses trace logger which takes context
 	if err != nil {
 		closeAll(traceClosers)
 		log.Trace(ctx, "start process failed", log.HostAttr(r), log.KeyCommand, redactedCmd, log.KeyError, err)
@@ -403,7 +543,7 @@ func (r *Executor) Start(ctx context.Context, command string, opts ...ExecOption
 
 	started := time.Now()
 	if tracer != nil {
-		tracer.ProcessStarted(r.String(), cmd)
+		tracer.ProcessStarted(r.String(), fullCmd)
 	}
 
 	return &waiterWrapper{
@@ -412,7 +552,7 @@ func (r *Executor) Start(ctx context.Context, command string, opts ...ExecOption
 		isWindows:    r.IsWindows(),
 		tracer:       tracer,
 		host:         r.String(),
-		formatted:    cmd,
+		formatted:    fullCmd,
 		started:      started,
 		traceClosers: traceClosers,
 	}, nil
@@ -525,6 +665,15 @@ func (r *Executor) ExecScanner(command string, opts ...ExecOption) *bufio.Scanne
 // StartProcess calls the connection's StartProcess method. This is done to satisfy the
 // connection interface and thus allow chaining of runners.
 func (r *Executor) StartProcess(ctx context.Context, command string, stdin io.Reader, stdout io.Writer, stderr io.Writer) (protocol.Waiter, error) {
+	// With a shell imposed, resolve the host's OS first. The wrapping decision in
+	// Format is deliberately probe-free so that Explain never probes, which means
+	// the OS has to be known by the time Format runs, and a runner that is not an
+	// Executor can reach this method without going through Start. Skipped when no
+	// shell is imposed: there is no wrapping decision to make, and probing would
+	// cost a command on a connection that cannot report its OS by itself.
+	if r.shell != "" {
+		r.IsWindows()
+	}
 	waiter, err := r.connection.StartProcess(ctx, r.Format(command), stdin, stdout, stderr)
 	if err != nil {
 		return nil, fmt.Errorf("runner start process: %w", err)

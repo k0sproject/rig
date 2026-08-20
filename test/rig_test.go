@@ -46,6 +46,7 @@ var (
 	privateKey      string
 	enableMultiplex bool
 	traceLog        bool
+	expectSudo      bool
 )
 
 func pathBase(p string) string {
@@ -68,6 +69,7 @@ func TestMain(m *testing.M) {
 	flag.BoolVar(&useHTTPS, "winrm-https", false, "use https for winrm")
 	flag.BoolVar(&enableMultiplex, "openssh-multiplex", true, "use ssh multiplexing")
 	flag.BoolVar(&onlyConnect, "connect", false, "only connect to host, dont run other tests")
+	flag.BoolVar(&expectSudo, "expect-sudo", false, "the host has passwordless privilege escalation configured, fail instead of skipping when rig does not detect it")
 	flag.BoolVar(&traceLog, "trace", false, "turn on trace logging")
 
 	// Parse the flags
@@ -298,15 +300,20 @@ type OSSuite struct {
 
 // TestSudoCompoundCommands guards against regressing the sudo decorator into handing
 // compound shell expressions to sudo verbatim. v2 already wraps commands in
-// `sudo -n -- "${SHELL-sh}" -c <quoted>` (see sudo.Sudo), so this is a regression guard,
+// `sudo -n -- /bin/sh -c -- <quoted>` (see sudo.Sudo), so this is a regression guard,
 // not a bug fix. It only has teeth when the suite runs as a non-root user with passwordless
-// escalation (the rig_test_regular_user path in test.sh).
+// escalation (the rig_test_regular_user paths in test.sh), which pass -expect-sudo so that
+// escalation rig fails to detect is reported instead of quietly skipped.
 func (s *OSSuite) TestSudoCompoundCommands() {
 	if s.Host.IsWindows() {
 		s.T().Skip("sudo not supported on windows")
 		return
 	}
 	if _, err := s.Host.Sudo().ExecOutput("true"); err != nil {
+		// Detection runs commands of its own, so a login shell that mangles them takes
+		// escalation away without any test asserting on it. That is how the fish login
+		// shell of k0sproject/k0sctl#1135 went unnoticed.
+		s.Require().Falsef(expectSudo, "the host has passwordless privilege escalation configured but rig did not detect it: %v", err)
 		s.T().Skip("passwordless privilege escalation (sudo/doas) not configured")
 		return
 	}
