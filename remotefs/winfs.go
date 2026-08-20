@@ -63,7 +63,7 @@ func (s *WinFS) Stat(name string) (fs.FileInfo, error) {
 		// An execution failure says nothing about the path. Absence is reported by
 		// a *successful* command that prints the marker handled below, so this
 		// branch must never claim fs.ErrNotExist.
-		return nil, PathErrorf(OpStat, name, "stat: %w", err)
+		return nil, PathError(OpStat, name, err)
 	}
 
 	fi := &winFileInfo{fs: s}
