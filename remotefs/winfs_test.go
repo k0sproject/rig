@@ -370,3 +370,63 @@ func TestWindowsShellQuote(t *testing.T) {
 		require.Equal(t, tc.want, fs.ShellQuote(tc.input), "input: %q", tc.input)
 	}
 }
+
+func TestWindowsStat(t *testing.T) {
+	// A missing path is reported by a *successful* stat command that prints the
+	// {"Err":"does not exist"} marker, so an execution failure is never evidence
+	// that the path is absent.
+	const statOutput = `{"Err":"does not exist"}`
+
+	t.Run("missing file is ErrNotExist", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.Windows = true
+		mr.AddCommandOutput(rigtest.HasPrefix("powershell.exe"), statOutput)
+
+		_, err := remotefs.NewWindowsFS(mr).Stat("C:\\app\\missing.conf")
+		require.ErrorIs(t, err, fs.ErrNotExist)
+	})
+
+	for _, tc := range []struct {
+		name     string
+		failWith error
+	}{
+		{"not connected", errors.New("start command: runner start command: not connected")},
+		{"connection dropped", fmt.Errorf("create shell: %w", io.EOF)},
+		{"command failed on the host", errors.New("access is denied")},
+	} {
+		t.Run("execution failure: "+tc.name, func(t *testing.T) {
+			mr := rigtest.NewMockRunner()
+			mr.Windows = true
+			mr.AddCommandFailure(rigtest.HasPrefix("powershell.exe"), tc.failWith)
+
+			_, err := remotefs.NewWindowsFS(mr).Stat("C:\\app\\existing.conf")
+			require.Error(t, err)
+			require.NotErrorIs(t, err, fs.ErrNotExist,
+				"a failure to run the stat command is not evidence that the path is absent")
+			require.ErrorIs(t, err, tc.failWith, "the original cause must stay reachable")
+		})
+	}
+}
+
+// TestWindowsPatchFileStatFailure is the data-loss regression guard: told the
+// file is absent, PatchFile with WithCreate rebuilds it from an empty base and
+// renames the result over content it never read.
+func TestWindowsPatchFileStatFailure(t *testing.T) {
+	connLost := errors.New("start command: runner start command: not connected")
+
+	mr := rigtest.NewMockRunner()
+	mr.Windows = true
+	mr.AddCommandFailure(rigtest.HasPrefix("powershell.exe"), connLost)
+
+	err := remotefs.PatchFile(remotefs.NewWindowsFS(mr), "C:\\app\\existing.conf", []remotefs.Patch{
+		remotefs.AppendIfMissing("new_setting = 1"),
+	}, remotefs.WithCreate(0o644))
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, connLost)
+	require.NotErrorIs(t, err, fs.ErrNotExist)
+	// The decisive assertion: the failed stat is the only command sent. Checking
+	// the returned error alone would also pass against the unfixed code, which
+	// fails later on the write it should never have attempted.
+	require.Equal(t, 1, mr.Len(), "nothing may be attempted after a stat that never ran: %v", mr.Commands())
+}

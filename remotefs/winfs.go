@@ -60,7 +60,10 @@ var statCmdTemplate = `if (Test-Path -LiteralPath %[1]s) {
 func (s *WinFS) Stat(name string) (fs.FileInfo, error) {
 	out, err := s.ExecOutput(fmt.Sprintf(statCmdTemplate, ps.DoubleQuotePath(name)), cmd.PS())
 	if err != nil {
-		return nil, PathErrorf(OpStat, name, "%w: %w", err, fs.ErrNotExist)
+		// An execution failure says nothing about the path. Absence is reported by
+		// a *successful* command that prints the marker handled below, so this
+		// branch must never claim fs.ErrNotExist.
+		return nil, PathError(OpStat, name, err)
 	}
 
 	fi := &winFileInfo{fs: s}
