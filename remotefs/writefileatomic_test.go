@@ -36,8 +36,14 @@ func (o *atomicOS) Chmod(_ string, _ fs.FileMode) error               { return o
 func (o *atomicOS) Rename(_, _ string) error                          { return o.renameErr }
 func (o *atomicOS) Remove(p string) error                             { o.removedPaths = append(o.removedPaths, p); return nil }
 
+// RemoveAll is what the cleanup defer calls, so that a temp file already
+// renamed away is not an error.
+func (o *atomicOS) RemoveAll(p string) error {
+	o.removedPaths = append(o.removedPaths, p)
+	return nil
+}
+
 // Unused methods — panic on call so misuse is caught immediately.
-func (o *atomicOS) RemoveAll(_ string) error                              { panic("not implemented") }
 func (o *atomicOS) Mkdir(_ string, _ fs.FileMode) error                   { panic("not implemented") }
 func (o *atomicOS) MkdirTemp(_, _ string) (string, error)                 { panic("not implemented") }
 func (o *atomicOS) FileExist(_ string) bool                               { panic("not implemented") }
@@ -80,9 +86,9 @@ func TestWriteFileAtomic(t *testing.T) {
 		o := &atomicOS{createTempPath: tmp}
 		err := remotefs.WriteFileAtomic(o, target, data, 0o755)
 		require.NoError(t, err)
-		// After a successful rename the temp path no longer exists; Remove is
-		// still called by defer but the error is ignored.
-		require.Contains(t, o.removedPaths, tmp, "deferred Remove must be called")
+		// After a successful rename the temp path no longer exists, which is why
+		// the defer calls RemoveAll: it accepts a path that is not there.
+		require.Contains(t, o.removedPaths, tmp, "deferred RemoveAll must be called")
 	})
 
 	t.Run("write failure cleans up temp", func(t *testing.T) {
@@ -140,4 +146,9 @@ func TestWriteFileAtomicPosix(t *testing.T) {
 	require.NoError(t, mr.Received(rigtest.Contains("mktemp")))
 	require.NoError(t, mr.Received(rigtest.Contains("chmod")))
 	require.NoError(t, mr.Received(rigtest.Contains("mv -f")))
+	// The rename has moved the temp file away by the time the cleanup defer runs,
+	// so the cleanup must be the one that tolerates a path that is not there.
+	// "rm --" would fail on every successful write.
+	require.NoError(t, mr.Received(rigtest.Contains("rm -rf")))
+	require.NoError(t, mr.NotReceived(rigtest.Contains("rm --")))
 }

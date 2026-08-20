@@ -76,12 +76,18 @@ func (f *uploadFS) Remove(p string) error {
 	return nil
 }
 
+// RemoveAll is what Upload's cleanup defer calls, so that a temp file already
+// renamed away is not an error.
+func (f *uploadFS) RemoveAll(p string) error {
+	f.removedPaths = append(f.removedPaths, p)
+	return nil
+}
+
 // FS interface stubs — not exercised by Upload.
 func (f *uploadFS) Open(_ string) (fs.File, error)                        { panic("not implemented") }
 func (f *uploadFS) Stat(_ string) (fs.FileInfo, error)                    { panic("not implemented") }
 func (f *uploadFS) ReadFile(_ string) ([]byte, error)                     { panic("not implemented") }
 func (f *uploadFS) ReadDir(_ string) ([]fs.DirEntry, error)               { panic("not implemented") }
-func (f *uploadFS) RemoveAll(_ string) error                              { panic("not implemented") }
 func (f *uploadFS) Mkdir(_ string, _ fs.FileMode) error                   { panic("not implemented") }
 func (f *uploadFS) MkdirAll(_ string, _ fs.FileMode) error                { panic("not implemented") }
 func (f *uploadFS) MkdirTemp(_, _ string) (string, error)                 { panic("not implemented") }

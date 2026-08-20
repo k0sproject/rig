@@ -93,7 +93,9 @@ func Upload(fsys FS, src, dst string, opts ...UploadOption) error {
 	if err != nil {
 		return fmt.Errorf("create temp file for upload: %w", err)
 	}
-	defer func() { _ = fsys.Remove(tmpPath) }()
+	// RemoveAll rather than Remove: on the success path the rename has already
+	// moved tmpPath away, and only RemoveAll accepts a path that is not there.
+	defer func() { _ = fsys.RemoveAll(tmpPath) }()
 
 	if err := copyAndVerifyUpload(fsys, tmpPath, local); err != nil {
 		return err
