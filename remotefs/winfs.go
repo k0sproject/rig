@@ -109,26 +109,45 @@ func (s *WinFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	return dir.ReadDir(-1)
 }
 
-// Remove deletes the named file or (empty) directory.
+// Remove deletes the named file or (empty) directory. A path that does not
+// exist is an error, matching os.Remove.
 func (s *WinFS) Remove(name string) error {
-	if existing, err := s.Stat(name); err == nil && existing.IsDir() {
+	existing, err := s.Stat(name)
+	if err != nil {
+		// Covers both a path that is genuinely absent -- an error for os.Remove --
+		// and a stat that could not be performed. Neither may fall through to del:
+		// a transport failure is not evidence of anything about the path.
+		return fmt.Errorf("remove %s: %w", name, err)
+	}
+	if existing.IsDir() {
 		return s.removeDir(name)
 	}
 
-	if err := s.Exec("cmd.exe /c del " + ps.DoubleQuotePath(name)); err != nil {
-		return fmt.Errorf("remove %s: %w", name, err)
-	}
-
-	return nil
+	return s.removeFile(name)
 }
 
-// RemoveAll deletes the named file or directory and all its child items.
+// RemoveAll deletes the named file or directory and all its child items. A path
+// that does not exist is not an error, matching os.RemoveAll.
 func (s *WinFS) RemoveAll(name string) error {
-	if existing, err := s.Stat(name); err == nil && existing.IsDir() {
+	existing, err := s.Stat(name)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return nil
+	case err != nil:
+		return fmt.Errorf("remove all %s: %w", name, err)
+	case existing.IsDir():
 		return s.removeDirAll(name)
 	}
 
-	return s.Remove(name)
+	return s.removeFile(name)
+}
+
+func (s *WinFS) removeFile(name string) error {
+	if err := s.Exec("cmd.exe /c del " + ps.DoubleQuotePath(name)); err != nil {
+		return fmt.Errorf("del %s: %w", name, err)
+	}
+
+	return nil
 }
 
 func (s *WinFS) removeDir(name string) error {
