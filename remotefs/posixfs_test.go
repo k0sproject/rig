@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -197,6 +199,75 @@ func TestPosixTouch(t *testing.T) {
 	})
 }
 
+// touchCommands returns the touch commands the runner received for name, in the
+// order they were issued.
+func touchCommands(mr *rigtest.MockRunner, name string) []string {
+	var commands []string
+	for _, command := range mr.Commands() {
+		if strings.Contains(command, "TZ=UTC touch") && strings.Contains(command, name) {
+			commands = append(commands, command)
+		}
+	}
+	return commands
+}
+
+func TestPosixChtimes(t *testing.T) {
+	atime := time.Date(2024, 1, 15, 10, 30, 0, 123456789, time.UTC)
+	mtime := time.Date(2025, 2, 16, 11, 31, 1, 987654321, time.UTC)
+
+	// The access and modification times must be set in separate invocations: -d
+	// is a single valued option, so a repeated one is either an error (uutils
+	// coreutils) or silently ignored in favor of the last one (GNU touch), which
+	// would leave the access time set to the modification timestamp.
+	t.Run("nanosecond precision", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandOutput(rigtest.Equal("echo ${TMPDIR:-/tmp}"), "/tmp")
+		// initStat probes for GNU stat, initTouch for a non-busybox touch.
+		mr.AddCommandSuccess(rigtest.Equal("stat -c %n /"))
+		mr.AddCommandOutput(rigtest.Equal("touch --help 2>&1"), "touch (GNU coreutils) 9.7")
+		// initTouch probes nanosecond support on a temp file it creates and then
+		// removes. Creating it stats the parent directory first; 0x41ed is 0o40755
+		// (directory, rwxr-xr-x). The matchers are consulted in the order they were
+		// added, so this one has to precede the one for the temp file itself.
+		mr.AddCommandOutput(rigtest.Contains("-- /tmp 2>"), "0x41ed 4096 0.000000000 ///tmp//\n")
+		// The temp file only exists once the create command has run; 0x8180 is
+		// 0o100600 (regular file, rw-------).
+		var created bool
+		mr.AddCommand(rigtest.Contains("install -m 0600 /dev/null"), func(_ *rigtest.A) error {
+			created = true
+			return nil
+		})
+		mr.AddCommand(rigtest.Contains("stat -c '%#f"), func(a *rigtest.A) error {
+			if !created {
+				return nil
+			}
+			_, err := fmt.Fprintf(a.Stdout, "0x8180 0 0.000000000 //%s//\n", "/tmp/probe")
+			return err
+		})
+		mr.AddCommandSuccess(rigtest.Contains("TZ=UTC touch"))
+		mr.AddCommandSuccess(rigtest.HasPrefix("rm -f"))
+		f := remotefs.NewPosixFS(mr)
+		require.NoError(t, f.Chtimes("/tmp/file", atime.UnixNano(), mtime.UnixNano()))
+		require.Equal(t, []string{
+			`[ -e /tmp/file ] && env -i PATH="$PATH" LC_ALL=C TZ=UTC touch -a -d 2024-01-15T10:30:00.123456789 -- /tmp/file`,
+			`[ -e /tmp/file ] && env -i PATH="$PATH" LC_ALL=C TZ=UTC touch -m -d 2025-02-16T11:31:01.987654321 -- /tmp/file`,
+		}, touchCommands(mr, "/tmp/file"))
+	})
+
+	t.Run("second precision", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		// A busybox touch takes the second precision path, which needs no probing.
+		mr.AddCommandOutput(rigtest.Equal("touch --help 2>&1"), "BusyBox v1.35")
+		mr.AddCommandSuccess(rigtest.Contains("TZ=UTC touch"))
+		f := remotefs.NewPosixFS(mr)
+		require.NoError(t, f.Chtimes("/tmp/file", atime.UnixNano(), mtime.UnixNano()))
+		require.Equal(t, []string{
+			`[ -e /tmp/file ] && env -i PATH="$PATH" LC_ALL=C TZ=UTC touch -a -d @1705314600 -- /tmp/file`,
+			`[ -e /tmp/file ] && env -i PATH="$PATH" LC_ALL=C TZ=UTC touch -m -d @1739705461 -- /tmp/file`,
+		}, touchCommands(mr, "/tmp/file"))
+	})
+}
+
 func TestPosixWriteFile(t *testing.T) {
 	// The command must not name /dev/stdin as an input file: the uutils
 	// reimplementation of coreutils refuses non-regular files there.
@@ -298,14 +369,28 @@ func TestPosixMkdir(t *testing.T) {
 
 func TestPosixMkdirAll(t *testing.T) {
 	// MkdirAll stats the target first; an unmatched stat yields no output, which
-	// reads as "does not exist" and lets it proceed to install.
-	for _, tc := range modeCases {
+	// reads as "does not exist" and lets it proceed to create the directories.
+	//
+	// The permission bits come from a umask so that they also apply to the
+	// intermediate directories; only the special bits need a chmod, which reaches
+	// the last directory of the path alone.
+	for _, tc := range []struct {
+		name string
+		mode fs.FileMode
+		want string
+	}{
+		{name: "permission bits", mode: 0o750, want: "umask 027 && mkdir -p -- /tmp/a/b"},
+		{name: "setuid", mode: fs.ModeSetuid | 0o755, want: "umask 022 && mkdir -p -- /tmp/a/b && chmod -- 04755 /tmp/a/b"},
+		{name: "setgid", mode: fs.ModeSetgid | 0o775, want: "umask 02 && mkdir -p -- /tmp/a/b && chmod -- 02775 /tmp/a/b"},
+		{name: "sticky", mode: fs.ModeSticky | 0o777, want: "umask 0 && mkdir -p -- /tmp/a/b && chmod -- 01777 /tmp/a/b"},
+		{name: "type bits ignored", mode: fs.ModeDir | 0o700, want: "umask 077 && mkdir -p -- /tmp/a/b"},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mr := rigtest.NewMockRunner()
-			mr.AddCommandSuccess(rigtest.Contains("install"))
+			mr.AddCommandSuccess(rigtest.Contains("mkdir -p"))
 			f := remotefs.NewPosixFS(mr)
 			require.NoError(t, f.MkdirAll("/tmp/a/b", tc.mode))
-			require.Equal(t, "install -d -m "+tc.want+" /tmp/a/b", mr.LastCommand())
+			require.Equal(t, tc.want, mr.LastCommand())
 		})
 	}
 }
@@ -473,6 +558,51 @@ func TestPosixInitStat(t *testing.T) {
 					}
 				}
 			}
+		})
+	}
+}
+
+func TestPosixStatModTime(t *testing.T) {
+	// The modification time is the third field of the stat output: a GNU style stat
+	// prints it as the date, time and UTC offset of %y, a BSD one as the epoch seconds
+	// of %Fm. Both forms are parsed, and the file name follows the timestamp in both.
+	const (
+		modTimeNano = int64(1699977296220228000) // 2023-11-14 15:54:56.220228 UTC
+		wholeSecond = int64(1699977296000000000)
+	)
+	cases := []struct {
+		name        string
+		output      string
+		wantModTime int64
+		wantName    string
+		wantErr     string
+	}{
+		{"date and time", "0x81a4 12 2023-11-14 15:54:56.220228000 +0000 ///tmp/file//", modTimeNano, "file", ""},
+		{"date and time in another zone", "0x81a4 12 2023-11-14 17:54:56.220228000 +0200 ///tmp/file//", modTimeNano, "file", ""},
+		{"date and time without a fraction", "0x81a4 12 2023-11-14 15:54:56 +0000 ///tmp/file//", wholeSecond, "file", ""},
+		{"epoch with a fraction", "0x81a4 12 1699977296.220228000 ///tmp/file//", modTimeNano, "file", ""},
+		{"epoch without a fraction", "0x81a4 12 1699977296 ///tmp/file//", wholeSecond, "file", ""},
+		{"name with spaces", "0x81a4 12 2023-11-14 15:54:56.220228000 +0000 ///tmp/two words//", modTimeNano, "two words", ""},
+		{"timestamp without an offset", "0x81a4 12 2023-11-14 15:54:56.220228000 ///tmp/file//", 0, "", "missing its time or offset"},
+		{"date that does not exist", "0x81a4 12 2023-13-45 15:54:56.220228000 +0000 ///tmp/file//", 0, "", "parse timestamp"},
+		{"epoch that is not a number", "0x81a4 12 not-a-time ///tmp/file//", 0, "", "parse epoch seconds"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mr := rigtest.NewMockRunner()
+			// initStat probes for GNU stat.
+			mr.AddCommandSuccess(rigtest.Equal("stat -c %n /"))
+			mr.AddCommandOutput(rigtest.Contains("LC_ALL=C stat -c"), tc.output)
+
+			info, err := remotefs.NewPosixFS(mr).Stat("/tmp/file")
+			if tc.wantErr != "" {
+				assert.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantModTime, info.ModTime().UnixNano())
+			assert.Equal(t, tc.wantName, info.Name())
+			assert.Equal(t, int64(12), info.Size())
 		})
 	}
 }

@@ -467,7 +467,8 @@ func TestPatchFilePosix(t *testing.T) {
 	// ReadFile via cat. Matched by prefix so it does not also catch the "cat >"
 	// redirect that WriteFile uses.
 	mr.AddCommandOutput(rigtest.HasPrefix("cat "), "FOO=old\nBAR=keep\n")
-	// WriteFileAtomic: MkdirAll probes Stat("/etc") — return directory so no install -d is needed.
+	// WriteFileAtomic: MkdirAll probes Stat("/etc") — return directory so it does
+	// not go on to create anything.
 	// 0x41ed = 0o040755 (directory, rwxr-xr-x). This fires for any remaining stat -c call.
 	mr.AddCommandOutput(rigtest.Contains("stat -c"), "0x41ed 0 1234567890.000000000 ///etc//")
 	// CreateTemp.

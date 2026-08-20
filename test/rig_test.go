@@ -352,24 +352,26 @@ func (s *OSSuite) TestTouch() {
 	f := s.TempPath()
 	s.Require().NoError(s.fs.Touch(f))
 	now := time.Now()
+	// The second round sets a timestamp the file does not already have, so that a
+	// Chtimes that quietly leaves an existing file alone can't pass as a success.
 	for _, tt := range []time.Time{now, now.Add(1 * time.Hour)} {
 		s.Run("Update timestamp "+tt.String(), func() {
-			s.Require().NoError(s.fs.Chtimes(f, now.UnixNano(), now.UnixNano()))
+			s.Require().NoError(s.fs.Chtimes(f, tt.UnixNano(), tt.UnixNano()))
 		})
 
 		s.Run("File exists and has correct timestamp "+tt.String(), func() {
 			stat, err := s.fs.Stat(f)
 			s.Require().NoError(err)
 			s.NotNil(stat)
-			s.Equal(now.Unix(), stat.ModTime().Unix())
+			s.Equal(tt.Unix(), stat.ModTime().Unix())
 			if s.Host.IsWindows() {
 				s.T().Log("Testing millisecond precision on windows")
-				s.Equal(now.UnixMilli(), stat.ModTime().UnixMilli(), "expected %d (%s), got %d (%s)", now.UnixMilli(), now, stat.ModTime().UnixMilli(), stat.ModTime())
+				s.Equal(tt.UnixMilli(), stat.ModTime().UnixMilli(), "expected %d (%s), got %d (%s)", tt.UnixMilli(), tt, stat.ModTime().UnixMilli(), stat.ModTime())
 			} else if stat.ModTime().Nanosecond() != 0 {
 				s.T().Log("Testing nanosecond precision")
-				s.Equal(now.UnixNano(), stat.ModTime().UnixNano())
+				s.Equal(tt.UnixNano(), stat.ModTime().UnixNano())
 			}
-			s.True(stattime.Equal(now, stat.ModTime()))
+			s.True(stattime.Equal(tt, stat.ModTime()))
 		})
 	}
 }
@@ -465,7 +467,7 @@ func (s *FSSuite) TestMkdir() {
 		_ = s.fs.RemoveAll(testPath)
 	}()
 	s.Run("Create directory", func() {
-		s.Require().NoError(s.fs.MkdirAll(testPath, 0755))
+		s.Require().NoError(s.fs.MkdirAll(testPath, 0700))
 	})
 	s.Run("Verify directory exists", func() {
 		stat, err := s.fs.Stat(testPath)
@@ -474,10 +476,10 @@ func (s *FSSuite) TestMkdir() {
 			if s.Host.IsWindows() {
 				s.T().Skip("Windows does not support chmod permissions")
 			}
-			s.Equal(os.FileMode(0755), stat.Mode().Perm())
+			s.Equal(os.FileMode(0700), stat.Mode().Perm())
 			parent, err := s.fs.Stat(s.TempPath("test"))
 			s.Require().NoError(err)
-			s.Equal(os.FileMode(0755), parent.Mode().Perm())
+			s.Equal(os.FileMode(0700), parent.Mode().Perm())
 		})
 	})
 }
