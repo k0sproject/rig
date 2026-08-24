@@ -1,9 +1,11 @@
 package sshconfig_test
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -1516,4 +1518,188 @@ func TestSetterFinalize(t *testing.T) {
 	require.Len(t, obj.IdentityFile, 2)
 	require.NotEqual(t, "~/foo", obj.IdentityFile[0])
 	require.Equal(t, "/tmp/22.txt", obj.IdentityFile[1])
+}
+
+// matchExecutor records the commands run by a Match exec criteria and reports
+// the configured exit result for each of them.
+type matchExecutor struct {
+	fail bool
+	// received holds the argv of each command that was run.
+	received [][]string
+}
+
+func (m *matchExecutor) Run(cmd string, args ...string) error {
+	m.received = append(m.received, append([]string{cmd}, args...))
+	if m.fail {
+		return errors.New("command failed")
+	}
+	return nil
+}
+
+// applyMatchConfig parses config and applies it to a Config for host, using the
+// given executor for Match exec criteria.
+func applyMatchConfig(t *testing.T, config, host string, exec *matchExecutor) (*sshconfig.Config, error) {
+	t.Helper()
+	parser, err := sshconfig.NewParser(strings.NewReader(config), sshconfig.WithExecutor(exec))
+	require.NoError(t, err)
+	obj := &sshconfig.Config{}
+	return obj, parser.Apply(obj, host)
+}
+
+// matchConfig builds a config where condition decides whether Port becomes 2222
+// or the 22 of the catch-all block. The leading block seeds the fields that the
+// user and tagged criteria match against.
+func matchConfig(condition string) string {
+	return "Host *\n    User admin\n    Tag work\n\nMatch " + condition + "\n    Port 2222\n\nHost *\n    Port 22\n"
+}
+
+// TestMatchCriteriaArgumentForms verifies that a criteria argument can be given
+// either attached with an equals sign or as a separate token, which is how
+// ssh_config(5) documents it, and that the criteria keyword is case
+// insensitive.
+func TestMatchCriteriaArgumentForms(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// conditions are different spellings of the same condition, all of
+		// which are expected to behave identically.
+		conditions []string
+		wantMatch  bool
+	}{
+		{"host", []string{`host example.com`, `host=example.com`, `HOST example.com`}, true},
+		{"host no match", []string{`host other.example`, `host=other.example`}, false},
+		{"host negated", []string{`!host other.example`, `!host=other.example`}, true},
+		{"host negated no match", []string{`!host example.com`, `!host=example.com`}, false},
+		{"host pattern", []string{`host *.com`, `host="*.com"`}, true},
+		{"host list", []string{`host other.example,example.com`, `host=other.example,example.com`}, true},
+		{"originalhost", []string{`originalhost example.com`, `originalhost=example.com`}, true},
+		{"user", []string{`user admin`, `user=admin`, `User admin`}, true},
+		{"user no match", []string{`user root`, `user=root`}, false},
+		{"tagged", []string{`tagged work`, `tagged=work`}, true},
+		{"tagged no match", []string{`tagged home`, `tagged=home`}, false},
+		{"exec", []string{`exec /bin/true`, `exec=/bin/true`, `EXEC /bin/true`}, true},
+		{"exec quoted", []string{`exec "/bin/true --flag"`, `exec="/bin/true --flag"`}, true},
+		{"exec negated", []string{`!exec /bin/true`, `!exec=/bin/true`}, false},
+		{"all", []string{`all`, `ALL`}, true},
+		{"all negated", []string{`!all`}, false},
+		{"final and host", []string{`final host example.com`, `final host=example.com`}, true},
+		{"host and exec", []string{`host example.com exec /bin/true`, `host=example.com exec=/bin/true`}, true},
+		{"host and exec no match", []string{`host other.example exec /bin/true`, `host=other.example exec=/bin/true`}, false},
+		{"host and trailing all", []string{`host example.com all`, `host=example.com all`}, true},
+		{"host no match and trailing all", []string{`host other.example all`, `host=other.example all`}, false},
+		{"final and trailing all", []string{`final all`}, true},
+		{"host and trailing negated all", []string{`host example.com !all`}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, condition := range tc.conditions {
+				t.Run(condition, func(t *testing.T) {
+					obj, err := applyMatchConfig(t, matchConfig(condition), "example.com", &matchExecutor{})
+					require.NoError(t, err)
+					if tc.wantMatch {
+						require.Equal(t, 2222, obj.Port, "condition %q should have matched", condition)
+					} else {
+						require.Equal(t, 22, obj.Port, "condition %q should not have matched", condition)
+					}
+				})
+			}
+		})
+	}
+}
+
+// TestMatchExecExitStatus verifies that the exit status of the Match exec
+// command decides whether the block matches.
+func TestMatchExecExitStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		condition string
+		fail      bool
+		wantMatch bool
+	}{
+		{"exec succeeds", `exec "/bin/check"`, false, true},
+		{"exec fails", `exec "/bin/check"`, true, false},
+		{"negated exec succeeds", `!exec "/bin/check"`, false, false},
+		{"negated exec fails", `!exec "/bin/check"`, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			exec := &matchExecutor{fail: tc.fail}
+			config := "Match " + tc.condition + "\n    Port 2222\n\nHost *\n    Port 22\n"
+			obj, err := applyMatchConfig(t, config, "example.com", exec)
+			require.NoError(t, err)
+			require.Equal(t, [][]string{{"/bin/check"}}, exec.received, "the command should have been run once")
+			if tc.wantMatch {
+				require.Equal(t, 2222, obj.Port)
+			} else {
+				require.Equal(t, 22, obj.Port)
+			}
+		})
+	}
+}
+
+// TestMatchExecCommandParsing verifies that the Match exec argument is treated
+// as a command line instead of being split on equals signs or unquoted twice.
+func TestMatchExecCommandParsing(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		config  string
+		wantCmd []string
+	}{
+		{
+			"equals sign in the command",
+			`Match exec="test x = x"`,
+			[]string{"test", "x", "=", "x"},
+		},
+		{
+			"environment assignment in the command",
+			`Match exec "env FOO=bar /bin/check"`,
+			[]string{"env", "FOO=bar", "/bin/check"},
+		},
+		{
+			"nested quotes are preserved as one argument",
+			`Match exec "grep -q 'foo bar' /etc/hosts"`,
+			[]string{"grep", "-q", "foo bar", "/etc/hosts"},
+		},
+		{
+			"percent h is expanded to the host",
+			`Match exec "/usr/local/bin/on-vpn %h"`,
+			[]string{"/usr/local/bin/on-vpn", "example.com"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			exec := &matchExecutor{}
+			_, err := applyMatchConfig(t, tc.config+"\n    Port 2222\n", "example.com", exec)
+			require.NoError(t, err)
+			require.Equal(t, [][]string{tc.wantCmd}, exec.received)
+		})
+	}
+}
+
+// TestMatchSyntaxErrors verifies that malformed Match directives are reported
+// as syntax errors.
+func TestMatchSyntaxErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		config string
+	}{
+		{"missing argument", "Match host\n    Port 2222\n"},
+		{"missing argument for the last criteria", "Match host example.com user\n    Port 2222\n"},
+		{"argument for an argument-less criteria", "Match all=yes\n    Port 2222\n"},
+		{"unimplemented criteria address", "Match address 192.0.2.10\n    Port 2222\n"},
+		{"unimplemented criteria localaddress", "Match localaddress 192.0.2.10\n    Port 2222\n"},
+		{"unimplemented criteria localport", "Match localport 22\n    Port 2222\n"},
+		{"unimplemented criteria rdomain", "Match rdomain vrf0\n    Port 2222\n"},
+		{"unknown criteria", "Match bogus value\n    Port 2222\n"},
+		{"bare negation", "Match !\n    Port 2222\n"},
+		{"bare negation before a criteria", "Match ! host example.com\n    Port 2222\n"},
+		{"leading equals sign", "Match =example.com\n    Port 2222\n"},
+		{"negated argument without a criteria", "Match !=example.com\n    Port 2222\n"},
+		{"all followed by another criteria", "Match all host example.com\n    Port 2222\n"},
+		{"negated all followed by another criteria", "Match !all user admin\n    Port 2222\n"},
+		{"all repeated", "Match all all\n    Port 2222\n"},
+		{"all followed by a non matching criteria", "Match all host other.example\n    Port 2222\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := applyMatchConfig(t, tc.config, "example.com", &matchExecutor{})
+			require.Error(t, err)
+			require.ErrorIs(t, err, sshconfig.ErrSyntax)
+		})
+	}
 }
