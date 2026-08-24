@@ -8,6 +8,9 @@
 //   - Partial Match directive support. Address, LocalAddress, LocalPort and
 //     RDomain are not implemented because they require passing
 //     in a connection, which is not (yet?) implemented.
+//   - Match exec commands are executed directly instead of being run under the
+//     user's shell, so shell constructs like pipes or boolean operators in the
+//     command are not supported.
 //   - Partial token expansion support. Like above, expanding some of the
 //     tokens would require an established connection.
 //   - Include directive support, the parser will follow the Include directives
