@@ -430,3 +430,135 @@ func TestWindowsPatchFileStatFailure(t *testing.T) {
 	// fails later on the write it should never have attempted.
 	require.Equal(t, 1, mr.Len(), "nothing may be attempted after a stat that never ran: %v", mr.Commands())
 }
+
+// statJSON is the stat output for an existing path. mode is the PowerShell Mode
+// string, whose leading "d" marks a directory.
+func statJSON(name, mode string) string {
+	return fmt.Sprintf(
+		`{"Name":%q,"FullName":%q,"Mode":%q,"Length":0,"IsReadOnly":false,"LastWriteTime":"\/Date(1700000000000)\/"}`,
+		name, name, mode,
+	)
+}
+
+const statMissingJSON = `{"Err":"does not exist"}`
+
+func TestWindowsRemove(t *testing.T) {
+	// Remove must never decide "not a directory" from a stat it could not
+	// perform, and never fall through to del on a stat failure.
+	const name = `C:\app\tree`
+
+	newRunner := func(statOut string, statErr error) *rigtest.MockRunner {
+		mr := rigtest.NewMockRunner()
+		mr.Windows = true
+		if statErr != nil {
+			mr.AddCommandFailure(rigtest.HasPrefix("powershell.exe"), statErr)
+		} else {
+			mr.AddCommandOutput(rigtest.HasPrefix("powershell.exe"), statOut)
+		}
+		return mr
+	}
+
+	t.Run("existing file", func(t *testing.T) {
+		mr := newRunner(statJSON(name, "-a----"), nil)
+		mr.AddCommandSuccess(rigtest.Contains("del"))
+		require.NoError(t, remotefs.NewWindowsFS(mr).Remove(name))
+		require.NoError(t, mr.Received(rigtest.Contains(`del "C:\app\tree"`)))
+	})
+
+	t.Run("existing directory", func(t *testing.T) {
+		mr := newRunner(statJSON(name, "d-----"), nil)
+		mr.AddCommandSuccess(rigtest.Contains("rmdir"))
+		require.NoError(t, remotefs.NewWindowsFS(mr).Remove(name))
+		require.NoError(t, mr.Received(rigtest.Contains(`rmdir /q "C:\app\tree"`)))
+	})
+
+	t.Run("missing path is an error", func(t *testing.T) {
+		mr := newRunner(statMissingJSON, nil)
+		err := remotefs.NewWindowsFS(mr).Remove(name)
+		require.ErrorIs(t, err, fs.ErrNotExist, "os.Remove errors on a missing path")
+		requirePathErrorOp(t, err, remotefs.OpRemove)
+		require.NoError(t, mr.NotReceived(rigtest.Contains("del")))
+	})
+
+	t.Run("stat transport failure", func(t *testing.T) {
+		connLost := errors.New("start command: runner start command: not connected")
+		mr := newRunner("", connLost)
+		err := remotefs.NewWindowsFS(mr).Remove(name)
+		require.ErrorIs(t, err, connLost, "the transport cause must stay reachable")
+		require.NotErrorIs(t, err, fs.ErrNotExist)
+		requirePathErrorOp(t, err, remotefs.OpRemove)
+		require.NoError(t, mr.NotReceived(rigtest.Contains("del")))
+		require.NoError(t, mr.NotReceived(rigtest.Contains("rmdir")))
+	})
+
+	t.Run("delete command failure", func(t *testing.T) {
+		delFailed := errors.New("exit code 1")
+		mr := newRunner(statJSON(name, "-a----"), nil)
+		mr.AddCommandFailure(rigtest.Contains("del"), delFailed)
+		err := remotefs.NewWindowsFS(mr).Remove(name)
+		require.ErrorIs(t, err, delFailed)
+		requirePathErrorOp(t, err, remotefs.OpRemove)
+	})
+}
+
+func TestWindowsRemoveAll(t *testing.T) {
+	// RemoveAll must reach the recursive delete whenever the path really is a
+	// directory, and must never fall back to the non-recursive rmdir -- or return
+	// success -- because the stat could not be performed.
+	const name = `C:\app\tree`
+
+	newRunner := func(statOut string, statErr error) *rigtest.MockRunner {
+		mr := rigtest.NewMockRunner()
+		mr.Windows = true
+		if statErr != nil {
+			mr.AddCommandFailure(rigtest.HasPrefix("powershell.exe"), statErr)
+		} else {
+			mr.AddCommandOutput(rigtest.HasPrefix("powershell.exe"), statOut)
+		}
+		return mr
+	}
+
+	t.Run("existing file", func(t *testing.T) {
+		mr := newRunner(statJSON(name, "-a----"), nil)
+		mr.AddCommandSuccess(rigtest.Contains("del"))
+		require.NoError(t, remotefs.NewWindowsFS(mr).RemoveAll(name))
+		require.NoError(t, mr.Received(rigtest.Contains(`del "C:\app\tree"`)))
+	})
+
+	t.Run("populated directory", func(t *testing.T) {
+		mr := newRunner(statJSON(name, "d-----"), nil)
+		mr.AddCommandSuccess(rigtest.Contains("rmdir"))
+		require.NoError(t, remotefs.NewWindowsFS(mr).RemoveAll(name))
+		require.NoError(t, mr.Received(rigtest.Contains(`rmdir /s /q "C:\app\tree"`)))
+	})
+
+	t.Run("missing path is not an error", func(t *testing.T) {
+		mr := newRunner(statMissingJSON, nil)
+		require.NoError(t, remotefs.NewWindowsFS(mr).RemoveAll(name), "os.RemoveAll accepts a missing path")
+		require.NoError(t, mr.NotReceived(rigtest.Contains("del")))
+		require.NoError(t, mr.NotReceived(rigtest.Contains("rmdir")))
+	})
+
+	t.Run("stat transport failure", func(t *testing.T) {
+		connLost := errors.New("start command: runner start command: not connected")
+		mr := newRunner("", connLost)
+		err := remotefs.NewWindowsFS(mr).RemoveAll(name)
+		require.ErrorIs(t, err, connLost, "the transport cause must stay reachable")
+		require.NotErrorIs(t, err, fs.ErrNotExist,
+			"a stat that never ran must not read as 'nothing to remove'")
+		requirePathErrorOp(t, err, remotefs.OpRemoveAll)
+		// The regression guard: the tree survived and the caller was told a
+		// non-recursive rmdir found it non-empty, never mentioning the connection.
+		require.NoError(t, mr.NotReceived(rigtest.Contains("rmdir")))
+		require.NoError(t, mr.NotReceived(rigtest.Contains("del")))
+	})
+
+	t.Run("recursive delete failure", func(t *testing.T) {
+		rmdirFailed := errors.New("exit code 145")
+		mr := newRunner(statJSON(name, "d-----"), nil)
+		mr.AddCommandFailure(rigtest.Contains("rmdir"), rmdirFailed)
+		err := remotefs.NewWindowsFS(mr).RemoveAll(name)
+		require.ErrorIs(t, err, rmdirFailed)
+		requirePathErrorOp(t, err, remotefs.OpRemoveAll)
+	})
+}

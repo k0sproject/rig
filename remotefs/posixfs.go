@@ -784,10 +784,22 @@ func (s *PosixFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	return res, err
 }
 
-// Remove deletes the named file or (empty) directory.
+// Remove deletes the named file. A path that does not exist is an error,
+// matching os.Remove.
+//
+// Unlike os.Remove it does not delete an empty directory: rm refuses one
+// without an option POSIX does not require it to have. Use RemoveAll for a
+// directory.
 func (s *PosixFS) Remove(name string) error {
-	if err := s.Exec(sh.Command("rm", "-f", name)); err != nil {
-		return fmt.Errorf("delete %s: %w", name, err)
+	// Deliberately not "rm -f": -f makes a missing path succeed, which the OS
+	// interface, modeled after the os package, says it must not. rm still does
+	// not prompt for a write-protected file here, because it only does so when
+	// stdin is a terminal.
+	if err := s.Exec(sh.Command("rm", "--", name)); err != nil {
+		if isNotExist(err) {
+			return PathError(OpRemove, name, fs.ErrNotExist)
+		}
+		return PathError(OpRemove, name, err)
 	}
 	return nil
 }
@@ -818,10 +830,11 @@ func isNotExist(err error) bool {
 	return strings.Contains(err.Error(), errNoSuchFile)
 }
 
-// RemoveAll removes path and any children it contains.
+// RemoveAll removes path and any children it contains. A path that does not
+// exist is not an error, matching os.RemoveAll.
 func (s *PosixFS) RemoveAll(name string) error {
 	if err := s.Exec(sh.Command("rm", "-rf", name)); err != nil {
-		return fmt.Errorf("remove all %s: %w", name, err)
+		return PathError(OpRemoveAll, name, err)
 	}
 	return nil
 }

@@ -1,6 +1,7 @@
 package remotefs
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 )
@@ -14,4 +15,15 @@ func PathError(op, path string, err error) *fs.PathError {
 // sprintf style format string and arguments.
 func PathErrorf(op, path string, template string, args ...any) *fs.PathError {
 	return PathError(op, path, fmt.Errorf(template, args...)) //nolint:err113
+}
+
+// pathErrorCause unwraps a *fs.PathError so that an operation implemented on
+// top of another can report itself without nesting a second one. Nesting gets
+// the outer Op right but repeats the path in the message, as in
+// "remove C:\\x: stat C:\\x: ...".
+func pathErrorCause(err error) error {
+	if pathErr, ok := errors.AsType[*fs.PathError](err); ok {
+		return pathErr.Err
+	}
+	return err
 }

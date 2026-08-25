@@ -403,6 +403,47 @@ func TestPosixMkdirAll(t *testing.T) {
 	}
 }
 
+func TestPosixRemove(t *testing.T) {
+	// The OS interface is modeled after the os package, so a missing path is an
+	// error for Remove and not for RemoveAll -- on both FS implementations.
+	const name = "/tmp/app/missing.conf"
+
+	t.Run("existing file", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandSuccess(rigtest.Contains("rm"))
+		require.NoError(t, remotefs.NewPosixFS(mr).Remove(name))
+		// -f would make a missing path succeed, which os.Remove does not.
+		require.NoError(t, mr.Received(rigtest.Equal(`rm -- /tmp/app/missing.conf`)))
+	})
+
+	t.Run("missing path is an error", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommand(rigtest.Contains("rm"), func(a *rigtest.A) error {
+			fmt.Fprintf(a.Stderr, "rm: cannot remove '%s': No such file or directory\n", name)
+			return errors.New("exit status 1")
+		})
+		err := remotefs.NewPosixFS(mr).Remove(name)
+		require.ErrorIs(t, err, fs.ErrNotExist, "os.Remove errors on a missing path")
+		requirePathErrorOp(t, err, remotefs.OpRemove)
+	})
+
+	t.Run("other failures keep their cause", func(t *testing.T) {
+		denied := errors.New("exit status 1")
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandFailure(rigtest.Contains("rm"), denied)
+		err := remotefs.NewPosixFS(mr).Remove(name)
+		require.ErrorIs(t, err, denied)
+		require.NotErrorIs(t, err, fs.ErrNotExist)
+		requirePathErrorOp(t, err, remotefs.OpRemove)
+	})
+
+	t.Run("RemoveAll accepts a missing path", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		mr.AddCommandSuccess(rigtest.Contains("rm -rf"))
+		require.NoError(t, remotefs.NewPosixFS(mr).RemoveAll(name))
+	})
+}
+
 func TestPosixOpenFileCreate(t *testing.T) {
 	for _, tc := range modeCases {
 		t.Run(tc.name, func(t *testing.T) {
