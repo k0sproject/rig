@@ -579,6 +579,40 @@ func (s *PosixFS) httpStatusInsecure(ctx context.Context, rawURL string) (int, e
 	return 0, fmt.Errorf("%w: neither curl nor wget found", ErrHTTPStatusNotSupported)
 }
 
+// httpHead performs an HTTP HEAD request for rawURL and reports what the server
+// said. It prefers curl and falls back to wget. TLS certificates are verified.
+func (s *PosixFS) httpHead(ctx context.Context, rawURL string) (*URLInfo, error) {
+	if _, err := s.LookPath("curl"); err == nil {
+		out, err := s.ExecOutputContext(ctx, sh.Command("curl", "-sS", "-L", "-I", "--connect-timeout", "20", "--", rawURL), cmd.Sensitive())
+		if err != nil {
+			return nil, fmt.Errorf("http-head %s: %w", rawURL, err)
+		}
+		info, err := parseHeadResponse(out)
+		if err != nil {
+			return nil, fmt.Errorf("http-head %s: %w", rawURL, err)
+		}
+		return info, nil
+	}
+	if _, err := s.LookPath("wget"); err == nil {
+		// wget writes the server response to stderr, and --spider makes it a
+		// HEAD request. It exits non-zero for non-2xx statuses, but the headers
+		// are still worth reporting, so the exit status is only consulted when
+		// nothing could be parsed.
+		var errBuf strings.Builder
+		execErr := s.ExecContext(ctx, sh.Command("wget", "--spider", "--server-response", "-q", "--", rawURL),
+			cmd.Sensitive(), cmd.Stderr(&errBuf))
+		info, err := parseHeadResponse(errBuf.String())
+		if err != nil {
+			if execErr != nil {
+				return nil, fmt.Errorf("http-head %s: %w", rawURL, execErr)
+			}
+			return nil, fmt.Errorf("http-head %s: %w", rawURL, err)
+		}
+		return info, nil
+	}
+	return nil, fmt.Errorf("%w: neither curl nor wget found", ErrHTTPHeadNotSupported)
+}
+
 // FileContains reports whether the file at path contains the given substring.
 // Returns a not-exist error if the file does not exist.
 func (s *PosixFS) FileContains(name, substr string) (bool, error) {

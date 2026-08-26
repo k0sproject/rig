@@ -505,6 +505,70 @@ try {
 	return nil
 }
 
+// httpHead performs an HTTP HEAD request for rawURL and reports what the server
+// said. TLS certificates are verified and redirects are followed, matching the
+// curl and wget paths.
+//
+// The status line is synthesized so the output parses with the same reader as
+// the curl and wget responses.
+//
+// Getting a non-2xx status back without an error takes some care, because
+// Invoke-WebRequest reports those by throwing:
+//
+//   - PowerShell 7+ has -SkipHttpErrorCheck, so nothing is thrown and the
+//     normal path handles every status.
+//   - PowerShell 5.1 throws a WebException carrying an HttpWebResponse, whose
+//     Headers collection is keyed like the success-path dictionary.
+//   - PowerShell 6.x has neither, and its HttpResponseMessage exposes headers
+//     as key/value pairs instead of by key. That version is end of life, so it
+//     falls back to enumerating pairs and may omit Content-Length, which lives
+//     on the content headers there. The status is still reported.
+//
+// Windows PowerShell 5.1, the version shipped with Windows Server 2019 and
+// still the built-in on current Windows, is the baseline: it needs
+// UseBasicParsing (there may be no IE engine to fall back on), and both its
+// success-path dictionary and the WebHeaderCollection hanging off a
+// WebException expose headers by key, so the keyed branch covers it. Absent
+// properties read as null in PowerShell rather than throwing, which is what
+// makes the null check a safe way to tell the shapes apart.
+//
+// Header values are a string in 5.1 and a list in 6+, so they are joined.
+func (s *WinFS) httpHead(ctx context.Context, rawURL string) (*URLInfo, error) {
+	script := fmt.Sprintf(`$ProgressPreference='SilentlyContinue'
+$ErrorActionPreference='Stop'
+$v=$PSVersionTable.PSVersion.Major
+$params=@{Uri=%s;Method='HEAD'}
+if($v -lt 6){$params['UseBasicParsing']=$true}
+if($v -ge 7){$params['SkipHttpErrorCheck']=$true}
+function Emit($code,$headers){
+  "HTTP/1.1 " + [int]$code
+  if($headers -eq $null){return}
+  if($headers.Keys -ne $null){
+    foreach($k in $headers.Keys){"{0}: {1}" -f $k,($headers[$k] -join ',')}
+  }else{
+    foreach($p in $headers.GetEnumerator()){"{0}: {1}" -f $p.Key,($p.Value -join ',')}
+  }
+}
+try{
+  $r=Invoke-WebRequest @params
+  Emit $r.StatusCode $r.Headers
+}catch{
+  $resp=$_.Exception.Response
+  if($resp -eq $null){Write-Error $_.Exception.Message;exit 1}
+  Emit $resp.StatusCode $resp.Headers
+}`, ps.SingleQuote(rawURL))
+
+	out, err := s.ExecOutputContext(ctx, script, cmd.PS(), cmd.Sensitive())
+	if err != nil {
+		return nil, fmt.Errorf("http-head %s: %w", rawURL, err)
+	}
+	info, err := parseHeadResponse(out)
+	if err != nil {
+		return nil, fmt.Errorf("http-head %s: %w", rawURL, err)
+	}
+	return info, nil
+}
+
 // httpStatusInsecure checks whether url is reachable and returns the HTTP status
 // code. On PowerShell 6+, TLS certificate verification is skipped. On PowerShell
 // 5.x, TLS certificate verification is not skipped and requests will fail for
