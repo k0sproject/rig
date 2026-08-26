@@ -128,7 +128,7 @@ func TestConfigurerSuite(t *testing.T) {
 		t.Skip("only connect")
 		return
 	}
-	suite.Run(t, &OSSuite{ConnectedSuite: ConnectedSuite{Host: GetHost(t)}})
+	suite.Run(t, &OSSuite{Host: GetHost(t)})
 }
 
 func TestFSSuite(t *testing.T) {
@@ -139,11 +139,11 @@ func TestFSSuite(t *testing.T) {
 
 	h := GetHost(t)
 	t.Run("No sudo", func(t *testing.T) {
-		suite.Run(t, &FSSuite{ConnectedSuite: ConnectedSuite{Host: h}})
+		suite.Run(t, &FSSuite{Host: h})
 	})
 
 	t.Run("Sudo", func(t *testing.T) {
-		suite.Run(t, &FSSuite{ConnectedSuite: ConnectedSuite{Host: h}, sudo: true})
+		suite.Run(t, &FSSuite{Host: h, sudo: true})
 	})
 }
 

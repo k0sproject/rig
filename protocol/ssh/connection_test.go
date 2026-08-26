@@ -237,11 +237,9 @@ func TestClientConfigPubkeyAuthenticationDisabled(t *testing.T) {
 	t.Setenv("SSH_KNOWN_HOSTS", "")
 
 	c := &Connection{
-		Config: Config{
-			Address: "127.0.0.1",
-			User:    "test",
-			Port:    22,
-		},
+		Address: "127.0.0.1",
+		User:    "test",
+		Port:    22,
 		sshConfig: &sshconfig.Config{
 			PubkeyAuthentication: options.PubkeyAuthenticationOptionNo,
 		},

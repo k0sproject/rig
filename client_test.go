@@ -11,8 +11,8 @@ import (
 	"github.com/k0sproject/rig/v2"
 	"github.com/k0sproject/rig/v2/cmd"
 	"github.com/k0sproject/rig/v2/os"
-	"github.com/k0sproject/rig/v2/protocol"
 	"github.com/k0sproject/rig/v2/packagemanager"
+	"github.com/k0sproject/rig/v2/protocol"
 	"github.com/k0sproject/rig/v2/remotefs"
 	"github.com/k0sproject/rig/v2/rigtest"
 	"github.com/stretchr/testify/assert"
@@ -152,7 +152,7 @@ type testHost struct {
 	*rig.Client
 }
 
-func (th *testHost) UnmarshalYAML(unmarshal func(interface{}) error) error {
+func (th *testHost) UnmarshalYAML(unmarshal func(any) error) error {
 	type rawTestHost testHost
 	h := (*rawTestHost)(th)
 	if err := unmarshal(h); err != nil {
