@@ -122,11 +122,83 @@ func (c *Connection) wireProxyJumpBastion(options *Options) error {
 	bastionCfg.AuthMethods = c.AuthMethods
 	bastionCfg.KeyPath = c.KeyPath
 	bastionCfg.PasswordCallback = c.PasswordCallback
+	bastionCfg.IgnoreSSHConfig = c.IgnoreSSHConfig
 	options.InjectLoggerTo(bastionCfg, log.KeyProtocol, "ssh-bastion")
 	c.Bastion = bastionCfg
 	c.bastionFromProxyJump = true
 	c.Log().Debug("using ProxyJump as bastion", "jump", jump)
 	return nil
+}
+
+// applyClientConfig applies the OpenSSH client configuration onto c.sshConfig.
+// When IgnoreSSHConfig is set, ~/.ssh/config and the system-wide ssh_config are
+// skipped and only OpenSSH's built-in defaults are applied, mirroring
+// "ssh -F none".
+func (c *Connection) applyClientConfig() error {
+	parser := ConfigParser
+	if c.IgnoreSSHConfig {
+		// Built by need rather than in init() so a failure surfaces as an
+		// error here instead of silently dropping the built-in defaults that
+		// this option promises to keep.
+		defaults, err := defaultsOnlyConfigParser()
+		if err != nil {
+			return err
+		}
+		parser = defaults
+	}
+	if parser == nil {
+		return nil
+	}
+	c.logConfigSource(parser)
+	if err := parser.Apply(c.sshConfig, c.Address); err != nil {
+		return err //nolint:wrapcheck // Apply already prefixes "failed to apply ssh config"; wrapping repeated the sentence
+	}
+	return nil
+}
+
+// propagatePort carries an explicitly chosen port into the ssh config. Port 22
+// is treated as "not explicitly set" so the ssh config files can still supply a
+// per-host port, which is what the log line distinguishes -- and there is
+// nothing to defer to once those files are skipped.
+func (c *Connection) propagatePort() {
+	if c.Port != 0 && c.Port != 22 {
+		c.sshConfig.Port = c.Port
+		c.Log().Debug("propagating explicit port to ssh config", "port", c.Port)
+		return
+	}
+	if c.IgnoreSSHConfig {
+		c.Log().Debug("port is default (22) — ssh config files ignored, keeping it", "port", c.Port)
+		return
+	}
+	c.Log().Debug("port is default (22) — deferring to the ssh config files", "port", c.Port)
+}
+
+// isDefaultsOnlyParser reports whether parser is the shared defaults-only
+// fallback rather than one built from the ssh config files.
+func isDefaultsOnlyParser(parser *sshconfig.Parser) bool {
+	defaults, err := defaultsOnlyConfigParser()
+	return err == nil && parser == defaults
+}
+
+// logConfigSource reports which ssh configuration is about to be applied, given
+// the parser that will apply it. The files are not always part of it: the
+// opt-out skips them, and a parse failure at startup leaves ConfigParser
+// holding the defaults-only fallback instead.
+//
+// That last case warns rather than logging at debug, because settings that the
+// user wrote are being ignored and nothing else reports it. It is keyed on the
+// parser actually in use and not on errConfigParse alone, so that replacing
+// ConfigParser after startup stops the warning along with the fallback it
+// described.
+func (c *Connection) logConfigSource(parser *sshconfig.Parser) {
+	switch {
+	case c.IgnoreSSHConfig:
+		c.Log().Debug("ignoring ssh config files, applying built-in defaults only")
+	case errConfigParse != nil && isDefaultsOnlyParser(parser):
+		c.Log().Warn("ssh config files could not be parsed, applying built-in defaults only", "error", errConfigParse)
+	default:
+		c.Log().Debug("applying ssh config files and built-in defaults")
+	}
 }
 
 // configureKeepalive applies the ServerAliveInterval from ssh config if no explicit keepalive option was provided.
@@ -138,10 +210,19 @@ func (c *Connection) configureKeepalive(options *Options) {
 	}
 }
 
-// NewConnection creates a new SSH connection. Error is currently always nil.
+// NewConnection creates a new SSH connection.
+//
+// It returns an error when the configuration cannot be resolved: an unrecognized
+// or invalid key in SSHConfigOptions, an ssh config that fails to apply, or a
+// ProxyJump that cannot be parsed. Nothing is dialed here, so a connection it
+// returns has not yet contacted the host.
 func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
 	options := NewOptions(opts...)
 	options.InjectLoggerTo(cfg, log.KeyProtocol, "ssh-config")
+	if options.IgnoreSSHConfig {
+		cfg.IgnoreSSHConfig = true
+	}
+	// SetDefaults cascades IgnoreSSHConfig to an explicitly configured bastion.
 	cfg.SetDefaults()
 
 	c := &Connection{Config: cfg, options: options} //nolint:varnamelen
@@ -152,12 +233,7 @@ func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
 	}
 	c.Log().Debug("building ssh config", "user", c.User, "host", c.Address)
 
-	if c.Port != 0 && c.Port != 22 {
-		c.sshConfig.Port = c.Port
-		c.Log().Debug("propagating explicit port to ssh config", "port", c.Port)
-	} else {
-		c.Log().Debug("port is default (22) — deferring to ssh config / ~/.ssh/config", "port", c.Port)
-	}
+	c.propagatePort()
 
 	if c.KeyPath != nil {
 		c.sshConfig.IdentityFile = []string{*c.KeyPath}
@@ -176,11 +252,8 @@ func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
 		}
 	}
 
-	if ConfigParser != nil {
-		c.Log().Debug("applying ~/.ssh/config")
-		if err := ConfigParser.Apply(c.sshConfig, c.Address); err != nil {
-			return nil, fmt.Errorf("failed to apply ssh config: %w", err)
-		}
+	if err := c.applyClientConfig(); err != nil {
+		return nil, err
 	}
 
 	if c.sshConfig.Port != 0 {
@@ -227,13 +300,35 @@ var (
 	ErrChecksumMismatch = errors.New("checksum mismatch")
 )
 
+// configParserOrDefaults picks what [ConfigParser] is initialized to from the
+// outcome of parsing the ssh config files.
+//
+// A syntax error anywhere in ~/.ssh/config or the system-wide ssh_config fails
+// the whole parse, and leaving ConfigParser nil for that would cost every
+// connection OpenSSH's built-in defaults as well -- no IdentityFile, no
+// UserKnownHostsFile, no StrictHostKeyChecking -- silently, because nothing
+// reports it. Falling back to the defaults-only parser keeps those, losing only
+// the file-derived settings that could not be read anyway.
+//
+// Assigning nil to ConfigParser by hand still means "apply nothing at all", and
+// remains the way to opt out of the defaults too.
+func configParserOrDefaults(parser *sshconfig.Parser, err error) *sshconfig.Parser {
+	if err == nil {
+		return parser
+	}
+	defaults, defaultsErr := defaultsOnlyConfigParser()
+	if defaultsErr != nil {
+		return nil
+	}
+	return defaults
+}
+
 // TODO make the parser initialization more elegant.
 func init() {
 	globalOnce.Do(func() {
 		parser, err := sshconfig.NewParser(nil)
-		if err == nil {
-			ConfigParser = parser
-		}
+		errConfigParse = err
+		ConfigParser = configParserOrDefaults(parser, err)
 	})
 }
 
@@ -316,7 +411,32 @@ func (c *Connection) IsConnected() bool {
 }
 
 // ConfigParser is an instance of rig/v2/sshconfig.Parser - it is exported here for weird design decisions made in rig v0.x and will be removed in rig v2 final.
+//
+// Setting it to nil disables the ssh config layer completely, including
+// OpenSSH's built-in defaults. To drop only the config files while keeping
+// those defaults, use Config.IgnoreSSHConfig or [WithoutSSHConfig] instead.
 var ConfigParser *sshconfig.Parser
+
+// errConfigParse records why the ssh config files could not be read, in which
+// case [ConfigParser] holds the defaults-only fallback instead of them. It is a
+// recorded cause rather than a sentinel; nothing matches on it with errors.Is.
+var errConfigParse error
+
+// defaultsOnlyConfigParser returns the parser used in place of [ConfigParser]
+// when Config.IgnoreSSHConfig is set. Passing a reader makes the parser use it
+// instead of the config files, so an empty one means ~/.ssh/config and the
+// system-wide ssh_config are never read while OpenSSH's built-in defaults
+// (IdentityFile, UserKnownHostsFile, StrictHostKeyChecking, Port, ...) are
+// still applied. This mirrors "ssh -F none". Sharing one parser is safe because
+// Apply takes the parser's mutex and rewinds its iterator on entry, not because
+// the parser is free of state.
+var defaultsOnlyConfigParser = sync.OnceValues(func() (*sshconfig.Parser, error) {
+	parser, err := sshconfig.NewParser(strings.NewReader(""))
+	if err != nil {
+		return nil, fmt.Errorf("create defaults-only ssh config parser: %w", err)
+	}
+	return parser, nil
+})
 
 // String returns the connection's printable name.
 func (c *Connection) String() string {

@@ -36,6 +36,18 @@ type Config struct {
 	// YAML key: options.
 	SSHConfigOptions sshconfig.OptionArguments `yaml:"options,omitempty" json:"options,omitempty" jsonschema:"description=Additional SSH options as ssh_config key-value pairs"`
 
+	// IgnoreSSHConfig disables reading the OpenSSH client configuration files
+	// (~/.ssh/config and the system-wide ssh_config) when setting up this
+	// connection, mirroring "ssh -F none". OpenSSH's built-in defaults and any
+	// SSHConfigOptions given above are still applied, so only file-derived
+	// settings are dropped.
+	//
+	// Use this to opt out when a config file cannot be parsed or contains
+	// directives that should not influence rig. The setting is inherited by the
+	// bastion connection.
+	// YAML key: ignoreSSHConfig.
+	IgnoreSSHConfig bool `yaml:"ignoreSSHConfig,omitempty" json:"ignoreSSHConfig,omitempty" jsonschema:"description=Do not read ~/.ssh/config or the system ssh_config for this host"`
+
 	// AuthMethods can be used to pass in a list of crypto/ssh.AuthMethod objects
 	// for example to use a private key from memory:
 	//   ssh.PublicKeys(privateKey)
@@ -69,6 +81,11 @@ func (c *Config) SetDefaults() {
 		}
 	}
 	if c.Bastion != nil {
+		// Opting out of the ssh config files applies to the whole chain; a
+		// bastion is dialed through the same local configuration.
+		if c.IgnoreSSHConfig {
+			c.Bastion.IgnoreSSHConfig = true
+		}
 		c.Bastion.SetDefaults()
 	}
 }

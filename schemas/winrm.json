@@ -49,6 +49,10 @@
         "options": {
           "$ref": "#/$defs/OptionArguments",
           "description": "Additional SSH options as ssh_config key-value pairs"
+        },
+        "ignoreSSHConfig": {
+          "type": "boolean",
+          "description": "Do not read ~/.ssh/config or the system ssh_config for this host"
         }
       },
       "additionalProperties": false,
