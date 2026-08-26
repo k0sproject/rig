@@ -28,7 +28,7 @@ type k0sctlHostCorrect struct {
 	Role                string `yaml:"role"`
 }
 
-func (h *k0sctlHostCorrect) UnmarshalYAML(unmarshal func(interface{}) error) error {
+func (h *k0sctlHostCorrect) UnmarshalYAML(unmarshal func(any) error) error {
 	type hostAlias k0sctlHostCorrect
 	alias := (*hostAlias)(h)
 	if err := unmarshal(alias); err != nil {

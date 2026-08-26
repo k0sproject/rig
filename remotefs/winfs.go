@@ -278,9 +278,9 @@ func (s *WinFS) OpenFile(name string, flags int, _ fs.FileMode) (File, error) {
 	}
 	var o opener
 	if fi != nil && fi.IsDir() {
-		o = &winDir{winFileDirBase: winFileDirBase{withPath: withPath{name}, fs: s}}
+		o = &winDir{withPath: withPath{name}, fs: s}
 	} else {
-		o = &winFile{winFileDirBase: winFileDirBase{withPath: withPath{name}, fs: s}}
+		o = &winFile{withPath: withPath{name}, fs: s}
 	}
 	if err := o.open(flags); err != nil {
 		return nil, fmt.Errorf("open: %w", err)

@@ -229,7 +229,7 @@ func TestSetterBooleanOptionFields(t *testing.T) {
 				f := reflect.ValueOf(&obj).Elem().FieldByName(field)
 				var value boolOpt
 				var ok bool
-				if f.Kind() == reflect.Ptr && !f.IsNil() {
+				if f.Kind() == reflect.Pointer && !f.IsNil() {
 					value, ok = f.Elem().Interface().(boolOpt)
 				} else if f.CanAddr() {
 					// Use Addr() only if the field is addressable
@@ -569,7 +569,7 @@ func TestSetterIntFields(t *testing.T) {
 				require.NoError(t, setter.Reset(field))
 				require.NoError(t, setter.Set(field, "5"))
 				f := reflect.ValueOf(&obj).Elem().FieldByName(field)
-				if f.Kind() == reflect.Ptr {
+				if f.Kind() == reflect.Pointer {
 					require.Equal(t, 5, int(f.Elem().Int()))
 				} else {
 					require.Equal(t, 5, int(f.Int()))
@@ -586,7 +586,7 @@ func TestSetterIntFields(t *testing.T) {
 				require.NoError(t, setter.Set(field, "5"))
 				require.NoError(t, setter.Set(field, "1"))
 				f := reflect.ValueOf(&obj).Elem().FieldByName(field)
-				if f.Kind() == reflect.Ptr {
+				if f.Kind() == reflect.Pointer {
 					require.Equal(t, 5, int(f.Elem().Int()), "original value should stick")
 				} else {
 					require.Equal(t, 5, int(f.Int()), "original value should stick")

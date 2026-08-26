@@ -299,11 +299,17 @@ func (s *PosixFS) parseStat(stat string) (*FileInfo, error) {
 
 // exitStatuser is satisfied by the exit errors of the native SSH protocol,
 // which report the status the remote command exited with.
-type exitStatuser interface{ ExitStatus() int }
+type exitStatuser interface {
+	error
+	ExitStatus() int
+}
 
 // exitCoder is satisfied by the exit errors of the protocols that run a local
 // process, which report the code that process exited with.
-type exitCoder interface{ ExitCode() int }
+type exitCoder interface {
+	error
+	ExitCode() int
+}
 
 // localProcessFailureExit is the exit code the openssh client uses for its own
 // failures instead of relaying a status from the remote host. The openssh
@@ -331,15 +337,13 @@ const localProcessFailureExit = 255
 // carrying zero comes from something other than a command that ran, and the
 // safe answer for anything unrecognised here is false.
 func commandRanAndFailed(err error) bool {
-	var withStatus exitStatuser
-	if errors.As(err, &withStatus) {
+	if withStatus, ok := errors.AsType[exitStatuser](err); ok {
 		// x/crypto/ssh initialises its wait message with a status of -1 and only
 		// an "exit-status" request overwrites it, so a remote command killed by a
 		// signal reports -1.
 		return withStatus.ExitStatus() > 0
 	}
-	var withCode exitCoder
-	if errors.As(err, &withCode) {
+	if withCode, ok := errors.AsType[exitCoder](err); ok {
 		code := withCode.ExitCode()
 		return code > 0 && code != localProcessFailureExit
 	}

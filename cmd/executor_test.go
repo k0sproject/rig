@@ -271,7 +271,7 @@ func TestSetShellExplain(t *testing.T) {
 
 func TestPrintfErrors(t *testing.T) {
 	mr := rigtest.NewMockRunner()
-	args := []interface{}{"hello"}
+	args := []any{"hello"}
 	err := mr.Exec(fmt.Sprintf("echo %s %d", args...)) // intentional error
 	require.ErrorIs(t, err, cmd.ErrInvalidCommand, "commands with printf errors should return ErrInvalidCommand")
 	require.ErrorContains(t, err, "refusing", "commands with printf errors should return a helpful error message")
