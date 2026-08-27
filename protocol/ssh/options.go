@@ -10,6 +10,7 @@ import (
 type Options struct {
 	log.LoggerInjectable
 	KeepAliveInterval *time.Duration
+	IgnoreSSHConfig   bool
 }
 
 // Option is a function that sets some option on the Options struct.
@@ -35,5 +36,15 @@ func WithLogger(l log.Logger) Option {
 func WithKeepAlive(d time.Duration) Option {
 	return func(o *Options) {
 		o.KeepAliveInterval = &d
+	}
+}
+
+// WithoutSSHConfig disables reading the OpenSSH client configuration files
+// (~/.ssh/config and the system-wide ssh_config), mirroring "ssh -F none".
+// OpenSSH's built-in defaults still apply. This is the functional-option
+// equivalent of setting Config.IgnoreSSHConfig.
+func WithoutSSHConfig() Option {
+	return func(o *Options) {
+		o.IgnoreSSHConfig = true
 	}
 }

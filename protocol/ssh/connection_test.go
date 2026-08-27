@@ -1365,3 +1365,313 @@ func TestLoadKeySignersIncludesCertSigner(t *testing.T) {
 	_, isCert = signers[1].PublicKey().(*ssh.Certificate)
 	require.False(t, isCert, "second signer must be the plain signer")
 }
+
+// TestIgnoreSSHConfig covers the opt-out from ~/.ssh/config and the
+// system-wide ssh_config. See https://github.com/k0sproject/rig/issues/444.
+func TestIgnoreSSHConfig(t *testing.T) {
+	// A directive that the parser rejects, in a stanza that has nothing to do
+	// with the host being connected to. This is the shape reported in #444:
+	// an unrelated include file makes every connection fail.
+	const brokenConfig = "Match bogus \"x\"\n  Port 2222\n"
+
+	// A parseable config that changes a value rig reads, used to verify that
+	// file-derived settings really are dropped.
+	const portConfig = "Host *\n  Port 2222\n"
+
+	t.Run("broken config fails without the opt-out", func(t *testing.T) {
+		withConfigParser(t, brokenConfig)
+		_, err := NewConnection(Config{Address: "192.0.2.10", User: "test"})
+		require.ErrorContains(t, err, "invalid Match condition")
+	})
+
+	t.Run("the parse failure is reported without stuttering", func(t *testing.T) {
+		// sshconfig.Parser.Apply already prefixes its errors with "failed to
+		// apply ssh config"; wrapping it again here is what produced the
+		// doubled sentence quoted in the bug report.
+		withConfigParser(t, brokenConfig)
+		_, err := NewConnection(Config{Address: "192.0.2.10", User: "test"})
+		require.Error(t, err)
+		require.Equal(t, 1, strings.Count(err.Error(), "failed to apply ssh config"),
+			"the phrase should appear exactly once, got: %s", err)
+	})
+
+	t.Run("broken config is bypassed with the opt-out", func(t *testing.T) {
+		withConfigParser(t, brokenConfig)
+		conn, err := NewConnection(Config{Address: "192.0.2.10", User: "test", IgnoreSSHConfig: true})
+		require.NoError(t, err)
+		require.NotNil(t, conn.sshConfig)
+	})
+
+	t.Run("broken config is bypassed with WithoutSSHConfig", func(t *testing.T) {
+		withConfigParser(t, brokenConfig)
+		conn, err := NewConnection(Config{Address: "192.0.2.10", User: "test"}, WithoutSSHConfig())
+		require.NoError(t, err)
+		require.True(t, conn.IgnoreSSHConfig)
+	})
+
+	t.Run("file derived settings are dropped", func(t *testing.T) {
+		withConfigParser(t, portConfig)
+
+		conn, err := NewConnection(Config{Address: "192.0.2.10", User: "test"})
+		require.NoError(t, err)
+		require.Equal(t, 2222, conn.Port, "sanity: the config file should set the port")
+
+		ignored, err := NewConnection(Config{Address: "192.0.2.10", User: "test", IgnoreSSHConfig: true})
+		require.NoError(t, err)
+		require.Equal(t, 22, ignored.Port, "port must fall back to the built-in default")
+	})
+
+	t.Run("built-in defaults are still applied", func(t *testing.T) {
+		withConfigParser(t, brokenConfig)
+		conn, err := NewConnection(Config{Address: "192.0.2.10", User: "test", IgnoreSSHConfig: true})
+		require.NoError(t, err)
+
+		// These all come from OpenSSH's compiled-in defaults rather than from a
+		// config file, so ignoring the files must not drop them.
+		require.Equal(t, 22, conn.sshConfig.Port)
+		require.NotEmpty(t, conn.sshConfig.IdentityFile, "default identity files must survive")
+		require.NotEmpty(t, conn.sshConfig.UserKnownHostsFile, "default known_hosts must survive")
+		require.NotEmpty(t, conn.sshConfig.StrictHostKeyChecking, "default StrictHostKeyChecking must survive")
+		require.NotEmpty(t, conn.sshConfig.Ciphers, "default ciphers must survive")
+
+		// Defaults are token-expanded by the parser's finalize step.
+		for _, f := range conn.sshConfig.IdentityFile {
+			require.NotContains(t, f, "~", "identity file paths must be expanded")
+		}
+	})
+
+	t.Run("defaults-only parser is always available", func(t *testing.T) {
+		parser, err := defaultsOnlyConfigParser()
+		require.NoError(t, err)
+		require.NotNil(t, parser, "the opt-out must never fall through to applying nothing")
+	})
+
+	t.Run("defaults are applied even when ConfigParser is nil", func(t *testing.T) {
+		// A nil ConfigParser means "apply nothing" for the normal path, but the
+		// opt-out promises to keep the built-in defaults, so it must not share
+		// that fate.
+		prev := ConfigParser
+		ConfigParser = nil
+		t.Cleanup(func() { ConfigParser = prev })
+
+		conn, err := NewConnection(Config{Address: "192.0.2.10", User: "test", IgnoreSSHConfig: true})
+		require.NoError(t, err)
+		require.Equal(t, 22, conn.sshConfig.Port)
+		require.NotEmpty(t, conn.sshConfig.IdentityFile)
+		require.NotEmpty(t, conn.sshConfig.UserKnownHostsFile)
+	})
+
+	t.Run("explicit options still apply", func(t *testing.T) {
+		withConfigParser(t, brokenConfig)
+		conn, err := NewConnection(Config{
+			Address:          "192.0.2.10",
+			User:             "test",
+			IgnoreSSHConfig:  true,
+			SSHConfigOptions: sshconfig.OptionArguments{"ConnectTimeout": "42s"},
+		})
+		require.NoError(t, err)
+		require.Equal(t, 42*time.Second, conn.sshConfig.ConnectTimeout)
+	})
+
+	t.Run("bastion inherits the opt-out", func(t *testing.T) {
+		withConfigParser(t, brokenConfig)
+		conn, err := NewConnection(Config{
+			Address:         "192.0.2.10",
+			User:            "test",
+			IgnoreSSHConfig: true,
+			Bastion:         &Config{Address: "192.0.2.20", User: "test"},
+		})
+		require.NoError(t, err)
+		require.True(t, conn.Bastion.IgnoreSSHConfig)
+
+		// The bastion builds its own Connection, which would otherwise trip on
+		// the same broken config.
+		bastionConn, err := conn.Bastion.Connection()
+		require.NoError(t, err)
+		require.NotNil(t, bastionConn)
+	})
+
+	t.Run("proxyjump bastion inherits the opt-out", func(t *testing.T) {
+		withConfigParser(t, brokenConfig)
+		conn, err := NewConnection(Config{
+			Address:          "192.0.2.10",
+			User:             "test",
+			IgnoreSSHConfig:  true,
+			SSHConfigOptions: sshconfig.OptionArguments{"ProxyJump": "jump.example.com"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, conn.Bastion, "ProxyJump from options must still wire a bastion")
+		require.True(t, conn.Bastion.IgnoreSSHConfig)
+	})
+}
+
+// TestConfigParserOrDefaults covers what ConfigParser is initialized to when
+// the ssh config files cannot be parsed at all. A syntax error there must not
+// also cost the connection OpenSSH's built-in defaults.
+func TestConfigParserOrDefaults(t *testing.T) {
+	t.Run("a parsed config is used as-is", func(t *testing.T) {
+		parser, err := sshconfig.NewParser(strings.NewReader("Host *\n  Port 2222\n"))
+		require.NoError(t, err)
+		require.Same(t, parser, configParserOrDefaults(parser, nil))
+	})
+
+	t.Run("an unparseable config falls back to the built-in defaults", func(t *testing.T) {
+		// This is what a stray line in ~/.ssh/config does: NewParser fails
+		// outright, so there is no parser to apply.
+		_, err := sshconfig.NewParser(strings.NewReader("garbageline\n"))
+		require.Error(t, err, "sanity: a line with no separator must fail to parse")
+
+		parser := configParserOrDefaults(nil, err)
+		require.NotNil(t, parser, "the built-in defaults must survive an unparseable config file")
+
+		cfg := &sshconfig.Config{}
+		require.NoError(t, parser.Apply(cfg, "192.0.2.10"))
+		require.Equal(t, 22, cfg.Port)
+		require.NotEmpty(t, cfg.IdentityFile, "default identity files must survive")
+		require.NotEmpty(t, cfg.UserKnownHostsFile, "default known_hosts must survive")
+	})
+
+	t.Run("the fallback does not read the config files", func(t *testing.T) {
+		parser := configParserOrDefaults(nil, errors.New("broken"))
+		require.NotNil(t, parser)
+
+		cfg := &sshconfig.Config{}
+		require.NoError(t, parser.Apply(cfg, "192.0.2.10"))
+		// 2222 could only come from a config file; the fallback must not read one.
+		require.Equal(t, 22, cfg.Port)
+	})
+}
+
+// capturingLogger records the messages written to it so a test can assert on
+// which one was chosen.
+type capturingLogger struct {
+	debug []string
+	warn  []string
+}
+
+func (l *capturingLogger) Debug(msg string, _ ...any) { l.debug = append(l.debug, msg) }
+func (l *capturingLogger) Info(msg string, _ ...any)  { _ = msg }
+func (l *capturingLogger) Warn(msg string, _ ...any)  { l.warn = append(l.warn, msg) }
+func (l *capturingLogger) Error(msg string, _ ...any) { _ = msg }
+
+// TestLogConfigSource pins what the connection says it is applying. The files
+// are not always part of it, and a log that claims otherwise is misleading in
+// exactly the situation someone reads it to debug.
+//
+// The parser is passed in rather than read from the global, so each case is a
+// state the process can really be in: the warning belongs to the defaults-only
+// fallback being applied, not merely to a parse error having been recorded at
+// startup.
+func TestLogConfigSource(t *testing.T) {
+	setParseErr := func(t *testing.T, err error) {
+		t.Helper()
+		prev := errConfigParse
+		errConfigParse = err
+		t.Cleanup(func() { errConfigParse = prev })
+	}
+	newConn := func(ignore bool) (*Connection, *capturingLogger) {
+		logger := &capturingLogger{}
+		conn := &Connection{}
+		conn.IgnoreSSHConfig = ignore
+		conn.SetLogger(logger)
+		return conn, logger
+	}
+	fileParser := func(t *testing.T) *sshconfig.Parser {
+		t.Helper()
+		parser, err := sshconfig.NewParser(strings.NewReader("Host *\n  Port 2222\n"))
+		require.NoError(t, err)
+		return parser
+	}
+	fallbackParser := func(t *testing.T) *sshconfig.Parser {
+		t.Helper()
+		parser, err := defaultsOnlyConfigParser()
+		require.NoError(t, err)
+		return parser
+	}
+
+	t.Run("normal path names the files and the defaults", func(t *testing.T) {
+		setParseErr(t, nil)
+		conn, logger := newConn(false)
+
+		conn.logConfigSource(fileParser(t))
+		require.Equal(t, []string{"applying ssh config files and built-in defaults"}, logger.debug)
+		require.Empty(t, logger.warn)
+	})
+
+	t.Run("opt-out says the files are skipped", func(t *testing.T) {
+		setParseErr(t, nil)
+		conn, logger := newConn(true)
+
+		conn.logConfigSource(fallbackParser(t))
+		require.Equal(t, []string{"ignoring ssh config files, applying built-in defaults only"}, logger.debug)
+		require.Empty(t, logger.warn)
+	})
+
+	t.Run("the fallback in use warns instead of claiming the files were read", func(t *testing.T) {
+		setParseErr(t, errors.New("syntax error: missing separator"))
+		conn, logger := newConn(false)
+
+		conn.logConfigSource(fallbackParser(t))
+		require.Empty(t, logger.debug, "this must not be reported as a normal application of the files")
+		require.Equal(t, []string{"ssh config files could not be parsed, applying built-in defaults only"}, logger.warn,
+			"the user wrote settings that are being ignored, so it should be visible")
+	})
+
+	t.Run("a replaced parser stops the warning", func(t *testing.T) {
+		// errConfigParse is set once at startup and never cleared, so keying the
+		// warning on it alone would keep blaming a fallback that is no longer
+		// the parser being applied. Overriding ConfigParser is a supported thing
+		// to do, and the tests here do it themselves.
+		setParseErr(t, errors.New("syntax error: missing separator"))
+		conn, logger := newConn(false)
+
+		conn.logConfigSource(fileParser(t))
+		require.Empty(t, logger.warn, "the fallback is not what is being applied any more")
+		require.Equal(t, []string{"applying ssh config files and built-in defaults"}, logger.debug)
+	})
+
+	t.Run("the opt-out takes precedence over a parse failure", func(t *testing.T) {
+		setParseErr(t, errors.New("syntax error: missing separator"))
+		conn, logger := newConn(true)
+
+		conn.logConfigSource(fallbackParser(t))
+		require.Empty(t, logger.warn, "the files were not going to be read anyway")
+	})
+}
+
+// TestPropagatePort pins the port handling and what it claims in the log. Port
+// 22 is deliberately treated as unset so the ssh config files can still supply
+// one, which makes the log line wrong once those files are skipped.
+func TestPropagatePort(t *testing.T) {
+	newConn := func(port int, ignore bool) (*Connection, *capturingLogger) {
+		logger := &capturingLogger{}
+		conn := &Connection{sshConfig: &sshconfig.Config{}}
+		conn.Port = port
+		conn.IgnoreSSHConfig = ignore
+		conn.SetLogger(logger)
+		return conn, logger
+	}
+
+	t.Run("an explicit port is propagated", func(t *testing.T) {
+		conn, logger := newConn(2222, false)
+		conn.propagatePort()
+		require.Equal(t, 2222, conn.sshConfig.Port)
+		require.Equal(t, []string{"propagating explicit port to ssh config"}, logger.debug)
+	})
+
+	t.Run("port 22 defers to the config files", func(t *testing.T) {
+		conn, logger := newConn(22, false)
+		conn.propagatePort()
+		require.Zero(t, conn.sshConfig.Port, "22 must stay unset so the config files can supply a port")
+		require.Equal(t, []string{"port is default (22) — deferring to the ssh config files"}, logger.debug)
+	})
+
+	t.Run("port 22 with the opt-out does not claim to defer to anything", func(t *testing.T) {
+		conn, logger := newConn(22, true)
+		conn.propagatePort()
+		require.Zero(t, conn.sshConfig.Port)
+		require.Equal(t, []string{"port is default (22) — ssh config files ignored, keeping it"}, logger.debug)
+		require.NotContains(t, logger.debug[0], "deferring",
+			"there are no config files to defer to when they are skipped")
+	})
+}
