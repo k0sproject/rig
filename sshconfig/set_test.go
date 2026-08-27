@@ -674,6 +674,14 @@ func TestSetterFieldChannelTimeout(t *testing.T) {
 		require.Equal(t, 1*time.Minute, obj.ChannelTimeout["agent-connection"], "original values should stick")
 		require.Equal(t, 1*time.Minute, obj.ChannelTimeout["direct-tcpip"], "original values should stick")
 	})
+	t.Run("finalize", func(t *testing.T) {
+		require.NoError(t, setter.Reset("ChannelTimeout"))
+		require.NoError(t, setter.Set("ChannelTimeout", "session=30"))
+		require.NotPanics(t, func() {
+			require.NoError(t, setter.Finalize())
+		}, "a map with non-string values must not reach the string expansion")
+		require.Equal(t, 30*time.Second, obj.ChannelTimeout["session"])
+	})
 }
 
 func TestSetterDurationFields(t *testing.T) {
@@ -1518,6 +1526,59 @@ func TestSetterFinalize(t *testing.T) {
 	require.Len(t, obj.IdentityFile, 2)
 	require.NotEqual(t, "~/foo", obj.IdentityFile[0])
 	require.Equal(t, "/tmp/22.txt", obj.IdentityFile[1])
+}
+
+func TestSetterFinalizeStringMaps(t *testing.T) {
+	t.Setenv("RIG_TEST_FINALIZE", "expanded")
+
+	t.Run("forwards expand tokens on both sides", func(t *testing.T) {
+		obj := sshconfig.Config{Port: 22, User: "bob"}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("LocalForward", "/tmp/%r.sock", "/run/%p.sock"))
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, "/run/22.sock", obj.LocalForward["/tmp/bob.sock"])
+	})
+
+	t.Run("colliding keys are an error", func(t *testing.T) {
+		obj := sshconfig.Config{Port: 22}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("LocalForward", "/tmp/%p.sock", "/run/a.sock"))
+		require.NoError(t, setter.Set("LocalForward", "/tmp/22.sock", "/run/b.sock"))
+		require.ErrorContains(t, setter.Finalize(), "already set")
+	})
+
+	t.Run("a named key type is skipped", func(t *testing.T) {
+		type namedString string
+		obj := struct {
+			Port         int
+			LocalForward map[namedString]string
+		}{
+			Port:         22,
+			LocalForward: map[namedString]string{"/tmp/%p.sock": "/run/%p.sock"},
+		}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NotPanics(t, func() {
+			require.NoError(t, setter.Finalize())
+		}, "a map that is not exactly map[string]string must not reach the string expansion")
+		require.Equal(t, "/run/%p.sock", obj.LocalForward["/tmp/%p.sock"])
+	})
+
+	t.Run("setenv is left alone", func(t *testing.T) {
+		obj := sshconfig.Config{Port: 22}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("SetEnv", "FOO=${RIG_TEST_FINALIZE}", "BAR=%p"))
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, "${RIG_TEST_FINALIZE}", obj.SetEnv["FOO"], "SetEnv does not support expansion")
+		require.Equal(t, "%p", obj.SetEnv["BAR"], "SetEnv does not support expansion")
+	})
 }
 
 // matchExecutor records the commands run by a Match exec criteria and reports
