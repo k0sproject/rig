@@ -12,17 +12,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Test URLs use the .invalid TLD, which RFC 2606 reserves and guarantees will
+// never resolve. Nothing here reaches the network -- every FS is backed by a
+// rigtest.MockRunner, which records command strings instead of running them --
+// and an unresolvable host means that stays true even if a test is later
+// rewired by mistake.
+
 func TestHTTPStatusInsecureURLValidation(t *testing.T) {
 	mr := rigtest.NewMockRunner()
 	f := remotefs.NewPosixFS(mr)
 
 	for _, rawURL := range []string{
 		"file:///etc/passwd",
-		"ftp://example.com",
+		"ftp://test.invalid",
 		"http:///path",
 		"/relative/path",
-		"http://user:pass@example.com",
-		"http://example.com\x00",
+		"http://user:pass@test.invalid",
+		"http://test.invalid\x00",
 	} {
 		_, err := remotefs.HTTPStatusInsecure(context.Background(), f, rawURL)
 		require.Error(t, err, "expected error for %q", rawURL)
@@ -34,7 +40,7 @@ func TestPosixHTTPStatusInsecure(t *testing.T) {
 		mr := rigtest.NewMockRunner()
 		mr.AddCommandOutput(rigtest.HasPrefix("curl"), "200")
 		f := remotefs.NewPosixFS(mr)
-		code, err := remotefs.HTTPStatusInsecure(context.Background(), f, "https://example.com/health")
+		code, err := remotefs.HTTPStatusInsecure(context.Background(), f, "https://test.invalid/health")
 		require.NoError(t, err)
 		require.Equal(t, 200, code)
 		require.Contains(t, mr.LastCommand(), "-k")
@@ -43,7 +49,7 @@ func TestPosixHTTPStatusInsecure(t *testing.T) {
 		mr := rigtest.NewMockRunner()
 		mr.AddCommandOutput(rigtest.HasPrefix("curl"), "503")
 		f := remotefs.NewPosixFS(mr)
-		code, err := remotefs.HTTPStatusInsecure(context.Background(), f, "https://example.com/health")
+		code, err := remotefs.HTTPStatusInsecure(context.Background(), f, "https://test.invalid/health")
 		require.NoError(t, err)
 		require.Equal(t, 503, code)
 	})
@@ -51,7 +57,7 @@ func TestPosixHTTPStatusInsecure(t *testing.T) {
 		mr := rigtest.NewMockRunner()
 		mr.AddCommandFailure(rigtest.HasPrefix("curl"), errors.New("exit status 60"))
 		f := remotefs.NewPosixFS(mr)
-		_, err := remotefs.HTTPStatusInsecure(context.Background(), f, "https://example.com/health")
+		_, err := remotefs.HTTPStatusInsecure(context.Background(), f, "https://test.invalid/health")
 		require.Error(t, err)
 	})
 }
@@ -68,7 +74,7 @@ func TestPosixHTTPStatusInsecureWget(t *testing.T) {
 			return err
 		})
 		f := remotefs.NewPosixFS(mr)
-		code, err := remotefs.HTTPStatusInsecure(context.Background(), f, "https://example.com/health")
+		code, err := remotefs.HTTPStatusInsecure(context.Background(), f, "https://test.invalid/health")
 		require.NoError(t, err)
 		require.Equal(t, 200, code)
 	})
@@ -82,7 +88,7 @@ func TestPosixHTTPStatusInsecureWget(t *testing.T) {
 			return err
 		})
 		f := remotefs.NewPosixFS(mr)
-		code, err := remotefs.HTTPStatusInsecure(context.Background(), f, "https://example.com/health")
+		code, err := remotefs.HTTPStatusInsecure(context.Background(), f, "https://test.invalid/health")
 		require.NoError(t, err)
 		require.Equal(t, 301, code)
 	})
@@ -92,7 +98,7 @@ func TestPosixHTTPStatusInsecureWget(t *testing.T) {
 		mr.AddCommandFailure(rigtest.Equal("command -v curl"), noCurl)
 		mr.AddCommandFailure(rigtest.Equal("command -v wget"), noCurl)
 		f := remotefs.NewPosixFS(mr)
-		_, err := remotefs.HTTPStatusInsecure(context.Background(), f, "https://example.com/health")
+		_, err := remotefs.HTTPStatusInsecure(context.Background(), f, "https://test.invalid/health")
 		require.ErrorIs(t, err, remotefs.ErrHTTPStatusNotSupported)
 	})
 }
@@ -103,7 +109,7 @@ func TestWindowsHTTPStatusInsecure(t *testing.T) {
 		mr.Windows = true
 		mr.AddCommandOutput(rigtest.HasPrefix("powershell.exe"), "200")
 		f := remotefs.NewWindowsFS(mr)
-		code, err := remotefs.HTTPStatusInsecure(context.Background(), f, "https://example.com/health")
+		code, err := remotefs.HTTPStatusInsecure(context.Background(), f, "https://test.invalid/health")
 		require.NoError(t, err)
 		require.Equal(t, 200, code)
 	})
@@ -112,7 +118,7 @@ func TestWindowsHTTPStatusInsecure(t *testing.T) {
 		mr.Windows = true
 		mr.AddCommandFailure(rigtest.HasPrefix("powershell.exe"), errors.New("exit 1"))
 		f := remotefs.NewWindowsFS(mr)
-		_, err := remotefs.HTTPStatusInsecure(context.Background(), f, "https://example.com/health")
+		_, err := remotefs.HTTPStatusInsecure(context.Background(), f, "https://test.invalid/health")
 		require.Error(t, err)
 	})
 }
@@ -159,11 +165,11 @@ func TestHTTPHeadURLValidation(t *testing.T) {
 
 	for _, rawURL := range []string{
 		"file:///etc/passwd",
-		"ftp://example.com",
+		"ftp://test.invalid",
 		"http:///path",
 		"/relative/path",
-		"http://user:pass@example.com",
-		"http://example.com\x00",
+		"http://user:pass@test.invalid",
+		"http://test.invalid\x00",
 	} {
 		_, err := remotefs.HTTPHead(context.Background(), f, rawURL)
 		require.Error(t, err, "expected error for %q", rawURL)
@@ -172,7 +178,7 @@ func TestHTTPHeadURLValidation(t *testing.T) {
 	// The loop above only asserts that an error came back. Pin the
 	// security-relevant branch so it cannot start failing for some unrelated
 	// reason while the credentials check silently goes away.
-	_, err := remotefs.HTTPHead(context.Background(), f, "http://user:pass@example.com")
+	_, err := remotefs.HTTPHead(context.Background(), f, "http://user:pass@test.invalid")
 	require.ErrorContains(t, err, "credentials")
 }
 
@@ -182,7 +188,7 @@ func TestPosixHTTPHead(t *testing.T) {
 		mr.AddCommandOutput(rigtest.HasPrefix("curl"), curlHeadOutput)
 		f := remotefs.NewPosixFS(mr)
 
-		info, err := remotefs.HTTPHead(context.Background(), f, "https://example.com/a.tar")
+		info, err := remotefs.HTTPHead(context.Background(), f, "https://test.invalid/a.tar")
 		require.NoError(t, err)
 		requireReleaseAsset(t, info)
 		require.NotContains(t, mr.LastCommand(), " -k", "HTTPHead must verify TLS certificates")
@@ -198,7 +204,7 @@ func TestPosixHTTPHead(t *testing.T) {
 		})
 		f := remotefs.NewPosixFS(mr)
 
-		info, err := remotefs.HTTPHead(context.Background(), f, "https://example.com/a.tar")
+		info, err := remotefs.HTTPHead(context.Background(), f, "https://test.invalid/a.tar")
 		require.NoError(t, err)
 		requireReleaseAsset(t, info)
 	})
@@ -215,7 +221,7 @@ func TestPosixHTTPHead(t *testing.T) {
 		})
 		f := remotefs.NewPosixFS(mr)
 
-		info, err := remotefs.HTTPHead(context.Background(), f, "https://example.com/a.tar")
+		info, err := remotefs.HTTPHead(context.Background(), f, "https://test.invalid/a.tar")
 		require.NoError(t, err)
 		require.Equal(t, 404, info.StatusCode)
 	})
@@ -225,7 +231,7 @@ func TestPosixHTTPHead(t *testing.T) {
 		mr.AddCommandOutput(rigtest.HasPrefix("curl"), "HTTP/2 405 \r\n\r\n")
 		f := remotefs.NewPosixFS(mr)
 
-		info, err := remotefs.HTTPHead(context.Background(), f, "https://example.com/a.tar")
+		info, err := remotefs.HTTPHead(context.Background(), f, "https://test.invalid/a.tar")
 		require.NoError(t, err)
 		require.Equal(t, 405, info.StatusCode)
 	})
@@ -235,7 +241,7 @@ func TestPosixHTTPHead(t *testing.T) {
 		mr.AddCommandOutput(rigtest.HasPrefix("curl"), "HTTP/2 200 \r\ntransfer-encoding: chunked\r\n\r\n")
 		f := remotefs.NewPosixFS(mr)
 
-		info, err := remotefs.HTTPHead(context.Background(), f, "https://example.com/a.tar")
+		info, err := remotefs.HTTPHead(context.Background(), f, "https://test.invalid/a.tar")
 		require.NoError(t, err)
 		require.Equal(t, int64(-1), info.ContentLength)
 		require.Empty(t, info.ETag)
@@ -248,7 +254,7 @@ func TestPosixHTTPHead(t *testing.T) {
 		mr.AddCommandOutput(rigtest.HasPrefix("curl"), "HTTP/2 200 \r\naccept-ranges: none\r\n\r\n")
 		f := remotefs.NewPosixFS(mr)
 
-		info, err := remotefs.HTTPHead(context.Background(), f, "https://example.com/a.tar")
+		info, err := remotefs.HTTPHead(context.Background(), f, "https://test.invalid/a.tar")
 		require.NoError(t, err)
 		require.False(t, info.AcceptRanges)
 	})
@@ -258,7 +264,7 @@ func TestPosixHTTPHead(t *testing.T) {
 		mr.AddCommandOutput(rigtest.HasPrefix("curl"), "something went sideways")
 		f := remotefs.NewPosixFS(mr)
 
-		_, err := remotefs.HTTPHead(context.Background(), f, "https://example.com/a.tar")
+		_, err := remotefs.HTTPHead(context.Background(), f, "https://test.invalid/a.tar")
 		require.Error(t, err)
 	})
 
@@ -267,7 +273,7 @@ func TestPosixHTTPHead(t *testing.T) {
 		mr.AddCommandFailure(rigtest.HasPrefix("curl"), errors.New("exit status 6"))
 		f := remotefs.NewPosixFS(mr)
 
-		_, err := remotefs.HTTPHead(context.Background(), f, "https://example.com/a.tar")
+		_, err := remotefs.HTTPHead(context.Background(), f, "https://test.invalid/a.tar")
 		require.Error(t, err)
 	})
 
@@ -278,7 +284,7 @@ func TestPosixHTTPHead(t *testing.T) {
 		mr.AddCommandFailure(rigtest.Equal("command -v wget"), notFound)
 		f := remotefs.NewPosixFS(mr)
 
-		_, err := remotefs.HTTPHead(context.Background(), f, "https://example.com/a.tar")
+		_, err := remotefs.HTTPHead(context.Background(), f, "https://test.invalid/a.tar")
 		require.ErrorIs(t, err, remotefs.ErrHTTPHeadNotSupported)
 	})
 }
@@ -295,7 +301,7 @@ func TestWindowsHTTPHead(t *testing.T) {
 				"Accept-Ranges: bytes\r\n")
 		f := remotefs.NewWindowsFS(mr)
 
-		info, err := remotefs.HTTPHead(context.Background(), f, "https://example.com/a.tar")
+		info, err := remotefs.HTTPHead(context.Background(), f, "https://test.invalid/a.tar")
 		require.NoError(t, err)
 		requireReleaseAsset(t, info)
 	})
@@ -310,7 +316,7 @@ func TestWindowsHTTPHead(t *testing.T) {
 			"HTTP/1.1 404\r\nContent-Length: 9\r\n")
 		f := remotefs.NewWindowsFS(mr)
 
-		info, err := remotefs.HTTPHead(context.Background(), f, "https://example.com/a.tar")
+		info, err := remotefs.HTTPHead(context.Background(), f, "https://test.invalid/a.tar")
 		require.NoError(t, err)
 		require.Equal(t, 404, info.StatusCode)
 		require.Equal(t, int64(9), info.ContentLength)
@@ -322,7 +328,7 @@ func TestWindowsHTTPHead(t *testing.T) {
 		mr.AddCommandFailure(rigtest.HasPrefix("powershell.exe"), errors.New("exit status 1"))
 		f := remotefs.NewWindowsFS(mr)
 
-		_, err := remotefs.HTTPHead(context.Background(), f, "https://example.com/a.tar")
+		_, err := remotefs.HTTPHead(context.Background(), f, "https://test.invalid/a.tar")
 		require.Error(t, err)
 	})
 }

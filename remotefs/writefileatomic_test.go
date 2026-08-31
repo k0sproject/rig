@@ -139,6 +139,9 @@ func TestWriteFileAtomic(t *testing.T) {
 // TestWriteFileAtomicPosix verifies WriteFileAtomic works end-to-end via PosixFS.
 func TestWriteFileAtomicPosix(t *testing.T) {
 	mr := rigtest.NewMockRunner()
+	// CreateTemp needs mktemp to name a file; without it the write would target
+	// an empty path.
+	mr.AddCommandOutput(rigtest.HasPrefix("mktemp"), "/srv/k0s.AbCdEf")
 
 	f := remotefs.NewPosixFS(mr)
 	err := remotefs.WriteFileAtomic(f, "/srv/k0s", []byte("binary"), 0o755)

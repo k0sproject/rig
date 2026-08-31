@@ -73,30 +73,42 @@ func TestPosixSystemTime(t *testing.T) {
 }
 
 func TestPosixDownloadURL(t *testing.T) {
+	// The download fetches into a temporary and renames it onto the destination,
+	// so mktemp has to name one: without it CreateTemp fails, and before it
+	// failed these tests passed while running curl -o "" and mv -- "".
+	const downloadTmp = "/tmp/file.AbCdEf"
+
 	t.Run("curl", func(t *testing.T) {
 		mr := rigtest.NewMockRunner()
+		mr.AddCommandOutput(rigtest.HasPrefix("mktemp"), downloadTmp)
 		mr.AddCommandOutput(rigtest.Equal("command -v curl"), "/usr/bin/curl")
 		mr.AddCommandSuccess(rigtest.HasPrefix("curl"))
 		f := remotefs.NewPosixFS(mr)
-		require.NoError(t, f.DownloadURL("http://example.com/file", "/tmp/file"))
+		require.NoError(t, f.DownloadURL("http://test.invalid/file", "/tmp/file"))
+		require.NoError(t, mr.Received(rigtest.Contains("curl -sSLf -o "+downloadTmp)))
+		require.NoError(t, mr.Received(rigtest.Contains("mv -f "+downloadTmp+" /tmp/file")))
 	})
 
 	t.Run("wget fallback", func(t *testing.T) {
 		mr := rigtest.NewMockRunner()
+		mr.AddCommandOutput(rigtest.HasPrefix("mktemp"), downloadTmp)
 		mr.AddCommandFailure(rigtest.Equal("command -v curl"), errors.New("not found"))
 		mr.AddCommandOutput(rigtest.Equal("command -v wget"), "/usr/bin/wget")
 		mr.AddCommandSuccess(rigtest.HasPrefix("wget"))
 		f := remotefs.NewPosixFS(mr)
-		require.NoError(t, f.DownloadURL("http://example.com/file", "/tmp/file"))
+		require.NoError(t, f.DownloadURL("http://test.invalid/file", "/tmp/file"))
+		require.NoError(t, mr.Received(rigtest.Contains("wget -qO "+downloadTmp)))
 	})
 
 	t.Run("neither available", func(t *testing.T) {
 		mr := rigtest.NewMockRunner()
+		mr.AddCommandOutput(rigtest.HasPrefix("mktemp"), downloadTmp)
 		mr.AddCommandFailure(rigtest.Equal("command -v curl"), errors.New("not found"))
 		mr.AddCommandFailure(rigtest.Equal("command -v wget"), errors.New("not found"))
 		f := remotefs.NewPosixFS(mr)
-		err := f.DownloadURL("http://example.com/file", "/tmp/file")
-		require.Error(t, err)
+		err := f.DownloadURL("http://test.invalid/file", "/tmp/file")
+		require.ErrorContains(t, err, "neither curl nor wget",
+			"the failure must be the missing tools, not a missing temporary")
 	})
 }
 

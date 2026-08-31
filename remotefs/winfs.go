@@ -249,6 +249,13 @@ func (s *WinFS) CreateTemp(dir, prefix string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("create temp %s: %w", dir, err)
 	}
+	// The script writes the path it created or throws, so silence means neither
+	// happened. An empty string is not a path to anything: the callers would go
+	// on to run Invoke-WebRequest -OutFile "" and Move-Item -LiteralPath "",
+	// which fail naming nothing at all, a long way from the cause.
+	if out == "" {
+		return "", fmt.Errorf("create temp %s: %w", dir, errEmptyTempPath)
+	}
 	return toSlashes(out), nil
 }
 
@@ -491,7 +498,23 @@ func (s *WinFS) ChownTreeInt(name string, _, _ int) error {
 }
 
 // DownloadURL downloads the contents of url to dst using Invoke-WebRequest.
+//
+// The transfer goes to a temporary file next to dst and is renamed into place
+// only once it completes, so an interrupted download never leaves a truncated
+// file sitting at dst looking complete.
 func (s *WinFS) DownloadURL(url, dst string) error {
+	return downloadURL(s, url, dst)
+}
+
+// fetchURL downloads url into dst using Invoke-WebRequest.
+//
+// The resume flag is ignored: -Resume arrived in PowerShell 6.1, which ships
+// separately as pwsh.exe, while [cmd.PS] runs powershell.exe -- Windows
+// PowerShell 5.1 -- so it is never reachable here. Restarting is always
+// correct, as -OutFile rewrites the file from the beginning rather than
+// appending to it. UseBasicParsing is for that same 5.1 baseline, where there
+// may be no IE engine to parse the response with.
+func (s *WinFS) fetchURL(ctx context.Context, url, dst string, _ bool) error {
 	script := fmt.Sprintf(`$ProgressPreference='SilentlyContinue'
 try {
   Invoke-WebRequest -Uri %s -OutFile %s -UseBasicParsing -ErrorAction Stop | Out-Null
@@ -499,7 +522,7 @@ try {
   Write-Error $_.Exception.Message
   exit 1
 }`, ps.SingleQuote(url), ps.DoubleQuotePath(dst))
-	if err := s.Exec(script, cmd.PS()); err != nil {
+	if err := s.ExecContext(ctx, script, cmd.PS(), cmd.Sensitive()); err != nil {
 		return fmt.Errorf("download %s: %w", url, err)
 	}
 	return nil

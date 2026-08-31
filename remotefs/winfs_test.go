@@ -59,12 +59,22 @@ func TestWindowsSystemTime(t *testing.T) {
 }
 
 func TestWindowsDownloadURL(t *testing.T) {
+	// CreateTemp names the file the transfer writes to, so its output has to be
+	// a path: an empty one used to pass this test while running Invoke-WebRequest
+	// with -OutFile "".
+	const downloadTmp = `C:\tmp\file.AbCdEf`
+
 	t.Run("ok", func(t *testing.T) {
 		mr := rigtest.NewMockRunner()
 		mr.Windows = true
-		mr.AddCommandSuccess(rigtest.HasPrefix("powershell.exe"))
+		mr.AddCommandOutput(rigtest.HasPrefix("powershell.exe"), downloadTmp)
 		f := remotefs.NewWindowsFS(mr)
-		require.NoError(t, f.DownloadURL("http://example.com/file", `C:\tmp\file`))
+		require.NoError(t, f.DownloadURL("http://test.invalid/file", `C:\tmp\file`))
+
+		script, ok := decodePSScript(mr.LastCommand())
+		require.True(t, ok, "expected an encoded script, got %q", mr.LastCommand())
+		require.Contains(t, script, `Move-Item -Force -LiteralPath "`+downloadTmp+`"`,
+			"the temporary must be renamed into place")
 	})
 
 	t.Run("failure", func(t *testing.T) {
@@ -72,7 +82,7 @@ func TestWindowsDownloadURL(t *testing.T) {
 		mr.Windows = true
 		mr.AddCommandFailure(rigtest.HasPrefix("powershell.exe"), errors.New("exit 1"))
 		f := remotefs.NewWindowsFS(mr)
-		err := f.DownloadURL("http://example.com/file", `C:\tmp\file`)
+		err := f.DownloadURL("http://test.invalid/file", `C:\tmp\file`)
 		require.Error(t, err)
 	})
 }
