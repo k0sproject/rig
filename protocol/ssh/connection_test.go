@@ -596,6 +596,401 @@ func Test_isAuthError(t *testing.T) {
 	}
 }
 
+// emptyKnownHosts creates an empty known_hosts file and points
+// SSH_KNOWN_HOSTS at it, returning the path so a test can see whether a
+// connection recorded a host key in it.
+func emptyKnownHosts(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "known_hosts")
+	require.NoError(t, os.WriteFile(path, nil, 0o600))
+	t.Setenv("SSH_KNOWN_HOSTS", path)
+	return path
+}
+
+// startRejectingSSHServer starts a server that offers hostSigner's key and
+// rejects every credential, so a connection gets through the handshake -- where
+// host keys are checked -- and no further.
+func startRejectingSSHServer(t *testing.T, hostSigner ssh.Signer) (host string, port int) {
+	t.Helper()
+	cfg := &ssh.ServerConfig{
+		ServerVersion: "SSH-2.0-test-linux",
+		PasswordCallback: func(_ ssh.ConnMetadata, _ []byte) (*ssh.Permissions, error) {
+			return nil, errAuthRejected
+		},
+	}
+	cfg.AddHostKey(hostSigner)
+
+	addr := startSSHServer(t, cfg)
+	h, portStr, err := net.SplitHostPort(addr)
+	require.NoError(t, err)
+	p, err := strconv.Atoi(portStr)
+	require.NoError(t, err)
+	return h, p
+}
+
+// TestConnectStrictHostKeyChecking pins how each StrictHostKeyChecking mode
+// treats a host that is not in known_hosts, which is the only place they
+// differ. Every mode but "no" used to take the recording callback, so "yes"
+// silently behaved as "accept-new" and wrote the key of a host it had been told
+// to refuse.
+//
+// The host key is checked during the handshake, before authentication, so a
+// server that rejects every credential still shows whether the key was
+// accepted and recorded.
+func TestConnectStrictHostKeyChecking(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		config     string
+		wantRecord bool
+	}{
+		{"yes refuses an unknown host", "Host *\n  StrictHostKeyChecking yes\n", false},
+		{"accept-new records the new key", "Host *\n  StrictHostKeyChecking accept-new\n", true},
+		{"no records it too", "Host *\n  StrictHostKeyChecking no\n", true},
+		{"ask has no terminal to ask at, so accept-new", "Host *\n  StrictHostKeyChecking ask\n", true},
+		{"unset is accept-new", "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withConfigParser(t, tc.config)
+			t.Setenv("SSH_AUTH_SOCK", "")
+			knownHosts := emptyKnownHosts(t)
+
+			host, port := startRejectingSSHServer(t, newHostSigner(t))
+
+			conn, err := NewConnection(Config{
+				Address:     host,
+				Port:        port,
+				User:        "test",
+				AuthMethods: []ssh.AuthMethod{ssh.Password("wrong")},
+			})
+			require.NoError(t, err)
+			t.Cleanup(conn.Disconnect)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			err = conn.Connect(ctx)
+			require.Error(t, err, "the server rejects every credential, so Connect cannot succeed")
+
+			recorded, readErr := os.ReadFile(knownHosts)
+			require.NoError(t, readErr)
+
+			if tc.wantRecord {
+				require.NotEmpty(t, recorded, "the new host key must be recorded")
+				require.ErrorIs(t, err, protocol.ErrAuthFailed,
+					"the host key was accepted, so the failure must be the credential")
+				return
+			}
+
+			require.Empty(t, recorded, "a refused host key must not be written to known_hosts")
+			require.NotErrorIs(t, err, protocol.ErrAuthFailed,
+				"the connection must fail on the host key, before any credential is offered")
+		})
+	}
+}
+
+// TestConnectStrictHostKeyCheckingDevNull covers the escape hatch that a
+// known_hosts path can be. For the recording policies /dev/null works out to
+// accepting everything anyway -- the file reads back empty, so every host is
+// new -- but strict checking must not degrade the same way just because the
+// trust source happens to be empty.
+//
+// The literal is deliberate rather than os.DevNull: it is the string a user
+// writes in ssh_config or the environment, on any platform. Where the path does
+// not resolve, as on Windows, strict refuses for the plainer reason that there
+// is no trust source at all.
+func TestConnectStrictHostKeyCheckingDevNull(t *testing.T) {
+	withConfigParser(t, "Host *\n  StrictHostKeyChecking yes\n")
+	t.Setenv("SSH_AUTH_SOCK", "")
+	t.Setenv("SSH_KNOWN_HOSTS", "/dev/null")
+
+	host, port := startRejectingSSHServer(t, newHostSigner(t))
+
+	conn, err := NewConnection(Config{
+		Address:     host,
+		Port:        port,
+		User:        "test",
+		AuthMethods: []ssh.AuthMethod{ssh.Password("wrong")},
+	})
+	require.NoError(t, err)
+	t.Cleanup(conn.Disconnect)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err = conn.Connect(ctx)
+	require.Error(t, err)
+	require.ErrorIs(t, err, hostkey.ErrHostKeyMismatch,
+		"an empty trust source verifies nothing, so every host is unknown")
+	require.NotErrorIs(t, err, protocol.ErrAuthFailed,
+		"verification must fail before a credential is offered")
+}
+
+// TestConnectStrictHostKeyCheckingEmptyEnv covers rig's own switch for skipping
+// verification, which is the same conflict as /dev/null: an explicit request
+// for strict checking has to win over it, or "yes" is only as strong as the
+// environment it runs in.
+func TestConnectStrictHostKeyCheckingEmptyEnv(t *testing.T) {
+	withConfigParser(t, "Host *\n  StrictHostKeyChecking yes\n")
+	t.Setenv("SSH_AUTH_SOCK", "")
+	t.Setenv("SSH_KNOWN_HOSTS", "")
+
+	host, port := startRejectingSSHServer(t, newHostSigner(t))
+
+	conn, err := NewConnection(Config{
+		Address:     host,
+		Port:        port,
+		User:        "test",
+		AuthMethods: []ssh.AuthMethod{ssh.Password("wrong")},
+	})
+	require.NoError(t, err)
+	t.Cleanup(conn.Disconnect)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err = conn.Connect(ctx)
+	require.ErrorIs(t, err, hostkey.ErrHostKeyMismatch)
+	require.NotErrorIs(t, err, protocol.ErrAuthFailed,
+		"verification must fail before a credential is offered")
+}
+
+// TestConnectStrictHostKeyCheckingGlobalFile pins that strict reads the user
+// and global known_hosts files as one trust set. A key an administrator put in
+// a system-wide file has to count even though the user's own file has never
+// heard of the host -- otherwise turning on strict checking would reject every
+// centrally managed host.
+func TestConnectStrictHostKeyCheckingGlobalFile(t *testing.T) {
+	// The environment takes precedence over both configured files, so an
+	// inherited SSH_KNOWN_HOSTS would decide what this exercises: a path would
+	// stand in for the files below, and an empty value would select reject-all.
+	unsetKnownHostsEnv(t)
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	hostSigner := newHostSigner(t)
+	cfg := &ssh.ServerConfig{
+		ServerVersion: "SSH-2.0-test-linux",
+		PasswordCallback: func(_ ssh.ConnMetadata, _ []byte) (*ssh.Permissions, error) {
+			return nil, errAuthRejected
+		},
+	}
+	cfg.AddHostKey(hostSigner)
+	addr := startSSHServer(t, cfg)
+
+	dir := t.TempDir()
+	// The user file exists but is empty; only the global one knows the host.
+	userFile := filepath.Join(dir, "known_hosts")
+	require.NoError(t, os.WriteFile(userFile, nil, 0o600))
+	globalFile := filepath.Join(dir, "ssh_known_hosts")
+	require.NoError(t, os.WriteFile(globalFile, []byte(fmt.Sprintf("%s %s\n",
+		knownhosts.Normalize(addr),
+		strings.TrimRight(string(ssh.MarshalAuthorizedKey(hostSigner.PublicKey())), "\n"),
+	)), 0o600))
+
+	withConfigParser(t, fmt.Sprintf("Host *\n  StrictHostKeyChecking yes\n  UserKnownHostsFile %s\n  GlobalKnownHostsFile %s\n",
+		userFile, globalFile))
+
+	host, portStr, err := net.SplitHostPort(addr)
+	require.NoError(t, err)
+	port, err := strconv.Atoi(portStr)
+	require.NoError(t, err)
+
+	conn, err := NewConnection(Config{
+		Address:     host,
+		Port:        port,
+		User:        "test",
+		AuthMethods: []ssh.AuthMethod{ssh.Password("wrong")},
+	})
+	require.NoError(t, err)
+	t.Cleanup(conn.Disconnect)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err = conn.Connect(ctx)
+	require.ErrorIs(t, err, protocol.ErrAuthFailed,
+		"the global file's entry must satisfy strict checking, leaving only the credential to fail")
+	require.NotErrorIs(t, err, hostkey.ErrHostKeyMismatch)
+
+	recorded, readErr := os.ReadFile(userFile)
+	require.NoError(t, readErr)
+	require.Empty(t, recorded, "strict checking must not write to the user file either")
+}
+
+// TestConnectStrictHostKeyCheckingSecondUserFile pins that every
+// UserKnownHostsFile entry is a trust source, not just the first. The default
+// list has two entries (~/.ssh/known_hosts and ~/.ssh/known_hosts2), so a host
+// pinned in the second one would otherwise be refused on a stock config.
+//
+// The recording policies keep writing to the first entry, which the subtest
+// below checks, since that is where OpenSSH puts a new key.
+func TestConnectStrictHostKeyCheckingSecondUserFile(t *testing.T) {
+	hostSigner := newHostSigner(t)
+	cfg := &ssh.ServerConfig{
+		ServerVersion: "SSH-2.0-test-linux",
+		PasswordCallback: func(_ ssh.ConnMetadata, _ []byte) (*ssh.Permissions, error) {
+			return nil, errAuthRejected
+		},
+	}
+	cfg.AddHostKey(hostSigner)
+	addr := startSSHServer(t, cfg)
+
+	host, portStr, err := net.SplitHostPort(addr)
+	require.NoError(t, err)
+	port, err := strconv.Atoi(portStr)
+	require.NoError(t, err)
+
+	connect := func(t *testing.T, mode, first, second string) error {
+		t.Helper()
+		unsetKnownHostsEnv(t)
+		t.Setenv("SSH_AUTH_SOCK", "")
+		withConfigParser(t, fmt.Sprintf("Host *\n  StrictHostKeyChecking %s\n  UserKnownHostsFile %s %s\n",
+			mode, first, second))
+
+		conn, cErr := NewConnection(Config{
+			Address:     host,
+			Port:        port,
+			User:        "test",
+			AuthMethods: []ssh.AuthMethod{ssh.Password("wrong")},
+		})
+		require.NoError(t, cErr)
+		t.Cleanup(conn.Disconnect)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return conn.Connect(ctx)
+	}
+
+	pinned := fmt.Sprintf("%s %s\n",
+		knownhosts.Normalize(addr),
+		strings.TrimRight(string(ssh.MarshalAuthorizedKey(hostSigner.PublicKey())), "\n"),
+	)
+
+	t.Run("yes", func(t *testing.T) {
+		dir := t.TempDir()
+		first := filepath.Join(dir, "known_hosts")
+		second := filepath.Join(dir, "known_hosts2")
+		require.NoError(t, os.WriteFile(first, nil, 0o600))
+		require.NoError(t, os.WriteFile(second, []byte(pinned), 0o600))
+
+		err := connect(t, "yes", first, second)
+		require.ErrorIs(t, err, protocol.ErrAuthFailed,
+			"the second file's entry must satisfy strict checking, leaving only the credential to fail")
+		require.NotErrorIs(t, err, hostkey.ErrHostKeyMismatch)
+	})
+
+	t.Run("accept-new", func(t *testing.T) {
+		dir := t.TempDir()
+		first := filepath.Join(dir, "known_hosts")
+		second := filepath.Join(dir, "known_hosts2")
+		require.NoError(t, os.WriteFile(first, nil, 0o600))
+		require.NoError(t, os.WriteFile(second, nil, 0o600))
+
+		require.Error(t, connect(t, "accept-new", first, second))
+
+		recorded, readErr := os.ReadFile(first)
+		require.NoError(t, readErr)
+		require.NotEmpty(t, recorded, "a new key goes in the first entry, as OpenSSH does it")
+		untouched, readErr := os.ReadFile(second)
+		require.NoError(t, readErr)
+		require.Empty(t, untouched, "and nowhere else")
+	})
+}
+
+// TestConnectStrictHostKeyCheckingEnvOverridesGlobal pins the other side of the
+// trust set: SSH_KNOWN_HOSTS overrides the configured files rather than joining
+// them, so a key that only a configured global file vouches for must not be
+// accepted while the environment names a different file. Widening what an
+// explicit override is meant to narrow would be the surprising reading.
+func TestConnectStrictHostKeyCheckingEnvOverridesGlobal(t *testing.T) {
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	hostSigner := newHostSigner(t)
+	cfg := &ssh.ServerConfig{
+		ServerVersion: "SSH-2.0-test-linux",
+		PasswordCallback: func(_ ssh.ConnMetadata, _ []byte) (*ssh.Permissions, error) {
+			return nil, errAuthRejected
+		},
+	}
+	cfg.AddHostKey(hostSigner)
+	addr := startSSHServer(t, cfg)
+
+	dir := t.TempDir()
+	// The global file vouches for the host; the file the environment names does
+	// not, and it is the one that counts.
+	globalFile := filepath.Join(dir, "ssh_known_hosts")
+	require.NoError(t, os.WriteFile(globalFile, []byte(fmt.Sprintf("%s %s\n",
+		knownhosts.Normalize(addr),
+		strings.TrimRight(string(ssh.MarshalAuthorizedKey(hostSigner.PublicKey())), "\n"),
+	)), 0o600))
+	envFile := filepath.Join(dir, "env_known_hosts")
+	require.NoError(t, os.WriteFile(envFile, nil, 0o600))
+
+	withConfigParser(t, fmt.Sprintf("Host *\n  StrictHostKeyChecking yes\n  GlobalKnownHostsFile %s\n", globalFile))
+	t.Setenv("SSH_KNOWN_HOSTS", envFile)
+
+	host, portStr, err := net.SplitHostPort(addr)
+	require.NoError(t, err)
+	port, err := strconv.Atoi(portStr)
+	require.NoError(t, err)
+
+	conn, err := NewConnection(Config{
+		Address:     host,
+		Port:        port,
+		User:        "test",
+		AuthMethods: []ssh.AuthMethod{ssh.Password("wrong")},
+	})
+	require.NoError(t, err)
+	t.Cleanup(conn.Disconnect)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err = conn.Connect(ctx)
+	require.ErrorIs(t, err, hostkey.ErrHostKeyMismatch,
+		"the overridden global file must not vouch for the host")
+	require.NotErrorIs(t, err, protocol.ErrAuthFailed,
+		"verification must fail before a credential is offered")
+}
+
+// TestConnectStrictHostKeyCheckingAcceptsKnownHost is the other half: strict
+// refuses what it cannot find, not everything. A pinned host gets through the
+// handshake and fails on the credential instead.
+func TestConnectStrictHostKeyCheckingAcceptsKnownHost(t *testing.T) {
+	withConfigParser(t, "Host *\n  StrictHostKeyChecking yes\n")
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	hostSigner := newHostSigner(t)
+	cfg := &ssh.ServerConfig{
+		ServerVersion: "SSH-2.0-test-linux",
+		PasswordCallback: func(_ ssh.ConnMetadata, _ []byte) (*ssh.Permissions, error) {
+			return nil, errAuthRejected
+		},
+	}
+	cfg.AddHostKey(hostSigner)
+	addr := startSSHServer(t, cfg)
+	pinHostKey(t, addr, hostSigner)
+
+	host, portStr, err := net.SplitHostPort(addr)
+	require.NoError(t, err)
+	port, err := strconv.Atoi(portStr)
+	require.NoError(t, err)
+
+	conn, err := NewConnection(Config{
+		Address:     host,
+		Port:        port,
+		User:        "test",
+		AuthMethods: []ssh.AuthMethod{ssh.Password("wrong")},
+	})
+	require.NoError(t, err)
+	t.Cleanup(conn.Disconnect)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	require.ErrorIs(t, conn.Connect(ctx), protocol.ErrAuthFailed,
+		"a host key that is already known must pass strict checking, leaving only the credential to fail")
+}
+
 // TestConnectAuthFailure drives Connect against an in-process SSH server that
 // refuses every credential it is offered. The resulting error must be tagged
 // protocol.ErrAuthFailed so callers can fail fast on bad credentials, but must
@@ -846,6 +1241,187 @@ func TestClientConfigRekeyLimit(t *testing.T) {
 	require.Equal(t, uint64(1024*1024), cfg.RekeyThreshold)
 }
 
+// TestUserKnownHostsPaths covers the resolution step on its own. Making
+// StrictHostKeyChecking=yes actually refuse hosts turned three separate
+// masked bugs visible here -- globals ignored, the environment joining instead
+// of overriding, every entry after the first dropped -- because until a policy
+// refused, recording an unknown key hid all of them. A table over the inputs
+// costs less than another end-to-end connect per case.
+func TestUserKnownHostsPaths(t *testing.T) {
+	// Native absolute paths, because homedir.Expand rewrites forward slashes to
+	// backslashes on Windows (homedir/expand_windows.go) and a slash literal
+	// would come back changed there. Nothing reads these paths -- resolution
+	// only expands names -- so they need not exist.
+	var (
+		envFile    = filepath.Join(os.TempDir(), "from-env")
+		firstFile  = filepath.Join(os.TempDir(), "known_hosts")
+		secondFile = filepath.Join(os.TempDir(), "known_hosts2")
+		otherFile  = filepath.Join(os.TempDir(), "also-config")
+	)
+
+	for _, tc := range []struct {
+		name         string
+		env          *string // nil leaves SSH_KNOWN_HOSTS unset
+		configured   []string
+		wantPaths    []string
+		wantFromEnv  bool
+		wantInsecure bool
+	}{
+		{
+			name:        "the environment overrides the config",
+			env:         ptr(envFile),
+			configured:  []string{firstFile, otherFile},
+			wantPaths:   []string{envFile},
+			wantFromEnv: true,
+		},
+		{
+			name:         "an empty environment value is the insecure switch",
+			env:          ptr(""),
+			configured:   []string{firstFile},
+			wantPaths:    nil,
+			wantFromEnv:  true,
+			wantInsecure: true,
+		},
+		{
+			name:       "every configured entry is kept, in order",
+			configured: []string{firstFile, secondFile},
+			wantPaths:  []string{firstFile, secondFile},
+		},
+		{
+			name:       "none anywhere disables the user files",
+			configured: []string{firstFile, "none"},
+			wantPaths:  nil,
+		},
+		{
+			name:       "no configuration resolves to nothing",
+			configured: nil,
+			wantPaths:  nil,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.env == nil {
+				unsetKnownHostsEnv(t)
+			} else {
+				t.Setenv("SSH_KNOWN_HOSTS", *tc.env)
+			}
+
+			conn := &Connection{sshConfig: &sshconfig.Config{UserKnownHostsFile: tc.configured}}
+			paths, fromEnv, insecure := conn.userKnownHostsPaths(context.Background())
+
+			require.Equal(t, tc.wantPaths, paths)
+			require.Equal(t, tc.wantFromEnv, fromEnv)
+			require.Equal(t, tc.wantInsecure, insecure)
+		})
+	}
+}
+
+// TestStrictHostkeyCallbackTrustSources covers the other half: which files the
+// strict callback ends up trusting. The callback is driven directly, so each
+// layout is one assertion rather than a server handshake.
+func TestStrictHostkeyCallbackTrustSources(t *testing.T) {
+	const addr = "127.0.0.1:2222"
+
+	signer := newHostSigner(t)
+	entry := fmt.Sprintf("%s %s\n",
+		knownhosts.Normalize(addr),
+		strings.TrimRight(string(ssh.MarshalAuthorizedKey(signer.PublicKey())), "\n"),
+	)
+	remote := &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 2222}
+
+	// write returns a path to a file holding the given contents.
+	write := func(t *testing.T, name, contents string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), name)
+		require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
+		return path
+	}
+
+	for _, tc := range []struct {
+		name  string
+		files func(t *testing.T) (userPaths, globalPaths []string)
+		want  string // "accept" or "reject"
+	}{
+		{
+			name: "the key is in the only user file",
+			files: func(t *testing.T) ([]string, []string) {
+				return []string{write(t, "known_hosts", entry)}, nil
+			},
+			want: "accept",
+		},
+		{
+			name: "the key is in the second user file",
+			files: func(t *testing.T) ([]string, []string) {
+				return []string{write(t, "known_hosts", ""), write(t, "known_hosts2", entry)}, nil
+			},
+			want: "accept",
+		},
+		{
+			name: "the key is in a global file only",
+			files: func(t *testing.T) ([]string, []string) {
+				return []string{write(t, "known_hosts", "")}, []string{write(t, "ssh_known_hosts", entry)}
+			},
+			want: "accept",
+		},
+		{
+			name: "a missing path is skipped, not fatal",
+			files: func(t *testing.T) ([]string, []string) {
+				return []string{filepath.Join(t.TempDir(), "absent"), write(t, "known_hosts2", entry)}, nil
+			},
+			want: "accept",
+		},
+		{
+			// os.DevNull rather than a literal, so this is the null device on
+			// Windows too instead of merely a path that happens not to exist.
+			name: "the null device is skipped, not fatal",
+			files: func(t *testing.T) ([]string, []string) {
+				return []string{os.DevNull, write(t, "known_hosts2", entry)}, nil
+			},
+			want: "accept",
+		},
+		{
+			name: "the key is nowhere",
+			files: func(t *testing.T) ([]string, []string) {
+				return []string{write(t, "known_hosts", "")}, []string{write(t, "ssh_known_hosts", "")}
+			},
+			want: "reject",
+		},
+		{
+			name: "there are no files at all",
+			files: func(_ *testing.T) ([]string, []string) {
+				return nil, nil
+			},
+			want: "reject",
+		},
+		{
+			name: "the null device is the only trust source",
+			files: func(_ *testing.T) ([]string, []string) {
+				return []string{os.DevNull}, nil
+			},
+			want: "reject",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			userPaths, globalPaths := tc.files(t)
+
+			cb, err := strictHostkeyCallback(context.Background(), userPaths, globalPaths, false)
+			require.NoError(t, err, "an unusable path must not fail the build, only contribute nothing")
+
+			err = cb(addr, remote, signer.PublicKey())
+			if tc.want == "accept" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, hostkey.ErrHostKeyMismatch)
+		})
+	}
+}
+
+// ptr returns a pointer to v, for table entries that need to tell "unset" from
+// "set to the empty string".
+func ptr[T any](v T) *T {
+	return &v
+}
+
 // unsetKnownHostsEnv ensures SSH_KNOWN_HOSTS is not set for the duration of the
 // test so the UserKnownHostsFile/GlobalKnownHostsFile resolution path is
 // exercised instead of the environment override.
@@ -879,6 +1455,263 @@ func TestHostkeyCallbackUserNoneFallsBackToGlobalKnownHostsFile(t *testing.T) {
 	cb, err := c.hostkeyCallback(context.Background(), false)
 	require.NoError(t, err)
 	require.NotNil(t, cb)
+}
+
+// TestHostkeyCallbackUserNonePolicies drives the callback that UserKnownHostsFile
+// none produces, where there is no user file to record a key in and only the
+// global files are left to verify against.
+//
+// The policies have to stay distinguishable there. A read-only trust source
+// refuses a host it cannot find, which is what strict wants, so reducing the
+// policy to mismatch tolerance on this path would leave accept-new behaving
+// exactly like yes -- refusing every host absent from a system file it does not
+// control.
+func TestHostkeyCallbackUserNonePolicies(t *testing.T) {
+	const addr = "127.0.0.1:2222"
+
+	signer := newHostSigner(t)
+	remote := &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 2222}
+	otherKey := newHostSigner(t).PublicKey()
+	entryFor := func(key ssh.PublicKey) string {
+		return fmt.Sprintf("%s %s\n", knownhosts.Normalize(addr),
+			strings.TrimRight(string(ssh.MarshalAuthorizedKey(key)), "\n"))
+	}
+
+	for _, tc := range []struct {
+		name       string
+		policy     options.StrictHostKeyCheckingOption
+		globalHas  ssh.PublicKey // nil writes an empty global file
+		wantAccept bool
+	}{
+		{
+			name:       "accept-new accepts a host the global file has never seen",
+			policy:     options.StrictHostKeyCheckingOptionAcceptNew,
+			wantAccept: true,
+		},
+		{
+			name:       "accept-new still refuses a changed key",
+			policy:     options.StrictHostKeyCheckingOptionAcceptNew,
+			globalHas:  otherKey,
+			wantAccept: false,
+		},
+		{
+			name:       "accept-new accepts the key the global file vouches for",
+			policy:     options.StrictHostKeyCheckingOptionAcceptNew,
+			globalHas:  signer.PublicKey(),
+			wantAccept: true,
+		},
+		{
+			name:       "yes refuses a host the global file has never seen",
+			policy:     options.StrictHostKeyCheckingOptionYes,
+			wantAccept: false,
+		},
+		{
+			name:       "no accepts anything",
+			policy:     options.StrictHostKeyCheckingOptionNo,
+			globalHas:  otherKey,
+			wantAccept: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			unsetKnownHostsEnv(t)
+
+			contents := ""
+			if tc.globalHas != nil {
+				contents = entryFor(tc.globalHas)
+			}
+			globalKH := filepath.Join(t.TempDir(), "ssh_known_hosts")
+			require.NoError(t, os.WriteFile(globalKH, []byte(contents), 0o600))
+
+			conn := &Connection{
+				sshConfig: &sshconfig.Config{
+					UserKnownHostsFile:    []string{"none"},
+					GlobalKnownHostsFile:  []string{globalKH},
+					StrictHostKeyChecking: tc.policy,
+				},
+			}
+
+			cb, err := conn.hostkeyCallback(context.Background(), false)
+			require.NoError(t, err)
+
+			err = cb(addr, remote, signer.PublicKey())
+			if tc.wantAccept {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+		})
+	}
+}
+
+// TestHostkeyCallbackRecordingVerifiesWholeTrustSet covers the default path.
+// accept-new appends a new key to the first user file, but "new" has to mean
+// unknown to every file: verifying against the append target alone would record
+// and accept a key that a later user file, or a system-wide one, already
+// contradicts. The default config has two of each, so this is the stock case.
+func TestHostkeyCallbackRecordingVerifiesWholeTrustSet(t *testing.T) {
+	const addr = "127.0.0.1:2222"
+
+	signer := newHostSigner(t)
+	remote := &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 2222}
+	entryFor := func(key ssh.PublicKey) string {
+		return fmt.Sprintf("%s %s\n", knownhosts.Normalize(addr),
+			strings.TrimRight(string(ssh.MarshalAuthorizedKey(key)), "\n"))
+	}
+	conflicting := entryFor(newHostSigner(t).PublicKey())
+
+	for _, tc := range []struct {
+		name          string
+		secondUser    string // contents of the second UserKnownHostsFile entry
+		global        string // contents of the global file
+		wantAccept    bool
+		wantRecording bool
+	}{
+		{
+			name:          "an unknown host is recorded and accepted",
+			wantAccept:    true,
+			wantRecording: true,
+		},
+		{
+			name:       "a key the second user file contradicts is a mismatch",
+			secondUser: conflicting,
+		},
+		{
+			name:   "a key the global file contradicts is a mismatch",
+			global: conflicting,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			unsetKnownHostsEnv(t)
+
+			dir := t.TempDir()
+			first := filepath.Join(dir, "known_hosts")
+			require.NoError(t, os.WriteFile(first, nil, 0o600))
+			second := filepath.Join(dir, "known_hosts2")
+			require.NoError(t, os.WriteFile(second, []byte(tc.secondUser), 0o600))
+			global := filepath.Join(dir, "ssh_known_hosts")
+			require.NoError(t, os.WriteFile(global, []byte(tc.global), 0o600))
+
+			conn := &Connection{
+				sshConfig: &sshconfig.Config{
+					UserKnownHostsFile:    []string{first, second},
+					GlobalKnownHostsFile:  []string{global},
+					StrictHostKeyChecking: options.StrictHostKeyCheckingOptionAcceptNew,
+				},
+			}
+
+			cb, err := conn.hostkeyCallback(context.Background(), false)
+			require.NoError(t, err)
+
+			err = cb(addr, remote, signer.PublicKey())
+			if tc.wantAccept {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err, "a contradicted key must not be treated as a new host")
+			}
+
+			recorded, readErr := os.ReadFile(first)
+			require.NoError(t, readErr)
+			if tc.wantRecording {
+				require.NotEmpty(t, recorded, "a genuinely new key is appended to the first file")
+				return
+			}
+			require.Empty(t, recorded, "a mismatch must not be recorded")
+		})
+	}
+}
+
+// TestHostkeyCallbackGlobalDevNullAlongsideRealFile pins that the null device is
+// an empty trust source rather than a bypass: listed next to a real file it must
+// not stop that file from being consulted.
+func TestHostkeyCallbackGlobalDevNullAlongsideRealFile(t *testing.T) {
+	const addr = "127.0.0.1:2222"
+
+	signer := newHostSigner(t)
+	remote := &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 2222}
+	conflicting := fmt.Sprintf("%s %s\n", knownhosts.Normalize(addr),
+		strings.TrimRight(string(ssh.MarshalAuthorizedKey(newHostSigner(t).PublicKey())), "\n"))
+
+	unsetKnownHostsEnv(t)
+
+	global := filepath.Join(t.TempDir(), "ssh_known_hosts")
+	require.NoError(t, os.WriteFile(global, []byte(conflicting), 0o600))
+
+	conn := &Connection{
+		sshConfig: &sshconfig.Config{
+			UserKnownHostsFile:    []string{"none"},
+			GlobalKnownHostsFile:  []string{"/dev/null", global},
+			StrictHostKeyChecking: options.StrictHostKeyCheckingOptionAcceptNew,
+		},
+	}
+
+	cb, err := conn.hostkeyCallback(context.Background(), false)
+	require.NoError(t, err)
+	require.Error(t, cb(addr, remote, signer.PublicKey()),
+		"the real file listed after the null device must still be consulted")
+}
+
+// TestHostkeyCallbackUserNoneAggregatesGlobalFiles pins that all the global
+// files form one trust set, not just the first usable one.
+//
+// It matters most under accept-new: "not on file" has to mean absent from every
+// global file. Wrapping each file in turn instead would let the first file's
+// silence be read as "new host, accept" and never reach a conflicting key in
+// the second -- turning a mismatch that should be refused into a connection.
+func TestHostkeyCallbackUserNoneAggregatesGlobalFiles(t *testing.T) {
+	const addr = "127.0.0.1:2222"
+
+	signer := newHostSigner(t)
+	remote := &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 2222}
+	entryFor := func(key ssh.PublicKey) string {
+		return fmt.Sprintf("%s %s\n", knownhosts.Normalize(addr),
+			strings.TrimRight(string(ssh.MarshalAuthorizedKey(key)), "\n"))
+	}
+
+	for _, tc := range []struct {
+		name       string
+		second     ssh.PublicKey // what the second global file vouches for
+		wantAccept bool
+	}{
+		{
+			name:       "a conflicting key in the second file is not bypassed",
+			second:     newHostSigner(t).PublicKey(),
+			wantAccept: false,
+		},
+		{
+			name:       "the second file can vouch for the host",
+			second:     signer.PublicKey(),
+			wantAccept: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			unsetKnownHostsEnv(t)
+
+			dir := t.TempDir()
+			// The first file is empty, so on its own it would say "unknown".
+			first := filepath.Join(dir, "ssh_known_hosts")
+			require.NoError(t, os.WriteFile(first, nil, 0o600))
+			second := filepath.Join(dir, "ssh_known_hosts2")
+			require.NoError(t, os.WriteFile(second, []byte(entryFor(tc.second)), 0o600))
+
+			conn := &Connection{
+				sshConfig: &sshconfig.Config{
+					UserKnownHostsFile:    []string{"none"},
+					GlobalKnownHostsFile:  []string{first, second},
+					StrictHostKeyChecking: options.StrictHostKeyCheckingOptionAcceptNew,
+				},
+			}
+
+			cb, err := conn.hostkeyCallback(context.Background(), false)
+			require.NoError(t, err)
+
+			err = cb(addr, remote, signer.PublicKey())
+			if tc.wantAccept {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err, "the second file's entry must still be consulted")
+		})
+	}
 }
 
 func TestHostkeyCallbackUserNoneAfterValidPathFallsBackToGlobal(t *testing.T) {
