@@ -351,47 +351,99 @@ func commandRanAndFailed(err error) bool {
 	return false
 }
 
-func (s *PosixFS) multiStat(names ...string) ([]fs.FileInfo, error) { //nolint:cyclop // TODO refactor
+// statBatchBytes caps how much of a stat command line one batch may fill. The
+// limit is on the arguments alone, so it leaves room for the command itself
+// within a conservative view of the remote ARG_MAX.
+const statBatchBytes = 1024
+
+// statBatch quotes names into one command line, starting at idx and stopping
+// once the batch is full or the names run out. It returns the batch and the
+// index to continue from, which always advances, so a caller looping until the
+// names are exhausted terminates.
+//
+// Empty names are skipped rather than passed to stat, which would read them as
+// a missing operand and fail the whole batch. A batch of nothing but empty
+// names therefore comes back empty.
+func statBatch(names []string, idx int) (string, int) {
+	var batch strings.Builder
+	batch.Grow(statBatchBytes)
+	for batch.Len() < statBatchBytes && idx < len(names) {
+		if names[idx] != "" {
+			if batch.Len() > 0 {
+				batch.WriteRune(' ')
+			}
+			batch.WriteString(shellescape.Quote(names[idx]))
+		}
+		idx++
+	}
+	return batch.String(), idx
+}
+
+// statScanError explains a stat command that failed rather than a path that
+// could not be parsed.
+//
+// A single name gets the os package's treatment: a command that ran and exited
+// non-zero means the path is not there, while anything else -- a transport
+// failure, a stat that is not installed -- says nothing about the path and is
+// reported as it came. Several names cannot pin the failure on one of them, so
+// the whole batch is named instead.
+func statScanError(err error, names []string) error {
+	if len(names) != 1 {
+		return fmt.Errorf("stat %s: %w", names, err)
+	}
+	if commandRanAndFailed(err) {
+		return PathError(OpStat, names[0], fs.ErrNotExist)
+	}
+	return PathErrorf(OpStat, names[0], "stat: %w", err)
+}
+
+// appendStatLines parses every line the scanner yields onto res and returns it,
+// so a failure part way through still carries what was read before it.
+func (s *PosixFS) appendStatLines(scanner *bufio.Scanner, res []fs.FileInfo) ([]fs.FileInfo, error) {
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		info, err := s.parseStat(line)
+		if err != nil {
+			return res, err
+		}
+		res = append(res, info)
+	}
+	return res, nil
+}
+
+func (s *PosixFS) multiStat(names ...string) ([]fs.FileInfo, error) {
 	if err := s.initStat(); err != nil {
 		return nil, err
 	}
-	var idx int
 	res := make([]fs.FileInfo, 0, len(names))
-	var batch strings.Builder
-	batch.Grow(1024)
-	for idx < len(names) {
-		batch.Reset()
-		// build max 1kb batches of names to stat
-		for batch.Len() < 1024 && idx < len(names) {
-			if names[idx] != "" {
-				batch.WriteString(shellescape.Quote(names[idx]))
-				if idx < len(names)-1 {
-					batch.WriteRune(' ')
-				}
-			}
-			idx++
+	for idx := 0; idx < len(names); {
+		var batch string
+		batch, idx = statBatch(names, idx)
+		if batch == "" {
+			// Every name in this batch was empty. Running stat with no operands
+			// would only fail, and Stat turns the missing result into ErrNotExist
+			// on its own.
+			continue
 		}
 
-		scanner := s.ExecScanner(fmt.Sprintf(*s.statCmd, batch.String()))
-		for scanner.Scan() {
-			line := scanner.Text()
-			if line == "" {
-				continue
-			}
-			info, err := s.parseStat(line)
-			if err != nil {
-				return res, err
-			}
-			res = append(res, info)
+		scanner := s.ExecScanner(fmt.Sprintf(*s.statCmd, batch))
+		// Assigned, not declared: a := here would shadow res and quietly drop
+		// every batch's results.
+		var err error
+		res, err = s.appendStatLines(scanner, res)
+		if err != nil {
+			return res, err
 		}
 		if err := scanner.Err(); err != nil {
 			if len(names) == 1 {
-				if commandRanAndFailed(err) {
-					return nil, PathError(OpStat, names[0], fs.ErrNotExist)
-				}
-				return nil, PathErrorf(OpStat, names[0], "stat: %w", err)
+				// A lone name is answered as a path error, so a partial result is
+				// not worth carrying back.
+				return nil, statScanError(err, names)
 			}
-			return res, fmt.Errorf("stat %s: %w", names, err)
+			return res, statScanError(err, names)
 		}
 	}
 	return res, nil
