@@ -1391,19 +1391,25 @@ func setupInteractivePTY(session *ssh.Session, inF *os.File) (func(), error) {
 // prepareSessionInput wires stdin to the session. If stdin is a terminal
 // *os.File a PTY is requested and a raw-mode restore function is returned;
 // otherwise the reader is used as-is and the restore is a no-op.
-func prepareSessionInput(session *ssh.Session, stdin io.Reader) (input io.Reader, restore func(), err error) {
+//
+// tty is that terminal when a PTY was requested and nil otherwise, so a caller
+// can tell whether the remote end has a line discipline to interpret control
+// characters and resizes -- and measure the right terminal, which need not be
+// os.Stdin.
+func prepareSessionInput(session *ssh.Session, stdin io.Reader) (input io.Reader, tty *os.File, restore func(), err error) {
 	restore = func() {}
 	inF, ok := stdin.(*os.File)
 	if !ok {
-		return stdin, restore, nil
+		return stdin, nil, restore, nil
 	}
 	if term.IsTerminal(int(inF.Fd())) {
 		restore, err = setupInteractivePTY(session, inF)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
+		tty = inF
 	}
-	return inF, restore, nil
+	return inF, tty, restore, nil
 }
 
 // defaultInteractiveStreams replaces nil streams with the process's standard
@@ -1453,7 +1459,7 @@ func (c *Connection) ExecInteractive(ctx context.Context, cmd string, stdin io.R
 	session.Stdout = stdout
 	session.Stderr = stderr
 
-	input, restoreTerm, err := prepareSessionInput(session, stdin)
+	input, tty, restoreTerm, err := prepareSessionInput(session, stdin)
 	if err != nil {
 		return err
 	}
@@ -1467,7 +1473,7 @@ func (c *Connection) ExecInteractive(ctx context.Context, cmd string, stdin io.R
 		_, _ = io.Copy(stdinpipe, input)
 	}()
 
-	cancel := captureSignals(stdinpipe, session)
+	cancel := captureSignals(ctx, stdinpipe, session, tty)
 	defer cancel()
 
 	if cmd == "" {
