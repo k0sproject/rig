@@ -29,6 +29,7 @@ var (
 	errGrepFailed              = errors.New("grep failed")
 	errTestFailed              = errors.New("test failed")
 	errStatInitFailed          = errors.New("stat command not found or unsupported stat implementation")
+	errEmptyTempPath           = errors.New("no temporary file path returned") // also returned by WinFS.CreateTemp
 
 	// The modification time is read from %y, which spells the timestamp out, rather
 	// than from the epoch seconds of %.9Y: the uutils (Rust) reimplementation of
@@ -527,17 +528,45 @@ func (s *PosixFS) ChownTreeInt(name string, uid, gid int) error {
 	return nil
 }
 
-// DownloadURL downloads the contents of url to dst. It prefers curl when available
-// and falls back to wget. Returns a descriptive error if neither is available.
+// DownloadURL downloads the contents of url to dst.
+//
+// The transfer goes to a temporary file next to dst and is renamed into place
+// only once it completes, so an interrupted download never leaves a truncated
+// file sitting at dst looking complete.
 func (s *PosixFS) DownloadURL(url, dst string) error {
+	return downloadURL(s, url, dst)
+}
+
+// fetchURL downloads url into dst. It prefers curl when available and falls
+// back to wget. Returns a descriptive error if neither is available.
+//
+// Resuming appends to whatever is already at dst, which is only sound because
+// the callers point it at a partial file they created themselves for this same
+// url. Neither tool can tell whether a local file is a valid prefix of the
+// remote one, so it must never be aimed at a file of unknown origin.
+//
+// wget takes -c alongside -qO even though its manual says -O truncates the
+// output file immediately: with -c it does not, and wget still sends the range
+// request (measured with wget 1.25 against a range-serving host).
+func (s *PosixFS) fetchURL(ctx context.Context, url, dst string, resume bool) error {
 	if _, err := s.LookPath("curl"); err == nil {
-		if err := s.Exec(sh.Command("curl", "-sSLf", "-o", dst, "--", url)); err != nil {
+		args := []string{"-sSLf", "-o", dst}
+		if resume {
+			args = append(args, "-C", "-")
+		}
+		args = append(args, "--", url)
+		if err := s.ExecContext(ctx, sh.Command("curl", args...), cmd.Sensitive()); err != nil {
 			return fmt.Errorf("download %s: %w", url, err)
 		}
 		return nil
 	}
 	if _, err := s.LookPath("wget"); err == nil {
-		if err := s.Exec(sh.Command("wget", "-qO", dst, "--", url)); err != nil {
+		args := []string{}
+		if resume {
+			args = append(args, "-c")
+		}
+		args = append(args, "-qO", dst, "--", url)
+		if err := s.ExecContext(ctx, sh.Command("wget", args...), cmd.Sensitive()); err != nil {
 			return fmt.Errorf("download %s: %w", url, err)
 		}
 		return nil
@@ -1019,6 +1048,13 @@ func (s *PosixFS) CreateTemp(dir, prefix string) (string, error) {
 	out, err := s.ExecOutput(sh.Command("mktemp", "--", s.Join(dir, prefix+"XXXXXX")))
 	if err != nil {
 		return "", fmt.Errorf("create temp %s: %w", dir, err)
+	}
+	// mktemp always prints the path it created, so silence means the command
+	// succeeded without doing the job. An empty string is not a path to anything:
+	// the callers would go on to run curl -o '' and mv -f '' dst, which fail
+	// naming nothing at all, a long way from the cause.
+	if out == "" {
+		return "", fmt.Errorf("create temp %s: %w", dir, errEmptyTempPath)
 	}
 	return out, nil
 }
