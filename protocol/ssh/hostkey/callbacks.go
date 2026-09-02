@@ -58,23 +58,39 @@ var KnownHostsPathFromEnv = func() (string, bool) {
 
 // KnownHostsFileCallback returns a HostKeyCallback that uses a known hosts file to verify host keys.
 func KnownHostsFileCallback(path string, permissive, hash bool) (ssh.HostKeyCallback, error) {
-	if path == devNull {
+	return KnownHostsFilesCallback(path, nil, permissive, hash)
+}
+
+// KnownHostsFilesCallback verifies a host key against writePath and every file
+// in alsoVerify, and records the key of a host that none of them knows in
+// writePath.
+//
+// That split is OpenSSH's: a new entry is appended to the first file, while
+// every file counts when deciding whether the host is new at all. Verifying
+// against writePath alone would classify a host as new whenever the first file
+// happens not to mention it -- and then record and accept a key that a later
+// user file, or a system-wide one, says belongs to a different host key.
+//
+// Each alsoVerify path must be an existing regular file; writePath is created
+// when it does not exist, since it is where a new key goes.
+func KnownHostsFilesCallback(writePath string, alsoVerify []string, permissive, hash bool) (ssh.HostKeyCallback, error) {
+	if writePath == devNull {
 		return InsecureIgnoreHostKeyCallback, nil
 	}
 
 	mu.Lock()
 	defer mu.Unlock()
 
-	if err := ensureFile(path); err != nil {
+	if err := ensureFile(writePath); err != nil {
 		return nil, err
 	}
 
-	hkc, err := knownhosts.New(path)
+	hkc, err := knownhosts.New(append([]string{writePath}, alsoVerify...)...)
 	if err != nil {
 		return nil, fmt.Errorf("%w: knownhosts callback: %w", ErrCheckHostKey, err)
 	}
 
-	return wrapCallback(hkc, path, permissive, hash), nil
+	return wrapCallback(hkc, writePath, permissive, hash), nil
 }
 
 // KnownHostsReadOnlyFileCallback returns a HostKeyCallback that only reads from
@@ -86,46 +102,101 @@ func KnownHostsReadOnlyFileCallback(path string, permissive bool) (ssh.HostKeyCa
 		return InsecureIgnoreHostKeyCallback, nil
 	}
 
-	stat, err := os.Stat(path)
+	hkc, err := readOnlyChecker([]string{path})
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrCheckHostKey, err)
+		return nil, err
 	}
-	if !stat.Mode().IsRegular() {
-		return nil, fmt.Errorf("%w: %s is not a regular file", ErrCheckHostKey, path)
+
+	return wrapReadOnlyCallback(hkc, permissive), nil
+}
+
+// KnownHostsReadOnlyFilesCallback is [KnownHostsReadOnlyFileCallback] over
+// several known_hosts files read as one trust set: a key matching an entry in
+// any of them is accepted, and a host is unknown only when none of them
+// mentions it. That is how OpenSSH reads a user's file together with the
+// system-wide ones, and it is what lets an administrator's entry in
+// /etc/ssh/ssh_known_hosts count even when the user's own file has never heard
+// of the host.
+//
+// Every path must be an existing regular file. /dev/null is not special here:
+// a caller combining trust sources has no use for one that verifies nothing,
+// and it is not a regular file, so it is rejected like any other non-file.
+func KnownHostsReadOnlyFilesCallback(paths []string, permissive bool) (ssh.HostKeyCallback, error) {
+	hkc, err := readOnlyChecker(paths)
+	if err != nil {
+		return nil, err
+	}
+
+	return wrapReadOnlyCallback(hkc, permissive), nil
+}
+
+// KnownHostsReadOnlyFilesCallbackWithIPCheck is [KnownHostsReadOnlyFilesCallback]
+// with the connecting IP address verified as well, sharing one parse of the
+// files between the hostname and IP checks.
+func KnownHostsReadOnlyFilesCallbackWithIPCheck(paths []string, permissive bool) (ssh.HostKeyCallback, error) {
+	hkc, err := readOnlyChecker(paths)
+	if err != nil {
+		return nil, err
+	}
+
+	return wrapCheckHostIP(wrapReadOnlyCallback(hkc, permissive), hkc, permissive), nil
+}
+
+// readOnlyChecker parses paths into a single knownhosts checker, requiring each
+// to be an existing regular file. All of them are checked before any is parsed,
+// so an unusable path is reported rather than silently contributing nothing.
+func readOnlyChecker(paths []string) (ssh.HostKeyCallback, error) {
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("%w: no known_hosts files to verify against", ErrCheckHostKey)
+	}
+	for _, path := range paths {
+		stat, err := os.Stat(path)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrCheckHostKey, err)
+		}
+		if !stat.Mode().IsRegular() {
+			return nil, fmt.Errorf("%w: %s is not a regular file", ErrCheckHostKey, path)
+		}
 	}
 
 	mu.Lock()
 	defer mu.Unlock()
 
-	hkc, err := knownhosts.New(path)
+	hkc, err := knownhosts.New(paths...)
 	if err != nil {
 		return nil, fmt.Errorf("%w: knownhosts callback: %w", ErrCheckHostKey, err)
 	}
-
-	return wrapReadOnlyCallback(hkc, permissive), nil
+	return hkc, nil
 }
 
 // KnownHostsFileCallbackWithIPCheck is like KnownHostsFileCallback but also
 // verifies the connecting IP address. It parses the known_hosts file once,
 // sharing the checker between hostname and IP verification.
 func KnownHostsFileCallbackWithIPCheck(path string, permissive, hash bool) (ssh.HostKeyCallback, error) {
-	if path == devNull {
+	return KnownHostsFilesCallbackWithIPCheck(path, nil, permissive, hash)
+}
+
+// KnownHostsFilesCallbackWithIPCheck is [KnownHostsFilesCallback] with the
+// connecting IP address verified as well, sharing one parse of the files
+// between the hostname and IP checks.
+func KnownHostsFilesCallbackWithIPCheck(writePath string, alsoVerify []string, permissive, hash bool) (ssh.HostKeyCallback, error) {
+	if writePath == devNull {
 		return InsecureIgnoreHostKeyCallback, nil
 	}
 
 	mu.Lock()
 	defer mu.Unlock()
 
-	if err := ensureFile(path); err != nil {
+	if err := ensureFile(writePath); err != nil {
 		return nil, err
 	}
 
-	hkc, err := knownhosts.New(path)
+	hkc, err := knownhosts.New(append([]string{writePath}, alsoVerify...)...)
 	if err != nil {
 		return nil, fmt.Errorf("%w: knownhosts callback: %w", ErrCheckHostKey, err)
 	}
 
-	return wrapCheckHostIP(wrapCallback(hkc, path, permissive, hash), hkc, permissive), nil
+	return wrapCheckHostIP(wrapCallback(hkc, writePath, permissive, hash), hkc, permissive), nil
 }
 
 // KnownHostsReadOnlyFileCallbackWithIPCheck is like KnownHostsReadOnlyFileCallback
@@ -136,30 +207,21 @@ func KnownHostsReadOnlyFileCallbackWithIPCheck(path string, permissive bool) (ss
 		return InsecureIgnoreHostKeyCallback, nil
 	}
 
-	stat, err := os.Stat(path)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrCheckHostKey, err)
-	}
-	if !stat.Mode().IsRegular() {
-		return nil, fmt.Errorf("%w: %s is not a regular file", ErrCheckHostKey, path)
-	}
-
-	mu.Lock()
-	defer mu.Unlock()
-
-	hkc, err := knownhosts.New(path)
-	if err != nil {
-		return nil, fmt.Errorf("%w: knownhosts callback: %w", ErrCheckHostKey, err)
-	}
-
-	return wrapCheckHostIP(wrapReadOnlyCallback(hkc, permissive), hkc, permissive), nil
+	return KnownHostsReadOnlyFilesCallbackWithIPCheck([]string{path}, permissive)
 }
 
-// extends a knownhosts callback to not return an error when the key
-// is not found in the known_hosts file but instead adds it to the file as new
-// entry.
+// wrapCallback extends a knownhosts callback to record the key of a host that
+// is not in the known_hosts file yet and accept it, instead of returning an
+// error. A host whose recorded key has changed is still a mismatch.
+//
+// That is OpenSSH's StrictHostKeyChecking=accept-new. The other modes are
+// composed from the pieces here rather than being options on this callback:
+// "yes" is [KnownHostsReadOnlyFileCallback], whose refusal to record a key is
+// the whole of what strict means, and "no" is the permissive flag, which
+// downgrades a mismatch to a warning on stderr. "ask" has no meaning without a
+// terminal to ask at, so a caller with no answer to give picks between
+// accept-new and yes.
 func wrapCallback(hkc ssh.HostKeyCallback, path string, permissive, hash bool) ssh.HostKeyCallback {
-	// TODO this should also support the "accept-new" of StrictHostKeyChecking and possibly some other options.
 	return ssh.HostKeyCallback(func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 		mu.Lock()
 		defer mu.Unlock()
@@ -238,6 +300,29 @@ func wrapReadOnlyCallback(hkc ssh.HostKeyCallback, permissive bool) ssh.HostKeyC
 		}
 		return fmt.Errorf("%w: unknown host: %w", ErrHostKeyMismatch, err)
 	})
+}
+
+// AcceptUnknownHosts wraps cb so that a host it has never seen is accepted
+// rather than refused, while a host whose recorded key has changed remains a
+// mismatch. Any other error is passed through untouched.
+//
+// This is StrictHostKeyChecking=accept-new applied to a trust source that
+// cannot be written to, such as a system-wide known_hosts file: the key is
+// accepted but not recorded, so the next connection reaches the same decision
+// again rather than pinning what it saw the first time. Where a writable user
+// file exists, [KnownHostsFileCallback] is the better fit, since it records the
+// key and so can detect a later change.
+func AcceptUnknownHosts(cb ssh.HostKeyCallback) ssh.HostKeyCallback {
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		err := cb(hostname, remote, key)
+		var keyErr *knownhosts.KeyError
+		if errors.As(err, &keyErr) && len(keyErr.Want) == 0 {
+			// An empty Want is knownhosts' way of saying the host is not on
+			// file at all, as opposed to being on file under another key.
+			return nil
+		}
+		return err
+	}
 }
 
 // WithCheckHostIP wraps cb to also verify the connecting IP address in

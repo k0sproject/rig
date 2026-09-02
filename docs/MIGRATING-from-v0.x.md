@@ -753,13 +753,60 @@ same code works on both Linux and Windows targets.
 v2's host key behaviour follows OpenSSH conventions and is controlled by the same
 fields in `~/.ssh/config`:
 
-- **`StrictHostKeyChecking no`** disables host key verification (permissive mode).
-  Rig reads this from the parsed ssh_config and passes it through.
-- **`UserKnownHostsFile`** selects which known_hosts file to use. The first valid
-  entry in the list is used.
+- **`StrictHostKeyChecking`** selects how an unknown or changed host key is
+  treated. All four values are recognised, but only three behave as OpenSSH does:
+  `ask` has no terminal to prompt at, so it is treated as `accept-new`. See
+  [modes and trust sources](#stricthostkeychecking-modes-and-trust-sources) below.
+- **`UserKnownHostsFile`** selects the known_hosts files. A new key is recorded in
+  the first valid entry, as OpenSSH does it, but every entry counts when a key is
+  being verified — the default list has two.
 - **`HashKnownHosts yes`** causes new entries to be stored as hashed values.
 - The `SSH_KNOWN_HOSTS` environment variable, if set, overrides the config file path.
-  Setting it to an empty string disables host key checking entirely.
+  Setting it to an empty string disables host key checking entirely — except under
+  `StrictHostKeyChecking yes`, which refuses every host instead of honouring the
+  bypass. See [modes and trust sources](#stricthostkeychecking-modes-and-trust-sources).
+
+### `StrictHostKeyChecking` modes and trust sources
+
+What the modes differ in is how a host that is not on file is treated. `ask` is
+the one rig cannot implement the way OpenSSH does — there is no terminal to
+prompt at — so it is mapped onto `accept-new` rather than refused as unsupported:
+
+| Value | Not on file | Recorded key changed |
+|---|---|---|
+| `yes` | refused | refused |
+| `accept-new` | recorded, then accepted | refused |
+| `ask` | recorded, then accepted | refused |
+| `no` / `off` | recorded, then accepted | accepted, warning on stderr |
+| unset | recorded, then accepted | refused |
+
+**`yes` no longer records keys.** Through v2.1.x every value except `no` took the
+recording path, so `yes` behaved as `accept-new`: rig connected to, and stored the
+key of, a host it had been told to refuse. If you were relying on that, ask for
+`accept-new`, which is the mode that describes it.
+
+Trust is assembled the same way for every mode:
+
+- Every `UserKnownHostsFile` entry and every `GlobalKnownHostsFile` entry is read
+  as **one trust set**, the way OpenSSH reads them, so a key suffices on its own
+  wherever it sits: the second entry of the user list (the default list has two,
+  `~/.ssh/known_hosts` and `~/.ssh/known_hosts2`) or a file an administrator
+  maintains, such as `/etc/ssh/ssh_known_hosts`.
+- A recording mode appends a new key to the **first** user entry, again as
+  OpenSSH does, but it decides whether the host is new at all against the whole
+  set. So a key that any file contradicts is a mismatch, not a new host, and is
+  neither recorded nor accepted.
+- `SSH_KNOWN_HOSTS` **replaces** those files rather than joining them. Setting it
+  to an empty string is rig's switch for skipping verification altogether, and
+  `yes` does not honour it: an explicit request for strict checking outranks the
+  bypass, so every host is refused. Drop `yes` if you want the switch.
+- A path that is missing or is not a regular file contributes nothing rather than
+  failing the connection. `/dev/null` is one such path: listed beside a real file
+  it is simply an empty source and does not stop that file from being consulted.
+  As the only source it means no verification is possible, which `no` and
+  `accept-new` take as "accept" while `yes` refuses every host.
+- Under `yes` nothing is written, so a known_hosts file that does not exist is
+  not created either.
 
 Host key mismatch errors are automatically wrapped with `ErrNonRetryable`, so the
 v0.x string-match workaround (`strings.Contains(err.Error(), "host key mismatch")`) is

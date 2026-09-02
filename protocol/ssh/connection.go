@@ -541,13 +541,68 @@ func (c *Connection) IsWindows() bool {
 	return c.detectWindows(ctx)
 }
 
-func knownhostsCallback(path string, permissive, hash, checkIP bool) (ssh.HostKeyCallback, error) {
+// hostKeyPolicy is how a known_hosts file is applied, which is what
+// StrictHostKeyChecking selects.
+type hostKeyPolicy int
+
+const (
+	// hostKeyAcceptNew records the key of a host that is not in known_hosts yet
+	// and accepts it, while a host whose recorded key has changed is refused.
+	// OpenSSH's "accept-new".
+	hostKeyAcceptNew hostKeyPolicy = iota
+
+	// hostKeyStrict refuses any host that is not already in known_hosts and
+	// never records a key. OpenSSH's "yes".
+	hostKeyStrict
+
+	// hostKeyPermissive accepts an unknown host and a changed key alike.
+	// OpenSSH's "no" and "off".
+	hostKeyPermissive
+)
+
+// permissive reports whether mismatches are tolerated, which is the one knob
+// the hostkey callbacks take.
+func (p hostKeyPolicy) permissive() bool {
+	return p == hostKeyPermissive
+}
+
+// devNull is the conventional discard-everything path. Pointing a known_hosts
+// option at it is taken as shorthand for not verifying host keys, except under
+// strict checking -- see [hostKeyRejectAll].
+const devNull = "/dev/null"
+
+// hostKeyRejectAll refuses every host key.
+//
+// It stands in for a known_hosts of /dev/null under strict checking. For the
+// recording policies that path works out to accepting everything anyway, since
+// the file reads back empty and so every host is new, and the hostkey package
+// takes the shortcut of not verifying at all. Strict must not degrade the same
+// way: /dev/null is not permission to skip verification, it is a trust source
+// with nothing in it, and nothing verifies against nothing. OpenSSH arrives at
+// the same place, an empty known_hosts file plus StrictHostKeyChecking=yes
+// leaving every host unknown and every connection refused.
+func hostKeyRejectAll(source string) ssh.HostKeyCallback {
+	return func(hostname string, _ net.Addr, _ ssh.PublicKey) error {
+		return fmt.Errorf("%w: unknown host %s: no trusted host keys (%s)",
+			hostkey.ErrHostKeyMismatch, hostname, source)
+	}
+}
+
+// knownhostsCallback builds a validator that records the key of a host it has
+// not seen, so it serves accept-new and the permissive policy; strict is built
+// by [strictHostkeyCallback] instead, which must not write anything.
+//
+// writePath is where a new key is appended, and alsoVerify carries the rest of
+// the trust set. Both are needed: a host is only new when no file knows it, so
+// verifying against the append target alone would record and accept a key that
+// another user file or a system-wide one already contradicts.
+func knownhostsCallback(writePath string, alsoVerify []string, policy hostKeyPolicy, hash, checkIP bool) (ssh.HostKeyCallback, error) {
 	var err error
 	var callback ssh.HostKeyCallback
 	if checkIP {
-		callback, err = hostkey.KnownHostsFileCallbackWithIPCheck(path, permissive, hash)
+		callback, err = hostkey.KnownHostsFilesCallbackWithIPCheck(writePath, alsoVerify, policy.permissive(), hash)
 	} else {
-		callback, err = hostkey.KnownHostsFileCallback(path, permissive, hash)
+		callback, err = hostkey.KnownHostsFilesCallback(writePath, alsoVerify, policy.permissive(), hash)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("%w: create host key validator: %w", protocol.ErrNonRetryable, err)
@@ -555,27 +610,60 @@ func knownhostsCallback(path string, permissive, hash, checkIP bool) (ssh.HostKe
 	return callback, nil
 }
 
-func knownhostsGlobalCallback(path string, permissive, checkIP bool) (ssh.HostKeyCallback, error) {
+// knownhostsGlobalCallback builds a validator for a global known_hosts file.
+// These are never written to whatever the policy is -- they are system files
+// such as /etc/ssh/ssh_known_hosts.
+//
+// This is reached only when there is no user file to record keys in, which
+// UserKnownHostsFile none asks for. accept-new still has to accept a host it
+// has not seen there, so it is wrapped: read-only alone would refuse one, which
+// is the strict behaviour, and reducing the policy to mismatch tolerance would
+// leave accept-new indistinguishable from yes on this path.
+func knownhostsGlobalCallback(paths []string, policy hostKeyPolicy, checkIP bool) (ssh.HostKeyCallback, error) {
 	var err error
 	var callback ssh.HostKeyCallback
 	if checkIP {
-		callback, err = hostkey.KnownHostsReadOnlyFileCallbackWithIPCheck(path, permissive)
+		callback, err = hostkey.KnownHostsReadOnlyFilesCallbackWithIPCheck(paths, policy.permissive())
 	} else {
-		callback, err = hostkey.KnownHostsReadOnlyFileCallback(path, permissive)
+		callback, err = hostkey.KnownHostsReadOnlyFilesCallback(paths, policy.permissive())
 	}
 	if err != nil {
-		return nil, fmt.Errorf("create host key validator for %s: %w", path, err)
+		return nil, fmt.Errorf("create host key validator for %s: %w", strings.Join(paths, ", "), err)
+	}
+	if policy == hostKeyAcceptNew {
+		// Wrapping one aggregate checker rather than each file in turn is what
+		// makes this safe: "not on file" has to mean absent from every global
+		// file, or a conflicting key in a later one would never be reached.
+		callback = hostkey.AcceptUnknownHosts(callback)
 	}
 	return callback, nil
 }
 
-func isPermissive(ctx context.Context, c *Connection) bool {
-	if c.sshConfig.StrictHostKeyChecking.IsFalse() {
-		log.Trace(ctx, "config StrictHostKeyChecking is set to 'no'", log.KeyHost, c)
-		return true
+// hostKeyPolicyFor reads the policy out of StrictHostKeyChecking.
+//
+// "ask" cannot be honoured as OpenSSH does it, since rig has no terminal to ask
+// at, and failing every first connection instead would be a poor trade for a
+// library that provisions hosts. It is treated as "accept-new", which is also
+// what an unset value has always done here: record a new host, refuse a changed
+// key. Callers that want a first connection refused can say so with "yes".
+func hostKeyPolicyFor(ctx context.Context, conn *Connection) hostKeyPolicy {
+	shkc := conn.sshConfig.StrictHostKeyChecking
+	switch {
+	case shkc.IsFalse():
+		log.Trace(ctx, "config StrictHostKeyChecking is 'no', host key mismatches are tolerated", log.KeyHost, conn)
+		return hostKeyPermissive
+	case shkc.IsTrue():
+		log.Trace(ctx, "config StrictHostKeyChecking is 'yes', unknown hosts are refused", log.KeyHost, conn)
+		return hostKeyStrict
+	case shkc.IsAcceptNew():
+		log.Trace(ctx, "config StrictHostKeyChecking is 'accept-new'", log.KeyHost, conn)
+		return hostKeyAcceptNew
+	default:
+		if shkc.IsAsk() {
+			log.Trace(ctx, "config StrictHostKeyChecking is 'ask', treating it as 'accept-new'", log.KeyHost, conn)
+		}
+		return hostKeyAcceptNew
 	}
-
-	return false
 }
 
 func shouldHash(ctx context.Context, c *Connection) bool {
@@ -590,77 +678,203 @@ func (c *Connection) hostkeyCallback(ctx context.Context, checkIP bool) (ssh.Hos
 	knownHostsMU.Lock()
 	defer knownHostsMU.Unlock()
 
-	permissive := isPermissive(ctx, c)
+	policy := hostKeyPolicyFor(ctx, c)
 	hash := shouldHash(ctx, c)
 
 	if checkIP {
 		log.Trace(ctx, "CheckHostIP enabled, IP verification active", log.KeyHost, c)
 	}
 
-	if path, ok := hostkey.KnownHostsPathFromEnv(); ok {
-		if path == "" {
-			return hostkey.InsecureIgnoreHostKeyCallback, nil
+	khPaths, fromEnv, insecure := c.userKnownHostsPaths(ctx)
+	if insecure {
+		// An empty SSH_KNOWN_HOSTS is rig's own switch for skipping host key
+		// verification. It cannot outrank an explicit request for strict
+		// checking: refusing is the only answer that honours both, and a caller
+		// who wants the switch can stop asking for "yes".
+		if policy == hostKeyStrict {
+			return hostKeyRejectAll("SSH_KNOWN_HOSTS is empty"), nil
 		}
-		c.Log().Debug("using known_hosts file from SSH_KNOWN_HOSTS", log.HostAttr(c), log.KeyFile, path)
-		return knownhostsCallback(path, permissive, hash, checkIP)
+		return hostkey.InsecureIgnoreHostKeyCallback, nil
 	}
 
-	var khPath string
+	// The global files join the trust set only when the user path came from the
+	// config: SSH_KNOWN_HOSTS overrides the configured paths rather than adding
+	// to them, and joining the globals to it would quietly widen what an
+	// explicit override is meant to narrow.
+	globalPaths := c.sshConfig.GlobalKnownHostsFile
+	if fromEnv {
+		globalPaths = nil
+	}
+
+	// Strict reads every trust source together and writes to none of them, so
+	// it does not care which file the user's own entries would go in.
+	if policy == hostKeyStrict {
+		return strictHostkeyCallback(ctx, khPaths, globalPaths, checkIP)
+	}
+
+	// A recording policy needs one file to write to, and OpenSSH appends to the
+	// first of the list -- but it still decides "is this host new?" against
+	// every file, so the rest of the set comes along for verification only.
+	if len(khPaths) > 0 {
+		log.Trace(ctx, "recording new host keys in known_hosts file", log.KeyHost, c, log.KeyFile, khPaths[0])
+		alsoVerify, _, _ := usableKnownHostsPaths(ctx, append(slices.Clone(khPaths[1:]), globalPaths...))
+		return knownhostsCallback(khPaths[0], alsoVerify, policy, hash, checkIP)
+	}
+
+	return globalKnownHostsCallback(ctx, globalPaths, policy, checkIP)
+}
+
+// userKnownHostsPaths resolves the user known_hosts files: SSH_KNOWN_HOSTS when
+// that is set, otherwise every UserKnownHostsFile entry that expands. The slice
+// is empty when there is none to use.
+//
+// The order is the config's, which matters because the two readings of this
+// option differ: a policy that records a key writes to the first entry, the way
+// OpenSSH does, while a policy that only verifies reads all of them as one trust
+// set. The default list has two entries (~/.ssh/known_hosts and
+// ~/.ssh/known_hosts2), so ignoring the rest would refuse a host pinned in the
+// second file.
+//
+// fromEnv says the paths came from the environment, which replaces the
+// configured files rather than joining them -- the documented meaning of
+// SSH_KNOWN_HOSTS is that it overrides the config, so a caller pointing rig at
+// one file gets that file and nothing else. insecure reports the other half of
+// that switch: an empty value asks for host key verification to be skipped
+// altogether.
+func (c *Connection) userKnownHostsPaths(ctx context.Context) (paths []string, fromEnv, insecure bool) {
+	if envPath, ok := hostkey.KnownHostsPathFromEnv(); ok {
+		if envPath == "" {
+			return nil, true, true
+		}
+		c.Log().Debug("using known_hosts file from SSH_KNOWN_HOSTS", log.HostAttr(c), log.KeyFile, envPath)
+		return []string{envPath}, true, false
+	}
 
 	// "none" anywhere in the list disables user known_hosts entirely; check
 	// the full list before committing to any path.
-	if !slices.Contains(c.sshConfig.UserKnownHostsFile, sshConfigNone) {
-		for _, f := range c.sshConfig.UserKnownHostsFile {
-			log.Trace(ctx, "trying known_hosts file from ssh config", log.KeyHost, c, log.KeyFile, f)
-			exp, err := homedir.Expand(f)
-			if err == nil {
-				khPath = exp
-				break
-			}
+	if slices.Contains(c.sshConfig.UserKnownHostsFile, sshConfigNone) {
+		return nil, false, false
+	}
+	// Deliberately nil rather than an empty slice, so "nothing configured" and
+	// "none" resolve alike.
+	var expanded []string
+	for _, f := range c.sshConfig.UserKnownHostsFile {
+		log.Trace(ctx, "trying known_hosts file from ssh config", log.KeyHost, c, log.KeyFile, f)
+		if exp, err := homedir.Expand(f); err == nil {
+			expanded = append(expanded, exp)
 		}
 	}
-
-	if khPath != "" {
-		log.Trace(ctx, "using known_hosts file", log.KeyHost, c, log.KeyFile, khPath)
-		return knownhostsCallback(khPath, permissive, hash, checkIP)
-	}
-
-	return globalKnownHostsCallback(ctx, c.sshConfig.GlobalKnownHostsFile, permissive, checkIP)
+	return expanded, false, false
 }
 
-func globalKnownHostsCallback(ctx context.Context, paths []string, permissive, checkIP bool) (ssh.HostKeyCallback, error) {
-	var lastErr error
-	for _, f := range paths {
-		log.Trace(ctx, "trying global known_hosts file", log.KeyFile, f)
-		exp, err := homedir.Expand(f)
+// usableKnownHostsPaths expands paths and keeps the ones that can hold entries:
+// existing regular files, in the order given. Anything else contributes nothing
+// rather than failing the connection -- a path that will not expand, one that is
+// absent, a directory.
+//
+// sawDevNull reports whether the null device was among them, which callers that
+// read it as "verify nothing" need to know; it is never returned as usable,
+// since it can hold no entries. lastErr carries the most recent reason a path
+// was dropped, for callers that have to explain why nothing was left.
+func usableKnownHostsPaths(ctx context.Context, paths []string) (usable []string, sawDevNull bool, lastErr error) {
+	for _, path := range paths {
+		exp, err := homedir.Expand(path)
 		if err != nil {
 			lastErr = err
-			log.Trace(ctx, "skipping global known_hosts file (expand failed)", log.KeyFile, f, log.KeyError, err)
+			log.Trace(ctx, "skipping known_hosts file (expand failed)", log.KeyFile, path, log.KeyError, err)
 			continue
 		}
-		if exp != "/dev/null" {
-			stat, err := os.Stat(exp)
-			if err != nil {
-				if !errors.Is(err, os.ErrNotExist) {
-					lastErr = err
-				}
-				log.Trace(ctx, "skipping global known_hosts file", log.KeyFile, exp, log.KeyError, err)
-				continue
-			}
-			if !stat.Mode().IsRegular() {
-				lastErr = fmt.Errorf("%w: %s", errNotRegularFile, exp)
-				log.Trace(ctx, "skipping non-regular global known_hosts file", log.KeyFile, exp)
-				continue
-			}
+		if exp == devNull {
+			sawDevNull = true
+			continue
 		}
-		cb, err := knownhostsGlobalCallback(exp, permissive, checkIP)
+		stat, err := os.Stat(exp)
 		if err != nil {
-			lastErr = err
-			log.Trace(ctx, "skipping unusable global known_hosts file", log.KeyFile, exp, log.KeyError, err)
+			if !errors.Is(err, os.ErrNotExist) {
+				lastErr = err
+			}
+			log.Trace(ctx, "skipping known_hosts file", log.KeyFile, exp, log.KeyError, err)
 			continue
 		}
-		log.Trace(ctx, "using global known_hosts file", log.KeyFile, exp)
-		return cb, nil
+		if !stat.Mode().IsRegular() {
+			lastErr = fmt.Errorf("%w: %s", errNotRegularFile, exp)
+			log.Trace(ctx, "skipping non-regular known_hosts file", log.KeyFile, exp)
+			continue
+		}
+		usable = append(usable, exp)
+	}
+	return usable, sawDevNull, lastErr
+}
+
+// strictHostkeyCallback builds the validator for StrictHostKeyChecking=yes.
+//
+// Every user file and every global one is read as a single trust set rather than
+// the first usable one winning, because that is how OpenSSH reads them: a key an
+// administrator put in /etc/ssh/ssh_known_hosts counts even when the user's own
+// file has never heard of the host, and so does one in the second entry of a
+// UserKnownHostsFile list. Under the recording policies the
+// distinction is invisible -- an unknown host is simply added to the user file
+// and the connection proceeds -- so it only becomes visible once a policy
+// starts refusing.
+//
+// Nothing is written, which is the whole of what strict means. A file that is
+// missing, or is not a file at all, contributes nothing rather than failing the
+// connection outright, and when that leaves no trust source at all every host
+// is unknown: /dev/null included, which is not permission to skip verification
+// under this policy.
+func strictHostkeyCallback(ctx context.Context, userPaths, globalPaths []string, checkIP bool) (ssh.HostKeyCallback, error) {
+	paths := make([]string, 0, len(userPaths)+len(globalPaths))
+	paths = append(paths, userPaths...)
+	paths = append(paths, globalPaths...)
+
+	usable, _, _ := usableKnownHostsPaths(ctx, paths)
+
+	if len(usable) == 0 {
+		log.Trace(ctx, "no usable known_hosts file, strict checking refuses every host")
+		return hostKeyRejectAll("no known_hosts file to verify against"), nil
+	}
+
+	log.Trace(ctx, "using known_hosts files for strict checking", log.KeyFile, strings.Join(usable, ", "))
+
+	var err error
+	var callback ssh.HostKeyCallback
+	if checkIP {
+		callback, err = hostkey.KnownHostsReadOnlyFilesCallbackWithIPCheck(usable, false)
+	} else {
+		callback, err = hostkey.KnownHostsReadOnlyFilesCallback(usable, false)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%w: create host key validator: %w", protocol.ErrNonRetryable, err)
+	}
+	return callback, nil
+}
+
+// globalKnownHostsCallback builds a validator from the global known_hosts files.
+//
+// Every usable file goes into one checker rather than the first one winning,
+// the way OpenSSH reads them: a host absent from the first file may be on file
+// in the second, and under accept-new that difference decides whether an
+// unknown host is accepted or a conflicting key is caught.
+func globalKnownHostsCallback(ctx context.Context, paths []string, policy hostKeyPolicy, checkIP bool) (ssh.HostKeyCallback, error) {
+	usable, sawDevNull, lastErr := usableKnownHostsPaths(ctx, paths)
+
+	if len(usable) > 0 {
+		log.Trace(ctx, "using global known_hosts files", log.KeyFile, strings.Join(usable, ", "))
+		cb, err := knownhostsGlobalCallback(usable, policy, checkIP)
+		if err == nil {
+			return cb, nil
+		}
+		lastErr = err
+		log.Trace(ctx, "global known_hosts files unusable", log.KeyError, err)
+	}
+
+	// The null device holds no entries, so it only decides anything once there
+	// is nothing else: listed alongside a real file it is simply an empty
+	// source, and short-circuiting on it would skip the file that does have
+	// something to say. Alone it means the system asks for no verification.
+	if len(usable) == 0 && sawDevNull {
+		log.Trace(ctx, "global known_hosts is only the null device, not verifying host keys")
+		return hostkey.InsecureIgnoreHostKeyCallback, nil
 	}
 
 	if lastErr != nil {
