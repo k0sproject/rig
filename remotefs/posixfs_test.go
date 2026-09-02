@@ -1034,6 +1034,46 @@ func TestPosixStatLocalhost(t *testing.T) {
 	require.ErrorIs(t, err, fs.ErrNotExist)
 }
 
+func TestPosixMultiStatBatching(t *testing.T) {
+	// multiStat splits the names over several stat invocations to stay inside a
+	// conservative ARG_MAX, and only a directory with more than a kilobyte of
+	// names reaches the second batch. Nothing else covers that loop, and getting
+	// it wrong loses whole batches of results rather than failing.
+	const (
+		entries = 200
+		dir     = "/etc/many"
+	)
+
+	names := make([]string, 0, entries)
+	for i := range entries {
+		names = append(names, fmt.Sprintf("%s/entry-with-a-long-enough-name-%03d.conf", dir, i))
+	}
+
+	mr := rigtest.NewMockRunner()
+	mr.AddCommandSuccess(rigtest.Equal("stat -c %n /"))
+	mr.AddCommandOutput(rigtest.Contains("find"), strings.Join(append([]string{dir}, names...), "\x00"))
+
+	var statCalls int
+	mr.AddCommand(rigtest.HasPrefix("env -i"), func(a *rigtest.A) error {
+		statCalls++
+		// Answer for exactly the names this invocation asked about, so a batch
+		// that never reaches stat cannot be mistaken for one that did.
+		for _, name := range names {
+			if strings.Contains(a.Command, name) {
+				if _, err := fmt.Fprintf(a.Stdout, "0x81a4 10 2024-09-30 11:42:01.000000000 +0000 //%s//\n", name); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+
+	res, err := remotefs.NewPosixFS(mr).ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, res, entries, "every batch's results must be kept, not just the last one's")
+	require.Greater(t, statCalls, 1, "these names must not fit in a single batch, or the test proves nothing")
+}
+
 func TestPosixReadDirConnectionLost(t *testing.T) {
 	// A find that died mid-command reports a wrapped io.EOF. That is a lost
 	// connection, not an empty or missing directory, and must not collapse into
