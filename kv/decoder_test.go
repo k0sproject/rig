@@ -76,6 +76,16 @@ func TestDecoderWithStruct(t *testing.T) {
 			assert.True(t, target.Key3)
 			assert.Equal(t, 42, target.Key4)
 		})
+		t.Run("Invalid int", func(t *testing.T) {
+			type testStruct struct {
+				Key4 int `kv:"key4"`
+			}
+			target := testStruct{}
+			data := "key4=notanumber"
+			decoder := kv.NewDecoder(strings.NewReader(data))
+			decoder.Strict()
+			require.ErrorContains(t, decoder.Decode(&target), "parse int")
+		})
 		t.Run("Slices and pointers", func(t *testing.T) {
 			type testStruct struct {
 				Key1 *string  `kv:"key1"`
