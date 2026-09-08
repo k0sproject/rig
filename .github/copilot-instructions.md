@@ -7,10 +7,11 @@ restating it here.
 
 ## Context to review with
 
-- The module targets **Go 1.27**. Language features from recent releases are
-  available and correct: ranging over an integer (`for i := range 10`), the
+- The module targets the latest Go version. Language features from recent releases
+  are available and correct: ranging over an integer (`for i := range 10`), the
   `min`/`max` builtins, generic type parameters, and `for` loops with
-  per-iteration variable scope. Do not report these as compile errors.
+  per-iteration variable scope. Do not report these as compile errors. In fact,
+  suggest using them where they make the code clearer.
 - **Test files are not linted** (`run.tests: false` in `.golangci.yml`), so
   review of `_test.go` code is genuinely useful here. Real bugs in tests will
   not be caught by anything else.
@@ -52,18 +53,15 @@ In rough order of how much these matter in this repository:
 
 ## Not worth flagging
 
-- Anything `.golangci.yml` deliberately disables: line length, magic numbers,
-  returning interfaces, exhaustive struct literals, named returns, whitespace
-  style, and `TODO` comments.
+- Anything `.golangci.yml` already catches or what is disabled intentionally.
 - Import order and formatting. `gci`, `gofmt`, `gofumpt` and `goimports` own
-  those.
+  those and will be caught in lint.
 - Grammar and wording preferences in comments, documentation or commit
   messages, unless the meaning is actually wrong.
-- Restating what the diff does, or summarising the change back to the author.
 
 ## Comments in the code
 
-Inline comments have to earn their place here. Two reasons qualify: a decision
+Inline comments have to earn their place. Two reasons qualify: a decision
 tree whose branching or ordering is genuinely hard to follow, and a
 strange-looking line that exists because of an external quirk — BSD `chmod`
 wanting `--` before the mode, a uutils flag that behaves unlike GNU's.
@@ -91,4 +89,4 @@ Keep each comment to one finding, and name the concrete failure — the input,
 state or platform where the code does the wrong thing. A reviewer acts on "with
 `UserKnownHostsFile none` this falls through to the read-only path and accepts
 an unknown key"; there is nothing to act on in "consider reviewing the error
-handling here". Skip praise and skip the summary wall.
+handling here". Skip praise and skip the summary wall-of-text.

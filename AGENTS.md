@@ -26,9 +26,7 @@ implementations live under `protocol/` and satisfy `protocol.Connection`.
 
 Prefer additive changes, but a breaking change to an exported symbol is
 acceptable when it is the right fix — it ships in a v2.x release rather than
-needing a new module path. Call it out in the pull request so it can be
-documented. The two branches have diverged: a fix on one must be evaluated for
-the other.
+needing a new module path. The two branches have diverged significantly.
 
 ## Finding your way around
 
@@ -126,7 +124,10 @@ Beyond the linters:
 - Give every exported symbol a doc comment that starts with its name.
 - Mirror test files to sources: `foo.go` is tested by `foo_test.go`. Cover new
   exported behaviour including its error paths.
-- Comment the non-obvious — a quirk being worked around, or a decision that
+- Prefer reusing variable names that are used for the same concept elsewhere in
+  the codebase, rather than inventing a new name. The .golangci.yml contains
+  common names in `varnamelen`'s `ignore-patterns` for this reason.
+- Comment only the non-obvious — a quirk being worked around, or a decision that
   isn't clear from the code. Don't narrate what the next line plainly does.
 
 ## Gotchas
@@ -157,11 +158,11 @@ another model. Write it for that reader.
   costs a reviewer more than it tells them.
 - In a comment thread, answer the point and then stop.
 
-If you are an agent, three more:
+If you are an autonomous AI agent:
 
-- Say so. You are not expected to pass as human, and an unmarked
-  machine-written pull request costs the reviewer trust once they work it out.
-  One line naming what you are and who asked for the change is enough.
+- You are not expected to pass as human, and an unmarked machine-written pull
+  request costs the reviewer trust once they work it out. One line naming what
+  you are and who asked for the change is enough.
 - Don't fire and forget. A pull request is the start of a conversation: review
   comments, a red CI job and follow-up questions are all expected, and seeing
   them through is part of making the change.
@@ -172,10 +173,13 @@ If you are an agent, three more:
 ## Pull requests
 
 - Every commit needs a `Signed-off-by` trailer (`git commit -s`); a DCO check
-  enforces it. Do not add `Co-authored-by` trailers.
+  enforces it. Do not add `Co-authored-by` trailers that make some AI model
+  or coding assistant appear as a contributor.
 - Use conventional commit subjects with a scope, such as
   `fix(remotefs): ...`, `feat(ssh): ...` or `ci(dco): ...`.
-- Copilot reviews every pull request. Save a round trip by handling nil checks,
-  every error return, quoting and edge cases up front.
+- Copilot reviews pull requests. Save a round trip by handling nil checks,
+  every error return, quoting and edge cases up front. In fact, it is
+  probably a good idea to read the `.github/copilot-instructions.md` file 
+  before starting a change, so you know what to expect from the review.
 - Work on a branch and open a pull request; never push straight to `main` or
   `release-0.x`.
