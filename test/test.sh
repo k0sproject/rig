@@ -133,41 +133,83 @@ rig_test_ssh_config_strict() {
   color_echo "- Testing StrictHostkeyChecking=yes in ssh config"
   make create-host
   port="$(ssh_port node0)"
-  echo "Host testhost" > .ssh/config
-  echo "  User root" >> .ssh/config
-  echo "  HostName 127.0.0.1" >> .ssh/config
-  echo "  Port ${port}" >> .ssh/config
-  echo "  IdentityFile $(pwd)/.ssh/id_ed25519" >> .ssh/config
-  echo "  UserKnownHostsFile $(pwd)/.ssh/known" >> .ssh/config
-  echo "  StrictHostKeyChecking yes" >> .ssh/config
-  cat .ssh/config
-  set +e
-  HOME=$(pwd) go test -v ./ -args -ssh-configpath .ssh/config -host testhost -connect
-  exit_code=$?
-  set -e
-  if [ $exit_code -ne 0 ]; then
-    echo "  * Failed first checkpoint"
+
+  write_strict_config() {
+    echo "Host testhost" > .ssh/config
+    echo "  User root" >> .ssh/config
+    echo "  HostName 127.0.0.1" >> .ssh/config
+    echo "  Port ${port}" >> .ssh/config
+    echo "  IdentityFile $(pwd)/.ssh/id_ed25519" >> .ssh/config
+    echo "  UserKnownHostsFile $(pwd)/.ssh/known" >> .ssh/config
+    echo "  StrictHostKeyChecking $1" >> .ssh/config
+    cat .ssh/config
+  }
+
+  connect() {
+    set +e
+    HOME=$(pwd) go test -v ./ -args -ssh-configpath .ssh/config -host testhost -connect
+    exit_code=$?
+    set -e
+  }
+
+  rm -f .ssh/known
+
+  # "yes" must refuse a host it has never seen, and must not record its key.
+  # This is where it differs from "accept-new": OpenSSH only adds a key under
+  # the latter, and rig used to add one under both.
+  write_strict_config yes
+  connect
+  if [ $exit_code -eq 0 ]; then
+    echo "  * Failed first checkpoint: yes connected to an unknown host"
+    RET=1
+    return
+  fi
+  if [ -s .ssh/known ]; then
+    echo "  * Failed first checkpoint: yes recorded a host key it should have refused"
+    cat .ssh/known
     RET=1
     return
   fi
   echo "  * Passed first checkpoint"
-  cat .ssh/known
-  # modify the known hosts file to make it mismatch
-  echo "[127.0.0.1]:$port ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBBgejI9UJnRY/i4HNM/os57oFcRjE77gEbVfUkuGr5NRh3N7XxUnnBKdzrAiQNPttUjKmUm92BN7nCUxbwsoSPw=" > .ssh/known
-  echo "[127.0.0.1]:$port ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBGZKwBdFeIPlDWe7otNy4E2Im8+GnQtsukJ5dIuzDGb" >> .ssh/known
-  cat .ssh/known
-  set +e
-  HOME=$(pwd) go test -v ./ -args -ssh-configpath .ssh/config -host testhost -connect
-  exit_code=$?
-  set -e
 
-  if [ $exit_code -eq 0 ]; then
-    echo "  * Failed second checkpoint"
-    # success is a failure
+  # "accept-new" records the key and connects, which is also how the file gets
+  # populated for the checkpoints below.
+  write_strict_config accept-new
+  connect
+  if [ $exit_code -ne 0 ]; then
+    echo "  * Failed second checkpoint: accept-new refused a new host"
     RET=1
     return
   fi
+  if [ ! -s .ssh/known ]; then
+    echo "  * Failed second checkpoint: accept-new did not record the host key"
+    RET=1
+    return
+  fi
+  cat .ssh/known
   echo "  * Passed second checkpoint"
+
+  # With the key on file, "yes" has something to verify against and connects.
+  write_strict_config yes
+  connect
+  if [ $exit_code -ne 0 ]; then
+    echo "  * Failed third checkpoint: yes refused a host that is on file"
+    RET=1
+    return
+  fi
+  echo "  * Passed third checkpoint"
+
+  # A key that changed under it must still be refused.
+  echo "[127.0.0.1]:$port ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBBgejI9UJnRY/i4HNM/os57oFcRjE77gEbVfUkuGr5NRh3N7XxUnnBKdzrAiQNPttUjKmUm92BN7nCUxbwsoSPw=" > .ssh/known
+  echo "[127.0.0.1]:$port ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBGZKwBdFeIPlDWe7otNy4E2Im8+GnQtsukJ5dIuzDGb" >> .ssh/known
+  cat .ssh/known
+  connect
+  if [ $exit_code -eq 0 ]; then
+    echo "  * Failed fourth checkpoint: a changed host key was accepted"
+    RET=1
+    return
+  fi
+  echo "  * Passed fourth checkpoint"
 }
 
 rig_test_ssh_config_no_strict() {
