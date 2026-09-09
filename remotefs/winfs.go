@@ -517,7 +517,7 @@ func (s *WinFS) DownloadURL(url, dst string) error {
 func (s *WinFS) fetchURL(ctx context.Context, url, dst string, _ bool) error {
 	script := fmt.Sprintf(`$ProgressPreference='SilentlyContinue'
 try {
-  Invoke-WebRequest -Uri %s -OutFile %s -UseBasicParsing -ErrorAction Stop | Out-Null
+  Invoke-WebRequest -Resume -Uri %s -OutFile %s -UseBasicParsing -ErrorAction Stop | Out-Null
 } catch {
   Write-Error $_.Exception.Message
   exit 1
