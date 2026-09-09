@@ -37,5 +37,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DCO_CHECK_VERBOSE: "true"
-          DCO_CHECK_EXCLUDE_PATTERN: dependabot\[bot\]@users\.noreply\.github\.com
+          # Matched against the commit author email. Bot commits are authored by
+          # GitHub on the bot's behalf and carry no Signed-off-by trailer.
+          DCO_CHECK_EXCLUDE_PATTERN: 'dependabot\[bot\]@users\.noreply\.github\.com|198982749\+Copilot@users\.noreply\.github\.com'
         run: python3 dco_check.py
