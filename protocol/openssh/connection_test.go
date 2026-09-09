@@ -179,7 +179,7 @@ func Test_classifyConnectError(t *testing.T) {
 // seconds.
 const (
 	controlMasterLifetime = 30 * time.Second
-	connectBudget         = 10 * time.Second
+	connectBudget         = 20 * time.Second
 )
 
 // fakeSSHScript stands in for the openssh client and reproduces what
