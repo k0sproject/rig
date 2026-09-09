@@ -3,3 +3,5 @@ test/bootloose.yaml
 test/Library
 test/.ssh
 test/*.iid
+
+/internal/apidiff/apidiff

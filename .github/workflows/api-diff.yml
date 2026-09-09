@@ -1,0 +1,168 @@
+name: API diff
+
+# Reports what a pull request changes in the exported API and labels it.
+# Informational only: a break is allowed in a v2.x release.
+on: [pull_request]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write # labels live behind the issues API
+
+# An older run's verdict is wrong once a newer commit exists.
+concurrency:
+  group: api-diff-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  apidiff:
+    name: API diff
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the merge base has to be reachable
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Compare exported API against the merge base
+        id: compare
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          # Written up front so a later failure still has something truthful to
+          # post, rather than leaving the previous commit's verdict standing.
+          mkdir -p "$RUNNER_TEMP/out"
+          : > "$RUNNER_TEMP/out/label"
+          printf '<!-- api-diff -->\n### Exported API\n\nThe comparison could not run for %s, so there is no verdict for this commit. See [the run](%s).\n' \
+            "$GITHUB_SHA" "$RUN_URL" > "$RUNNER_TEMP/out/body.md"
+
+          # Comparing against a release tag instead would blame every API
+          # change merged since that release on this pull request.
+          if ! base="$(git merge-base "$BASE_SHA" HEAD)"; then
+            echo "::error::cannot find the merge base of $BASE_SHA and HEAD"
+            exit 1
+          fi
+
+          git worktree add --detach --quiet "$RUNNER_TEMP/base" "$base"
+          go build -C internal/apidiff -o "$RUNNER_TEMP/apidiff" .
+
+          status=0
+          "$RUNNER_TEMP/apidiff" -base "$RUNNER_TEMP/base" -head "$GITHUB_WORKSPACE" \
+            > "$RUNNER_TEMP/report.md" || status=$?
+
+          # Any other status is a crash, not a verdict.
+          case "$status" in
+            0|3|4) ;;
+            *)
+              echo "::error::could not compare the exported API against $base (exit $status)"
+              exit 1
+              ;;
+          esac
+
+          {
+            echo "## Exported API comparison"
+            echo
+            echo "Compared against \`$(git rev-parse --short "$base")\`."
+            echo
+            cat "$RUNNER_TEMP/report.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          cat "$RUNNER_TEMP/report.md"
+
+          case "$status" in
+            4) label="breaking-change"; note="This removes or changes exported API." ;;
+            3) label="additive-change"; note="This only adds exported API." ;;
+            *) label="";                note="" ;;
+          esac
+          printf '%s' "$label" > "$RUNNER_TEMP/out/label"
+
+          # head reads the file rather than ending the pipeline, where closing
+          # the pipe would kill tr with SIGPIPE under pipefail. The fence keeps
+          # symbol names in monospace; the backtick swap stops one escaping it.
+          report="$(head -c 40000 "$RUNNER_TEMP/report.md" | tr '`' "'")"
+          {
+            printf '<!-- api-diff -->\n### Exported API changed by this pull request\n\nCompared against `%s`.\n\n' \
+              "$(git rev-parse --short "$base")"
+            if [ -n "$note" ]; then printf '%s\n\n' "$note"; fi
+            printf '```text\n%s\n```\n' "$report"
+          } > "$RUNNER_TEMP/out/body.md"
+
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+
+      # A fork's token is read-only, so those pull requests get the job summary
+      # and nothing else. always(), so a failed comparison clears its verdict.
+      - name: Label and comment
+        if: |
+          always() &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          LABEL_FILE: ${{ runner.temp }}/out/label
+          BODY_FILE: ${{ runner.temp }}/out/body.md
+          STATUS: ${{ steps.compare.outputs.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          label="$(cat "$LABEL_FILE" 2>/dev/null || true)"
+
+          # An earlier step can fail before writing a body.
+          if [ ! -f "$BODY_FILE" ]; then
+            mkdir -p "$(dirname "$BODY_FILE")"
+            printf '<!-- api-diff -->\n### Exported API\n\nThe comparison did not run for %s, so there is no verdict for this commit. See [the run](%s).\n' \
+              "$GITHUB_SHA" "$RUN_URL" > "$BODY_FILE"
+          fi
+
+          # Both labels are owned by this workflow, so the one that no longer
+          # applies has to come off; otherwise a fixed break keeps its label.
+          held="$(gh pr view "$PR" --repo "$REPO" --json labels --jq '.labels[].name')"
+          for managed in breaking-change additive-change; do
+            if [ "$managed" != "$label" ] && printf '%s\n' "$held" | grep -qxF "$managed"; then
+              gh pr edit "$PR" --repo "$REPO" --remove-label "$managed"
+              echo "removed stale label $managed"
+            fi
+          done
+
+          if [ -n "$label" ]; then
+            case "$label" in
+              breaking-change) colour="d73a4a" ;;
+              additive-change) colour="0e8a16" ;;
+            esac
+            gh label create "$label" --repo "$REPO" --color "$colour" \
+              --description "Applied by the API diff workflow" >/dev/null 2>&1 || true
+            gh pr edit "$PR" --repo "$REPO" --add-label "$label"
+          fi
+
+          existing="$(gh api "repos/$REPO/issues/$PR/comments" --paginate --jq \
+            '[.[] | select(.user.login == "github-actions[bot]")
+                  | select(.body | startswith("<!-- api-diff -->")) | .id] | first // empty')"
+
+          # jq builds the payload so the body is a correctly escaped string
+          # whatever the report contains; gh -F would convert some values.
+          jq -n --rawfile body "$BODY_FILE" '{body: $body}' > "$RUNNER_TEMP/payload.json"
+
+          # One comment per pull request, rewritten on every push, and removed
+          # once there is nothing left to report.
+          if [ "${STATUS:-}" = "0" ]; then
+            if [ -n "$existing" ]; then
+              gh api -X DELETE "repos/$REPO/issues/comments/$existing" >/dev/null
+              echo "removed comment $existing, this pull request no longer changes the API"
+            else
+              echo "no exported API changes, nothing to report"
+            fi
+          elif [ -n "$existing" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$existing" --input "$RUNNER_TEMP/payload.json" >/dev/null
+            echo "updated comment $existing"
+          else
+            gh api -X POST "repos/$REPO/issues/$PR/comments" --input "$RUNNER_TEMP/payload.json" >/dev/null
+            echo "posted comment"
+          fi

@@ -1,0 +1,26 @@
+name: API diff tool
+
+# Its own module, so the root "go test ./..." does not reach it.
+on:
+  pull_request:
+    paths:
+      - internal/apidiff/**
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+
+    - name: Test
+      run: go test -v ./...
+      working-directory: internal/apidiff
