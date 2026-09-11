@@ -44,7 +44,17 @@ var (
 
 const (
 	defaultBlockSize = 4096
-	supportedFlags   = os.O_RDONLY | os.O_WRONLY | os.O_RDWR | os.O_CREATE | os.O_EXCL | os.O_TRUNC | os.O_APPEND | os.O_SYNC
+
+	// The range of block sizes accepted from stat. Outside of it, stat reported
+	// something that is not a block size.
+	minBlockSize = 512
+	maxBlockSize = 1 << 20
+
+	// The size of dd's read and write chunks when streaming a whole file. It is
+	// unrelated to the remote file system and only wants to be large enough that
+	// transferring a multi-gigabyte file is not syscall bound.
+	streamBlockSize = 1 << 20
+	supportedFlags  = os.O_RDONLY | os.O_WRONLY | os.O_RDWR | os.O_CREATE | os.O_EXCL | os.O_TRUNC | os.O_APPEND | os.O_SYNC
 
 	// statTimeLayout is the timestamp format of stat -c %y under LC_ALL=C: a date, a
 	// time with a fraction of a second and a UTC offset.

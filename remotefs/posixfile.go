@@ -40,11 +40,21 @@ func (f *PosixFile) fsBlockSize() int {
 		return f.blockSize
 	}
 
-	out, err := f.fs.ExecOutput(fmt.Sprintf(`stat -c "%%s" %[1]s 2> /dev/null || stat -f "%%k" %[1]s`, shellescape.Quote(path.Dir(f.path))))
+	f.blockSize = defaultBlockSize
+
+	// %o is the optimal I/O block size, the GNU spelling of BSD's %k. Not %s,
+	// which is the size of the directory's own data: that equals the block size
+	// on ext4, but XFS keeps small directories inline in the inode, where it is
+	// a few dozen bytes.
+	out, err := f.fs.ExecOutput(fmt.Sprintf(`stat -c "%%o" %[1]s 2> /dev/null || stat -f "%%k" %[1]s`, shellescape.Quote(path.Dir(f.path))))
 	if err != nil {
-		// fall back to default
-		f.blockSize = defaultBlockSize
-	} else if bs, err := strconv.Atoi(strings.TrimSpace(out)); err == nil {
+		return f.blockSize
+	}
+
+	// Anything outside this range is stat reporting something that is not a
+	// block size, and the default is safer than passing it on to dd.
+	if bs, err := strconv.Atoi(strings.TrimSpace(out)); err == nil &&
+		bs >= minBlockSize && bs <= maxBlockSize && bs&(bs-1) == 0 {
 		f.blockSize = bs
 	}
 
@@ -185,9 +195,16 @@ func (f *PosixFile) CopyFrom(src io.Reader) (int64, error) {
 	}
 	counter := &iostream.ByteCounter{}
 
+	// dd counts seek in output blocks rather than in bytes, so the block size has
+	// to divide the offset being resumed from.
+	bs := int64(streamBlockSize)
+	for f.pos%bs != 0 {
+		bs /= 2
+	}
+
 	err := f.fs.Exec(
 		// "if=" is omitted so dd reads stdin, see the note in Write above.
-		sh.Command("dd", "of="+f.path, fmt.Sprintf("bs=%d", f.fsBlockSize()), fmt.Sprintf("seek=%d", f.pos), "conv=notrunc"),
+		sh.Command("dd", "of="+f.path, fmt.Sprintf("bs=%d", bs), fmt.Sprintf("seek=%d", f.pos/bs), "conv=notrunc"),
 		cmd.Stdin(io.TeeReader(src, counter)),
 	)
 	if err != nil {
