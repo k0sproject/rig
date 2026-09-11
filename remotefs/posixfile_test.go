@@ -75,7 +75,7 @@ func TestPosixFileCopyFrom(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(5), n)
 	require.Equal(t, "hello", string(got))
-	require.Equal(t, "dd of=/tmp/file bs=4096 seek=0 conv=notrunc", mr.LastCommand())
+	require.Equal(t, "dd of=/tmp/file bs=1048576 seek=0 conv=notrunc", mr.LastCommand())
 	require.NoError(t, mr.NotReceived(rigtest.Contains("/dev/stdin")))
 }
 
