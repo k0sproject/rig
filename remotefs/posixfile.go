@@ -195,9 +195,16 @@ func (f *PosixFile) CopyFrom(src io.Reader) (int64, error) {
 	}
 	counter := &iostream.ByteCounter{}
 
+	// dd counts seek in output blocks rather than in bytes, so the block size has
+	// to divide the offset being resumed from.
+	bs := int64(streamBlockSize)
+	for f.pos%bs != 0 {
+		bs /= 2
+	}
+
 	err := f.fs.Exec(
 		// "if=" is omitted so dd reads stdin, see the note in Write above.
-		sh.Command("dd", "of="+f.path, fmt.Sprintf("bs=%d", f.fsBlockSize()), fmt.Sprintf("seek=%d", f.pos), "conv=notrunc"),
+		sh.Command("dd", "of="+f.path, fmt.Sprintf("bs=%d", bs), fmt.Sprintf("seek=%d", f.pos/bs), "conv=notrunc"),
 		cmd.Stdin(io.TeeReader(src, counter)),
 	)
 	if err != nil {
