@@ -5,3 +5,6 @@ test/.ssh
 test/*.iid
 
 /internal/apidiff/apidiff
+
+# workspace sums are derivable from the per-module go.sum files
+go.work.sum
