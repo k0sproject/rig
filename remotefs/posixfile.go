@@ -69,18 +69,27 @@ func (f *PosixFile) isWritable() bool {
 	return f.isOpen && f.flags&os.O_WRONLY != 0
 }
 
-func (f *PosixFile) ddParams(offset int64, numBytes int) (blocksize int, skip int64, count int) { //nolint:nonamedreturns // for readability
-	optimalBs := f.fsBlockSize()
-
-	// if numBytes aligns with the optimal block size, use it; otherwise, use bs = 1
-	bs := optimalBs
-	if numBytes%optimalBs != 0 {
-		bs = 1
+// alignBlockSize halves bs until it divides each of counts evenly, so that a
+// byte count can be handed to dd as a number of blocks without losing anything.
+// bs is a power of two, so the reduction bottoms out at 1 rather than looping.
+func alignBlockSize(bs int64, counts ...int64) int64 {
+	for _, c := range counts {
+		for c%bs != 0 {
+			bs /= 2
+		}
 	}
 
-	s := offset / int64(bs)
-	c := (numBytes + bs - 1) / bs
-	return bs, s, c
+	return bs
+}
+
+func (f *PosixFile) ddParams(offset int64, numBytes int) (blocksize int, skip int64, count int) { //nolint:nonamedreturns // for readability
+	// dd counts skip in blocks rather than in bytes, so the block size has to
+	// divide the offset as well as the length: at bs=4096, an offset of 2048
+	// would otherwise round down to skip=0 and read from the wrong place.
+	// Callers also rely on blocksize*count being exactly numBytes.
+	bs := alignBlockSize(int64(f.fsBlockSize()), offset, int64(numBytes))
+
+	return int(bs), offset / bs, int(int64(numBytes) / bs)
 }
 
 // Stat returns a FileInfo describing the named file.
@@ -197,10 +206,7 @@ func (f *PosixFile) CopyFrom(src io.Reader) (int64, error) {
 
 	// dd counts seek in output blocks rather than in bytes, so the block size has
 	// to divide the offset being resumed from.
-	bs := int64(streamBlockSize)
-	for f.pos%bs != 0 {
-		bs /= 2
-	}
+	bs := alignBlockSize(streamBlockSize, f.pos)
 
 	err := f.fs.Exec(
 		// "if=" is omitted so dd reads stdin, see the note in Write above.

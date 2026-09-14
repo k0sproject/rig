@@ -167,3 +167,74 @@ func TestPosixFileCopyFromResume(t *testing.T) {
 		})
 	}
 }
+
+// TestPosixFileReadAtOffset covers reads that do not start on a block boundary.
+// dd counts skip in blocks, so a block size that divides the length but not the
+// offset silently rounds the offset down: at bs=4096, seeking to 2048 and asking
+// for 8192 bytes was handed skip=0 and returned the first 8 KiB of the file.
+func TestPosixFileReadAtOffset(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		offset int64
+		length int
+		bs     int64
+	}{
+		{"whole blocks", 8192, 8192, 4096},
+		{"half a block in", 2048, 8192, 2048},
+		{"odd", 4097, 8192, 1},
+		{"partial block", 4096, 100, 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mr := rigtest.NewMockRunner()
+			mr.AddCommand(rigtest.HasPrefix("dd "), func(a *rigtest.A) error {
+				_, err := a.Stdout.Write(make([]byte, tc.length))
+				return err
+			})
+			// A megabyte of file, so every offset under test is still short of the
+			// end and Read is not cut off by EOF.
+			f := openPosixFile(t, mr, os.O_RDONLY, "4096", "1048576")
+
+			pos, err := f.Seek(tc.offset, io.SeekStart)
+			require.NoError(t, err)
+			require.Equal(t, tc.offset, pos)
+
+			n, err := f.Read(make([]byte, tc.length))
+			require.NoError(t, err)
+			require.Equal(t, tc.length, n)
+
+			bs, skip, count := parseDDRead(t, mr.LastCommand())
+			require.Equal(t, tc.bs, bs)
+			require.Equal(t, tc.offset, bs*skip,
+				"bs=%d skip=%d reads from byte %d, not %d", bs, skip, bs*skip, tc.offset)
+			require.Equal(t, int64(tc.length), bs*count,
+				"bs=%d count=%d reads %d bytes, not %d", bs, count, bs*count, tc.length)
+		})
+	}
+}
+
+// TestPosixFileCopyToAtOffset is the same for the streaming read path, where the
+// length comes from what is left of the file rather than from a caller's buffer.
+func TestPosixFileCopyToAtOffset(t *testing.T) {
+	mr := rigtest.NewMockRunner()
+	mr.AddCommandSuccess(rigtest.HasPrefix("dd "))
+	f := openPosixFile(t, mr, os.O_RDONLY, "4096", "10240")
+
+	_, err := f.Seek(2048, io.SeekStart)
+	require.NoError(t, err)
+
+	_, err = f.CopyTo(io.Discard)
+	require.NoError(t, err)
+
+	// The remaining 8192 bytes are a whole number of 4096 byte blocks, which is
+	// what used to make dd skip to block 0 and copy the file from the start.
+	bs, skip, count := parseDDRead(t, mr.LastCommand())
+	require.Equal(t, int64(2048), bs*skip)
+	require.Equal(t, int64(8192), bs*count)
+}
+
+func parseDDRead(t *testing.T, command string) (bs, skip, count int64) { //nolint:nonamedreturns // for readability
+	t.Helper()
+	_, err := fmt.Sscanf(command, "dd if=/tmp/file bs=%d skip=%d count=%d", &bs, &skip, &count)
+	require.NoError(t, err, "unexpected dd invocation: %s", command)
+	return bs, skip, count
+}
