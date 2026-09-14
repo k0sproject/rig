@@ -7,8 +7,8 @@ require (
 	github.com/davidmz/go-pageant v1.0.2
 	github.com/masterzen/winrm v0.0.0-20260407182533-5570be7f80cf
 	github.com/stretchr/testify v1.12.1
-	golang.org/x/crypto v0.56.0
-	golang.org/x/term v0.45.0
+	golang.org/x/crypto v0.57.0
+	golang.org/x/term v0.46.0
 	gopkg.in/yaml.v2 v2.4.0
 )
 
@@ -31,6 +31,6 @@ require (
 	github.com/tidwall/transform v0.0.0-20201103190739-32f242e2dbde // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 )
