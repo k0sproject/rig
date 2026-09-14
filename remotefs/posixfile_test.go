@@ -1,6 +1,7 @@
 package remotefs_test
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -111,6 +112,58 @@ func TestPosixFileBlockSize(t *testing.T) {
 				want = "dd if=/tmp/file bs=4096 skip=0 count=4"
 			}
 			require.Equal(t, want, mr.LastCommand())
+		})
+	}
+}
+
+// TestPosixFileCopyFromResume covers a copy that resumes at a nonzero offset.
+// dd counts seek in output blocks rather than in bytes, so bs and seek have to
+// multiply back to the byte offset the file is positioned at; an offset that is
+// not a multiple of the streaming block size shrinks the block size until it is.
+func TestPosixFileCopyFromResume(t *testing.T) {
+	const mib = 1 << 20
+	for _, tc := range []struct {
+		name string
+		pos  int64
+		bs   int64
+	}{
+		{"start", 0, mib},
+		{"whole blocks", 3 * mib, mib},
+		{"less than a block", 4096, 4096},
+		{"unaligned", 1_500_000, 32}, // 1500000 = 46875 * 32
+		{"odd", mib + 1, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mr := rigtest.NewMockRunner()
+			mr.AddCommandSuccess(rigtest.HasPrefix("truncate"))
+			var got []byte
+			mr.AddCommand(rigtest.HasPrefix("dd "), func(a *rigtest.A) error {
+				var err error
+				got, err = io.ReadAll(a.Stdin)
+				return err
+			})
+			f := openPosixFileForWriting(t, mr)
+
+			pos, err := f.Seek(tc.pos, io.SeekStart)
+			require.NoError(t, err)
+			require.Equal(t, tc.pos, pos)
+
+			n, err := f.CopyFrom(strings.NewReader("hello"))
+			require.NoError(t, err)
+			require.Equal(t, int64(5), n)
+			require.Equal(t, "hello", string(got))
+
+			// Everything already on the remote side is kept, so the file is cut
+			// back to the resume point rather than emptied.
+			require.NoError(t, mr.Received(rigtest.Equal(
+				fmt.Sprintf("truncate -s %d /tmp/file", tc.pos))))
+
+			var bs, seek int64
+			_, err = fmt.Sscanf(mr.LastCommand(), "dd of=/tmp/file bs=%d seek=%d conv=notrunc", &bs, &seek)
+			require.NoError(t, err, "unexpected dd invocation: %s", mr.LastCommand())
+			require.Equal(t, tc.bs, bs)
+			require.Equal(t, tc.pos, bs*seek,
+				"bs=%d seek=%d writes at byte %d, not %d", bs, seek, bs*seek, tc.pos)
 		})
 	}
 }
