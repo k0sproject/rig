@@ -1,0 +1,12 @@
+// This module builds against the parent rig module through a local replace, so
+// its indirect requirements have to match whatever the parent requires. Without
+// a workspace, every dependency bump in the root go.mod leaves them stale and
+// the go command refuses to build here until this module is tidied too, which
+// turns every dependabot pull request red.
+
+go 1.27.0
+
+use (
+	.
+	../..
+)
