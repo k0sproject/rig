@@ -95,18 +95,29 @@ func (s *WinFS) Sha256(name string) (string, error) {
 }
 
 // ReadDir reads the directory named by dirname and returns a list of directory entries.
-func (s *WinFS) ReadDir(name string) ([]fs.DirEntry, error) {
+func (s *WinFS) ReadDir(name string) (entries []fs.DirEntry, err error) {
 	f, err := s.OpenFile(name, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, PathError("readdir", name, err)
 	}
-	defer f.Close()
+	defer closeWithSession(f, &err)
 	dir, ok := f.(*winDir)
 	if !ok {
 		return nil, PathErrorf("readdir", name, "readdir: %w", fs.ErrInvalid)
 	}
 
 	return dir.ReadDir(-1)
+}
+
+// closeWithSession closes f, and reports a close that failed because the
+// remote session timed out through err when the operation itself had no
+// complaint. Anything the caller reads or writes afterwards would go to a
+// host that is no longer there, so it must not look like a success.
+func closeWithSession(f io.Closer, err *error) {
+	closeErr := f.Close()
+	if *err == nil && errors.Is(closeErr, ErrTimeout) {
+		*err = closeErr
+	}
 }
 
 // Remove deletes the named file or (empty) directory. A path that does not
@@ -301,12 +312,12 @@ func (s *WinFS) OpenFile(name string, flags int, _ fs.FileMode) (File, error) {
 }
 
 // ReadFile reads the named file and returns its contents.
-func (s *WinFS) ReadFile(name string) ([]byte, error) {
+func (s *WinFS) ReadFile(name string) (contents []byte, err error) {
 	f, err := s.Open(name)
 	if err != nil {
 		return nil, fmt.Errorf("readfile %s: %w", name, err)
 	}
-	defer f.Close()
+	defer closeWithSession(f, &err)
 	data, err := io.ReadAll(f)
 	if err != nil {
 		return nil, fmt.Errorf("readfile %s: %w", name, err)
@@ -315,12 +326,12 @@ func (s *WinFS) ReadFile(name string) ([]byte, error) {
 }
 
 // WriteFile writes data to the named file, creating it if necessary.
-func (s *WinFS) WriteFile(name string, data []byte, mode fs.FileMode) error {
+func (s *WinFS) WriteFile(name string, data []byte, mode fs.FileMode) (err error) {
 	f, err := s.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 	if err != nil {
 		return fmt.Errorf("writefile %s: %w", name, err)
 	}
-	defer f.Close()
+	defer closeWithSession(f, &err)
 	reader := bytes.NewReader(data)
 	_, err = io.Copy(f, reader)
 	if err != nil {

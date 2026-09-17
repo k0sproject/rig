@@ -40,8 +40,14 @@ func copyAndVerifyUpload(fsys FS, tmpPath string, src io.Reader) error {
 		return fmt.Errorf("open temp file for upload: %w", err)
 	}
 	if _, err := remote.CopyFrom(reader); err != nil {
-		_ = remote.Close()
-		return fmt.Errorf("copy file to remote host: %w", err)
+		err = fmt.Errorf("copy file to remote host: %w", err)
+		// Keep a failure to close as well: if the session timed out, that is
+		// what tells Upload the connection is gone and cleanup must not be
+		// attempted over it.
+		if closeErr := remote.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+		return err
 	}
 	if err := remote.Close(); err != nil {
 		return fmt.Errorf("close temp file after upload: %w", err)
@@ -60,7 +66,9 @@ func copyAndVerifyUpload(fsys FS, tmpPath string, src io.Reader) error {
 
 // Upload a file to the remote host atomically: the content is written to a
 // temporary file in the same directory as dst, verified via SHA-256, and then
-// renamed into place. The temporary file is removed on any failure.
+// renamed into place. The temporary file is removed on failure, except when
+// the remote session timed out: the connection is gone at that point, so the
+// cleanup would block on it, and the file is left for the next upload.
 //
 // Permissions: the temporary file is created with mode 0o600 and then chmod'd
 // to perm before the rename. When WithPermissions is not given, perm is taken
@@ -95,17 +103,26 @@ func Upload(fsys FS, src, dst string, opts ...UploadOption) error {
 	}
 	// RemoveAll rather than Remove: on the success path the rename has already
 	// moved tmpPath away, and only RemoveAll accepts a path that is not there.
-	defer func() { _ = fsys.RemoveAll(tmpPath) }()
+	// Not after a session timeout though -- the connection is gone, so the
+	// cleanup would run against it and block there, undoing the bound that
+	// timeout just established. The temp file is left for the next upload.
+	var failure error
+	defer func() {
+		if errors.Is(failure, ErrTimeout) {
+			return
+		}
+		_ = fsys.RemoveAll(tmpPath)
+	}()
 
-	if err := copyAndVerifyUpload(fsys, tmpPath, local); err != nil {
-		return err
+	if failure = copyAndVerifyUpload(fsys, tmpPath, local); failure != nil {
+		return failure
 	}
 
-	if err := fsys.Chmod(tmpPath, perm); err != nil {
-		return fmt.Errorf("chmod uploaded file: %w", err)
+	if failure = fsys.Chmod(tmpPath, perm); failure != nil {
+		return fmt.Errorf("chmod uploaded file: %w", failure)
 	}
-	if err := fsys.Rename(tmpPath, dst); err != nil {
-		return fmt.Errorf("rename uploaded file into place: %w", err)
+	if failure = fsys.Rename(tmpPath, dst); failure != nil {
+		return fmt.Errorf("rename uploaded file into place: %w", failure)
 	}
 	return nil
 }

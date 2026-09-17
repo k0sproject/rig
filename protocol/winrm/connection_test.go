@@ -1,15 +1,19 @@
 package winrm
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -215,4 +219,250 @@ func TestConnect_probeClassification(t *testing.T) {
 			}
 		})
 	}
+}
+
+type errWriter struct{ err error }
+
+func (e errWriter) Write(_ []byte) (int, error) { return 0, e.err }
+
+// blockingWriter parks inside Write until released, announcing on entered
+// that it has got there, so a test can be sure a write is in flight.
+type blockingWriter struct {
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (b *blockingWriter) Write(p []byte) (int, error) {
+	b.once.Do(func() { close(b.entered) })
+	<-b.release
+	return len(p), nil
+}
+
+func TestCtxReader(t *testing.T) {
+	t.Run("passes reads through", func(t *testing.T) {
+		r := ctxReader{ctx: context.Background(), reader: strings.NewReader("hello")}
+
+		got, err := io.ReadAll(r)
+		if err != nil {
+			t.Fatalf("ReadAll() error = %v", err)
+		}
+		if string(got) != "hello" {
+			t.Errorf("ReadAll() = %q, want %q", got, "hello")
+		}
+	})
+
+	t.Run("stops once the context is done", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		r := ctxReader{ctx: ctx, reader: strings.NewReader("hello")}
+
+		if _, err := r.Read(make([]byte, 5)); !errors.Is(err, context.Canceled) {
+			t.Errorf("Read() error = %v, want %v", err, context.Canceled)
+		}
+	})
+}
+
+func TestDetachableWriter(t *testing.T) {
+	t.Run("forwards until detached", func(t *testing.T) {
+		var buf bytes.Buffer
+		w := &detachableWriter{w: &buf}
+
+		if n, err := w.Write([]byte("before")); err != nil || n != 6 {
+			t.Fatalf("Write() = %d, %v, want 6, nil", n, err)
+		}
+
+		w.detach()
+
+		// A detached writer still reports the write as accepted: the
+		// goroutine behind it has to keep draining the command until the
+		// shell is torn down, not bail out early.
+		if n, err := w.Write([]byte("after")); err != nil || n != 5 {
+			t.Fatalf("Write() after detach = %d, %v, want 5, nil", n, err)
+		}
+		if got := buf.String(); got != "before" {
+			t.Errorf("underlying writer = %q, want %q: nothing may reach it after detach", got, "before")
+		}
+	})
+
+	t.Run("reports underlying errors", func(t *testing.T) {
+		failure := errors.New("write failed")
+		w := &detachableWriter{w: errWriter{failure}}
+
+		if _, err := w.Write([]byte("x")); !errors.Is(err, failure) {
+			t.Errorf("Write() error = %v, want %v", err, failure)
+		}
+	})
+
+	t.Run("detach is nil safe", func(t *testing.T) {
+		var w *detachableWriter
+		w.detach()
+	})
+
+	t.Run("detach does not wait for a parked write", func(t *testing.T) {
+		// ExecReaderContext hands the command an io.PipeWriter, so with
+		// nothing consuming the other end a write parks indefinitely. detach
+		// still has to return, or Wait is unbounded all over again.
+		blocked := &blockingWriter{entered: make(chan struct{}), release: make(chan struct{})}
+		w := &detachableWriter{w: blocked}
+
+		go func() { _, _ = w.Write([]byte("parked")) }()
+		<-blocked.entered
+
+		detached := make(chan struct{})
+		go func() {
+			defer close(detached)
+			w.detach()
+		}()
+		select {
+		case <-detached:
+		case <-time.After(10 * time.Second):
+			t.Fatal("detach() blocked behind a parked write")
+		}
+		close(blocked.release)
+	})
+
+	t.Run("detach races with a write in flight", func(t *testing.T) {
+		var buf bytes.Buffer
+		w := &detachableWriter{w: &buf}
+
+		var wg sync.WaitGroup
+		wg.Go(func() {
+			for range 100 {
+				_, _ = w.Write([]byte("x"))
+			}
+		})
+		wg.Go(w.detach)
+		wg.Wait()
+	})
+}
+
+// fakeWinrmCommand stands in for *winrm.Command, whose real implementation
+// talks SOAP to a Windows host. Wait blocks until the command is finished or
+// closed, as the real one does.
+type fakeWinrmCommand struct {
+	finished chan struct{}
+	once     sync.Once
+	closes   atomic.Int32
+	exitCode int
+}
+
+func newFakeWinrmCommand(exitCode int) *fakeWinrmCommand {
+	return &fakeWinrmCommand{finished: make(chan struct{}), exitCode: exitCode}
+}
+
+func (f *fakeWinrmCommand) finish()       { f.once.Do(func() { close(f.finished) }) }
+func (f *fakeWinrmCommand) Wait()         { <-f.finished }
+func (f *fakeWinrmCommand) ExitCode() int { return f.exitCode }
+
+func (f *fakeWinrmCommand) Close() error {
+	f.closes.Add(1)
+	f.finish() // the real Close releases Wait too
+	return nil
+}
+
+type fakeWinrmShell struct{ closes atomic.Int32 }
+
+func (f *fakeWinrmShell) Close() error {
+	f.closes.Add(1)
+	return nil
+}
+
+func newTestCommand(ctx context.Context, sh winrmShell, cmd winrmCommand, stdout, stderr io.Writer) *command {
+	return &command{
+		ctx:    ctx,
+		sh:     sh,
+		cmd:    cmd,
+		stdout: &detachableWriter{w: stdout},
+		stderr: &detachableWriter{w: stderr},
+	}
+}
+
+func TestCommandWait(t *testing.T) {
+	t.Run("returns when the command finishes inside the deadline", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		proc := newFakeWinrmCommand(0)
+		proc.finish()
+		c := newTestCommand(ctx, &fakeWinrmShell{}, proc, io.Discard, io.Discard)
+
+		if err := c.Wait(); err != nil {
+			t.Fatalf("Wait() error = %v, want nil", err)
+		}
+		if c.stdout.detached.Load() {
+			t.Error("the output writers were detached on a command that finished normally")
+		}
+	})
+
+	t.Run("reports a non-zero exit code", func(t *testing.T) {
+		proc := newFakeWinrmCommand(3)
+		proc.finish()
+		c := newTestCommand(context.Background(), &fakeWinrmShell{}, proc, io.Discard, io.Discard)
+
+		err := c.Wait()
+		if !errors.Is(err, errExitCode) {
+			t.Fatalf("Wait() error = %v, want %v", err, errExitCode)
+		}
+		if !strings.Contains(err.Error(), "3") {
+			t.Errorf("Wait() error = %q, want it to name exit code 3", err)
+		}
+	})
+
+	t.Run("gives up when the deadline passes first", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+		proc := newFakeWinrmCommand(0) // never finishes on its own
+		shell := &fakeWinrmShell{}
+		var out bytes.Buffer
+		c := newTestCommand(ctx, shell, proc, &out, io.Discard)
+
+		start := time.Now()
+		err := c.Wait()
+
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("Wait() error = %v, want %v", err, context.DeadlineExceeded)
+		}
+		if elapsed := time.Since(start); elapsed > 10*time.Second {
+			t.Fatalf("Wait() took %s, want it to give up promptly", elapsed)
+		}
+
+		// The copy goroutines outlive Wait, so the caller's writer must be
+		// out of reach by the time it returns.
+		if _, err := c.stdout.Write([]byte("late output")); err != nil {
+			t.Fatalf("Write() after Wait error = %v", err)
+		}
+		if out.Len() != 0 {
+			t.Errorf("caller's writer received %q after Wait returned", out.String())
+		}
+
+		// Teardown runs in the background, so it is only eventually visible.
+		deadline := time.Now().Add(10 * time.Second)
+		for proc.closes.Load() == 0 || shell.closes.Load() == 0 {
+			if time.Now().After(deadline) {
+				t.Fatalf("command/shell were not closed: cmd=%d shell=%d", proc.closes.Load(), shell.closes.Load())
+			}
+			time.Sleep(time.Millisecond)
+		}
+	})
+
+	t.Run("waits for the output copies before returning", func(t *testing.T) {
+		proc := newFakeWinrmCommand(0)
+		proc.finish()
+		c := newTestCommand(context.Background(), &fakeWinrmShell{}, proc, io.Discard, io.Discard)
+
+		copied := make(chan struct{})
+		c.wg.Go(func() {
+			time.Sleep(20 * time.Millisecond)
+			close(copied)
+		})
+
+		if err := c.Wait(); err != nil {
+			t.Fatalf("Wait() error = %v", err)
+		}
+		select {
+		case <-copied:
+		default:
+			t.Error("Wait() returned before the output copies finished")
+		}
+	})
 }
