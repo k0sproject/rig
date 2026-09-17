@@ -60,12 +60,12 @@ func TestPosixFileWrite(t *testing.T) {
 }
 
 // TestPosixFileCopyFrom verifies the same for the streaming copy path used by
-// remotefs.Upload.
+// remotefs.Upload, which appends to a file cut back to the resume point.
 func TestPosixFileCopyFrom(t *testing.T) {
 	mr := rigtest.NewMockRunner()
 	var got []byte
 	mr.AddCommandSuccess(rigtest.HasPrefix("truncate"))
-	mr.AddCommand(rigtest.HasPrefix("dd "), func(a *rigtest.A) error {
+	mr.AddCommand(rigtest.HasPrefix("cat"), func(a *rigtest.A) error {
 		var err error
 		got, err = io.ReadAll(a.Stdin)
 		return err
@@ -76,7 +76,7 @@ func TestPosixFileCopyFrom(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(5), n)
 	require.Equal(t, "hello", string(got))
-	require.Equal(t, "dd of=/tmp/file bs=1048576 seek=0 conv=notrunc", mr.LastCommand())
+	require.Equal(t, "cat >>/tmp/file", mr.LastCommand())
 	require.NoError(t, mr.NotReceived(rigtest.Contains("/dev/stdin")))
 }
 
@@ -97,8 +97,9 @@ func TestPosixFileBlockSize(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mr := rigtest.NewMockRunner()
 			mr.AddCommandSuccess(rigtest.HasPrefix("dd "))
-			// 16384 bytes is a whole number of blocks at any of the sizes under
-			// test, so a rejected one shows up as ddParams falling back to bs=1.
+			// 16384 bytes is a whole number of blocks both at the reported 8192
+			// and at the 4096 byte default, so the block size dd is handed is the
+			// one fsBlockSize settled on rather than a reduction of it.
 			f := openPosixFile(t, mr, os.O_RDONLY, tc.blockSize, "16384")
 
 			_, err := f.CopyTo(io.Discard)
@@ -117,27 +118,26 @@ func TestPosixFileBlockSize(t *testing.T) {
 }
 
 // TestPosixFileCopyFromResume covers a copy that resumes at a nonzero offset.
-// dd counts seek in output blocks rather than in bytes, so bs and seek have to
-// multiply back to the byte offset the file is positioned at; an offset that is
-// not a multiple of the streaming block size shrinks the block size until it is.
+// The remote file is cut back to that offset and the stream appended to it, so
+// the transfer never has to express the offset in blocks: dd's seek did, which
+// left a resume from an odd byte offset copying one byte at a time.
 func TestPosixFileCopyFromResume(t *testing.T) {
 	const mib = 1 << 20
 	for _, tc := range []struct {
 		name string
 		pos  int64
-		bs   int64
 	}{
-		{"start", 0, mib},
-		{"whole blocks", 3 * mib, mib},
-		{"less than a block", 4096, 4096},
-		{"unaligned", 1_500_000, 32}, // 1500000 = 46875 * 32
-		{"odd", mib + 1, 1},
+		{"start", 0},
+		{"whole blocks", 3 * mib},
+		{"less than a block", 4096},
+		{"unaligned", 1_500_000},
+		{"odd", mib + 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mr := rigtest.NewMockRunner()
 			mr.AddCommandSuccess(rigtest.HasPrefix("truncate"))
 			var got []byte
-			mr.AddCommand(rigtest.HasPrefix("dd "), func(a *rigtest.A) error {
+			mr.AddCommand(rigtest.HasPrefix("cat"), func(a *rigtest.A) error {
 				var err error
 				got, err = io.ReadAll(a.Stdin)
 				return err
@@ -158,12 +158,9 @@ func TestPosixFileCopyFromResume(t *testing.T) {
 			require.NoError(t, mr.Received(rigtest.Equal(
 				fmt.Sprintf("truncate -s %d /tmp/file", tc.pos))))
 
-			var bs, seek int64
-			_, err = fmt.Sscanf(mr.LastCommand(), "dd of=/tmp/file bs=%d seek=%d conv=notrunc", &bs, &seek)
-			require.NoError(t, err, "unexpected dd invocation: %s", mr.LastCommand())
-			require.Equal(t, tc.bs, bs)
-			require.Equal(t, tc.pos, bs*seek,
-				"bs=%d seek=%d writes at byte %d, not %d", bs, seek, bs*seek, tc.pos)
+			// The same command at every offset: the append starts where the
+			// truncate stopped, whatever that offset happens to divide by.
+			require.Equal(t, "cat >>/tmp/file", mr.LastCommand())
 		})
 	}
 }

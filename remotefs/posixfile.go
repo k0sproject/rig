@@ -204,17 +204,16 @@ func (f *PosixFile) CopyFrom(src io.Reader) (int64, error) {
 	}
 	counter := &iostream.ByteCounter{}
 
-	// dd counts seek in output blocks rather than in bytes, so the block size has
-	// to divide the offset being resumed from.
-	bs := alignBlockSize(streamBlockSize, f.pos)
-
+	// The file has just been cut back to f.pos, so an append lands exactly at the
+	// resume point. dd would want that offset in output blocks instead, which
+	// means a block size dividing it: a resume from an odd byte offset would be
+	// copied one byte at a time. An append needs no block size at all.
 	err := f.fs.Exec(
-		// "if=" is omitted so dd reads stdin, see the note in Write above.
-		sh.Command("dd", "of="+f.path, fmt.Sprintf("bs=%d", bs), fmt.Sprintf("seek=%d", f.pos/bs), "conv=notrunc"),
+		sh.CommandBuilder("cat").AppendOutToFile(f.path).String(),
 		cmd.Stdin(io.TeeReader(src, counter)),
 	)
 	if err != nil {
-		return 0, f.pathErr(OpCopyFrom, fmt.Errorf("exec dd: %w", err))
+		return 0, f.pathErr(OpCopyFrom, fmt.Errorf("exec cat: %w", err))
 	}
 
 	f.pos += counter.Count()
