@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/k0sproject/rig/v2/iostream"
 	"github.com/k0sproject/rig/v2/log"
@@ -29,7 +30,7 @@ type ExecOptions struct {
 	out    io.Writer
 	errOut io.Writer
 
-	errBuf *bytes.Buffer
+	errBuf *syncBuffer
 
 	allowWinStderr bool
 
@@ -221,6 +222,29 @@ func (o *ExecOptions) ErrString() string {
 	return o.errBuf.String()
 }
 
+// syncBuffer is the stderr capture buffer. It is read as soon as Wait
+// returns, and a Wait that gives up on a command its host stopped answering
+// can return while the goroutine copying stderr is still writing here, so
+// the two have to be able to happen at once.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.buf.Write(p) //nolint:wrapcheck // bytes.Buffer.Write never returns an error
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.buf.String()
+}
+
 // AllowWinStderr exec option allows command to output to stderr without failing.
 func AllowWinStderr() ExecOption {
 	return func(o *ExecOptions) {
@@ -395,7 +419,7 @@ func Build(opts ...ExecOption) *ExecOptions {
 		streamOutput: false,
 		trimOutput:   true,
 		redactMask:   DefaultRedactMask,
-		errBuf:       bytes.NewBuffer(nil),
+		errBuf:       &syncBuffer{},
 	}
 
 	options.Apply(opts...)

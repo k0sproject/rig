@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"io"
 	"sync"
+	"sync/atomic"
 )
 
 // ScanWriterMaxBufferSize is the maximum size of the ScanWriter buffer. If the buffer
@@ -24,7 +25,11 @@ type ScanWriter struct {
 	pipeW   *io.PipeWriter
 	scanner *bufio.Scanner
 	once    sync.Once
-	closed  bool
+	// closed is atomic because a writer can be closed while a goroutine that
+	// no longer has an owner is still writing to it -- see cmd.Executor,
+	// where a command abandoned on its context outlives the Wait that
+	// releases its output writers.
+	closed  atomic.Bool
 	closeCh chan struct{}
 }
 
@@ -53,7 +58,7 @@ func (w *ScanWriter) startScanner() {
 
 // Write writes the given bytes to the scanner.
 func (w *ScanWriter) Write(p []byte) (int, error) {
-	if w.closed {
+	if w.closed.Load() {
 		return 0, io.ErrUnexpectedEOF
 	}
 	w.startScanner()
@@ -67,10 +72,9 @@ func (w *ScanWriter) Close() error {
 
 // CloseWithError closes the underlying pipe with an error.
 func (w *ScanWriter) CloseWithError(reason error) error {
-	if w.closed {
+	if w.closed.Swap(true) {
 		return io.ErrClosedPipe
 	}
-	w.closed = true
 
 	if err := w.pipeW.CloseWithError(reason); err != nil {
 		return err //nolint:wrapcheck

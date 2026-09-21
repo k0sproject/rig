@@ -44,10 +44,10 @@ func (f *winDir) CopyFrom(_ io.Reader) (int64, error) {
 }
 
 func (f *winDir) Close() error {
-	if f.closed {
+	if f.closed.Load() {
 		return f.pathErr("close", fs.ErrClosed)
 	}
-	f.closed = true
+	f.closed.Store(true)
 	return nil
 }
 
@@ -136,7 +136,7 @@ func (f *winDir) ReadDir(n int) ([]fs.DirEntry, error) {
 }
 
 func (f *winDir) open(flags int) error {
-	if f.closed {
+	if f.closed.Load() {
 		return f.pathErr("open", fs.ErrClosed)
 	}
 

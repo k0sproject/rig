@@ -4,11 +4,19 @@ import (
 	"bytes"
 	"io"
 	"sort"
+	"sync"
 
 	"github.com/k0sproject/rig/v2/byteslice"
 )
 
 type redactWriter struct {
+	// mu guards buf, out and closed: Write and Close share them, and a
+	// writer can be closed while a goroutine that no longer has an owner is
+	// still writing to it -- see cmd.Executor, where a command abandoned on
+	// its context outlives the Wait that releases its output writers. Close
+	// therefore waits for a write in flight, which waits in turn on whatever
+	// w is, so it does not belong on a latency-sensitive path.
+	mu      sync.Mutex
 	w       io.Writer
 	matches [][]byte
 	mask    []byte
@@ -33,6 +41,9 @@ func Writer(w io.Writer, mask string, matches ...string) io.WriteCloser {
 }
 
 func (rw *redactWriter) Write(p []byte) (int, error) {
+	rw.mu.Lock()
+	defer rw.mu.Unlock()
+
 	if rw.closed {
 		return 0, io.ErrClosedPipe
 	}
@@ -57,14 +68,25 @@ func (rw *redactWriter) Write(p []byte) (int, error) {
 }
 
 func (rw *redactWriter) Flush() error {
+	rw.mu.Lock()
+	defer rw.mu.Unlock()
+
+	return rw.flush()
+}
+
+// flush must be called with mu held.
+func (rw *redactWriter) flush() error {
 	_, err := io.Copy(rw.w, rw.out)
 	return err //nolint:wrapcheck
 }
 
 func (rw *redactWriter) Close() error {
+	rw.mu.Lock()
+	defer rw.mu.Unlock()
+
 	rw.closed = true
 	// Flush any remaining data from the out buffer.
-	if err := rw.Flush(); err != nil {
+	if err := rw.flush(); err != nil {
 		return err
 	}
 

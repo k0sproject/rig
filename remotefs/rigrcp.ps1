@@ -168,7 +168,16 @@ public static extern IntPtr GetStdHandle(int nStdHandle);
           Emit $out $o
           $out.Flush()
           $buf=NO byte[] $cnt
-          $b=$in.Read($buf, 0, $cnt)
+          # $in is a FileStream over stdin, so a Read returns as soon as any
+          # data is there. The payload arrives in several pieces whenever it
+          # is larger than one transport chunk, so keep reading until the
+          # declared count is in rather than calling the first piece short.
+          $b=0
+          while($b -lt $cnt){
+            $r=$in.Read($buf, $b, $cnt-$b)
+            if($r -le 0){ break }
+            $b+=$r
+          }
           if($b -ne $cnt){
             $dump=HexDump $buf
             throw "short read $b bytes instead of $cnt bytes\n$dump"
@@ -188,9 +197,9 @@ public static extern IntPtr GetStdHandle(int nStdHandle);
         }
         'q' {
           $quit=$true
-          Close-Dipose $out
-          Close-Dipose $inStream
-          Close-Dipose $in
+          Close-Dispose $out
+          Close-Dispose $inStream
+          Close-Dispose $in
         }
         default {
           throw "invalid command"

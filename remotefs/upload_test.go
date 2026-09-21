@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -29,6 +30,7 @@ type uploadFS struct {
 	createTempErr error
 	openFileErr   error
 	copyFromErr   error
+	closeErr      error
 	sha256Err     error
 	chmodErr      error
 	renameErr     error
@@ -48,7 +50,7 @@ func (f *uploadFS) OpenFile(_ string, _ int, _ fs.FileMode) (remotefs.File, erro
 	if f.openFileErr != nil {
 		return nil, f.openFileErr
 	}
-	return &uploadFile{buf: &f.written, copyFromErr: f.copyFromErr}, nil
+	return &uploadFile{buf: &f.written, copyFromErr: f.copyFromErr, closeErr: f.closeErr}, nil
 }
 
 func (f *uploadFS) Sha256(_ string) (string, error) {
@@ -125,6 +127,7 @@ func (f *uploadFS) ShellQuote(_ string) string                            { pani
 type uploadFile struct {
 	buf         *[]byte
 	copyFromErr error
+	closeErr    error
 }
 
 func (f *uploadFile) CopyFrom(src io.Reader) (int64, error) {
@@ -136,7 +139,7 @@ func (f *uploadFile) CopyFrom(src io.Reader) (int64, error) {
 	return int64(len(data)), err
 }
 
-func (f *uploadFile) Close() error                       { return nil }
+func (f *uploadFile) Close() error                       { return f.closeErr }
 func (f *uploadFile) Name() string                       { return "" }
 func (f *uploadFile) Read(_ []byte) (int, error)         { panic("not implemented") }
 func (f *uploadFile) Seek(_ int64, _ int) (int64, error) { panic("not implemented") }
@@ -194,6 +197,32 @@ func TestUploadCopyFailureCleansTempFile(t *testing.T) {
 	err := remotefs.Upload(mfs, src, "/remote/dst")
 	require.Error(t, err)
 	require.Contains(t, mfs.removedPaths, mfs.tmpPath, "temp file must be removed after copy failure")
+}
+
+func TestUploadSessionTimeoutSkipsCleanup(t *testing.T) {
+	src := writeTempFile(t, "hello", 0o644)
+	mfs := &uploadFS{copyFromErr: fmt.Errorf("copy file to remote host: %w", remotefs.ErrTimeout)}
+
+	err := remotefs.Upload(mfs, src, "/remote/dst")
+
+	require.ErrorIs(t, err, remotefs.ErrTimeout)
+	require.Empty(t, mfs.removedPaths, "cleanup must not run on a session that timed out: the connection is gone and the command would block on it")
+}
+
+func TestUploadKeepsATimedOutCloseBehindACopyFailure(t *testing.T) {
+	src := writeTempFile(t, "hello", 0o644)
+	// The copy fails for its own reasons and the close then finds the session
+	// gone. The close is the one that decides whether cleanup can run at all,
+	// so it must not be dropped in favour of the copy error.
+	mfs := &uploadFS{
+		copyFromErr: errors.New("network error"),
+		closeErr:    fmt.Errorf("close temp file: %w", remotefs.ErrTimeout),
+	}
+
+	err := remotefs.Upload(mfs, src, "/remote/dst")
+
+	require.ErrorIs(t, err, remotefs.ErrTimeout)
+	require.Empty(t, mfs.removedPaths, "cleanup must not run over a session that timed out")
 }
 
 func TestUploadRenameFailureCleansTempFile(t *testing.T) {

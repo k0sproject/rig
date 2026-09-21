@@ -370,9 +370,17 @@ func cleanStderr(stderr string, isWindows bool) string {
 func (w *waiterWrapper) Wait() error {
 	waitErr := w.waiter.Wait()
 
-	// flush per-line trace writers before reading errBuf so all output is delivered
-	for _, c := range w.traceClosers {
-		_ = c.Close()
+	// Flush the per-line trace writers before reading errBuf so all output is
+	// delivered. A command abandoned on its context is still running, though,
+	// and its output copier can still be inside these writers: closing them
+	// flushes through the copier's write and waits for the scanner goroutine
+	// behind it, which is the unbounded wait the context was there to end.
+	// Hand that to a goroutine, which comes through once teardown releases
+	// the copier -- they still get closed, just not on the caller's time.
+	if errors.Is(waitErr, context.DeadlineExceeded) || errors.Is(waitErr, context.Canceled) {
+		go closeAll(w.traceClosers)
+	} else {
+		closeAll(w.traceClosers)
 	}
 
 	stderr := cleanStderr(w.opts.ErrString(), w.isWindows)
@@ -585,8 +593,16 @@ func (r *Executor) ExecOutputContext(ctx context.Context, command string, opts .
 	if !ok {
 		out = &bytes.Buffer{}
 	}
+	// A buffer only goes back to the pool once nothing can still be writing
+	// to it. Wait gives up on a command whose context has expired while the
+	// host is unresponsive, and the goroutine copying that command's output
+	// can outlive it, so on that one path the buffer is dropped rather than
+	// recycled into an unrelated command. Every other outcome -- a start
+	// failure, a non-zero exit, stderr output -- means the command is done
+	// with it.
+	recycle := true
 	defer func() {
-		if out.Cap() <= 64<<10 {
+		if recycle && out.Cap() <= 64<<10 {
 			clear(out.Bytes()) // zero backing array so output doesn't linger in pool memory
 			out.Reset()
 			bufferPool.Put(out)
@@ -606,6 +622,7 @@ func (r *Executor) ExecOutputContext(ctx context.Context, command string, opts .
 	log.Trace(ctx, "waiting on command", log.HostAttr(r))
 	if err := proc.Wait(); err != nil {
 		log.Trace(ctx, "waiting returned an error", log.HostAttr(r), log.KeyError, err)
+		recycle = ctx.Err() == nil
 		return "", fmt.Errorf("command result: %w", err)
 	}
 
