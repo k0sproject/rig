@@ -580,12 +580,16 @@ func TestWindowsRemoveAll(t *testing.T) {
 
 // fakeRigrcp stands in for the rigrcp helper on a Windows host, serving
 // content as the file it has open, and records every command it receives.
-// It keeps its own position, as the helper's open handle does.
 type fakeRigrcp struct {
 	mu       sync.Mutex
 	content  []byte
-	pos      int
 	commands []string
+	// writeErr, when set, is reported as the outcome of every write, which
+	// then leaves content alone.
+	writeErr string
+	// rejectWrite, when set, is the reply to every w command, before any
+	// payload is sent.
+	rejectWrite string
 }
 
 // isRigrcp matches the command that starts the rigrcp helper, telling it
@@ -611,9 +615,26 @@ func (r *fakeRigrcp) handle(a *rigtest.A) error {
 		if _, err := a.Stdout.Write(append([]byte(resp), 0)); err != nil {
 			return fmt.Errorf("write response: %w", err)
 		}
-		if len(fields) > 0 && fields[0] == "w" && !strings.Contains(resp, "error") {
-			if err := r.receive(in, fields); err != nil {
+		if len(fields) > 0 && fields[0] == "w" && !strings.Contains(resp, "error") && r.writeErr != "" {
+			count, _, err := countAndPos(fields)
+			if err != nil {
 				return err
+			}
+			if _, err := io.CopyN(io.Discard, in, int64(count)); err != nil {
+				return fmt.Errorf("discard payload: %w", err)
+			}
+			if _, err := fmt.Fprintf(a.Stdout, `{"error":%q}`+"\x00", r.writeErr); err != nil {
+				return fmt.Errorf("write completion: %w", err)
+			}
+			continue
+		}
+		if len(fields) > 0 && fields[0] == "w" && !strings.Contains(resp, "error") {
+			count, err := r.receive(in, fields)
+			if err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(a.Stdout, `{"n":%d}`+"\x00", count); err != nil {
+				return fmt.Errorf("write completion: %w", err)
 			}
 			continue
 		}
@@ -631,6 +652,22 @@ func (r *fakeRigrcp) record(line string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.commands = append(r.commands, strings.TrimSuffix(line, "\n"))
+}
+
+// countAndPos parses the "<count> <pos>" arguments of r and w.
+func countAndPos(fields []string) (int, int, error) {
+	if len(fields) != 3 {
+		return 0, 0, fmt.Errorf("want count and position, got %q", fields[1:])
+	}
+	count, err := strconv.Atoi(fields[1])
+	if err != nil {
+		return 0, 0, fmt.Errorf("count: %w", err)
+	}
+	pos, err := strconv.Atoi(fields[2])
+	if err != nil {
+		return 0, 0, fmt.Errorf("position: %w", err)
+	}
+	return count, pos, nil
 }
 
 func (r *fakeRigrcp) respond(line string) (string, []byte) {
@@ -653,51 +690,26 @@ func (r *fakeRigrcp) respond(line string) (string, []byte) {
 		case "CreateNew":
 			return `{"error":"The file already exists."}`, nil
 		}
-		r.pos = 0
-		return `{"pos":0}`, nil
-	case "s":
-		if len(fields) != 3 {
-			return `{"error":"want offset and origin"}`, nil
-		}
-		offset, err := strconv.Atoi(fields[1])
-		if err != nil {
-			return fmt.Sprintf(`{"error":%q}`, err.Error()), nil
-		}
-		switch fields[2] {
-		case "Begin":
-			r.pos = offset
-		case "Current":
-			r.pos += offset
-		case "End":
-			r.pos = len(r.content) + offset
-		default:
-			return `{"error":"invalid origin"}`, nil
-		}
-		return fmt.Sprintf(`{"pos":%d}`, r.pos), nil
+		return fmt.Sprintf(`{"pos":0,"size":%d}`, len(r.content)), nil
 	case "r":
-		if len(fields) < 2 {
-			return `{"error":"missing count"}`, nil
-		}
-		count, err := strconv.Atoi(fields[1])
+		count, pos, err := countAndPos(fields)
 		if err != nil {
 			return fmt.Sprintf(`{"error":%q}`, err.Error()), nil
 		}
-		remaining := r.content[min(r.pos, len(r.content)):]
+		remaining := r.content[min(pos, len(r.content)):]
 		if count == -1 {
-			r.pos += len(remaining)
 			return fmt.Sprintf(`{"n":%d}`, len(remaining)), remaining
 		}
 		if len(remaining) == 0 {
 			return `{"error":"eof"}`, nil
 		}
 		chunk := remaining[:min(count, len(remaining))]
-		r.pos += len(chunk)
 		return fmt.Sprintf(`{"n":%d}`, len(chunk)), chunk
 	case "w":
-		if len(fields) < 2 {
-			return `{"error":"missing count"}`, nil
+		if r.rejectWrite != "" {
+			return fmt.Sprintf(`{"error":%q}`, r.rejectWrite), nil
 		}
-		count, err := strconv.Atoi(fields[1])
+		count, _, err := countAndPos(fields)
 		if err != nil {
 			return fmt.Sprintf(`{"error":%q}`, err.Error()), nil
 		}
@@ -710,24 +722,23 @@ func (r *fakeRigrcp) respond(line string) (string, []byte) {
 }
 
 // receive reads the payload of a w command and writes it into content at
-// the current position.
-func (r *fakeRigrcp) receive(in io.Reader, fields []string) error {
-	count, err := strconv.Atoi(fields[1])
+// the position the command named, returning how much it wrote.
+func (r *fakeRigrcp) receive(in io.Reader, fields []string) (int, error) {
+	count, pos, err := countAndPos(fields)
 	if err != nil {
-		return fmt.Errorf("count: %w", err)
+		return 0, err
 	}
 	payload := make([]byte, count)
 	if _, err := io.ReadFull(in, payload); err != nil {
-		return fmt.Errorf("read payload: %w", err)
+		return 0, fmt.Errorf("read payload: %w", err)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if end := r.pos + count; end > len(r.content) {
+	if end := pos + count; end > len(r.content) {
 		r.content = append(r.content, make([]byte, end-len(r.content))...)
 	}
-	copy(r.content[r.pos:], payload)
-	r.pos += count
-	return nil
+	copy(r.content[pos:], payload)
+	return count, nil
 }
 
 func (r *fakeRigrcp) received() []string {
@@ -773,7 +784,7 @@ func TestWindowsReadFile(t *testing.T) {
 			// The decisive assertion: the fake serves partial reads correctly
 			// too, so matching content alone would pass against io.ReadAll,
 			// which reads through a round trip per small buffer.
-			require.Equal(t, []string{`o Open Read C:\app\file.txt`, "r -1", "c", "q"}, rcp.received())
+			require.Equal(t, []string{`o Open Read C:\app\file.txt`, "r -1 0", "c", "q"}, rcp.received())
 		})
 	}
 }
@@ -783,7 +794,7 @@ func TestWindowsWriteFile(t *testing.T) {
 
 	require.NoError(t, remotefs.NewWindowsFS(mr).WriteFile(`C:\app\file.txt`, []byte("ab"), 0o644))
 	require.Equal(t, "ab", string(rcp.file()), "a shorter write must not leave the old tail behind")
-	require.Equal(t, []string{`o Create Write C:\app\file.txt`, "w 2", "c", "q"}, rcp.received())
+	require.Equal(t, []string{`o Create Write C:\app\file.txt`, "w 2 0", "c", "q"}, rcp.received())
 }
 
 func TestWindowsOpenFileAppend(t *testing.T) {
@@ -800,22 +811,235 @@ func TestWindowsOpenFileAppend(t *testing.T) {
 
 	_, err = f.Seek(0, io.SeekStart)
 	require.NoError(t, err)
+	_, err = f.Read(buf)
+	require.NoError(t, err)
+	require.Equal(t, "a", string(buf), "seeking still positions reads")
+
 	_, err = f.Write([]byte("f"))
 	require.NoError(t, err)
+	pos, err := f.Seek(0, io.SeekCurrent)
+	require.NoError(t, err)
+	require.Equal(t, int64(6), pos, "an append leaves the position after what it wrote")
 	require.NoError(t, f.Close())
 
 	require.Equal(t, "abcdef", string(rcp.file()), "every write goes to the end, wherever Seek left the position")
 	// FileMode.Append would refuse ReadWrite and create a missing file, so
-	// the file is opened plainly and each write finds the end first.
-	require.Equal(t, []string{
-		`o Open ReadWrite C:\app\file.txt`,
-		"r 1",
-		"s 0 End",
-		"w 2",
-		"s 0 Begin",
-		"s 0 End",
-		"w 1",
-		"c",
-		"q",
-	}, rcp.received())
+	// the file is opened plainly and each write aimed at the end.
+	require.Equal(t, []string{`o Open ReadWrite C:\app\file.txt`, "r 1 0", "w 2 3", "r 1 0", "w 1 5", "c", "q"}, rcp.received())
+}
+
+func TestWindowsOpenFileAccess(t *testing.T) {
+	const name = `C:\app\file.txt`
+
+	t.Run("read-only rejects writes of any size", func(t *testing.T) {
+		mr, rcp := newRigrcpRunner([]byte("abc"))
+		f, err := remotefs.NewWindowsFS(mr).OpenFile(name, os.O_RDONLY, 0)
+		require.NoError(t, err)
+
+		_, err = f.Write(nil)
+		require.ErrorIs(t, err, fs.ErrClosed, "an empty write is refused like any other")
+		_, err = f.Write([]byte("x"))
+		require.ErrorIs(t, err, fs.ErrClosed)
+		require.NoError(t, f.Close())
+
+		require.Equal(t, "abc", string(rcp.file()))
+		require.Equal(t, []string{`o Open Read C:\app\file.txt`, "c", "q"}, rcp.received())
+	})
+
+	for _, tc := range []struct {
+		name  string
+		flags int
+		host  string
+	}{
+		{"read-only append", os.O_RDONLY | os.O_APPEND, "Open ReadWrite"},
+		{"read-only truncate", os.O_RDONLY | os.O_TRUNC, "Truncate ReadWrite"},
+	} {
+		t.Run(tc.name+" still rejects writes", func(t *testing.T) {
+			mr, rcp := newRigrcpRunner([]byte("abc"))
+			f, err := remotefs.NewWindowsFS(mr).OpenFile(name, tc.flags, 0)
+			require.NoError(t, err)
+
+			// The host is given write access only so that it accepts the
+			// mode; the caller asked for a read-only handle.
+			_, err = f.Write([]byte("x"))
+			require.ErrorIs(t, err, fs.ErrClosed)
+			require.NoError(t, f.Close())
+
+			require.Equal(t, []string{"o " + tc.host + ` C:\app\file.txt`, "c", "q"}, rcp.received())
+		})
+	}
+
+	t.Run("CopyFrom checks access even with nothing to copy", func(t *testing.T) {
+		mr, _ := newRigrcpRunner([]byte("abc"))
+		f, err := remotefs.NewWindowsFS(mr).OpenFile(name, os.O_RDONLY, 0)
+		require.NoError(t, err)
+
+		_, err = f.CopyFrom(bytes.NewReader(nil))
+		require.ErrorIs(t, err, fs.ErrClosed, "a read-only handle is not writable")
+		require.NoError(t, f.Close())
+		_, err = f.CopyFrom(bytes.NewReader(nil))
+		require.ErrorIs(t, err, fs.ErrClosed, "a closed handle is not writable")
+	})
+
+	t.Run("write-only rejects reads", func(t *testing.T) {
+		mr, rcp := newRigrcpRunner([]byte("abc"))
+		f, err := remotefs.NewWindowsFS(mr).OpenFile(name, os.O_WRONLY, 0)
+		require.NoError(t, err)
+
+		_, err = f.Read(make([]byte, 1))
+		require.ErrorIs(t, err, fs.ErrClosed)
+		_, err = f.CopyTo(io.Discard)
+		require.ErrorIs(t, err, fs.ErrClosed)
+		require.NoError(t, f.Close())
+
+		require.Equal(t, []string{`o Open Write C:\app\file.txt`, "c", "q"}, rcp.received())
+	})
+}
+
+func TestWindowsOpenFileAppendRejected(t *testing.T) {
+	mr, rcp := newRigrcpRunner([]byte("abc"))
+	rcp.rejectWrite = "The process cannot access the file."
+	f, err := remotefs.NewWindowsFS(mr).OpenFile(`C:\app\file.txt`, os.O_APPEND|os.O_RDWR, 0)
+	require.NoError(t, err)
+
+	_, err = f.Write([]byte("x"))
+	require.ErrorContains(t, err, "cannot access")
+	pos, err := f.Seek(0, io.SeekCurrent)
+	require.NoError(t, err)
+	require.Zero(t, pos, "a write that was refused must not move the position to the end")
+	require.NoError(t, f.Close())
+}
+
+// failingWriter accepts nothing.
+type failingWriter struct{ err error }
+
+func (w failingWriter) Write([]byte) (int, error) { return 0, w.err }
+
+func TestWindowsFileCopyToFailingDestination(t *testing.T) {
+	mr, _ := newRigrcpRunner(bytes.Repeat([]byte("x"), 64*1024))
+	f, err := remotefs.NewWindowsFS(mr).OpenFile(`C:\app\file.txt`, os.O_RDONLY, 0)
+	require.NoError(t, err)
+
+	sinkFull := errors.New("sink is full")
+	_, err = f.CopyTo(failingWriter{err: sinkFull})
+	require.ErrorIs(t, err, sinkFull)
+	// The rest of the file is still in the stream, so the next reply would
+	// be file content: the handle must refuse to be used instead.
+	_, err = f.Read(make([]byte, 1))
+	require.ErrorIs(t, err, fs.ErrClosed)
+}
+
+func TestWindowsFileWriteFailure(t *testing.T) {
+	mr, rcp := newRigrcpRunner([]byte("abc"))
+	rcp.writeErr = "There is not enough space on the disk."
+	f, err := remotefs.NewWindowsFS(mr).OpenFile(`C:\app\file.txt`, os.O_RDWR, 0)
+	require.NoError(t, err)
+	_, err = f.Seek(0, io.SeekEnd)
+	require.NoError(t, err)
+
+	n, err := f.Write([]byte("xyz"))
+	require.ErrorContains(t, err, "not enough space", "the write that failed must be the one to report it")
+	require.Zero(t, n)
+	// Part of the payload may have reached the file, so the handle's idea of
+	// its position and end can no longer be trusted: it must not be reused.
+	_, err = f.Seek(0, io.SeekEnd)
+	require.ErrorIs(t, err, fs.ErrClosed)
+	_, err = f.Write([]byte("x"))
+	require.ErrorIs(t, err, fs.ErrClosed)
+
+	require.Equal(t, "abc", string(rcp.file()))
+	require.Equal(t, []string{`o Open ReadWrite C:\app\file.txt`, "w 3 3"}, rcp.received())
+}
+
+func TestWindowsFileSeek(t *testing.T) {
+	const name = `C:\app\file.txt`
+
+	t.Run("reads and writes land at the sought offset", func(t *testing.T) {
+		mr, rcp := newRigrcpRunner([]byte("0123456789"))
+		f, err := remotefs.NewWindowsFS(mr).OpenFile(name, os.O_RDWR, 0)
+		require.NoError(t, err)
+
+		pos, err := f.Seek(-4, io.SeekEnd)
+		require.NoError(t, err)
+		require.Equal(t, int64(6), pos)
+		buf := make([]byte, 2)
+		n, err := f.Read(buf)
+		require.NoError(t, err)
+		require.Equal(t, "67", string(buf[:n]))
+
+		pos, err = f.Seek(-5, io.SeekCurrent)
+		require.NoError(t, err)
+		require.Equal(t, int64(3), pos)
+		_, err = f.Write([]byte("ab"))
+		require.NoError(t, err)
+
+		pos, err = f.Seek(0, io.SeekEnd)
+		require.NoError(t, err)
+		require.Equal(t, int64(10), pos)
+		_, err = f.Write([]byte("XY"))
+		require.NoError(t, err)
+
+		pos, err = f.Seek(0, io.SeekEnd)
+		require.NoError(t, err)
+		require.Equal(t, int64(12), pos, "a write past the end extends the size Seek measures from")
+
+		_, err = f.Seek(1, io.SeekStart)
+		require.NoError(t, err)
+		var out bytes.Buffer
+		_, err = f.CopyTo(&out)
+		require.NoError(t, err)
+		require.Equal(t, "12ab56789XY", out.String())
+		require.NoError(t, f.Close())
+
+		require.Equal(t, "012ab56789XY", string(rcp.file()))
+		// Seek itself must not reach the helper: each operation carries its
+		// own offset instead.
+		require.Equal(t, []string{
+			`o Open ReadWrite C:\app\file.txt`,
+			"r 2 6",
+			"w 2 3",
+			"w 2 10",
+			"r -1 1",
+			"c",
+			"q",
+		}, rcp.received())
+	})
+
+	t.Run("an empty write past the end leaves the end alone", func(t *testing.T) {
+		mr, rcp := newRigrcpRunner([]byte("abc"))
+		f, err := remotefs.NewWindowsFS(mr).OpenFile(name, os.O_RDWR, 0)
+		require.NoError(t, err)
+
+		_, err = f.Seek(10, io.SeekStart)
+		require.NoError(t, err)
+		n, err := f.Write(nil)
+		require.NoError(t, err)
+		require.Zero(t, n)
+		end, err := f.Seek(0, io.SeekEnd)
+		require.NoError(t, err)
+		require.Equal(t, int64(3), end, "writing nothing must not move the end of the file")
+		require.NoError(t, f.Close())
+
+		require.Equal(t, "abc", string(rcp.file()))
+		require.Equal(t, []string{`o Open ReadWrite C:\app\file.txt`, "c", "q"}, rcp.received(), "an empty write needs no round trip")
+	})
+
+	t.Run("invalid", func(t *testing.T) {
+		mr, rcp := newRigrcpRunner([]byte("abc"))
+		f, err := remotefs.NewWindowsFS(mr).OpenFile(name, os.O_RDONLY, 0)
+		require.NoError(t, err)
+
+		_, err = f.Seek(-1, io.SeekStart)
+		require.ErrorIs(t, err, fs.ErrInvalid)
+		_, err = f.Seek(0, 42)
+		require.ErrorIs(t, err, fs.ErrInvalid)
+		pos, err := f.Seek(0, io.SeekCurrent)
+		require.NoError(t, err)
+		require.Equal(t, int64(0), pos, "a rejected seek must leave the position alone")
+
+		require.NoError(t, f.Close())
+		_, err = f.Seek(0, io.SeekStart)
+		require.ErrorIs(t, err, fs.ErrClosed)
+		require.Equal(t, []string{`o Open Read C:\app\file.txt`, "c", "q"}, rcp.received())
+	})
 }

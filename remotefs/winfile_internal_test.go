@@ -60,12 +60,14 @@ func newRCPSession(t *testing.T, timeout time.Duration) *rcpSession {
 
 	return &rcpSession{
 		file: &winFile{
-			stdin:   stdinW,
-			stdout:  bufio.NewReader(stdoutR),
-			stdinR:  stdinR,
-			stdoutW: stdoutW,
-			done:    make(chan struct{}), // never closed: the session never reports having ended
-			cancel:  sync.OnceFunc(func() { close(cancelled) }),
+			readable: true,
+			writable: true,
+			stdin:    stdinW,
+			stdout:   bufio.NewReader(stdoutR),
+			stdinR:   stdinR,
+			stdoutW:  stdoutW,
+			done:     make(chan struct{}), // never closed: the session never reports having ended
+			cancel:   sync.OnceFunc(func() { close(cancelled) }),
 		},
 		commands:  bufio.NewReader(stdinR),
 		responses: stdoutW,
@@ -276,6 +278,8 @@ func TestWinFileWriteSurvivesSlowTransfer(t *testing.T) {
 			}
 		}
 		drained <- total
+		// The helper confirms the write once the payload is in the file.
+		_, _ = fmt.Fprintf(s.responses, `{"n":%d}`+"\x00", total)
 	}()
 
 	start := time.Now()

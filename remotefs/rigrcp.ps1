@@ -31,19 +31,13 @@ begin {
       }
   }
 
-  function HexDump {
-      # Assuming the first argument to the function is the buffer
-      $buffer = $args[0]
-
-      for ($i = 0; $i -lt $buffer.Length; $i += 16) {
-          $line = $buffer[$i..([Math]::Min($i + 15, $buffer.Length - 1))]
-          $hex = ($line | ForEach-Object { "{0:X2}" -f $_ }) -join " "
-          $text = ($line | ForEach-Object { if ($_ -ge 32 -and $_ -le 126) {[char]$_} else {"."} }) -join ""
-          $offset = "{0:X8}" -f $i
-          "${offset}: $hex  $text"
-      }
+  # The file position lives on the Go side, which sends it with every read and
+  # write rather than relying on where the previous command left the handle.
+  function Set-Position($f, $arg){
+    if ($arg.Length -lt 3) { throw "missing position" }
+    $f.Position=[long]$arg[2]
   }
-  $DebugPreference="Continue"
+
   $ErrorActionPreference="Stop"
   $ProgressPreference="SilentlyContinue"
 
@@ -65,7 +59,6 @@ public static extern IntPtr GetStdHandle(int nStdHandle);
 
   $f=$null
   $quit=$false
-  $p=$null
 
   while(!$inStream.EndOfStream -And !$quit){
     try {
@@ -106,20 +99,9 @@ public static extern IntPtr GetStdHandle(int nStdHandle);
           if ($f -eq $null){
             throw "file not opened"
           }
-          $pos=$f.Position
           $o=@{
-             pos=$pos
-          }
-          Emit $out $o
-        }
-        # seek
-        's' {
-          if ($f -eq $null){ throw "file not open" }
-          $pos=$arg[1]
-          $whence=$arg[2]
-          $pos=$f.Seek($pos, $whence)
-          $o=@{
-            pos=$pos
+             pos=$f.Position
+             size=$f.Length
           }
           Emit $out $o
         }
@@ -127,9 +109,9 @@ public static extern IntPtr GetStdHandle(int nStdHandle);
         'r' {
           if ($f -eq $null){ throw "file not open" }
           $cnt=[int]$arg[1]
+          Set-Position $f $arg
           if($cnt -eq -1){
-            $total=$f.Length - $f.Position
-            $pos=$f.Length
+            $total=[Math]::Max([long]0, $f.Length - $f.Position)
             $o=@{
              n=$total
             }
@@ -157,10 +139,6 @@ public static extern IntPtr GetStdHandle(int nStdHandle);
             continue
           }
 
-          if($f.EndOfStream){
-            throw "eof"
-          }
-          
           $buf=NO byte[] $cnt
           $b=$f.Read($buf, 0, $cnt)
           if($b -eq 0){
@@ -179,6 +157,7 @@ public static extern IntPtr GetStdHandle(int nStdHandle);
         'w' {
           if ($f -eq $null){ throw "file not open" }
           $cnt=[int]$arg[1]
+          Set-Position $f $arg
           $o=@{
              n=$cnt
           }
@@ -196,12 +175,17 @@ public static extern IntPtr GetStdHandle(int nStdHandle);
             $b+=$r
           }
           if($b -ne $cnt){
-            $dump=HexDump $buf
-            throw "short read $b bytes instead of $cnt bytes\n$dump"
+            throw "short read $b bytes instead of $cnt bytes"
           }
           $f.Write($buf, 0, $b)
           $f.Flush()
           $buf=$null
+          # A second reply, so a failed write is reported to the write that
+          # caused it rather than to whatever command comes next.
+          $o=@{
+             n=$b
+          }
+          Emit $out $o
         }
         'c' {
           if ($f -eq $null){ throw "file not open" }
