@@ -286,7 +286,8 @@ func (s *WinFS) Open(name string) (fs.File, error) {
 	return f, nil
 }
 
-// OpenFile opens the named remote file with the specified flags. os.O_EXCL and permission bits are ignored on Windows.
+// OpenFile opens the named remote file with the specified flags. Permission bits are ignored on Windows.
+// With os.O_APPEND, every write goes to the end of the file, but reading starts at its beginning, as with os.OpenFile.
 // For a description of the flags, see https://pkg.go.dev/os#pkg-constants
 func (s *WinFS) OpenFile(name string, flags int, _ fs.FileMode) (File, error) {
 	name = ps.ToWindowsPath(name)
@@ -313,16 +314,18 @@ func (s *WinFS) OpenFile(name string, flags int, _ fs.FileMode) (File, error) {
 
 // ReadFile reads the named file and returns its contents.
 func (s *WinFS) ReadFile(name string) (contents []byte, err error) {
-	f, err := s.Open(name)
+	f, err := s.OpenFile(name, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, fmt.Errorf("readfile %s: %w", name, err)
 	}
 	defer closeWithSession(f, &err)
-	data, err := io.ReadAll(f)
-	if err != nil {
+	// Not io.ReadAll: it calls Read with a small, growing buffer, and every
+	// Read is a rigrcp round trip. CopyTo streams the file in one command.
+	buf := bytes.NewBuffer([]byte{})
+	if _, err = f.CopyTo(buf); err != nil {
 		return nil, fmt.Errorf("readfile %s: %w", name, err)
 	}
-	return data, nil
+	return buf.Bytes(), nil
 }
 
 // WriteFile writes data to the named file, creating it if necessary.
