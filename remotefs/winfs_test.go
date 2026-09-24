@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/k0sproject/rig/v2/powershell"
@@ -908,6 +909,136 @@ func TestWindowsOpenFileAppendRejected(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, pos, "a write that was refused must not move the position to the end")
 	require.NoError(t, f.Close())
+}
+
+// writeCommandSize mirrors the most payload remotefs sends in one w command.
+const writeCommandSize = 4 << 20
+
+// smallReader hands out at most max bytes per Read, and hides any
+// io.WriterTo of the reader it wraps.
+type smallReader struct {
+	r   io.Reader
+	max int
+}
+
+func (s smallReader) Read(p []byte) (int, error) {
+	return s.r.Read(p[:min(len(p), s.max)]) //nolint:wrapcheck // test double
+}
+
+// writeCommands returns just the w commands the helper received.
+func writeCommands(rcp *fakeRigrcp) []string {
+	var writes []string
+	for _, c := range rcp.received() {
+		if strings.HasPrefix(c, "w ") {
+			writes = append(writes, c)
+		}
+	}
+	return writes
+}
+
+func TestWindowsFileWriteSplitsLargePayload(t *testing.T) {
+	mr, rcp := newRigrcpRunner(nil)
+	f, err := remotefs.NewWindowsFS(mr).OpenFile(`C:\app\file.txt`, os.O_WRONLY, 0)
+	require.NoError(t, err)
+
+	payload := bytes.Repeat([]byte("0123456789abcdef"), (2*writeCommandSize+16)/16)
+	n, err := f.Write(payload)
+	require.NoError(t, err)
+	require.Equal(t, len(payload), n)
+	require.NoError(t, f.Close())
+
+	require.Equal(t, payload, rcp.file())
+	require.Equal(t, []string{
+		fmt.Sprintf("w %d 0", writeCommandSize),
+		fmt.Sprintf("w %d %d", writeCommandSize, writeCommandSize),
+		fmt.Sprintf("w 16 %d", 2*writeCommandSize),
+	}, writeCommands(rcp), "the helper must never be handed more than one command's worth at once")
+}
+
+func TestWindowsFileCopyFrom(t *testing.T) {
+	payload := bytes.Repeat([]byte("x"), writeCommandSize+1000)
+	want := []string{fmt.Sprintf("w %d 0", writeCommandSize), fmt.Sprintf("w 1000 %d", writeCommandSize)}
+
+	for _, tc := range []struct {
+		name string
+		src  func(t *testing.T) io.Reader
+	}{
+		// Upload's io.TeeReader has no WriteTo and returns what its source
+		// does per Read: io.Copy would make each of those a command.
+		{"small reads", func(*testing.T) io.Reader { return smallReader{r: bytes.NewReader(payload), max: 32 * 1024} }},
+		{"io.WriterTo", func(*testing.T) io.Reader { return bytes.NewReader(payload) }},
+		// Its WriteTo writes 32 KiB at a time to anything but a socket.
+		{"local file", func(t *testing.T) io.Reader {
+			t.Helper()
+			local, err := os.CreateTemp(t.TempDir(), "copyfrom")
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = local.Close() })
+			_, err = local.Write(payload)
+			require.NoError(t, err)
+			_, err = local.Seek(0, io.SeekStart)
+			require.NoError(t, err)
+			return local
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mr, rcp := newRigrcpRunner(nil)
+			f, err := remotefs.NewWindowsFS(mr).OpenFile(`C:\app\file.txt`, os.O_WRONLY, 0)
+			require.NoError(t, err)
+
+			n, err := f.CopyFrom(tc.src(t))
+			require.NoError(t, err)
+			require.Equal(t, int64(len(payload)), n)
+			require.NoError(t, f.Close())
+
+			require.Equal(t, payload, rcp.file())
+			require.Equal(t, want, writeCommands(rcp))
+		})
+	}
+
+	t.Run("a pipe producer writing small chunks", func(t *testing.T) {
+		mr, rcp := newRigrcpRunner(nil)
+		f, err := remotefs.NewWindowsFS(mr).OpenFile(`C:\app\file.txt`, os.O_WRONLY, 0)
+		require.NoError(t, err)
+
+		// Each pipe Write blocks until CopyFrom has taken the bytes, which
+		// batching does straight away: it must not wait for the producer.
+		pr, pw := io.Pipe()
+		go func() {
+			for range 3 {
+				if _, err := pw.Write([]byte("chunk")); err != nil {
+					return
+				}
+			}
+			_ = pw.Close()
+		}()
+		done := make(chan error, 1)
+		go func() {
+			_, err := f.CopyFrom(pr)
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+		case <-time.After(5 * time.Second):
+			t.Fatal("CopyFrom did not finish reading from a pipe")
+		}
+		require.NoError(t, f.Close())
+		require.Equal(t, "chunkchunkchunk", string(rcp.file()))
+	})
+
+	t.Run("a read error is the source's", func(t *testing.T) {
+		mr, rcp := newRigrcpRunner(nil)
+		f, err := remotefs.NewWindowsFS(mr).OpenFile(`C:\app\file.txt`, os.O_WRONLY, 0)
+		require.NoError(t, err)
+
+		broken := errors.New("source broke")
+		src := smallReader{r: io.MultiReader(bytes.NewReader([]byte("abc")), iotest.ErrReader(broken)), max: 32 * 1024}
+		n, err := f.CopyFrom(src)
+		require.ErrorIs(t, err, broken)
+		require.Equal(t, int64(3), n, "what was read before the error is still written")
+		require.NoError(t, f.Close())
+		require.Equal(t, "abc", string(rcp.file()))
+	})
 }
 
 // failingWriter accepts nothing.

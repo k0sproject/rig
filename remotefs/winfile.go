@@ -259,6 +259,13 @@ func (f *winFile) Seek(offset int64, whence int) (int64, error) {
 	return pos, nil
 }
 
+// writeCommandSize is the most payload one w command carries; a larger
+// Write goes out as several. The helper reads a command's whole payload
+// into memory before writing it, and takes its length as a PowerShell
+// [int], so this bounds both. It is also how much CopyFrom reads at a time,
+// so an upload costs one command and one completion per this many bytes.
+const writeCommandSize = 4 << 20
+
 // Write writes len(p) bytes from p to the remote file.
 func (f *winFile) Write(p []byte) (int, error) {
 	if f.closed.Load() {
@@ -267,11 +274,22 @@ func (f *winFile) Write(p []byte) (int, error) {
 	if !f.writable {
 		return 0, f.pathErr(OpWrite, errNotWritable)
 	}
-	// Writing nothing must not move the end: at a position past it, the
-	// size bookkeeping below would otherwise grow the file on paper only.
-	if len(p) == 0 {
-		return 0, nil
+	written := 0
+	for written < len(p) {
+		n, err := f.writeCommand(p[written:min(written+writeCommandSize, len(p))])
+		written += n
+		if err != nil {
+			return written, err
+		}
 	}
+	return written, nil
+}
+
+// writeCommand sends p to the helper as one w command and waits for it to
+// reach the file. p must not be empty: writing nothing must not move the
+// end, and at a position past it the size bookkeeping below would grow the
+// file on paper only.
+func (f *winFile) writeCommand(p []byte) (int, error) {
 	pos := f.pos
 	if f.appending {
 		pos = f.size
@@ -281,10 +299,9 @@ func (f *winFile) Write(p []byte) (int, error) {
 		return 0, f.pathErr(OpWrite, err)
 	}
 	// The payload goes down the same pipe the command did and is just as
-	// unbounded: on a dead session nothing downstream ever reads it. One
-	// call can carry a whole file -- io.Copy hands a bytes.Reader's
-	// contents over in a single Write -- so it goes in chunks, letting the
-	// watchdog tell a stalled write from a large one.
+	// unbounded: on a dead session nothing downstream ever reads it. It can
+	// be up to writeCommandSize, so it goes in chunks, letting the watchdog
+	// tell a stalled write from a large one.
 	dog := f.watch(fmt.Sprintf("writing %d byte payload", len(p)))
 	defer dog.stop()
 	written := 0
@@ -386,7 +403,9 @@ func (f *winFile) CopyTo(dst io.Writer) (int64, error) {
 	return total, nil
 }
 
-// CopyFrom copies the provided io.Reader to the remote file.
+// CopyFrom copies the provided io.Reader to the remote file. It reads src in
+// batches of up to writeCommandSize, so data reaches the file each time a
+// batch fills or src ends, not after every Read src returns.
 func (f *winFile) CopyFrom(src io.Reader) (int64, error) {
 	if f.closed.Load() {
 		return 0, f.pathErr(OpCopyFrom, fs.ErrClosed)
@@ -394,9 +413,39 @@ func (f *winFile) CopyFrom(src io.Reader) (int64, error) {
 	if !f.writable {
 		return 0, f.pathErr(OpCopyFrom, errNotWritable)
 	}
-	n, err := io.Copy(f, src)
-	if err != nil {
-		return n, f.pathErr(OpCopyFrom, fmt.Errorf("io.copy: %w", err))
+	// Not io.Copy: its 32 KiB buffer would make every 32 KiB a command and
+	// a completion of its own. Nor src's io.WriterTo, where it has one: an
+	// *os.File's writes 32 KiB at a time too.
+	buf := make([]byte, writeCommandSize)
+	var total int64
+	for {
+		n, readErr := fill(src, buf)
+		if n > 0 {
+			written, err := f.Write(buf[:n])
+			total += int64(written)
+			if err != nil {
+				return total, f.pathErr(OpCopyFrom, fmt.Errorf("write: %w", err))
+			}
+		}
+		if errors.Is(readErr, io.EOF) {
+			return total, nil
+		}
+		if readErr != nil {
+			return total, f.pathErr(OpCopyFrom, fmt.Errorf("read: %w", readErr))
+		}
+	}
+}
+
+// fill reads from src until buf is full or src returns an error, which,
+// unlike from io.ReadFull, is src's own.
+func fill(src io.Reader, buf []byte) (int, error) {
+	n := 0
+	for n < len(buf) {
+		m, err := src.Read(buf[n:])
+		n += m
+		if err != nil {
+			return n, err //nolint:wrapcheck // the caller wraps it
+		}
 	}
 	return n, nil
 }
