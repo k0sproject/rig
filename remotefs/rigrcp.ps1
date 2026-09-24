@@ -135,8 +135,25 @@ public static extern IntPtr GetStdHandle(int nStdHandle);
             }
             Emit $out $o
             $out.Flush()
-            $f.CopyTo($out)
-            $out.Flush()
+            # Exactly $total bytes, not Stream.CopyTo: a file that grows meanwhile
+            # would otherwise overrun into the next response. Once n is sent
+            # there is no framing left to report an error in, so a file that
+            # shrank or a failed read ends the session instead.
+            $buf=NO byte[] 65536
+            $left=$total
+            try {
+              while($left -gt 0){
+                $r=$f.Read($buf, 0, [int][Math]::Min([long]$buf.Length, $left))
+                if($r -le 0){ throw "file shrank by $left bytes during read" }
+                $out.Write($buf, 0, $r)
+                $left-=$r
+              }
+              $out.Flush()
+            } catch {
+              [Console]::Error.WriteLine($_.Exception.Message)
+              exit 1
+            }
+            $buf=$null
             continue
           }
 

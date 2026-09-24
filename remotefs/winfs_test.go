@@ -1,12 +1,17 @@
 package remotefs_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
+	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -571,4 +576,246 @@ func TestWindowsRemoveAll(t *testing.T) {
 		require.ErrorIs(t, err, rmdirFailed)
 		requirePathErrorOp(t, err, remotefs.OpRemoveAll)
 	})
+}
+
+// fakeRigrcp stands in for the rigrcp helper on a Windows host, serving
+// content as the file it has open, and records every command it receives.
+// It keeps its own position, as the helper's open handle does.
+type fakeRigrcp struct {
+	mu       sync.Mutex
+	content  []byte
+	pos      int
+	commands []string
+}
+
+// isRigrcp matches the command that starts the rigrcp helper, telling it
+// apart from the one-shot PowerShell commands WinFS also runs.
+func isRigrcp(command string) bool {
+	script, ok := decodePSScript(command)
+	return ok && strings.Contains(script, "GZipStream")
+}
+
+func (r *fakeRigrcp) handle(a *rigtest.A) error {
+	in := bufio.NewReader(a.Stdin)
+	for {
+		line, err := in.ReadString('\n')
+		if err != nil {
+			return nil //nolint:nilerr // stdin closing is how a session ends
+		}
+		fields := strings.Fields(line)
+		if len(fields) > 0 && fields[0] == "q" {
+			r.record(line)
+			return nil
+		}
+		resp, payload := r.respond(line)
+		if _, err := a.Stdout.Write(append([]byte(resp), 0)); err != nil {
+			return fmt.Errorf("write response: %w", err)
+		}
+		if len(fields) > 0 && fields[0] == "w" && !strings.Contains(resp, "error") {
+			if err := r.receive(in, fields); err != nil {
+				return err
+			}
+			continue
+		}
+		// A zero-length write to an io.Pipe still waits for a reader.
+		if len(payload) == 0 {
+			continue
+		}
+		if _, err := a.Stdout.Write(payload); err != nil {
+			return fmt.Errorf("write payload: %w", err)
+		}
+	}
+}
+
+func (r *fakeRigrcp) record(line string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.commands = append(r.commands, strings.TrimSuffix(line, "\n"))
+}
+
+func (r *fakeRigrcp) respond(line string) (string, []byte) {
+	r.record(line)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	fields := strings.Fields(line)
+	if len(fields) == 0 {
+		return `{"error":"invalid command"}`, nil
+	}
+	switch fields[0] {
+	case "o":
+		if len(fields) < 2 {
+			return `{"error":"missing mode"}`, nil
+		}
+		switch fields[1] {
+		case "Create", "Truncate":
+			r.content = r.content[:0]
+		case "CreateNew":
+			return `{"error":"The file already exists."}`, nil
+		}
+		r.pos = 0
+		return `{"pos":0}`, nil
+	case "s":
+		if len(fields) != 3 {
+			return `{"error":"want offset and origin"}`, nil
+		}
+		offset, err := strconv.Atoi(fields[1])
+		if err != nil {
+			return fmt.Sprintf(`{"error":%q}`, err.Error()), nil
+		}
+		switch fields[2] {
+		case "Begin":
+			r.pos = offset
+		case "Current":
+			r.pos += offset
+		case "End":
+			r.pos = len(r.content) + offset
+		default:
+			return `{"error":"invalid origin"}`, nil
+		}
+		return fmt.Sprintf(`{"pos":%d}`, r.pos), nil
+	case "r":
+		if len(fields) < 2 {
+			return `{"error":"missing count"}`, nil
+		}
+		count, err := strconv.Atoi(fields[1])
+		if err != nil {
+			return fmt.Sprintf(`{"error":%q}`, err.Error()), nil
+		}
+		remaining := r.content[min(r.pos, len(r.content)):]
+		if count == -1 {
+			r.pos += len(remaining)
+			return fmt.Sprintf(`{"n":%d}`, len(remaining)), remaining
+		}
+		if len(remaining) == 0 {
+			return `{"error":"eof"}`, nil
+		}
+		chunk := remaining[:min(count, len(remaining))]
+		r.pos += len(chunk)
+		return fmt.Sprintf(`{"n":%d}`, len(chunk)), chunk
+	case "w":
+		if len(fields) < 2 {
+			return `{"error":"missing count"}`, nil
+		}
+		count, err := strconv.Atoi(fields[1])
+		if err != nil {
+			return fmt.Sprintf(`{"error":%q}`, err.Error()), nil
+		}
+		return fmt.Sprintf(`{"n":%d}`, count), nil
+	case "c":
+		return `{"pos":-1}`, nil
+	default:
+		return `{"error":"invalid command"}`, nil
+	}
+}
+
+// receive reads the payload of a w command and writes it into content at
+// the current position.
+func (r *fakeRigrcp) receive(in io.Reader, fields []string) error {
+	count, err := strconv.Atoi(fields[1])
+	if err != nil {
+		return fmt.Errorf("count: %w", err)
+	}
+	payload := make([]byte, count)
+	if _, err := io.ReadFull(in, payload); err != nil {
+		return fmt.Errorf("read payload: %w", err)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if end := r.pos + count; end > len(r.content) {
+		r.content = append(r.content, make([]byte, end-len(r.content))...)
+	}
+	copy(r.content[r.pos:], payload)
+	r.pos += count
+	return nil
+}
+
+func (r *fakeRigrcp) received() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.commands...)
+}
+
+func (r *fakeRigrcp) file() []byte {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]byte(nil), r.content...)
+}
+
+// newRigrcpRunner returns a runner whose rigrcp helper serves content, and
+// whose stat reports an existing file.
+func newRigrcpRunner(content []byte) (*rigtest.MockRunner, *fakeRigrcp) {
+	rcp := &fakeRigrcp{content: content}
+	mr := rigtest.NewMockRunner()
+	mr.Windows = true
+	mr.ErrDefault = errors.New("unexpected command")
+	mr.AddCommand(isRigrcp, rcp.handle)
+	mr.AddCommandOutput(rigtest.HasPrefix("powershell.exe"), statJSON(`C:\app\file.txt`, "-a----"))
+	return mr, rcp
+}
+
+func TestWindowsReadFile(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		content []byte
+	}{
+		{"empty", []byte{}},
+		{"small", []byte("hello")},
+		{"larger than a read buffer", bytes.Repeat([]byte("0123456789abcdef"), 4096)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mr, rcp := newRigrcpRunner(tc.content)
+
+			content, err := remotefs.NewWindowsFS(mr).ReadFile(`C:\app\file.txt`)
+			require.NoError(t, err)
+			require.NotNil(t, content)
+			require.Equal(t, tc.content, content)
+			// The decisive assertion: the fake serves partial reads correctly
+			// too, so matching content alone would pass against io.ReadAll,
+			// which reads through a round trip per small buffer.
+			require.Equal(t, []string{`o Open Read C:\app\file.txt`, "r -1", "c", "q"}, rcp.received())
+		})
+	}
+}
+
+func TestWindowsWriteFile(t *testing.T) {
+	mr, rcp := newRigrcpRunner([]byte("0123456789"))
+
+	require.NoError(t, remotefs.NewWindowsFS(mr).WriteFile(`C:\app\file.txt`, []byte("ab"), 0o644))
+	require.Equal(t, "ab", string(rcp.file()), "a shorter write must not leave the old tail behind")
+	require.Equal(t, []string{`o Create Write C:\app\file.txt`, "w 2", "c", "q"}, rcp.received())
+}
+
+func TestWindowsOpenFileAppend(t *testing.T) {
+	mr, rcp := newRigrcpRunner([]byte("abc"))
+
+	f, err := remotefs.NewWindowsFS(mr).OpenFile(`C:\app\file.txt`, os.O_APPEND|os.O_RDWR, 0)
+	require.NoError(t, err)
+	buf := make([]byte, 1)
+	_, err = f.Read(buf)
+	require.NoError(t, err)
+	require.Equal(t, "a", string(buf), "an append handle still reads from the beginning")
+	_, err = f.Write([]byte("de"))
+	require.NoError(t, err)
+
+	_, err = f.Seek(0, io.SeekStart)
+	require.NoError(t, err)
+	_, err = f.Write([]byte("f"))
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	require.Equal(t, "abcdef", string(rcp.file()), "every write goes to the end, wherever Seek left the position")
+	// FileMode.Append would refuse ReadWrite and create a missing file, so
+	// the file is opened plainly and each write finds the end first.
+	require.Equal(t, []string{
+		`o Open ReadWrite C:\app\file.txt`,
+		"r 1",
+		"s 0 End",
+		"w 2",
+		"s 0 Begin",
+		"s 0 End",
+		"w 1",
+		"c",
+		"q",
+	}, rcp.received())
 }

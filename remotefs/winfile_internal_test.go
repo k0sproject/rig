@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -404,4 +405,35 @@ func TestWinFileCommandEndedSession(t *testing.T) {
 	_, err := s.file.command("r 4")
 
 	require.ErrorIs(t, err, errEnded)
+}
+
+func TestWinFileOpenFlags(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		flags  int
+		mode   string
+		access string
+	}{
+		{"read", os.O_RDONLY, "Open", "Read"},
+		{"write", os.O_WRONLY, "Open", "Write"},
+		{"read-write", os.O_RDWR, "Open", "ReadWrite"},
+		{"create", os.O_CREATE | os.O_WRONLY, "OpenOrCreate", "Write"},
+		{"create and truncate", os.O_CREATE | os.O_WRONLY | os.O_TRUNC, "Create", "Write"},
+		{"create exclusive", os.O_CREATE | os.O_EXCL | os.O_RDWR, "CreateNew", "ReadWrite"},
+		{"exclusive wins over truncate", os.O_CREATE | os.O_EXCL | os.O_TRUNC | os.O_WRONLY, "CreateNew", "Write"},
+		{"truncate existing", os.O_WRONLY | os.O_TRUNC, "Truncate", "Write"},
+		{"read-write truncate", os.O_RDWR | os.O_TRUNC, "Truncate", "ReadWrite"},
+		{"truncate on a read-only open", os.O_RDONLY | os.O_TRUNC, "Truncate", "ReadWrite"},
+		{"create on a read-only open", os.O_CREATE | os.O_RDONLY, "OpenOrCreate", "Read"},
+		{"create exclusive on a read-only open", os.O_CREATE | os.O_EXCL | os.O_RDONLY, "CreateNew", "ReadWrite"},
+		{"create and truncate on a read-only open", os.O_CREATE | os.O_TRUNC | os.O_RDONLY, "Create", "ReadWrite"},
+		{"append on a read-only open", os.O_APPEND | os.O_RDONLY, "Open", "ReadWrite"},
+		{"append is not FileMode.Append", os.O_APPEND | os.O_WRONLY, "Open", "Write"},
+		{"create and append", os.O_CREATE | os.O_APPEND | os.O_RDWR, "OpenOrCreate", "ReadWrite"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.mode, fMode(tc.flags), "mode")
+			require.Equal(t, tc.access, fAccess(tc.flags), "access")
+		})
+	}
 }

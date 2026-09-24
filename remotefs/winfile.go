@@ -63,8 +63,12 @@ func (w *winFileDirBase) Stat() (fs.FileInfo, error) {
 // winFile is a file on a Windows target. It implements fs.File.
 type winFile struct {
 	winFileDirBase
-	stdin  io.WriteCloser
-	stdout *bufio.Reader
+	// appending sends every write to the end of the file, as O_APPEND does
+	// for an os.File. The file is not opened at its end, so reading still
+	// starts at the beginning.
+	appending bool
+	stdin     io.WriteCloser
+	stdout    *bufio.Reader
 	// stdinR and stdoutW are the far ends of the pipes behind stdin and
 	// stdout, the ones the rigrcp command itself holds. io.Pipe reports a
 	// CloseWithError to the opposite end, so closing these is what releases
@@ -240,6 +244,11 @@ func (f *winFile) Write(p []byte) (int, error) {
 	if f.closed.Load() {
 		return 0, f.pathErr(OpWrite, fs.ErrClosed)
 	}
+	if f.appending {
+		if _, err := f.command("s 0 End"); err != nil {
+			return 0, f.pathErr(OpWrite, fmt.Errorf("seek to end: %w", err))
+		}
+	}
 	_, err := f.command(fmt.Sprintf("w %d", len(p)))
 	if err != nil {
 		return 0, f.pathErr(OpWrite, err)
@@ -307,7 +316,7 @@ func (f *winFile) CopyTo(dst io.Writer) (int64, error) {
 		return 0, f.pathErr(OpCopyTo, fmt.Errorf("read: %w", err))
 	}
 	if resp.N == 0 {
-		return 0, f.pathErr(OpCopyTo, io.EOF)
+		return 0, nil
 	}
 	dog := f.watch(fmt.Sprintf("copying %d bytes", resp.N))
 	defer dog.stop()
@@ -332,28 +341,39 @@ func (f *winFile) CopyFrom(src io.Reader) (int64, error) {
 	return n, nil
 }
 
+// fAccess maps flags to a .NET FileAccess. .NET refuses read-only access
+// with the modes that truncate or create exclusively, and appending needs
+// write access, so a read-only open that asks for any of those gets
+// ReadWrite: it can still read, as it asked to.
 func fAccess(flags int) string {
+	needsWrite := flags&os.O_APPEND != 0
+	switch fMode(flags) {
+	case "CreateNew", "Create", "Truncate":
+		needsWrite = true
+	}
 	switch {
-	case flags&(os.O_WRONLY|os.O_TRUNC|os.O_APPEND) != 0:
+	case flags&os.O_WRONLY != 0:
 		return "Write"
-	case flags&os.O_RDWR != 0:
+	case flags&os.O_RDWR != 0 || needsWrite:
 		return "ReadWrite"
 	default:
 		return "Read"
 	}
 }
 
+// fMode maps flags to a .NET FileMode. O_APPEND is not FileMode.Append,
+// which creates a missing file and refuses read access; Write moves to the
+// end of the file before each write instead.
 func fMode(flags int) string {
 	switch {
+	case flags&(os.O_CREATE|os.O_EXCL) == os.O_CREATE|os.O_EXCL:
+		return "CreateNew"
+	case flags&(os.O_CREATE|os.O_TRUNC) == os.O_CREATE|os.O_TRUNC:
+		return "Create"
 	case flags&os.O_CREATE != 0:
-		if flags&os.O_EXCL != 0 {
-			return "CreateNew"
-		}
 		return "OpenOrCreate"
 	case flags&os.O_TRUNC != 0:
 		return "Truncate"
-	case flags&os.O_APPEND != 0:
-		return "Append"
 	default:
 		return "Open"
 	}
@@ -405,6 +425,7 @@ func (f *winFile) open(flags int) error {
 		cancel()
 		return f.pathErr(OpOpen, fmt.Errorf("remote error: %s", resp.Err)) //nolint:err113
 	}
+	f.appending = flags&os.O_APPEND != 0
 
 	return nil
 }
