@@ -40,11 +40,21 @@ func (f *PosixFile) fsBlockSize() int {
 		return f.blockSize
 	}
 
-	out, err := f.fs.ExecOutput(fmt.Sprintf(`stat -c "%%s" %[1]s 2> /dev/null || stat -f "%%k" %[1]s`, shellescape.Quote(path.Dir(f.path))))
+	f.blockSize = defaultBlockSize
+
+	// %o is the optimal I/O block size, the GNU spelling of BSD's %k. Not %s,
+	// which is the size of the directory's own data: that equals the block size
+	// on ext4, but XFS keeps small directories inline in the inode, where it is
+	// a few dozen bytes.
+	out, err := f.fs.ExecOutput(fmt.Sprintf(`stat -c "%%o" %[1]s 2> /dev/null || stat -f "%%k" %[1]s`, shellescape.Quote(path.Dir(f.path))))
 	if err != nil {
-		// fall back to default
-		f.blockSize = defaultBlockSize
-	} else if bs, err := strconv.Atoi(strings.TrimSpace(out)); err == nil {
+		return f.blockSize
+	}
+
+	// Anything outside this range is stat reporting something that is not a
+	// block size, and the default is safer than passing it on to dd.
+	if bs, err := strconv.Atoi(strings.TrimSpace(out)); err == nil &&
+		bs >= minBlockSize && bs <= maxBlockSize && bs&(bs-1) == 0 {
 		f.blockSize = bs
 	}
 
@@ -59,18 +69,27 @@ func (f *PosixFile) isWritable() bool {
 	return f.isOpen && f.flags&os.O_WRONLY != 0
 }
 
-func (f *PosixFile) ddParams(offset int64, numBytes int) (blocksize int, skip int64, count int) { //nolint:nonamedreturns // for readability
-	optimalBs := f.fsBlockSize()
-
-	// if numBytes aligns with the optimal block size, use it; otherwise, use bs = 1
-	bs := optimalBs
-	if numBytes%optimalBs != 0 {
-		bs = 1
+// alignBlockSize halves bs until it divides each of counts evenly, so that a
+// byte count can be handed to dd as a number of blocks without losing anything.
+// bs is a power of two, so the reduction bottoms out at 1 rather than looping.
+func alignBlockSize(bs int64, counts ...int64) int64 {
+	for _, c := range counts {
+		for c%bs != 0 {
+			bs /= 2
+		}
 	}
 
-	s := offset / int64(bs)
-	c := (numBytes + bs - 1) / bs
-	return bs, s, c
+	return bs
+}
+
+func (f *PosixFile) ddParams(offset int64, numBytes int) (blocksize int, skip int64, count int) { //nolint:nonamedreturns // for readability
+	// dd counts skip in blocks rather than in bytes, so the block size has to
+	// divide the offset as well as the length: at bs=4096, an offset of 2048
+	// would otherwise round down to skip=0 and read from the wrong place.
+	// Callers also rely on blocksize*count being exactly numBytes.
+	bs := alignBlockSize(int64(f.fsBlockSize()), offset, int64(numBytes))
+
+	return int(bs), offset / bs, int(int64(numBytes) / bs)
 }
 
 // Stat returns a FileInfo describing the named file.
@@ -185,13 +204,16 @@ func (f *PosixFile) CopyFrom(src io.Reader) (int64, error) {
 	}
 	counter := &iostream.ByteCounter{}
 
+	// The file has just been cut back to f.pos, so an append lands exactly at the
+	// resume point. dd would want that offset in output blocks instead, which
+	// means a block size dividing it: a resume from an odd byte offset would be
+	// copied one byte at a time. An append needs no block size at all.
 	err := f.fs.Exec(
-		// "if=" is omitted so dd reads stdin, see the note in Write above.
-		sh.Command("dd", "of="+f.path, fmt.Sprintf("bs=%d", f.fsBlockSize()), fmt.Sprintf("seek=%d", f.pos), "conv=notrunc"),
+		sh.CommandBuilder("cat").AppendOutToFile(f.path).String(),
 		cmd.Stdin(io.TeeReader(src, counter)),
 	)
 	if err != nil {
-		return 0, f.pathErr(OpCopyFrom, fmt.Errorf("exec dd: %w", err))
+		return 0, f.pathErr(OpCopyFrom, fmt.Errorf("exec cat: %w", err))
 	}
 
 	f.pos += counter.Count()
