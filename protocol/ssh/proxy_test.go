@@ -363,3 +363,63 @@ func TestConnectViaProxyCommand(t *testing.T) {
 	defer cancel()
 	require.NoError(t, conn.Connect(ctx))
 }
+
+// TestConnectViaProxyCommandReportsTextSentBeforeVersion verifies that the
+// ProxyCommand handshake keeps text sent ahead of the version string, as the
+// direct path does.
+func TestConnectViaProxyCommandReportsTextSentBeforeVersion(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a Unix shell as the ProxyCommand; not portable to Windows")
+	}
+
+	withConfigParser(t, "")
+	t.Setenv("SSH_KNOWN_HOSTS", "")
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	conn, err := NewConnection(Config{
+		Address:     "127.0.0.1",
+		User:        "test",
+		AuthMethods: []ssh.AuthMethod{ssh.Password("any")},
+	})
+	require.NoError(t, err)
+	// The proxy reads the client's version line before exiting so the client's
+	// write cannot fail with a broken pipe ahead of reading the text.
+	conn.sshConfig.ProxyCommand = `exec sh -c "printf 'Not allowed at this time\r\n'; head -n 1 >/dev/null"`
+	t.Cleanup(conn.Disconnect)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err = conn.Connect(ctx)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "proxy command ssh connect")
+	require.ErrorContains(t, err, `"Not allowed at this time"`)
+}
+
+// TestConnectViaProxyCommandReportsTextSentBeforeVersionOnTimeout covers a
+// server that sends text and then stops answering: the connect deadline ends the
+// ProxyCommand handshake, and the text must still reach the error.
+func TestConnectViaProxyCommandReportsTextSentBeforeVersionOnTimeout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a Unix shell as the ProxyCommand; not portable to Windows")
+	}
+
+	withConfigParser(t, "")
+	t.Setenv("SSH_KNOWN_HOSTS", "")
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	conn, err := NewConnection(Config{
+		Address:     "127.0.0.1",
+		User:        "test",
+		AuthMethods: []ssh.AuthMethod{ssh.Password("any")},
+	})
+	require.NoError(t, err)
+	// The inner exec keeps sleep in the process that is killed at the deadline.
+	conn.sshConfig.ProxyCommand = `exec sh -c "printf 'Not allowed at this time\r\n'; exec sleep 30"`
+	t.Cleanup(conn.Disconnect)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	err = conn.Connect(ctx)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorContains(t, err, `"Not allowed at this time"`)
+}

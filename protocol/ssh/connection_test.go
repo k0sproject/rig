@@ -1,12 +1,14 @@
 package ssh
 
 import (
+	"bufio"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -35,33 +37,21 @@ var errAuthRejected = errors.New("auth rejected")
 // channel-open request is rejected. The listener is closed by t.Cleanup.
 func startSSHServer(t *testing.T, cfg *ssh.ServerConfig) string {
 	t.Helper()
+	return startRawServer(t, func(c net.Conn) { serveSSH(c, cfg) })
+}
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	t.Cleanup(func() { ln.Close() })
-
-	go func() {
-		for {
-			conn, lErr := ln.Accept()
-			if lErr != nil {
-				return
-			}
-			go func(c net.Conn) {
-				defer c.Close()
-				sconn, chans, reqs, hsErr := ssh.NewServerConn(c, cfg)
-				if hsErr != nil {
-					return
-				}
-				defer sconn.Close()
-				go ssh.DiscardRequests(reqs)
-				for newChan := range chans {
-					newChan.Reject(ssh.UnknownChannelType, "not supported") //nolint:errcheck
-				}
-			}(conn)
-		}
-	}()
-
-	return ln.Addr().String()
+// serveSSH runs the server side of an SSH connection on c, rejecting every
+// channel-open request, until the client goes away.
+func serveSSH(c net.Conn, cfg *ssh.ServerConfig) {
+	sconn, chans, reqs, hsErr := ssh.NewServerConn(c, cfg)
+	if hsErr != nil {
+		return
+	}
+	defer sconn.Close()
+	go ssh.DiscardRequests(reqs)
+	for newChan := range chans {
+		newChan.Reject(ssh.UnknownChannelType, "not supported") //nolint:errcheck
+	}
 }
 
 // newHostSigner generates an ephemeral ed25519 host key for a test SSH server.
@@ -1037,6 +1027,233 @@ func TestConnectAuthFailure(t *testing.T) {
 	require.ErrorContains(t, err, "ssh dial",
 		"the tag must come from the direct-connect handshake, not some other path")
 	require.False(t, conn.IsConnected())
+}
+
+// startRawServer starts a loopback TCP listener that hands every accepted
+// connection to handle and closes it afterwards. It returns the listen address.
+func startRawServer(t *testing.T, handle func(net.Conn)) string {
+	t.Helper()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { ln.Close() })
+
+	go func() {
+		for {
+			conn, lErr := ln.Accept()
+			if lErr != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				handle(c)
+			}(conn)
+		}
+	}()
+
+	return ln.Addr().String()
+}
+
+// refuseBeforeVersion returns a raw server handler that answers like sshd
+// refusing a connection: it writes text where the version string would go and
+// hangs up. Before hanging up it reads the client's version line, so the close
+// is a FIN rather than a reset, which a kernel may deliver before the text is
+// read.
+func refuseBeforeVersion(text string) func(net.Conn) {
+	return func(c net.Conn) {
+		if _, err := c.Write([]byte(text)); err != nil {
+			return
+		}
+		_, _ = bufio.NewReader(c).ReadString('\n')
+	}
+}
+
+// splitHostPort splits a listener address into the host and numeric port that
+// Config takes.
+func splitHostPort(t *testing.T, addr string) (string, int) {
+	t.Helper()
+	host, portStr, err := net.SplitHostPort(addr)
+	require.NoError(t, err)
+	port, err := strconv.Atoi(portStr)
+	require.NoError(t, err)
+	return host, port
+}
+
+// connectTo builds a password-authenticated Connection to addr and returns the
+// error from a single Connect attempt.
+func connectTo(t *testing.T, addr string) error {
+	t.Helper()
+
+	host, port := splitHostPort(t, addr)
+	conn, err := NewConnection(Config{
+		Address:     host,
+		Port:        port,
+		User:        "test",
+		AuthMethods: []ssh.AuthMethod{ssh.Password("wrong")},
+	})
+	require.NoError(t, err)
+	t.Cleanup(conn.Disconnect)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	return conn.Connect(ctx)
+}
+
+// TestConnectReportsTextSentBeforeVersion covers OpenSSH 9.8 and later refusing a
+// connection under PerSourcePenalties or MaxStartups: sshd writes a line of text
+// where the version string would go and hangs up. x/crypto skips such lines, so
+// without rig keeping them the error only reads "handshake failed: EOF".
+func TestConnectReportsTextSentBeforeVersion(t *testing.T) {
+	withConfigParser(t, "")
+	t.Setenv("SSH_KNOWN_HOSTS", "")
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	addr := startRawServer(t, refuseBeforeVersion("Not allowed at this time\r\n"))
+
+	err := connectTo(t, addr)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "ssh dial")
+	require.ErrorContains(t, err, `"Not allowed at this time"`)
+	require.NotErrorIs(t, err, protocol.ErrNonRetryable,
+		"a penalty expires, so the next attempt can succeed")
+}
+
+// TestConnectPreVersionTextDoesNotChangeClassification verifies that text a
+// server sends ahead of its version string cannot make a handshake failure look
+// like a credential rejection, which callers may treat as a reason to stop.
+func TestConnectPreVersionTextDoesNotChangeClassification(t *testing.T) {
+	withConfigParser(t, "")
+	t.Setenv("SSH_KNOWN_HOSTS", "")
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	addr := startRawServer(t, refuseBeforeVersion("ssh: unable to authenticate\r\n"))
+
+	err := connectTo(t, addr)
+	require.ErrorContains(t, err, `"ssh: unable to authenticate"`)
+	require.NotErrorIs(t, err, protocol.ErrAuthFailed)
+}
+
+// startForwardingSSHServer starts an SSH server that accepts any client without
+// credentials and serves direct-tcpip channels by dialing the requested address,
+// which is what a bastion does. It returns the listen address.
+func startForwardingSSHServer(t *testing.T, hostSigner ssh.Signer) string {
+	t.Helper()
+
+	cfg := &ssh.ServerConfig{NoClientAuth: true, ServerVersion: "SSH-2.0-test-linux"}
+	cfg.AddHostKey(hostSigner)
+
+	return startRawServer(t, func(c net.Conn) {
+		sconn, chans, reqs, hsErr := ssh.NewServerConn(c, cfg)
+		if hsErr != nil {
+			return
+		}
+		defer sconn.Close()
+		go ssh.DiscardRequests(reqs)
+		for newChan := range chans {
+			go forwardDirectTCPIP(newChan)
+		}
+	})
+}
+
+func forwardDirectTCPIP(newChan ssh.NewChannel) {
+	if newChan.ChannelType() != "direct-tcpip" {
+		newChan.Reject(ssh.UnknownChannelType, "not supported") //nolint:errcheck
+		return
+	}
+	var target struct {
+		Host       string
+		Port       uint32
+		OriginHost string
+		OriginPort uint32
+	}
+	if err := ssh.Unmarshal(newChan.ExtraData(), &target); err != nil {
+		newChan.Reject(ssh.ConnectionFailed, err.Error()) //nolint:errcheck
+		return
+	}
+	upstream, err := net.Dial("tcp", net.JoinHostPort(target.Host, strconv.Itoa(int(target.Port))))
+	if err != nil {
+		newChan.Reject(ssh.ConnectionFailed, err.Error()) //nolint:errcheck
+		return
+	}
+	defer upstream.Close()
+	channel, chReqs, err := newChan.Accept()
+	if err != nil {
+		return
+	}
+	defer channel.Close()
+	go ssh.DiscardRequests(chReqs)
+	go func() {
+		_, _ = io.Copy(upstream, channel)
+	}()
+	_, _ = io.Copy(channel, upstream)
+}
+
+// TestConnectViaBastionReportsTextSentBeforeVersion verifies that the handshake
+// through a bastion keeps text the target sends ahead of its version string, as
+// the direct path does.
+func TestConnectViaBastionReportsTextSentBeforeVersion(t *testing.T) {
+	withConfigParser(t, "")
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	targetAddr := startRawServer(t, refuseBeforeVersion("Not allowed at this time\r\n"))
+	bastionSigner := newHostSigner(t)
+	bastionAddr := startForwardingSSHServer(t, bastionSigner)
+	pinHostKey(t, bastionAddr, bastionSigner)
+
+	bastionHost, bastionPort := splitHostPort(t, bastionAddr)
+	targetHost, targetPort := splitHostPort(t, targetAddr)
+
+	conn, err := NewConnection(Config{
+		Address:     targetHost,
+		Port:        targetPort,
+		User:        "test",
+		AuthMethods: []ssh.AuthMethod{ssh.Password("any")},
+		Bastion: &Config{
+			Address:     bastionHost,
+			Port:        bastionPort,
+			User:        "test",
+			AuthMethods: []ssh.AuthMethod{ssh.Password("any")},
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(conn.Disconnect)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err = conn.Connect(ctx)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "bastion client connect")
+	require.ErrorContains(t, err, `"Not allowed at this time"`)
+}
+
+// TestConnectOmitsTextSentBeforeVersionOnceVersionArrives verifies that lines a
+// server legitimately sends ahead of its version string stay out of errors from
+// later stages of the handshake, where they explain nothing.
+func TestConnectOmitsTextSentBeforeVersionOnceVersionArrives(t *testing.T) {
+	withConfigParser(t, "")
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	hostSigner := newHostSigner(t)
+	cfg := &ssh.ServerConfig{
+		ServerVersion: "SSH-2.0-test-linux",
+		PasswordCallback: func(_ ssh.ConnMetadata, _ []byte) (*ssh.Permissions, error) {
+			return nil, errAuthRejected
+		},
+	}
+	cfg.AddHostKey(hostSigner)
+
+	addr := startRawServer(t, func(c net.Conn) {
+		if _, wErr := c.Write([]byte("pre-version notice\r\n")); wErr != nil {
+			return
+		}
+		serveSSH(c, cfg)
+	})
+	pinHostKey(t, addr, hostSigner)
+
+	err := connectTo(t, addr)
+	require.ErrorIs(t, err, protocol.ErrAuthFailed)
+	require.NotContains(t, err.Error(), "pre-version notice")
 }
 
 // TestDialWithDeadlineContextCancelled verifies that dialWithDeadline aborts

@@ -1241,11 +1241,12 @@ func (c *Connection) connectViaBastion(ctx context.Context, dst string, config *
 	if !deadline.IsZero() {
 		_ = bconn.SetDeadline(deadline)
 	}
-	client, chans, reqs, err := ssh.NewClientConn(bconn, dst, config)
+	recorder := newPreVersionRecorder(bconn)
+	client, chans, reqs, err := ssh.NewClientConn(recorder, dst, config)
 	agentClose()
 	if err != nil {
 		_ = bconn.Close()
-		return classifyHandshakeError(err, "bastion client connect")
+		return recorder.annotate(classifyHandshakeError(err, "bastion client connect"))
 	}
 	if !deadline.IsZero() {
 		_ = bconn.SetDeadline(time.Time{})
@@ -1449,11 +1450,12 @@ func (c *Connection) Connect(ctx context.Context) error {
 	if !deadline.IsZero() {
 		_ = conn.SetDeadline(deadline)
 	}
-	ncc, chans, reqs, err := ssh.NewClientConn(conn, dst, config)
+	recorder := newPreVersionRecorder(conn)
+	ncc, chans, reqs, err := ssh.NewClientConn(recorder, dst, config)
 	agentClose()
 	if err != nil {
 		_ = conn.Close()
-		return classifyHandshakeError(err, "ssh dial")
+		return recorder.annotate(classifyHandshakeError(err, "ssh dial"))
 	}
 	_ = conn.SetDeadline(time.Time{})
 	c.mu.Lock()
