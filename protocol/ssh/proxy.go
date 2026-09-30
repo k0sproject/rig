@@ -197,8 +197,9 @@ func (c *Connection) connectViaProxyCommand(ctx context.Context, dst string, con
 		err   error
 	}
 	resultCh := make(chan connResult, 1)
+	recorder := newPreVersionRecorder(pconn)
 	go func() {
-		ncc, chans, reqs, hsErr := ssh.NewClientConn(pconn, dst, config)
+		ncc, chans, reqs, hsErr := ssh.NewClientConn(recorder, dst, config)
 		resultCh <- connResult{ncc, chans, reqs, hsErr}
 	}()
 
@@ -235,7 +236,7 @@ func (c *Connection) connectViaProxyCommand(ctx context.Context, dst string, con
 			}()
 		}
 		agentClose()
-		return fmt.Errorf("proxy command connect: %w", dialCtx.Err())
+		return recorder.annotate(fmt.Errorf("proxy command connect: %w", dialCtx.Err()))
 	case result = <-resultCh:
 	}
 
@@ -244,7 +245,7 @@ func (c *Connection) connectViaProxyCommand(ctx context.Context, dst string, con
 	if result.err != nil {
 		_ = pconn.Close()
 		killProc()
-		return classifyHandshakeError(result.err, "proxy command ssh connect")
+		return recorder.annotate(classifyHandshakeError(result.err, "proxy command ssh connect"))
 	}
 
 	c.mu.Lock()
