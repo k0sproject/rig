@@ -51,12 +51,16 @@ func (f *PosixFile) fsBlockSize() int {
 	return f.blockSize
 }
 
+func (f *PosixFile) accessMode() int {
+	return f.flags & (os.O_RDONLY | os.O_WRONLY | os.O_RDWR)
+}
+
 func (f *PosixFile) isReadable() bool {
-	return f.isOpen && (f.flags&os.O_WRONLY != os.O_WRONLY || f.flags&os.O_RDWR == os.O_RDWR)
+	return f.isOpen && f.accessMode() != os.O_WRONLY
 }
 
 func (f *PosixFile) isWritable() bool {
-	return f.isOpen && f.flags&os.O_WRONLY != 0
+	return f.isOpen && f.accessMode() != os.O_RDONLY
 }
 
 func (f *PosixFile) ddParams(offset int64, numBytes int) (blocksize int, skip int64, count int) { //nolint:nonamedreturns // for readability
