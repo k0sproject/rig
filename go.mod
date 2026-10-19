@@ -3,7 +3,7 @@ module github.com/k0sproject/rig/v2
 go 1.27.0
 
 require (
-	github.com/Microsoft/go-winio v0.6.3
+	github.com/Microsoft/go-winio v0.6.4
 	github.com/davidmz/go-pageant v1.0.2
 	github.com/masterzen/winrm v0.0.0-20260407182533-5570be7f80cf
 	github.com/stretchr/testify v1.12.1
@@ -31,6 +31,6 @@ require (
 	github.com/tidwall/transform v0.0.0-20201103190739-32f242e2dbde // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 )
