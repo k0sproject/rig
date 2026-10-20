@@ -49,10 +49,14 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+    # Scan with the latest Go release rather than the go.mod minimum: the
+    # reported stdlib vulnerabilities belong to the scanning toolchain, and
+    # consumers build rig with their own.
     - name: Set up Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
-        go-version-file: go.mod
+        go-version: stable
+        check-latest: true
 
     - name: Install govulncheck
       run: go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
