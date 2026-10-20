@@ -23,10 +23,14 @@ jobs:
         with:
           fetch-depth: 0 # the merge base has to be reachable
 
+      # The tool loads both the base and the head checkout, whose go
+      # directives can differ, and setup-go pins GOTOOLCHAIN=local, so use a
+      # release new enough for either and for internal/apidiff itself.
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version: stable
+          check-latest: true
 
       - name: Compare exported API against the merge base
         id: compare
