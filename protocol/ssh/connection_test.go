@@ -1136,6 +1136,22 @@ func TestConnectPreVersionTextDoesNotChangeClassification(t *testing.T) {
 	require.NotErrorIs(t, err, protocol.ErrAuthFailed)
 }
 
+// TestConnectReportsOverlongPreVersionLine covers a line too long to be a
+// version string. x/crypto stops reading it after maxPreVersionText bytes and
+// fails, so those bytes are all the client ever saw and all the error can show.
+func TestConnectReportsOverlongPreVersionLine(t *testing.T) {
+	withConfigParser(t, "")
+	t.Setenv("SSH_KNOWN_HOSTS", "")
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	line := strings.Repeat("a", maxPreVersionText) + strings.Repeat("b", maxPreVersionText) + "\r\n"
+	addr := startRawServer(t, refuseBeforeVersion(line))
+
+	err := connectTo(t, addr)
+	require.ErrorContains(t, err, "overflow reading version string")
+	require.ErrorContains(t, err, fmt.Sprintf("%q", strings.Repeat("a", maxPreVersionText)))
+}
+
 // startForwardingSSHServer starts an SSH server that accepts any client without
 // credentials and serves direct-tcpip channels by dialing the requested address,
 // which is what a bastion does. It returns the listen address.

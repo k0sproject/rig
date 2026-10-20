@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 )
 
 // maxPreVersionText bounds how much pre-version text an error message keeps.
-// The end is kept rather than the start, because the line that explains a
-// refusal is the last one a server sends before hanging up.
+// Across lines the end is kept rather than the start, because the line that
+// explains a refusal is the last one a server sends before hanging up. Within a
+// line the start is kept: x/crypto gives up on a line once it reaches this same
+// 255 bytes, so it never reads further into one.
 const maxPreVersionText = 255
 
 var sshVersionPrefix = []byte("SSH-")
@@ -25,10 +28,13 @@ var sshVersionPrefix = []byte("SSH-")
 type preVersionRecorder struct {
 	net.Conn
 
-	mu          sync.Mutex
-	lines       []byte // the most recent completed lines, separated by '\n'
-	line        []byte // the start of the line being read
-	versionSeen bool
+	// versionSeen is read without mu so that, once the handshake is past the
+	// version exchange, Read costs nothing for the rest of the session.
+	versionSeen atomic.Bool
+
+	mu    sync.Mutex
+	lines []byte // the most recent completed lines, separated by '\n'
+	line  []byte // the start of the line being read
 }
 
 func newPreVersionRecorder(conn net.Conn) *preVersionRecorder {
@@ -39,7 +45,7 @@ func newPreVersionRecorder(conn net.Conn) *preVersionRecorder {
 // version line.
 func (r *preVersionRecorder) Read(p []byte) (int, error) {
 	n, err := r.Conn.Read(p)
-	if n > 0 {
+	if n > 0 && !r.versionSeen.Load() {
 		r.record(p[:n])
 	}
 	return n, err //nolint:wrapcheck // io.Reader contract: callers compare against io.EOF, wrapping breaks it
@@ -49,14 +55,14 @@ func (r *preVersionRecorder) record(data []byte) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	if r.versionSeen.Load() {
+		return
+	}
 	for _, char := range data {
-		if r.versionSeen {
-			return
-		}
 		switch char {
 		case '\n':
 			if bytes.HasPrefix(r.line, sshVersionPrefix) {
-				r.versionSeen = true
+				r.versionSeen.Store(true)
 				r.lines, r.line = nil, nil
 				return
 			}
@@ -85,7 +91,7 @@ func (r *preVersionRecorder) text() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.versionSeen {
+	if r.versionSeen.Load() {
 		return ""
 	}
 	text := append(append([]byte(nil), r.lines...), r.line...)
