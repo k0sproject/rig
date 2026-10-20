@@ -5,6 +5,21 @@ updates:
     schedule:
       interval: "daily"
     open-pull-requests-limit: 5
+  # The schema generator is a separate module so its dependencies stay out of
+  # rig's go.mod. Its indirect requirements mirror the root module (see
+  # go.work there), so only its own direct dependencies are tracked here.
+  - package-ecosystem: "gomod"
+    directory: "/internal/jsonschema"
+    schedule:
+      interval: "weekly"
+    allow:
+      - dependency-type: "direct"
+    ignore:
+      - dependency-name: "github.com/k0sproject/rig/v2"
+    groups:
+      jsonschema:
+        patterns:
+          - "*"
   - package-ecosystem: github-actions
     directory: /
     schedule:
