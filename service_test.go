@@ -160,8 +160,10 @@ func TestServiceSetEnvironment(t *testing.T) {
 
 	t.Run("with reloader", func(t *testing.T) {
 		mgr := &mockReloadEnvManager{
-			envPath:    "/etc/systemd/system/mysvc.service.d/env.conf",
-			envContent: "[Service]\nEnvironment='FOO=bar'\n",
+			mockEnvManager: mockEnvManager{
+				envPath:    "/etc/systemd/system/mysvc.service.d/env.conf",
+				envContent: "[Service]\nEnvironment='FOO=bar'\n",
+			},
 		}
 		mfs := &mockFS{}
 		svc := &Service{
