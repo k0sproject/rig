@@ -86,7 +86,8 @@ func (f *PosixFile) ddParams(offset int64, numBytes int) (blocksize int, skip in
 	// dd counts skip in blocks rather than in bytes, so the block size has to
 	// divide the offset as well as the length: at bs=4096, an offset of 2048
 	// would otherwise round down to skip=0 and read from the wrong place.
-	// Callers also rely on blocksize*count being exactly numBytes.
+	// Callers also rely on blocksize*count being exactly numBytes. Only reads
+	// use count: from a regular file dd gets full blocks until EOF.
 	bs := alignBlockSize(int64(f.fsBlockSize()), offset, int64(numBytes))
 
 	return int(bs), offset / bs, int(int64(numBytes) / bs)
@@ -135,38 +136,32 @@ func (f *PosixFile) Write(p []byte) (int, error) {
 		return 0, fmt.Errorf("%w: file %s is not open for writing", fs.ErrClosed, f.path)
 	}
 
-	var written int
-	remaining := p
-	for written < len(p) {
-		bs, skip, count := f.ddParams(f.pos, len(remaining))
-		toWrite := bs * count
-
-		limitedReader := bytes.NewReader(remaining[:toWrite])
-
-		err := f.fs.Exec(
-			// "if=" is omitted because dd reads stdin by default. Naming
-			// /dev/stdin adds nothing and only invites the kind of breakage
-			// documented in PosixFS.WriteFile.
-			sh.Command("dd", "of="+f.path, fmt.Sprintf("bs=%d", bs), fmt.Sprintf("count=%d", count), fmt.Sprintf("seek=%d", skip), "conv=notrunc"),
-			cmd.Stdin(limitedReader),
-		)
-		if err != nil {
-			return 0, fmt.Errorf("write (dd): %w", err)
-		}
-
-		written += toWrite
-		remaining = remaining[toWrite:]
-		f.pos += int64(toWrite)
-		if f.pos > f.size {
-			f.size = f.pos
-		}
+	if len(p) == 0 {
+		return 0, nil
 	}
 
-	if written < len(p) {
-		return written, io.ErrShortWrite
+	// No count=: dd counts a short read from the stdin pipe as a whole block,
+	// so a count would stop it before all of p arrived. stdin ends with p, which
+	// bounds the write on its own, leaving the block size to divide only the
+	// seek offset.
+	bs := alignBlockSize(int64(f.fsBlockSize()), f.pos)
+	err := f.fs.Exec(
+		// "if=" is omitted because dd reads stdin by default. Naming
+		// /dev/stdin adds nothing and only invites the kind of breakage
+		// documented in PosixFS.WriteFile.
+		sh.Command("dd", "of="+f.path, fmt.Sprintf("bs=%d", bs), fmt.Sprintf("seek=%d", f.pos/bs), "conv=notrunc"),
+		cmd.Stdin(bytes.NewReader(p)),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("write (dd): %w", err)
 	}
 
-	return written, nil
+	f.pos += int64(len(p))
+	if f.pos > f.size {
+		f.size = f.pos
+	}
+
+	return len(p), nil
 }
 
 // CopyTo copies the remote file to the writer dst.

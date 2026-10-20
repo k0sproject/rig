@@ -1,11 +1,14 @@
 package remotefs_test
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	"github.com/k0sproject/rig/v2/remotefs"
 	"github.com/k0sproject/rig/v2/rigtest"
@@ -55,8 +58,83 @@ func TestPosixFileWrite(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 5, n)
 	require.Equal(t, "hello", string(got))
-	require.Equal(t, "dd of=/tmp/file bs=1 count=5 seek=0 conv=notrunc", mr.LastCommand())
+	require.Equal(t, "dd of=/tmp/file bs=4096 seek=0 conv=notrunc", mr.LastCommand())
 	require.NoError(t, mr.NotReceived(rigtest.Contains("/dev/stdin")))
+}
+
+// TestPosixFileWriteShortReads runs Write against a dd stand-in that, like the
+// real one, counts every read from stdin as a block whether it was full or not,
+// and is fed stdin a byte at a time as a pipe may do. Write used to pass count=,
+// which then stopped dd after count bytes: bs=4 count=25 for 100 bytes wrote 25.
+func TestPosixFileWriteShortReads(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		pos  int64
+		bs   int64
+	}{
+		{"start", 0, 4096},
+		{"whole blocks", 8192, 4096},
+		{"half a block in", 2048, 2048},
+		{"odd", 4097, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mr := rigtest.NewMockRunner()
+			var got []byte
+			mr.AddCommand(rigtest.HasPrefix("dd "), func(a *rigtest.A) error {
+				var err error
+				got, err = fakeDDWrite(a.Command, iotest.OneByteReader(a.Stdin))
+				return err
+			})
+			f := openPosixFileForWriting(t, mr)
+
+			_, err := f.Seek(tc.pos, io.SeekStart)
+			require.NoError(t, err)
+
+			data := []byte(strings.Repeat("0123456789", 10))
+			n, err := f.Write(data)
+			require.NoError(t, err)
+			require.Equal(t, len(data), n)
+			require.Equal(t, data, got)
+			require.Equal(t, fmt.Sprintf("dd of=/tmp/file bs=%d seek=%d conv=notrunc", tc.bs, tc.pos/tc.bs), mr.LastCommand())
+
+			pos, err := f.Seek(0, io.SeekCurrent)
+			require.NoError(t, err)
+			require.Equal(t, tc.pos+int64(len(data)), pos)
+		})
+	}
+}
+
+// fakeDDWrite consumes stdin the way dd does: one read of up to bs bytes per
+// block, stopping after count blocks when a count is given or at EOF.
+func fakeDDWrite(command string, stdin io.Reader) ([]byte, error) {
+	bs, count := 512, -1
+	for _, arg := range strings.Fields(command) {
+		var err error
+		switch {
+		case strings.HasPrefix(arg, "bs="):
+			bs, err = strconv.Atoi(strings.TrimPrefix(arg, "bs="))
+		case strings.HasPrefix(arg, "count="):
+			count, err = strconv.Atoi(strings.TrimPrefix(arg, "count="))
+		}
+		if err != nil {
+			return nil, fmt.Errorf("parse %q: %w", arg, err)
+		}
+	}
+
+	var out []byte
+	buf := make([]byte, bs)
+	for blocks := 0; count < 0 || blocks < count; blocks++ {
+		n, err := stdin.Read(buf)
+		out = append(out, buf[:n]...)
+		if errors.Is(err, io.EOF) {
+			return out, nil
+		}
+		if err != nil {
+			return out, err
+		}
+	}
+
+	return out, nil
 }
 
 // TestPosixFileCopyFrom verifies the same for the streaming copy path used by
