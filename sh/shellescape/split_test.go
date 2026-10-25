@@ -51,6 +51,26 @@ func TestSplit(t *testing.T) {
 			wantErr:    false,
 		},
 		{
+			name:       "Repeated, leading and trailing spaces",
+			input:      "  value1   value2  ",
+			wantOutput: []string{"value1", "value2"},
+		},
+		{
+			name:       "Only spaces",
+			input:      "   ",
+			wantOutput: nil,
+		},
+		{
+			name:       "Quoted empty strings",
+			input:      `value1 "" ''`,
+			wantOutput: []string{"value1", "", ""},
+		},
+		{
+			name:       "Escaped space",
+			input:      `value1\ value2`,
+			wantOutput: []string{"value1 value2"},
+		},
+		{
 			name:       "Escaped Single Quote in Single Quotes",
 			input:      `value1 'escaped \'single\' quote'`,
 			wantOutput: nil,
