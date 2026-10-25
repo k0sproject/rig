@@ -104,12 +104,9 @@ func (c *Connection) ExecInteractive(ctx context.Context, cmd string, stdin io.R
 		cmd = "cmd"
 	}
 
-	parts, err := shellescape.Split(cmd)
+	path, argv, err := parseCommand(cmd)
 	if err != nil {
-		return fmt.Errorf("failed to parse command: %w", err)
-	}
-	if len(parts) == 0 || parts[0] == "" {
-		return fmt.Errorf("%w: empty command", protocol.ErrValidationFailed)
+		return err
 	}
 
 	cwd, err := os.Getwd()
@@ -144,7 +141,7 @@ func (c *Connection) ExecInteractive(ctx context.Context, cmd string, stdin io.R
 		Dir:   cwd,
 	}
 
-	proc, err := os.StartProcess(parts[0], parts[1:], procAttr) //nolint:gosec // G702: intentional command execution from parsed arguments
+	proc, err := os.StartProcess(path, argv, procAttr) //nolint:gosec // G702: intentional command execution from parsed arguments
 	if err != nil {
 		return fmt.Errorf("failed to start process: %w", err)
 	}
@@ -261,4 +258,21 @@ func (p *stdioPipes) wait() {
 			_ = r.Close()
 		}
 	}
+}
+
+// parseCommand splits cmd and resolves the executable from PATH. The returned
+// argv includes the program name as argv[0], as os.StartProcess expects.
+func parseCommand(cmd string) (string, []string, error) {
+	parts, err := shellescape.Split(cmd)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to parse command: %w", err)
+	}
+	if len(parts) == 0 || parts[0] == "" {
+		return "", nil, fmt.Errorf("%w: empty command", protocol.ErrValidationFailed)
+	}
+	path, err := exec.LookPath(parts[0])
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to find executable: %w", err)
+	}
+	return path, parts, nil
 }
