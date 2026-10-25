@@ -163,7 +163,11 @@ func (c *Connection) ExecInteractive(ctx context.Context, cmd string, stdin io.R
 		}
 	}()
 
-	if _, err := proc.Wait(); err != nil {
+	state, err := proc.Wait()
+	if err == nil && !state.Success() {
+		err = &exec.ExitError{ProcessState: state}
+	}
+	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err() //nolint:wrapcheck // context error is the real cause
 		}
