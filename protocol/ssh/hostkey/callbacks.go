@@ -441,6 +441,7 @@ func wrapCallback(knownHosts *hostKeyDB, path string, permissive, hash bool) ssh
 		row = strings.TrimSpace(row) + "\n"
 
 		if _, err := dbFile.WriteString(row); err != nil {
+			_ = dbFile.Close()
 			return fmt.Errorf("failed to write to known hosts file %s: %w", path, err)
 		}
 		if err := dbFile.Close(); err != nil {
