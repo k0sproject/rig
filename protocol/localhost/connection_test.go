@@ -108,3 +108,10 @@ func TestExecInteractiveArgs(t *testing.T) {
 		})
 	}
 }
+
+func TestExecInteractiveMissingBinary(t *testing.T) {
+	conn, err := localhost.NewConnection()
+	require.NoError(t, err)
+	var out bytes.Buffer
+	require.Error(t, conn.ExecInteractive(t.Context(), "rig-test-no-such-binary", &bytes.Buffer{}, &out, &out))
+}
