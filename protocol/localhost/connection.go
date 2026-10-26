@@ -100,6 +100,14 @@ func (c *Connection) ExecInteractive(ctx context.Context, cmd string, stdin io.R
 		cmd = "cmd"
 	}
 
+	parts, err := shellescape.Split(cmd)
+	if err != nil {
+		return fmt.Errorf("failed to parse command: %w", err)
+	}
+	if len(parts) == 0 || parts[0] == "" {
+		return fmt.Errorf("%w: empty command", protocol.ErrValidationFailed)
+	}
+
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get current working directory: %w", err)
@@ -150,14 +158,6 @@ func (c *Connection) ExecInteractive(ctx context.Context, cmd string, stdin io.R
 	procAttr := &os.ProcAttr{
 		Files: []*os.File{stdinR, stdoutW, stderrW},
 		Dir:   cwd,
-	}
-
-	parts, err := shellescape.Split(cmd)
-	if err != nil {
-		return fmt.Errorf("failed to parse command: %w", err)
-	}
-	if len(parts) == 0 {
-		return fmt.Errorf("%w: empty command", protocol.ErrValidationFailed)
 	}
 
 	proc, err := os.StartProcess(parts[0], parts[1:], procAttr) //nolint:gosec // G702: intentional command execution from parsed arguments
