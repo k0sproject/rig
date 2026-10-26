@@ -145,10 +145,11 @@ func (c *Connection) ExecInteractive(ctx context.Context, cmd string, stdin io.R
 	}
 
 	proc, err := os.StartProcess(parts[0], parts[1:], procAttr) //nolint:gosec // G702: intentional command execution from parsed arguments
-	pipes.closeChildEnds()
 	if err != nil {
 		return fmt.Errorf("failed to start process: %w", err)
 	}
+	pipes.startInput()
+	pipes.closeChildEnds()
 	defer pipes.wait()
 
 	// Kill the process when the context is done, but also stop watching when
@@ -175,6 +176,8 @@ func (c *Connection) ExecInteractive(ctx context.Context, cmd string, stdin io.R
 // stdioPipes bridges non-file streams to a child process through os pipes.
 type stdioPipes struct {
 	childEnds []*os.File
+	inW       *os.File
+	inSrc     io.Reader
 	readers   []*os.File
 	copies    sync.WaitGroup
 }
@@ -185,11 +188,22 @@ func (p *stdioPipes) in(src io.Reader) (*os.File, error) {
 		return nil, fmt.Errorf("failed to create pipe: %w", err)
 	}
 	p.childEnds = append(p.childEnds, r)
+	p.inW, p.inSrc = w, src
+	return r, nil
+}
+
+// startInput starts copying stdin once the process is running, so a setup
+// failure can't leave the copier blocked on src.
+func (p *stdioPipes) startInput() {
+	if p.inW == nil {
+		return
+	}
+	w, src := p.inW, p.inSrc
+	p.inW = nil
 	go func() {
 		defer w.Close()
 		_, _ = io.Copy(w, src)
 	}()
-	return r, nil
 }
 
 func (p *stdioPipes) out(dst io.Writer) (*os.File, error) {
@@ -213,10 +227,15 @@ func (p *stdioPipes) closeChildEnds() {
 		_ = f.Close()
 	}
 	p.childEnds = nil
+	if p.inW != nil {
+		_ = p.inW.Close()
+		p.inW = nil
+	}
 }
 
 // wait waits for the output copiers to drain, bounded by copyWaitDelay
 // because a daemonized grandchild can hold the pipe open indefinitely.
+// On timeout a copier may still be writing to its dst after this returns.
 func (p *stdioPipes) wait() {
 	done := make(chan struct{})
 	go func() {
