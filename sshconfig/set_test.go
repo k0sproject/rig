@@ -1755,6 +1755,23 @@ func TestSetterFinalizeLocalAndAliasTokens(t *testing.T) {
 		require.Equal(t, []string{"/tmp/fe80::1%eth0"}, obj.IdentityFile)
 	})
 
+	t.Run("a reset forgets a finalized ProxyJump that reads the same", func(t *testing.T) {
+		obj := sshconfig.Config{Host: "node"}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("ProxyJump", "jump-%h"))
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, []string{"jump-node"}, obj.ProxyJump)
+
+		// The same text as what Finalize produced, but now a new value.
+		require.NoError(t, setter.Reset("ProxyJump"))
+		require.NoError(t, setter.Set("ProxyJump", "jump-node"))
+		require.NoError(t, setter.Set("ControlPath", "/tmp/%j"))
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, "/tmp/jump-node", obj.ControlPath)
+	})
+
 	t.Run("jump host token reads a string ProxyJump", func(t *testing.T) {
 		obj := struct {
 			Host        string

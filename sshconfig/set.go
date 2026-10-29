@@ -1003,6 +1003,14 @@ func (s *Setter) Reset(key string) error {
 	} else {
 		field.Set(reflect.Zero(field.Type()))
 	}
+	// A value set after a reset is new even if it reads the same as what a
+	// previous Finalize produced, so forget what that Finalize kept.
+	switch info.key {
+	case knownKeys[keyHostnameLower].key:
+		s.finalHostname = nil
+	case knownKeys[keyProxyJumpLower].key:
+		s.jumpSpec = nil
+	}
 	return nil
 }
 
