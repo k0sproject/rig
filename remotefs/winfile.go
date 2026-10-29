@@ -509,7 +509,8 @@ func (f *winFile) open(flags int) error {
 	f.stdoutW = stdoutW
 	f.done = make(chan struct{})
 
-	ctx, cancel := context.WithCancel(runnerContext(f.fs.Runner))
+	parent := runnerContext(f.fs.Runner)
+	ctx, cancel := context.WithCancel(parent)
 	f.cancel = cancel
 	cmd, err := f.fs.Start(ctx, rigRcp, cmd.Stdin(stdinR), cmd.Stdout(stdoutW), cmd.Stderr(stderrW), cmd.LogInput(false), cmd.HideOutput())
 	if err != nil {
@@ -522,8 +523,7 @@ func (f *winFile) open(flags int) error {
 		log.Trace(ctx, "rigrcp started")
 		err := cmd.Wait()
 		log.Trace(ctx, "rigrcp exited", log.KeyError, err)
-		close(f.done)
-		f.closed.Store(true)
+		f.ended(parent)
 		_ = stdinR.Close()
 		_ = stdinW.Close()
 		_ = stdoutR.Close()
@@ -549,6 +549,19 @@ func (f *winFile) open(flags int) error {
 	f.writable = accessMode != os.O_RDONLY
 
 	return nil
+}
+
+// ended marks the session as over once the rigrcp command has exited. If
+// parent, the context the filesystem is bound to, is done, that is why the
+// session ended, and it is recorded so that operations report it rather than
+// a bare errEnded.
+func (f *winFile) ended(parent context.Context) {
+	if err := parent.Err(); err != nil {
+		cause := fmt.Errorf("%w: %w", errEnded, err)
+		f.abortErr.CompareAndSwap(nil, &cause)
+	}
+	close(f.done)
+	f.closed.Store(true)
 }
 
 // commandTimeout bounds how long a rigrcp session may go without making
@@ -611,7 +624,7 @@ func (f *winFile) command(cmd string) (*rcpResponse, error) {
 
 	select {
 	case <-f.done:
-		return nil, errEnded
+		return nil, f.abortCause(errEnded)
 	case <-timer.C:
 		return nil, f.timedOut(fmt.Sprintf("writing rcp command %q", cmd))
 	case err := <-writeErr:
@@ -653,12 +666,12 @@ func (f *winFile) awaitResponse(resp <-chan []byte, what string) (*rcpResponse, 
 
 	select {
 	case <-f.done:
-		return nil, errEnded
+		return nil, f.abortCause(errEnded)
 	case <-timer.C:
 		return nil, f.timedOut("waiting for " + what)
 	case data, ok := <-resp:
 		if !ok {
-			return nil, errEnded
+			return nil, f.abortCause(errEnded)
 		}
 		return parseResponse(data)
 	}

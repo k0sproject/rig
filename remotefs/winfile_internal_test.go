@@ -411,6 +411,34 @@ func TestWinFileCommandEndedSession(t *testing.T) {
 	require.ErrorIs(t, err, errEnded)
 }
 
+// TestWinFileEndedByContextReportsIt verifies that a command in flight when
+// the context the filesystem is bound to ends the session reports that
+// context's error, not a bare errEnded.
+func TestWinFileEndedByContextReportsIt(t *testing.T) {
+	s := newRCPSession(t, time.Second)
+	received := make(chan struct{})
+	go func() {
+		if _, err := s.commands.ReadString('\n'); err == nil {
+			close(received)
+		}
+	}()
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := s.file.command("r 4")
+		errCh <- err
+	}()
+	<-received
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	s.file.ended(ctx)
+
+	err := <-errCh
+	require.ErrorIs(t, err, context.Canceled)
+	require.ErrorIs(t, err, errEnded)
+}
+
 func TestWinFileOpenFlags(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
