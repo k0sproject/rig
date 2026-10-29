@@ -2,6 +2,7 @@ package sudo_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/k0sproject/rig/v2/rigtest"
@@ -43,6 +44,41 @@ func TestRegisterSudo(t *testing.T) {
 
 		_, err := reg.Get(mr)
 		require.ErrorIs(t, err, sudo.ErrNoSudo)
+	})
+
+	t.Run("warns when sudoers requires a tty", func(t *testing.T) {
+		reg := sudo.NewRegistry()
+		sudo.RegisterSudo(reg)
+
+		mr := rigtest.NewMockRunner()
+		logger := &rigtest.MockLogger{}
+		mr.SetLogger(logger)
+		mr.AddCommand(rigtest.Contains("sudo -n"), func(a *rigtest.A) error {
+			_, _ = fmt.Fprintln(a.Stderr, "sudo: sorry, you must have a tty to run sudo")
+			return errProbe
+		})
+
+		_, err := reg.Get(mr)
+		require.ErrorIs(t, err, sudo.ErrNoSudo)
+		require.True(t, logger.ReceivedSubstring("requiretty"))
+		require.NoError(t, mr.Received(rigtest.HasPrefix("env LC_ALL=C sudo -n")))
+	})
+
+	t.Run("does not warn on other probe failures", func(t *testing.T) {
+		reg := sudo.NewRegistry()
+		sudo.RegisterSudo(reg)
+
+		mr := rigtest.NewMockRunner()
+		logger := &rigtest.MockLogger{}
+		mr.SetLogger(logger)
+		mr.AddCommand(rigtest.Contains("sudo -n"), func(a *rigtest.A) error {
+			_, _ = fmt.Fprintln(a.Stderr, "sudo: a password is required")
+			return errProbe
+		})
+
+		_, err := reg.Get(mr)
+		require.ErrorIs(t, err, sudo.ErrNoSudo)
+		require.Zero(t, logger.Len())
 	})
 
 	t.Run("skipped on Windows", func(t *testing.T) {
