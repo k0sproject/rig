@@ -82,6 +82,9 @@ type Setter struct {
 	// hostnameFinal is set once Finalize has expanded Hostname. Before that,
 	// such as while Match exec criteria are evaluated, it can hold tokens.
 	hostnameFinal bool
+	// jumpSpec is ProxyJump as it was before Finalize expanded it, kept for
+	// %j so that finalizing again hashes the same %C. Nil until then.
+	jumpSpec *string
 }
 
 // NewSetter creates a ssh config value setter for the given object. It can be used to set
@@ -962,7 +965,7 @@ func (s *Setter) Set(key string, values ...string) error {
 	case info.setFunc == nil:
 		return fmt.Errorf("%w: field %q is not settable", errInvalidObject, key)
 	default:
-		err = info.setFunc(s, info.key, values...)
+		err = s.setKey(key, info, values)
 	}
 
 	if errors.Is(err, errFieldNotFound) || errors.Is(err, errInvalidField) {
@@ -980,6 +983,21 @@ func (s *Setter) Set(key string, values ...string) error {
 	return nil
 }
 
+// setKey sets the field for key. A ProxyJump that changes after Finalize
+// drops the unexpanded value kept for %j. One that does not, because an
+// earlier value took precedence, keeps it.
+func (s *Setter) setKey(key string, info keyInfo, values []string) error {
+	if s.jumpSpec == nil || key != keyProxyJumpLower {
+		return info.setFunc(s, info.key, values...)
+	}
+	before := s.proxyJumpSpec()
+	err := info.setFunc(s, info.key, values...)
+	if s.proxyJumpSpec() != before {
+		s.jumpSpec = nil
+	}
+	return err
+}
+
 // Reset clears a field. A pointer field is set to a pointer to its zero value,
 // any other field to the zero value itself. This is useful in testing.
 func (s *Setter) Reset(key string) error {
@@ -995,6 +1013,9 @@ func (s *Setter) Reset(key string) error {
 		field.Set(reflect.New(field.Type().Elem()))
 	} else {
 		field.Set(reflect.Zero(field.Type()))
+	}
+	if info.key == knownKeys[keyProxyJumpLower].key {
+		s.jumpSpec = nil
 	}
 	return nil
 }
@@ -1016,6 +1037,10 @@ func (s *Setter) Finalize() error {
 		if err := s.finalizeKey(info); err != nil {
 			return err
 		}
+	}
+	if s.jumpSpec == nil {
+		spec := s.proxyJumpSpec()
+		s.jumpSpec = &spec
 	}
 	return s.finalizeKey(knownKeys[keyProxyJumpLower])
 }
@@ -1227,6 +1252,9 @@ func (s *Setter) expandToken(token string) (string, error) { //nolint:cyclop
 		}
 		return "", fmt.Errorf("%w: no hostname available for token %%H expansion", errFieldNotFound)
 	case "%j":
+		if s.jumpSpec != nil {
+			return jumpHost(*s.jumpSpec), nil
+		}
 		return jumpHost(s.proxyJumpSpec()), nil
 	case "%k":
 		if f, err := s.get("HostKeyAlias", reflect.String); err == nil && f.Len() > 0 {
@@ -1255,15 +1283,19 @@ func (s *Setter) expandToken(token string) (string, error) { //nolint:cyclop
 }
 
 // proxyJumpSpec returns the ProxyJump value as ssh reads it: a comma
-// separated list of hops.
+// separated list of hops. Unlike get, it leaves a nil pointer field nil.
 func (s *Setter) proxyJumpSpec() string {
-	if f, err := s.get("ProxyJump", reflect.String); err == nil {
-		return f.String()
+	field, ok := s.finalizableField("ProxyJump")
+	if !ok {
+		return ""
 	}
-	if f, err := s.get("ProxyJump", reflect.Slice, reflect.String); err == nil {
-		hops := make([]string, 0, f.Len())
-		for i := range f.Len() {
-			hops = append(hops, f.Index(i).String())
+	switch {
+	case field.Kind() == reflect.String:
+		return field.String()
+	case field.Kind() == reflect.Slice && field.Type().Elem().Kind() == reflect.String:
+		hops := make([]string, 0, field.Len())
+		for i := range field.Len() {
+			hops = append(hops, field.Index(i).String())
 		}
 		return strings.Join(hops, ",")
 	}

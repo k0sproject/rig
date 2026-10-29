@@ -1669,6 +1669,36 @@ func TestSetterFinalizeLocalAndAliasTokens(t *testing.T) {
 		}
 	})
 
+	t.Run("jump host token survives a second Finalize", func(t *testing.T) {
+		obj := sshconfig.Config{Host: "node", Port: 22, User: "bob"}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("ProxyJump", "jump-%h"))
+		require.NoError(t, setter.Set("ControlPath", "/tmp/%C"))
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, []string{"jump-node"}, obj.ProxyJump)
+
+		require.NoError(t, setter.Set("IdentityFile", "/tmp/%C"))
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, []string{obj.ControlPath}, obj.IdentityFile)
+	})
+
+	t.Run("jump host token follows a ProxyJump replaced after Finalize", func(t *testing.T) {
+		obj := sshconfig.Config{Host: "node"}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("ProxyJump", "jump-%h"))
+		require.NoError(t, setter.Finalize())
+
+		require.NoError(t, setter.Reset("ProxyJump"))
+		require.NoError(t, setter.Set("ProxyJump", "a,alice@other:2222"))
+		require.NoError(t, setter.Set("ControlPath", "/tmp/%j"))
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, "/tmp/other", obj.ControlPath)
+	})
+
 	t.Run("jump host token reads a string ProxyJump", func(t *testing.T) {
 		obj := struct {
 			Host        string
