@@ -65,8 +65,10 @@ type PosixFS struct {
 	log.LoggerInjectable
 
 	// TODO: these should probably be in some kind of "coreutils" package
-	statCmd   *string
-	chtimesFn func(name string, atime, mtime int64) error
+	statCmd *string
+	// chtimesFn is a method expression rather than a method value so that the
+	// copy WithContext makes runs it on itself, not on the original.
+	chtimesFn func(s *PosixFS, name string, atime, mtime int64) error
 }
 
 // NewPosixFS returns a fs.FS implementation for a remote filesystem that uses POSIX commands for access.
@@ -143,7 +145,7 @@ func (s *PosixFS) initTouch() error {
 		return fmt.Errorf("can't access touch command: %w", err)
 	}
 	if strings.Contains(out, "BusyBox") {
-		s.chtimesFn = s.secChtimes
+		s.chtimesFn = (*PosixFS).secChtimes
 		return nil
 	}
 	tmpF, err := CreateTemp(s, "", "rigfs-touch-test")
@@ -157,9 +159,9 @@ func (s *PosixFS) initTouch() error {
 		return fmt.Errorf("can't close temp file for touch test: %w", err)
 	}
 	if err := s.nsecChtimes(tmpF.Name(), 0, 0); err != nil {
-		s.chtimesFn = s.secChtimes
+		s.chtimesFn = (*PosixFS).secChtimes
 	} else {
-		s.chtimesFn = s.nsecChtimes
+		s.chtimesFn = (*PosixFS).nsecChtimes
 	}
 
 	return nil
@@ -516,7 +518,7 @@ func (s *PosixFS) Chtimes(name string, atime, mtime int64) error {
 	if err := s.initTouch(); err != nil {
 		return err
 	}
-	return s.chtimesFn(name, atime, mtime)
+	return s.chtimesFn(s, name, atime, mtime)
 }
 
 // Truncate changes the size of the named file or creates a new file if it doesn't exist.

@@ -101,7 +101,7 @@ func downloadURL(fsys FS, url, dst string) error {
 	if !ok {
 		return fmt.Errorf("download %s: %w", url, ErrDownloadNotSupported)
 	}
-	return downloadToTemp(context.Background(), fsys, dst, func(ctx context.Context, tmp string) error {
+	return downloadToTemp(fsContext(fsys), fsys, dst, func(ctx context.Context, tmp string) error {
 		return f.fetchURL(ctx, url, tmp, false)
 	})
 }
