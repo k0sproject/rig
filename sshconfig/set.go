@@ -79,6 +79,9 @@ type Setter struct {
 	// expanding is the canonical name of the key whose value is being
 	// expanded, which decides what %h refers to.
 	expanding string
+	// hostnameFinal is set once Finalize has expanded Hostname. Before that,
+	// such as while Match exec criteria are evaluated, it can hold tokens.
+	hostnameFinal bool
 }
 
 // NewSetter creates a ssh config value setter for the given object. It can be used to set
@@ -1007,6 +1010,9 @@ func (s *Setter) Finalize() error {
 		if err := s.finalizeKey(knownKeys[name]); err != nil {
 			return err
 		}
+		if name == keyHostnameLower {
+			s.hostnameFinal = true
+		}
 	}
 	for name, info := range knownKeys {
 		if slices.Contains(first, name) {
@@ -1162,7 +1168,11 @@ func (s *Setter) expandToken(token string) (string, error) { //nolint:cyclop
 		// Hostname itself accepts %h, which then means Host.
 		if s.expanding != keyHostnameCanonical {
 			if f, err := s.get(keyHostnameCanonical, reflect.String); err == nil && f.Len() > 0 {
-				return f.String(), nil
+				if s.hostnameFinal {
+					// Expanded already, and may hold a literal percent sign.
+					return f.String(), nil
+				}
+				return s.expand(f.String(), knownKeys[keyHostnameLower])
 			}
 		}
 		if f, err := s.get("Host", reflect.String); err == nil {

@@ -1844,6 +1844,11 @@ func TestMatchExecCommandParsing(t *testing.T) {
 			`Match exec "/usr/local/bin/on-vpn %h"`,
 			[]string{"/usr/local/bin/on-vpn", "example.com"},
 		},
+		{
+			"percent h uses a Hostname set earlier, expanded",
+			"Host *\n    Hostname %h.internal\n\n" + `Match exec "/usr/local/bin/on-vpn %h"`,
+			[]string{"/usr/local/bin/on-vpn", "example.com.internal"},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			exec := &matchExecutor{}
