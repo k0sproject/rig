@@ -79,12 +79,16 @@ type Setter struct {
 	// expanding is the canonical name of the key whose value is being
 	// expanded, which decides what %h refers to.
 	expanding string
-	// hostnameFinal is set once Finalize has expanded Hostname. Before that,
-	// such as while Match exec criteria are evaluated, it can hold tokens.
-	hostnameFinal bool
-	// jumpSpec is ProxyJump as it was before Finalize expanded it, kept for
-	// %j so that finalizing again hashes the same %C. Nil until then.
-	jumpSpec *string
+	// finalHostname is the Hostname Finalize produced. While Hostname still
+	// holds it, %h copies it as it is, because it may hold a literal percent
+	// sign. Before that, such as while Match exec criteria are evaluated,
+	// Hostname can hold tokens.
+	finalHostname *string
+	// jumpSpec is ProxyJump as it was before Finalize expanded it into
+	// finalJump. While ProxyJump still holds finalJump, %j reads jumpSpec,
+	// because ssh does not expand the tokens in %j.
+	jumpSpec  *string
+	finalJump string
 }
 
 // NewSetter creates a ssh config value setter for the given object. It can be used to set
@@ -965,7 +969,7 @@ func (s *Setter) Set(key string, values ...string) error {
 	case info.setFunc == nil:
 		return fmt.Errorf("%w: field %q is not settable", errInvalidObject, key)
 	default:
-		err = s.setKey(key, info, values)
+		err = info.setFunc(s, info.key, values...)
 	}
 
 	if errors.Is(err, errFieldNotFound) || errors.Is(err, errInvalidField) {
@@ -981,45 +985,6 @@ func (s *Setter) Set(key string, values ...string) error {
 		return fmt.Errorf("failed to set %q: %w", info.key, err)
 	}
 	return nil
-}
-
-// setKey sets the field for key. A Hostname or ProxyJump that changes after
-// Finalize drops the state Finalize kept for %h or %j. One that does not,
-// because an earlier value took precedence, keeps it.
-func (s *Setter) setKey(key string, info keyInfo, values []string) error {
-	tracked := (key == keyHostnameLower && s.hostnameFinal) || (key == keyProxyJumpLower && s.jumpSpec != nil)
-	if !tracked {
-		return info.setFunc(s, info.key, values...)
-	}
-	before := s.finalizedValue(key)
-	err := info.setFunc(s, info.key, values...)
-	if s.finalizedValue(key) != before {
-		s.forgetFinalized(key)
-	}
-	return err
-}
-
-// finalizedValue returns the value of a key whose finalized state is tracked.
-func (s *Setter) finalizedValue(key string) string {
-	if key == keyProxyJumpLower {
-		return s.proxyJumpSpec()
-	}
-	field, ok := s.finalizableField(knownKeys[key].key)
-	if !ok || field.Kind() != reflect.String {
-		return ""
-	}
-	return field.String()
-}
-
-// forgetFinalized drops what Finalize kept about key, so that it is read and
-// expanded afresh.
-func (s *Setter) forgetFinalized(key string) {
-	switch key {
-	case keyHostnameLower:
-		s.hostnameFinal = false
-	case keyProxyJumpLower:
-		s.jumpSpec = nil
-	}
 }
 
 // Reset clears a field. A pointer field is set to a pointer to its zero value,
@@ -1038,7 +1003,6 @@ func (s *Setter) Reset(key string) error {
 	} else {
 		field.Set(reflect.Zero(field.Type()))
 	}
-	s.forgetFinalized(strings.ToLower(key))
 	return nil
 }
 
@@ -1048,10 +1012,15 @@ func (s *Setter) Reset(key string) error {
 func (s *Setter) Finalize() error {
 	// %h in every other field is the expanded Hostname, so it goes first. %j
 	// (and so %C) is the last ProxyJump hop as written, so ProxyJump goes last.
-	if err := s.finalizeKey(knownKeys[keyHostnameLower]); err != nil {
-		return err
+	// Values a previous Finalize produced are not expanded again, as they may
+	// hold a literal percent sign.
+	if !s.hostnameIsFinal() {
+		if err := s.finalizeKey(knownKeys[keyHostnameLower]); err != nil {
+			return err
+		}
+		hostname := s.hostnameValue()
+		s.finalHostname = &hostname
 	}
-	s.hostnameFinal = true
 	for name, info := range knownKeys {
 		if name == keyHostnameLower || name == keyProxyJumpLower {
 			continue
@@ -1060,11 +1029,43 @@ func (s *Setter) Finalize() error {
 			return err
 		}
 	}
-	if s.jumpSpec == nil {
-		spec := s.proxyJumpSpec()
-		s.jumpSpec = &spec
+	if s.jumpSpec != nil && s.proxyJumpSpec() == s.finalJump {
+		return nil
 	}
-	return s.finalizeKey(knownKeys[keyProxyJumpLower])
+	spec := s.proxyJumpSpec()
+	s.jumpSpec = &spec
+	if err := s.finalizeKey(knownKeys[keyProxyJumpLower]); err != nil {
+		return err
+	}
+	s.finalJump = s.proxyJumpSpec()
+	return nil
+}
+
+// hostnameValue returns the Hostname field, or an empty string if there is
+// none.
+func (s *Setter) hostnameValue() string {
+	field, ok := s.finalizableField(knownKeys[keyHostnameLower].key)
+	if !ok || field.Kind() != reflect.String {
+		return ""
+	}
+	return field.String()
+}
+
+// hostnameIsFinal reports whether Hostname still holds what Finalize made of
+// it. Any change since, through the setter or to the object directly, makes
+// it a template to expand again.
+func (s *Setter) hostnameIsFinal() bool {
+	return s.finalHostname != nil && s.hostnameValue() == *s.finalHostname
+}
+
+// rawProxyJump returns ProxyJump as written: the value Finalize expanded, as
+// long as ProxyJump still holds what that produced, or else ProxyJump itself.
+func (s *Setter) rawProxyJump() string {
+	spec := s.proxyJumpSpec()
+	if s.jumpSpec != nil && spec == s.finalJump {
+		return *s.jumpSpec
+	}
+	return spec
 }
 
 // finalizableField returns the field for key, through a non-nil pointer, and
@@ -1226,7 +1227,7 @@ func (s *Setter) expandToken(token string) (string, error) { //nolint:cyclop
 		// Hostname itself accepts %h, which then means Host.
 		if s.expanding != keyHostnameCanonical {
 			if f, err := s.get(keyHostnameCanonical, reflect.String); err == nil && f.Len() > 0 {
-				if s.hostnameFinal {
+				if s.hostnameIsFinal() {
 					// Expanded already, and may hold a literal percent sign.
 					return f.String(), nil
 				}
@@ -1274,10 +1275,7 @@ func (s *Setter) expandToken(token string) (string, error) { //nolint:cyclop
 		}
 		return "", fmt.Errorf("%w: no hostname available for token %%H expansion", errFieldNotFound)
 	case "%j":
-		if s.jumpSpec != nil {
-			return jumpHost(*s.jumpSpec), nil
-		}
-		return jumpHost(s.proxyJumpSpec()), nil
+		return jumpHost(s.rawProxyJump()), nil
 	case "%k":
 		if f, err := s.get("HostKeyAlias", reflect.String); err == nil && f.Len() > 0 {
 			return f.String(), nil

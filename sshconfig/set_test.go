@@ -1721,6 +1721,40 @@ func TestSetterFinalizeLocalAndAliasTokens(t *testing.T) {
 		require.Equal(t, "/tmp/node.internal", obj.ControlPath)
 	})
 
+	t.Run("tokens follow fields changed on the object after Finalize", func(t *testing.T) {
+		obj := sshconfig.Config{Host: "node"}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("Hostname", "first.example.com"))
+		require.NoError(t, setter.Set("ProxyJump", "jump-%h"))
+		require.NoError(t, setter.Finalize())
+
+		obj.Hostname = "%h.internal"
+		obj.ProxyJump = []string{"alice@other:2222"}
+		require.NoError(t, setter.Set("ControlPath", "/tmp/%h/%j"))
+		controlPath, err := setter.ExpandString("ControlPath")
+		require.NoError(t, err)
+		require.Equal(t, "/tmp/node.internal/other", controlPath)
+
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, "node.internal", obj.Hostname)
+		require.Equal(t, "/tmp/node.internal/other", obj.ControlPath)
+	})
+
+	t.Run("a second Finalize keeps a literal percent in Hostname", func(t *testing.T) {
+		obj := sshconfig.Config{Host: "linklocal"}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("Hostname", "fe80::1%%eth0"))
+		require.NoError(t, setter.Finalize())
+		require.NoError(t, setter.Set("IdentityFile", "/tmp/%h"))
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, "fe80::1%eth0", obj.Hostname)
+		require.Equal(t, []string{"/tmp/fe80::1%eth0"}, obj.IdentityFile)
+	})
+
 	t.Run("jump host token reads a string ProxyJump", func(t *testing.T) {
 		obj := struct {
 			Host        string
