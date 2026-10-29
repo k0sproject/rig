@@ -117,12 +117,8 @@ func TestOutputWriter(t *testing.T) {
 
 func TestGrouping(t *testing.T) {
 	mc := mockClient{}
-	h := Host{
-		Connection: Connection{
-			client:   &mc,
-			sudofunc: stubSudofunc,
-		},
-	}
+	h := Host{Connection: Connection{sudofunc: stubSudofunc}}
+	h.setClient(&mc)
 
 	opts, args := GroupParams(h, "ls", 1, exec.HideOutput(), exec.Sudo(&h))
 	require.Len(t, opts, 2)
@@ -132,7 +128,8 @@ func TestGrouping(t *testing.T) {
 func TestDiscoverSudoWindows(t *testing.T) {
 	t.Run("elevated session sets sudofunc", func(t *testing.T) {
 		mc := &windowsMockClient{}
-		h := Host{Connection: Connection{client: mc}}
+		h := Host{}
+		h.setClient(mc)
 		h.discoverSudo()
 		result, err := h.Sudo("whoami")
 		require.NoError(t, err)
@@ -141,7 +138,8 @@ func TestDiscoverSudoWindows(t *testing.T) {
 
 	t.Run("non-elevated session returns ErrSudoRequired", func(t *testing.T) {
 		mc := &windowsMockClient{execErr: fmt.Errorf("access denied")}
-		h := Host{Connection: Connection{client: mc}}
+		h := Host{}
+		h.setClient(mc)
 		h.discoverSudo()
 		_, err := h.Sudo("whoami")
 		require.ErrorIs(t, err, ErrSudoRequired)
@@ -151,15 +149,39 @@ func TestDiscoverSudoWindows(t *testing.T) {
 
 func TestSudo(t *testing.T) {
 	mc := mockClient{}
-	h := Host{
-		Connection: Connection{
-			client:   &mc,
-			sudofunc: stubSudofunc,
-		},
-	}
+	h := Host{Connection: Connection{sudofunc: stubSudofunc}}
+	h.setClient(&mc)
 
 	require.NoError(t, h.Execf("ls %s", "/tmp", exec.Sudo(&h)))
 	require.Contains(t, mc.commands, "sudo-goes-here ls /tmp")
+}
+
+// TestDisconnectConcurrently runs under -race to check that disconnecting from
+// another goroutine does not race commands still being run on the connection.
+func TestDisconnectConcurrently(t *testing.T) {
+	h := &Host{}
+	h.setClient(&mockClient{})
+
+	execErr := make(chan error, 1)
+	go func() {
+		for range 1000 {
+			if err := h.Exec("true"); err != nil {
+				execErr <- err
+				return
+			}
+		}
+		execErr <- nil
+	}()
+	h.Disconnect()
+	if err := <-execErr; err != nil {
+		require.ErrorIs(t, err, ErrNotConnected)
+	}
+
+	require.False(t, h.IsConnected())
+	require.ErrorIs(t, h.Exec("true"), ErrNotConnected)
+	_, err := h.ExecStreams("true", nil, nil, nil)
+	require.ErrorIs(t, err, ErrNotConnected)
+	require.ErrorIs(t, h.ExecInteractive("true"), ErrNotConnected)
 }
 
 func TestSudoSudo(t *testing.T) {
