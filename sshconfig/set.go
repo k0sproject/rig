@@ -75,6 +75,20 @@ type Setter struct {
 	home string
 
 	phase parserPhase
+
+	// expanding is the canonical name of the key whose value is being
+	// expanded, which decides what %h refers to.
+	expanding string
+	// finalized is set once Finalize has started. After that the setter
+	// takes no more values: see Finalize.
+	finalized bool
+	// hostnameFinal is set once Finalize has expanded Hostname. Before that,
+	// such as while Match exec criteria are evaluated, it can hold tokens.
+	hostnameFinal bool
+	// jumpSpec is ProxyJump as it was before Finalize expanded it, for %j,
+	// whose tokens ssh does not expand. jumpSpecSet says it has been taken.
+	jumpSpec    string
+	jumpSpecSet bool
 }
 
 // NewSetter creates a ssh config value setter for the given object. It can be used to set
@@ -943,8 +957,11 @@ func (s *Setter) ignore(key string, _ ...string) error {
 // Set a value for a field by key name using the precedence rules of the SSH configuration file syntax.
 //
 // Note that some of the fields take their values as separate strings and some as a comma-separated list, most
-// only accept a single value.
+// only accept a single value. It returns ErrFinalized once Finalize has been called.
 func (s *Setter) Set(key string, values ...string) error {
+	if s.finalized {
+		return ErrFinalized
+	}
 	key = strings.ToLower(key)
 	info, ok := knownKeys[key]
 
@@ -974,8 +991,12 @@ func (s *Setter) Set(key string, values ...string) error {
 }
 
 // Reset clears a field. A pointer field is set to a pointer to its zero value,
-// any other field to the zero value itself. This is useful in testing.
+// any other field to the zero value itself. This is useful in testing. It returns
+// ErrFinalized once Finalize has been called.
 func (s *Setter) Reset(key string) error {
+	if s.finalized {
+		return ErrFinalized
+	}
 	info, ok := knownKeys[strings.ToLower(key)]
 	if !ok {
 		return fmt.Errorf("%w: unknown key %q", errFieldNotFound, key)
@@ -995,41 +1016,94 @@ func (s *Setter) Reset(key string) error {
 // Finalize goes through all the string slice fields and sets them to nil if they contain a single none value.
 // It expands any tokens, environment variables or tilde-prefixed paths in the values for the keys where expansion
 // is supported.
-func (s *Setter) Finalize() error { //nolint:cyclop
-	for _, info := range knownKeys {
-		field, ok := s.fieldByName(info.key)
-		if !ok {
+//
+// Finalize is the last step: an expanded value can hold a literal percent sign or a token that a substitution
+// put there, so it cannot be expanded again. Once Finalize has been called, even if it fails, Set, Reset and
+// Finalize return ErrFinalized, and the object should not be changed through any other means either.
+// ExpandString and ExpandSlice expand whatever a field holds, so after Finalize they would expand the
+// finalized values again.
+func (s *Setter) Finalize() error {
+	if s.finalized {
+		return ErrFinalized
+	}
+	s.finalized = true
+
+	// %h in every other field is the expanded Hostname, so it goes first. %j
+	// (and so %C) is the last ProxyJump hop as written, so ProxyJump goes last.
+	if err := s.finalizeKey(knownKeys[keyHostnameLower]); err != nil {
+		return err
+	}
+	s.hostnameFinal = true
+	for name, info := range knownKeys {
+		if name == keyHostnameLower || name == keyProxyJumpLower {
 			continue
 		}
-		switch field.Kind() { //nolint:exhaustive
-		case reflect.String:
-			newVal, err := s.ExpandString(info.key)
+		if err := s.finalizeKey(info); err != nil {
+			return err
+		}
+	}
+	s.jumpSpec, s.jumpSpecSet = s.proxyJumpSpec(), true
+	return s.finalizeKey(knownKeys[keyProxyJumpLower])
+}
+
+// rawProxyJump returns ProxyJump as written, which after Finalize is the
+// value it had before being expanded.
+func (s *Setter) rawProxyJump() string {
+	if s.jumpSpecSet {
+		return s.jumpSpec
+	}
+	return s.proxyJumpSpec()
+}
+
+// finalizableField returns the field for key, through a non-nil pointer, and
+// whether there is one to finalize.
+func (s *Setter) finalizableField(key string) (reflect.Value, bool) {
+	field, ok := s.fieldByName(key)
+	if !ok {
+		return reflect.Value{}, false
+	}
+	if field.Kind() == reflect.Pointer {
+		if field.IsNil() {
+			return reflect.Value{}, false
+		}
+		field = field.Elem()
+	}
+	return field, true
+}
+
+func (s *Setter) finalizeKey(info keyInfo) error {
+	field, ok := s.finalizableField(info.key)
+	if !ok {
+		return nil
+	}
+	switch field.Kind() { //nolint:exhaustive
+	case reflect.String:
+		newVal, err := s.ExpandString(info.key)
+		if err != nil {
+			return fmt.Errorf("%w: failed to expand %q: %w", errInvalidValue, info.key, err)
+		}
+		field.SetString(newVal)
+	case reflect.Slice:
+		if field.Len() == 1 && field.Index(0).String() == none {
+			field.Set(reflect.Zero(field.Type()))
+		}
+		if field.Type().Elem().Kind() == reflect.String {
+			newVal, err := s.ExpandSlice(info.key)
 			if err != nil {
 				return fmt.Errorf("%w: failed to expand %q: %w", errInvalidValue, info.key, err)
 			}
-			field.SetString(newVal)
-		case reflect.Slice:
-			if field.Len() == 1 && field.Index(0).String() == none {
-				field.Set(reflect.Zero(field.Type()))
-			}
-			if field.Type().Elem().Kind() == reflect.String {
-				newVal, err := s.ExpandSlice(info.key)
-				if err != nil {
-					return fmt.Errorf("%w: failed to expand %q: %w", errInvalidValue, info.key, err)
-				}
-				field.Set(reflect.ValueOf(newVal))
-			}
-		case reflect.Map:
-			// Only map[string]string can be expanded. Anything else, such as
-			// ChannelTimeout's map[string]time.Duration, must not reach it. The types are
-			// compared instead of the kinds because expandStringMap indexes the map with a
-			// plain string, which a named string key type would not accept.
-			if field.Type() != reflect.TypeFor[map[string]string]() {
-				continue
-			}
-			if err := s.expandStringMap(field, info); err != nil {
-				return err
-			}
+			field.Set(reflect.ValueOf(newVal))
+		}
+	case reflect.Map:
+		// Only map[string]string can be expanded. Anything else, such as
+		// ChannelTimeout's map[string]time.Duration, must not reach it. The types are
+		// compared instead of the kinds because expandStringMap indexes the map with a
+		// plain string, which a named string key type would not accept.
+		if field.Type() != reflect.TypeFor[map[string]string]() {
+			return nil
+		}
+		if err := s.expandStringMap(field, info); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -1137,9 +1211,14 @@ func (s *Setter) expandToken(token string) (string, error) { //nolint:cyclop
 	case "%d":
 		return s.home, nil
 	case "%h":
-		if f, err := s.get("hostname", reflect.String); err == nil {
-			if f.Len() > 0 {
-				return f.String(), nil
+		// Hostname itself accepts %h, which then means Host.
+		if s.expanding != keyHostnameCanonical {
+			if f, err := s.get(keyHostnameCanonical, reflect.String); err == nil && f.Len() > 0 {
+				if s.hostnameFinal {
+					// Expanded already, and may hold a literal percent sign.
+					return f.String(), nil
+				}
+				return s.expand(f.String(), knownKeys[keyHostnameLower])
 			}
 		}
 		if f, err := s.get("Host", reflect.String); err == nil {
@@ -1176,31 +1255,28 @@ func (s *Setter) expandToken(token string) (string, error) { //nolint:cyclop
 		}
 		return username(), nil
 	case "%H":
-		for _, field := range []string{"HostkeyAlias", "Hostname", keyHostCanonical} {
+		for _, field := range []string{"HostKeyAlias", "Hostname", keyHostCanonical} {
 			if f, err := s.get(field, reflect.String); err == nil && f.Len() > 0 {
 				return f.String(), nil
 			}
 		}
 		return "", fmt.Errorf("%w: no hostname available for token %%H expansion", errFieldNotFound)
 	case "%j":
-		if f, err := s.get("ProxyJump", reflect.String); err == nil {
-			if f.Len() > 0 {
-				return f.String(), nil
-			}
+		return jumpHost(s.rawProxyJump()), nil
+	case "%k":
+		if f, err := s.get("HostKeyAlias", reflect.String); err == nil && f.Len() > 0 {
+			return f.String(), nil
 		}
-		if f, err := s.get("ProxyJump", reflect.Slice, reflect.String); err == nil {
-			if f.Len() > 0 {
-				if slice, ok := reflect.TypeAssert[[]string](f); ok {
-					return strings.Join(slice, ","), nil
-				}
-				return "", fmt.Errorf("%w: failed to convert ProxyJump to string slice", errInvalidValue)
-			}
-		}
-		return "", nil
-	case "%L":
+		return s.OriginalHost, nil
+	case "%l", "%L":
+		// Like ssh, %l is the hostname as reported by the system and %L is
+		// that name cut at the first dot. No DNS lookup is made for %l.
 		h, err := os.Hostname()
 		if err != nil {
-			return "", fmt.Errorf("%w: failed to get local hostname for token %%L expansion: %w", errFieldNotFound, err)
+			return "", fmt.Errorf("%w: failed to get local hostname for token %s expansion: %w", errFieldNotFound, token, err)
+		}
+		if token == "%L" {
+			h, _, _ = strings.Cut(h, ".")
 		}
 		return h, nil
 	case "%C":
@@ -1213,9 +1289,64 @@ func (s *Setter) expandToken(token string) (string, error) { //nolint:cyclop
 	return "", fmt.Errorf("%w: unsupported token %q", errInvalidValue, token)
 }
 
+// proxyJumpSpec returns the ProxyJump value as ssh reads it: a comma
+// separated list of hops. Unlike get, it leaves a nil pointer field nil.
+func (s *Setter) proxyJumpSpec() string {
+	field, ok := s.finalizableField("ProxyJump")
+	if !ok {
+		return ""
+	}
+	switch {
+	case field.Kind() == reflect.String:
+		return field.String()
+	case field.Kind() == reflect.Slice && field.Type().Elem().Kind() == reflect.String:
+		hops := make([]string, 0, field.Len())
+		for i := range field.Len() {
+			hops = append(hops, field.Index(i).String())
+		}
+		return strings.Join(hops, ",")
+	}
+	return ""
+}
+
+// jumpHost returns what ssh substitutes for %j, which is not the contents of
+// ProxyJump that ssh_config(5) describes but the hostname of its last hop,
+// without the ssh:// scheme, user or port. It is empty for an unset or none
+// ProxyJump, and tokens in it are left as they are, so a Match exec evaluated
+// before Finalize hashes the same %C as the fields Finalize expands.
+func jumpHost(spec string) string {
+	spec = strings.TrimSpace(spec)
+	if spec == "" || strings.EqualFold(spec, none) {
+		return ""
+	}
+	hop := spec
+	if i := strings.LastIndex(spec, ","); i >= 0 {
+		hop = spec[i+1:]
+	}
+	hop = strings.TrimSpace(hop)
+	if rest, ok := strings.CutPrefix(hop, "ssh://"); ok {
+		hop = strings.TrimSuffix(rest, "/")
+	}
+	if i := strings.LastIndex(hop, "@"); i >= 0 {
+		hop = hop[i+1:]
+	}
+	if rest, ok := strings.CutPrefix(hop, "["); ok {
+		host, _, _ := strings.Cut(rest, "]")
+		return host
+	}
+	host, _, _ := strings.Cut(hop, ":")
+	return host
+}
+
 func (s *Setter) expand(value string, info keyInfo) (string, error) { //nolint:cyclop
 	if value == "" {
 		return "", nil
+	}
+	// %C expands its own token list without a key and keeps the outer one.
+	if info.key != "" {
+		prev := s.expanding
+		s.expanding = info.key
+		defer func() { s.expanding = prev }()
 	}
 	if len(info.tokens) == 0 && !info.tilde && !info.env {
 		return value, nil
@@ -1310,6 +1441,12 @@ func (s *Setter) ExpandSlice(key string) ([]string, error) { //nolint:cyclop
 	field, ok := s.fieldByName(info.key)
 	if !ok {
 		return nil, fmt.Errorf("%w: field %q is not found", errFieldNotFound, key)
+	}
+	if field.Kind() == reflect.Pointer {
+		if field.IsNil() {
+			return nil, nil
+		}
+		field = field.Elem()
 	}
 	if field.Kind() != reflect.Slice {
 		return nil, fmt.Errorf("%w: field %q is not a slice", errInvalidField, key)
