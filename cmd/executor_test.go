@@ -7,8 +7,10 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/k0sproject/rig/v2/cmd"
+	"github.com/k0sproject/rig/v2/protocol"
 	"github.com/k0sproject/rig/v2/rigtest"
 	"github.com/k0sproject/rig/v2/sh"
 	"github.com/stretchr/testify/require"
@@ -349,4 +351,52 @@ func TestBackground(t *testing.T) {
 	rigtest.ReceivedEqual(t, mr, "foo")
 	require.ErrorContains(t, cmd.Wait(), "error from mock wait")
 
+}
+
+// abandonedStarter stands in for a connection whose start was abandoned to
+// its context but completed anyway: it cancels the context, writes a line of
+// output as the late command's copier would, and reports the context error.
+type abandonedStarter struct {
+	cancel context.CancelFunc
+}
+
+func (s *abandonedStarter) StartProcess(ctx context.Context, command string, _ io.Reader, stdout, _ io.Writer) (protocol.Waiter, error) {
+	if command == "ver.exe" {
+		return nil, errors.New("not windows")
+	}
+	s.cancel()
+	_, _ = stdout.Write([]byte("late\n"))
+	return nil, ctx.Err()
+}
+
+// blockingOutputTracer blocks in StdoutLine until released.
+type blockingOutputTracer struct {
+	tracerRecorder
+	release chan struct{}
+}
+
+func (b *blockingOutputTracer) StdoutLine(_, _ string) { <-b.release }
+func (b *blockingOutputTracer) StderrLine(_, _ string) {}
+
+// TestStartAbandonedDoesNotWaitForOutput verifies that a start abandoned to
+// its context returns without waiting for output still being traced.
+func TestStartAbandonedDoesNotWaitForOutput(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runner := cmd.NewExecutor(&abandonedStarter{cancel: cancel})
+	tracer := &blockingOutputTracer{release: make(chan struct{})}
+	defer close(tracer.release)
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := runner.Start(ctx, "true", cmd.Trace(tracer))
+		errCh <- err
+	}()
+
+	select {
+	case err := <-errCh:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start waited for a blocked output tracer")
+	}
 }
