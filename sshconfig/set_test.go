@@ -1589,6 +1589,21 @@ func TestSetterFinalizeLocalAndAliasTokens(t *testing.T) {
 		require.Equal(t, []string{"/tmp/node.example.com"}, obj.IdentityFile, "other fields see the expanded Hostname")
 	})
 
+	t.Run("remote hostname token with a pointer Hostname field", func(t *testing.T) {
+		hostnameValue := "%h.internal"
+		obj := struct {
+			Host         string
+			Hostname     *string
+			IdentityFile []string
+		}{Host: "node", Hostname: &hostnameValue, IdentityFile: []string{"/tmp/%h"}}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, "node.internal", *obj.Hostname)
+		require.Equal(t, []string{"/tmp/node.internal"}, obj.IdentityFile)
+	})
+
 	t.Run("remote hostname token keeps a literal percent in Hostname", func(t *testing.T) {
 		obj := sshconfig.Config{Host: "linklocal"}
 		setter, err := sshconfig.NewSetter(&obj)

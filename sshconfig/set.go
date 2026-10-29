@@ -1025,8 +1025,24 @@ func (s *Setter) Finalize() error {
 	return nil
 }
 
+// finalizableField returns the field for key, through a non-nil pointer, and
+// whether there is one to finalize.
+func (s *Setter) finalizableField(key string) (reflect.Value, bool) {
+	field, ok := s.fieldByName(key)
+	if !ok {
+		return reflect.Value{}, false
+	}
+	if field.Kind() == reflect.Pointer {
+		if field.IsNil() {
+			return reflect.Value{}, false
+		}
+		field = field.Elem()
+	}
+	return field, true
+}
+
 func (s *Setter) finalizeKey(info keyInfo) error {
-	field, ok := s.fieldByName(info.key)
+	field, ok := s.finalizableField(info.key)
 	if !ok {
 		return nil
 	}
