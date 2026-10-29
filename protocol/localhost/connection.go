@@ -233,8 +233,9 @@ func (p *stdioPipes) closeChildEnds() {
 }
 
 // release closes the child ends and waits for the output copiers. It is
-// deferred before any copier starts so that no return path, including a
-// failed process start, leaves a copier writing to its dst.
+// deferred before any copier starts so that every return path, including a
+// failed process start, drains them. If the wait times out, a copier may
+// still be writing to its dst after release returns; see wait.
 func (p *stdioPipes) release() {
 	p.closeChildEnds()
 	p.wait()
