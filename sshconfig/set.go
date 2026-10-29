@@ -983,19 +983,43 @@ func (s *Setter) Set(key string, values ...string) error {
 	return nil
 }
 
-// setKey sets the field for key. A ProxyJump that changes after Finalize
-// drops the unexpanded value kept for %j. One that does not, because an
-// earlier value took precedence, keeps it.
+// setKey sets the field for key. A Hostname or ProxyJump that changes after
+// Finalize drops the state Finalize kept for %h or %j. One that does not,
+// because an earlier value took precedence, keeps it.
 func (s *Setter) setKey(key string, info keyInfo, values []string) error {
-	if s.jumpSpec == nil || key != keyProxyJumpLower {
+	tracked := (key == keyHostnameLower && s.hostnameFinal) || (key == keyProxyJumpLower && s.jumpSpec != nil)
+	if !tracked {
 		return info.setFunc(s, info.key, values...)
 	}
-	before := s.proxyJumpSpec()
+	before := s.finalizedValue(key)
 	err := info.setFunc(s, info.key, values...)
-	if s.proxyJumpSpec() != before {
-		s.jumpSpec = nil
+	if s.finalizedValue(key) != before {
+		s.forgetFinalized(key)
 	}
 	return err
+}
+
+// finalizedValue returns the value of a key whose finalized state is tracked.
+func (s *Setter) finalizedValue(key string) string {
+	if key == keyProxyJumpLower {
+		return s.proxyJumpSpec()
+	}
+	field, ok := s.finalizableField(knownKeys[key].key)
+	if !ok || field.Kind() != reflect.String {
+		return ""
+	}
+	return field.String()
+}
+
+// forgetFinalized drops what Finalize kept about key, so that it is read and
+// expanded afresh.
+func (s *Setter) forgetFinalized(key string) {
+	switch key {
+	case keyHostnameLower:
+		s.hostnameFinal = false
+	case keyProxyJumpLower:
+		s.jumpSpec = nil
+	}
 }
 
 // Reset clears a field. A pointer field is set to a pointer to its zero value,
@@ -1014,9 +1038,7 @@ func (s *Setter) Reset(key string) error {
 	} else {
 		field.Set(reflect.Zero(field.Type()))
 	}
-	if info.key == knownKeys[keyProxyJumpLower].key {
-		s.jumpSpec = nil
-	}
+	s.forgetFinalized(strings.ToLower(key))
 	return nil
 }
 

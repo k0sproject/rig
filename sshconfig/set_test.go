@@ -1699,6 +1699,28 @@ func TestSetterFinalizeLocalAndAliasTokens(t *testing.T) {
 		require.Equal(t, "/tmp/other", obj.ControlPath)
 	})
 
+	t.Run("remote hostname token follows a Hostname replaced after Finalize", func(t *testing.T) {
+		obj := sshconfig.Config{Host: "node"}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("Hostname", "first.example.com"))
+		require.NoError(t, setter.Finalize())
+
+		require.NoError(t, setter.Reset("Hostname"))
+		require.NoError(t, setter.Set("Hostname", "%h.internal"))
+		require.NoError(t, setter.Set("ControlPath", "/tmp/%h"))
+		// Before the next Finalize, %h must expand the new Hostname, not
+		// copy it as if it were already final.
+		controlPath, err := setter.ExpandString("ControlPath")
+		require.NoError(t, err)
+		require.Equal(t, "/tmp/node.internal", controlPath)
+
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, "node.internal", obj.Hostname)
+		require.Equal(t, "/tmp/node.internal", obj.ControlPath)
+	})
+
 	t.Run("jump host token reads a string ProxyJump", func(t *testing.T) {
 		obj := struct {
 			Host        string
