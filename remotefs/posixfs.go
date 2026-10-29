@@ -81,14 +81,24 @@ func (s *PosixFS) initStat() error {
 		return nil
 	}
 
-	if err := s.Exec("stat -c %n /"); err == nil {
+	// A probe that failed because the context ended says nothing about which
+	// stat the host has, and the caller needs to see that it was cancelled.
+	err := s.Exec("stat -c %n /")
+	if err == nil {
 		s.statCmd = &statCmdGNU
 		return nil
 	}
+	if isContextErr(err) {
+		return fmt.Errorf("probe stat: %w", err)
+	}
 
-	if err := s.Exec("stat -s /"); err == nil {
+	err = s.Exec("stat -s /")
+	if err == nil {
 		s.statCmd = &statCmdBSD
 		return nil
+	}
+	if isContextErr(err) {
+		return fmt.Errorf("probe stat: %w", err)
 	}
 
 	return errStatInitFailed

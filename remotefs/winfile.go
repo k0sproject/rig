@@ -600,6 +600,11 @@ func (f *winFile) timedOut(what string) error {
 // names itself, so that a stalled read reports "read", not "open".
 func (f *winFile) command(cmd string) (*rcpResponse, error) {
 	if f.closed.Load() {
+		// Keep why the session ended, such as the bound context, alongside
+		// the closed state.
+		if cause := f.abortCause(nil); cause != nil {
+			return nil, fmt.Errorf("%w: %w", fs.ErrClosed, cause)
+		}
 		return nil, fs.ErrClosed
 	}
 
