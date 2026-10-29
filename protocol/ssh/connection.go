@@ -398,7 +398,15 @@ func (c *Connection) IPAddress() string {
 	return c.Address
 }
 
+// keepaliveTimeout bounds how long IsConnected waits for the server to answer
+// its keepalive. A var, not a const, so tests can lower it.
+var keepaliveTimeout = 10 * time.Second
+
 // IsConnected returns true if the connection is open.
+//
+// It asks the server for a reply. A server that does not answer within
+// keepaliveTimeout is taken to be gone: the connection is closed, which also
+// releases anything else waiting on it, and IsConnected returns false.
 func (c *Connection) IsConnected() bool {
 	c.mu.Lock()
 	client := c.client
@@ -406,8 +414,29 @@ func (c *Connection) IsConnected() bool {
 	if client == nil || client.Conn == nil {
 		return false
 	}
-	_, _, err := client.SendRequest("keepalive@rig", true, nil)
-	return err == nil
+
+	// SendRequest waits for the reply with no way to cancel it, and a
+	// connection that has gone silent never sends one.
+	reply := make(chan error, 1)
+	go func() {
+		_, _, err := client.SendRequest("keepalive@rig", true, nil)
+		reply <- err
+	}()
+
+	timer := time.NewTimer(keepaliveTimeout)
+	defer timer.Stop()
+	select {
+	case err := <-reply:
+		return err == nil
+	case <-timer.C:
+		c.Log().Debug("ssh keepalive went unanswered, closing the connection", log.HostAttr(c))
+		c.mu.Lock()
+		if c.client == client {
+			c.disconnect()
+		}
+		c.mu.Unlock()
+		return false
+	}
 }
 
 // ConfigParser is an instance of rig/v2/sshconfig.Parser - it is exported here for weird design decisions made in rig v0.x and will be removed in rig v2 final.
@@ -457,8 +486,11 @@ func (c *Connection) disconnect() {
 		close(c.done)
 		c.done = nil
 	}
-	c.client.Close()
-	c.client = nil
+	// The transport goes first. Closing the client sends a close over the
+	// proxy command or the bastion's forwarded channel, which blocks if that
+	// link has stalled; with the link already torn down it returns at once.
+	// A bastion's own Disconnect does the same, so nested bastions are torn
+	// down from the bottom up.
 	if c.proxyCmd != nil {
 		if c.proxyCmd.Process != nil {
 			buildKillFunc(c.proxyCmd)()
@@ -469,6 +501,8 @@ func (c *Connection) disconnect() {
 		c.bastion.Disconnect()
 		c.bastion = nil
 	}
+	c.client.Close()
+	c.client = nil
 }
 
 // Disconnect closes the SSH connection.
