@@ -16,9 +16,16 @@ import (
 //
 // Methods that take a context of their own keep using the one they are given.
 // Once ctx is done, the remote commands the returned filesystem and the files
-// opened from it run fail, while fsys itself is unaffected. Operations that
-// need no remote command, such as seeking or reading entries a directory has
+// opened from it run fail, while fsys itself is unaffected. A file opened on a
+// Windows host is closed when its session ends, so every later operation on
+// it fails, seeking included. Otherwise, operations that need no remote
+// command, such as seeking a POSIX file or reading entries a directory has
 // already listed, are not affected.
+//
+// How quickly a command gives up is up to the transport. Over WinRM, creating
+// the shell a command runs in takes no context, so a host that stops
+// answering at that point holds the command until the connection's own
+// timeout.
 //
 // fsys is returned unchanged if it is not a *PosixFS or *WinFS, including a
 // type that embeds one, whose own methods a copy would lose.

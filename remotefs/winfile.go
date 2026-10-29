@@ -514,6 +514,7 @@ func (f *winFile) open(flags int) error {
 	f.cancel = cancel
 	cmd, err := f.fs.Start(ctx, rigRcp, cmd.Stdin(stdinR), cmd.Stdout(stdoutW), cmd.Stderr(stderrW), cmd.LogInput(false), cmd.HideOutput())
 	if err != nil {
+		cancel()
 		return f.pathErr(OpOpen, fmt.Errorf("start file daemon: %w", err))
 	}
 	go func() {
@@ -740,5 +741,15 @@ func (f *winFile) Close() error {
 		return f.pathErr(OpClose, f.timedOut("waiting for the rigrcp helper to exit"))
 	}
 
+	// The helper exiting because the filesystem's context ended is not the
+	// clean shutdown the quit asked for.
+	if cause := f.abortCause(nil); isContextErr(cause) {
+		return f.pathErr(OpClose, cause)
+	}
+
 	return nil
+}
+
+func isContextErr(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
