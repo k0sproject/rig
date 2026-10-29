@@ -1542,6 +1542,15 @@ func (c *Connection) pkeySigner(ctx context.Context, agentSigners []ssh.Signer, 
 
 // StartProcess executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
+//
+// Starting the command and waiting for it are bounded by ctx even when the
+// connection has gone silent. If ctx is done before the command ends, the
+// command is interrupted, and if it has not ended after a short grace period
+// Wait returns ctx's error. On that path the goroutines copying the command's
+// streams can still be running: they are cut loose from stdout and stderr
+// first, and stop reading stdin at its next read, but a read or write already
+// in progress cannot be interrupted. A caller that recycles or closes any of
+// the three streams must therefore not do so when Wait reports a context error.
 func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) (protocol.Waiter, error) {
 	c.mu.Lock()
 	client := c.client
@@ -1551,8 +1560,11 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 		return nil, errNotConnected
 	}
 
-	session, err := client.NewSession()
+	session, err := newSession(ctx, client)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("create ssh session: %w", err)
+		}
 		log.Trace(ctx, "ssh session creation failed, attempting reconnect", log.HostAttr(c), log.KeyError, err)
 		c.mu.Lock()
 		c.disconnect()
@@ -1567,29 +1579,31 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 		if client == nil {
 			return nil, errNotConnected
 		}
-		session, err = client.NewSession()
+		session, err = newSession(ctx, client)
 		if err != nil {
 			return nil, fmt.Errorf("create ssh session: %w", err)
 		}
 	}
 
-	session.Stdin = stdin
-	session.Stdout = stdout
-	session.Stderr = stderr
+	if stdin != nil {
+		session.Stdin = ctxReader{ctx: ctx, reader: stdin}
+	}
+	if stdout == nil {
+		stdout = io.Discard
+	}
+	if stderr == nil {
+		stderr = io.Discard
+	}
+	outW := &detachableWriter{w: stdout}
+	errW := &detachableWriter{w: stderr}
+	session.Stdout = outW
+	session.Stderr = errW
 
-	go func() {
-		<-ctx.Done()
-		if ctx.Err() != nil {
-			_ = session.Signal(ssh.SIGINT)
-			_ = session.Close()
-		}
-	}()
-
-	if err := session.Start(cmd); err != nil {
+	if err := startSession(ctx, session, cmd); err != nil {
 		return nil, fmt.Errorf("start session: %w", err)
 	}
 
-	return session, nil
+	return newSessionWaiter(ctx, session, outW, errW), nil
 }
 
 // setupInteractivePTY configures a PTY on the session for a file-backed stdin
