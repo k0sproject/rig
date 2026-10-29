@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/k0sproject/rig/exec"
 	"github.com/k0sproject/rig/log"
@@ -52,7 +53,7 @@ type OpenSSH struct {
 	// Disable SSH connection multiplexing
 	DisableMultiplexing bool `yaml:"disableMultiplexing,omitempty" json:"disableMultiplexing,omitempty" jsonschema:"default=false,description=Disable SSH connection multiplexing"`
 
-	isConnected  bool
+	isConnected  atomic.Bool
 	controlMutex sync.Mutex
 
 	isWindows *bool
@@ -190,7 +191,7 @@ func (c *OpenSSH) args() []string {
 
 // Connect connects to the remote host. If multiplexing is enabled, this will start a control master. If multiplexing is disabled, this will just run a noop command to check connectivity.
 func (c *OpenSSH) Connect() error {
-	if c.isConnected {
+	if c.isConnected.Load() {
 		return nil
 	}
 
@@ -210,7 +211,7 @@ func (c *OpenSSH) Connect() error {
 			}
 			return fmt.Errorf("failed to connect: %w", err)
 		}
-		c.isConnected = true
+		c.isConnected.Store(true)
 		return nil
 	}
 
@@ -238,7 +239,7 @@ func (c *OpenSSH) Connect() error {
 	log.Debugf("%s: starting ssh control master", c)
 	err := cmd.Run()
 	if err != nil {
-		c.isConnected = false
+		c.isConnected.Store(false)
 		errOut := errBuf.String()
 		if isHostKeyError(errOut) {
 			return fmt.Errorf("%w: host key verification failed: %w (%s)", ErrCantConnect, err, errOut)
@@ -246,7 +247,7 @@ func (c *OpenSSH) Connect() error {
 		return fmt.Errorf("failed to start ssh multiplexing control master: %w", err)
 	}
 
-	c.isConnected = true
+	c.isConnected.Store(true)
 	log.Debugf("%s: started ssh multipliexing control master", c)
 
 	return nil
@@ -256,7 +257,7 @@ func (c *OpenSSH) closeControl() error {
 	c.controlMutex.Lock()
 	defer c.controlMutex.Unlock()
 
-	if !c.isConnected {
+	if !c.isConnected.Load() {
 		return nil
 	}
 
@@ -276,13 +277,13 @@ func (c *OpenSSH) closeControl() error {
 	if err != nil {
 		return fmt.Errorf("failed to close control master: %w", err)
 	}
-	c.isConnected = false
+	c.isConnected.Store(false)
 	return nil
 }
 
 // Exec executes a command on the remote host
 func (c *OpenSSH) Exec(cmdStr string, opts ...exec.Option) error { //nolint:cyclop
-	if !c.DisableMultiplexing && !c.isConnected {
+	if !c.DisableMultiplexing && !c.isConnected.Load() {
 		return ErrNotConnected
 	}
 
@@ -357,7 +358,7 @@ func (c *OpenSSH) Exec(cmdStr string, opts ...exec.Option) error { //nolint:cycl
 
 // ExecStreams executes a command on the remote host, streaming stdin, stdout and stderr
 func (c *OpenSSH) ExecStreams(cmdStr string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (exec.Waiter, error) {
-	if !c.DisableMultiplexing && !c.isConnected {
+	if !c.DisableMultiplexing && !c.isConnected.Load() {
 		return nil, ErrNotConnected
 	}
 	execOpts := exec.Build(opts...)
@@ -412,7 +413,7 @@ func (c *OpenSSH) String() string {
 
 // IsConnected returns true if the connection is connected
 func (c *OpenSSH) IsConnected() bool {
-	return c.isConnected
+	return c.isConnected.Load()
 }
 
 // Disconnect disconnects from the remote host. If multiplexing is enabled, this will close the control master.

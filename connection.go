@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"strings"
+	"sync"
 
 	"al.essio.dev/pkg/shellescape"
 	"github.com/creasty/defaults"
@@ -83,27 +84,73 @@ type Connection struct {
 
 	OSVersion *OSVersion `yaml:"-" json:"-"`
 
-	client   client
+	// client is behind a pointer so that Connection, which is embedded by
+	// value, stays copyable. Copies share it. It is allocated when a client
+	// is first set, which SetDefaults or Connect does before the Connection
+	// is used.
+	client   *clientHolder
 	sudofunc sudofn
 	fsys     rigfs.Fsys
 	sudofsys rigfs.Fsys
 }
 
+// clientHolder guards the client so that Disconnect can be called from a
+// goroutine other than the one running commands.
+type clientHolder struct {
+	mu sync.Mutex
+	c  client
+}
+
+func (c *Connection) getClient() client {
+	if c.client == nil {
+		return nil
+	}
+	c.client.mu.Lock()
+	defer c.client.mu.Unlock()
+	return c.client.c
+}
+
+func (c *Connection) setClient(cl client) {
+	if c.client == nil {
+		c.client = &clientHolder{mu: sync.Mutex{}, c: cl}
+		return
+	}
+	c.client.mu.Lock()
+	defer c.client.mu.Unlock()
+	c.client.c = cl
+}
+
+// swapClient replaces the client with next if it is still old and returns
+// whether it did.
+func (c *Connection) swapClient(old, next client) bool {
+	if c.client == nil {
+		return false
+	}
+	c.client.mu.Lock()
+	defer c.client.mu.Unlock()
+	if c.client.c != old {
+		return false
+	}
+	c.client.c = next
+	return true
+}
+
 // SetDefaults sets a connection
 func (c *Connection) SetDefaults() {
-	if c.client == nil {
-		c.client = c.configuredClient()
-		if c.client == nil {
-			c.client = defaultClient()
+	if c.getClient() == nil {
+		cl := c.configuredClient()
+		if cl == nil {
+			cl = defaultClient()
 		}
-		_ = defaults.Set(c.client)
+		_ = defaults.Set(cl)
+		c.setClient(cl)
 	}
 }
 
 // Protocol returns the connection protocol name
 func (c *Connection) Protocol() string {
-	if c.client != nil {
-		return c.client.Protocol()
+	if cl := c.getClient(); cl != nil {
+		return cl.Protocol()
 	}
 
 	if client := c.configuredClient(); client != nil {
@@ -115,8 +162,8 @@ func (c *Connection) Protocol() string {
 
 // Address returns the connection address
 func (c *Connection) Address() string {
-	if c.client != nil {
-		return c.client.IPAddress()
+	if cl := c.getClient(); cl != nil {
+		return cl.IPAddress()
 	}
 
 	if client := c.configuredClient(); client != nil {
@@ -132,29 +179,40 @@ func (c *Connection) Address() string {
 // inoperable, but rig won't know that until you try to execute commands on
 // the connection.
 func (c *Connection) IsConnected() bool {
-	if c.client == nil {
+	cl := c.getClient()
+	if cl == nil {
 		return false
 	}
 
-	return c.client.IsConnected()
+	return cl.IsConnected()
+}
+
+// connectedClient returns the client if it is connected. The client is
+// returned rather than looked up again by the caller so that a concurrent
+// Disconnect cannot leave the caller with a nil client.
+func (c *Connection) connectedClient() (client, error) {
+	cl := c.getClient()
+	if cl == nil || !cl.IsConnected() {
+		return nil, ErrNotConnected
+	}
+
+	return cl, nil
 }
 
 func (c *Connection) checkConnected() error {
-	if !c.IsConnected() {
-		return ErrNotConnected
-	}
-
-	return nil
+	_, err := c.connectedClient()
+	return err
 }
 
 // String returns a printable representation of the connection, which will look
 // like: `[ssh] address:port`
 func (c *Connection) String() string {
-	if c.client == nil {
+	cl := c.getClient()
+	if cl == nil {
 		return fmt.Sprintf("[%s] %s", c.Protocol(), c.Address())
 	}
 
-	return c.client.String()
+	return cl.String()
 }
 
 // Fsys returns a fs.FS compatible filesystem interface for accessing files on remote hosts
@@ -180,21 +238,24 @@ func (c *Connection) IsWindows() bool {
 	if c.OSVersion != nil {
 		return c.OSVersion.ID == osWindows
 	}
-	if !c.IsConnected() {
-		if client := c.configuredClient(); client != nil {
-			return client.IsWindows()
-		}
+	cl, err := c.connectedClient()
+	if err != nil {
+		cl = c.configuredClient()
 	}
-	return c.client.IsWindows()
+	if cl == nil {
+		return false
+	}
+	return cl.IsWindows()
 }
 
 // ExecStreams executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
 func (c *Connection) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (exec.Waiter, error) {
-	if err := c.checkConnected(); err != nil {
+	cl, err := c.connectedClient()
+	if err != nil {
 		return nil, fmt.Errorf("%w: exec with streams: %w", ErrCommandFailed, err)
 	}
-	waiter, err := c.client.ExecStreams(cmd, stdin, stdout, stderr, opts...)
+	waiter, err := cl.ExecStreams(cmd, stdin, stdout, stderr, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("%w: exec with streams: %w", ErrCommandFailed, err)
 	}
@@ -203,11 +264,12 @@ func (c *Connection) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr
 
 // Exec runs a command on the host
 func (c *Connection) Exec(cmd string, opts ...exec.Option) error {
-	if err := c.checkConnected(); err != nil {
+	cl, err := c.connectedClient()
+	if err != nil {
 		return err
 	}
 
-	if err := c.client.Exec(cmd, opts...); err != nil {
+	if err := cl.Exec(cmd, opts...); err != nil {
 		return fmt.Errorf("%w: client exec: %w", ErrCommandFailed, err)
 	}
 
@@ -228,14 +290,18 @@ func (c *Connection) ExecOutput(cmd string, opts ...exec.Option) (string, error)
 
 // Connect to the host and identify the operating system and sudo capability
 func (c *Connection) Connect() error {
-	if c.client == nil {
+	if c.getClient() == nil {
 		if err := defaults.Set(c); err != nil {
 			return fmt.Errorf("%w: set defaults: %w", ErrValidationFailed, err)
 		}
 	}
 
-	if err := c.client.Connect(); err != nil {
-		c.client = nil
+	cl := c.getClient()
+	if cl == nil {
+		return fmt.Errorf("%w: no client configured", ErrNotConnected)
+	}
+	if err := cl.Connect(); err != nil {
+		c.swapClient(cl, nil)
 		log.Debugf("%s: failed to connect: %v", c, err)
 		return fmt.Errorf("%w: client connect: %w", ErrNotConnected, err)
 	}
@@ -340,23 +406,26 @@ func (c *Connection) ExecOutputf(s string, params ...any) (string, error) {
 // ExecInteractive executes a command on the host and passes control of
 // local input to the remote command
 func (c *Connection) ExecInteractive(cmd string) error {
-	if err := c.checkConnected(); err != nil {
+	cl, err := c.connectedClient()
+	if err != nil {
 		return err
 	}
 
-	if err := c.client.ExecInteractive(cmd); err != nil {
+	if err := cl.ExecInteractive(cmd); err != nil {
 		return fmt.Errorf("%w: client exec interactive: %w", ErrCommandFailed, err)
 	}
 
 	return nil
 }
 
-// Disconnect from the host
+// Disconnect from the host. It is safe to call from a goroutine other than the
+// one running commands on the connection. Commands started afterwards fail;
+// whether a command already running is interrupted depends on the transport.
 func (c *Connection) Disconnect() {
-	if c.client != nil {
-		c.client.Disconnect()
+	cl := c.getClient()
+	if cl != nil && c.swapClient(cl, nil) {
+		cl.Disconnect()
 	}
-	c.client = nil
 }
 
 // Upload copies a file from a local path src to the remote host path dst. For

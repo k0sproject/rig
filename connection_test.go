@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"sync"
 	"testing"
 
 	"github.com/creasty/defaults"
@@ -117,12 +118,8 @@ func TestOutputWriter(t *testing.T) {
 
 func TestGrouping(t *testing.T) {
 	mc := mockClient{}
-	h := Host{
-		Connection: Connection{
-			client:   &mc,
-			sudofunc: stubSudofunc,
-		},
-	}
+	h := Host{Connection: Connection{sudofunc: stubSudofunc}}
+	h.setClient(&mc)
 
 	opts, args := GroupParams(h, "ls", 1, exec.HideOutput(), exec.Sudo(&h))
 	require.Len(t, opts, 2)
@@ -132,7 +129,8 @@ func TestGrouping(t *testing.T) {
 func TestDiscoverSudoWindows(t *testing.T) {
 	t.Run("elevated session sets sudofunc", func(t *testing.T) {
 		mc := &windowsMockClient{}
-		h := Host{Connection: Connection{client: mc}}
+		h := Host{}
+		h.setClient(mc)
 		h.discoverSudo()
 		result, err := h.Sudo("whoami")
 		require.NoError(t, err)
@@ -141,7 +139,8 @@ func TestDiscoverSudoWindows(t *testing.T) {
 
 	t.Run("non-elevated session returns ErrSudoRequired", func(t *testing.T) {
 		mc := &windowsMockClient{execErr: fmt.Errorf("access denied")}
-		h := Host{Connection: Connection{client: mc}}
+		h := Host{}
+		h.setClient(mc)
 		h.discoverSudo()
 		_, err := h.Sudo("whoami")
 		require.ErrorIs(t, err, ErrSudoRequired)
@@ -151,15 +150,71 @@ func TestDiscoverSudoWindows(t *testing.T) {
 
 func TestSudo(t *testing.T) {
 	mc := mockClient{}
-	h := Host{
-		Connection: Connection{
-			client:   &mc,
-			sudofunc: stubSudofunc,
-		},
-	}
+	h := Host{Connection: Connection{sudofunc: stubSudofunc}}
+	h.setClient(&mc)
 
 	require.NoError(t, h.Execf("ls %s", "/tmp", exec.Sudo(&h)))
 	require.Contains(t, mc.commands, "sudo-goes-here ls /tmp")
+}
+
+// pausingClient blocks in IsConnected until released, so that a test can
+// disconnect between a command's connection check and its use of the client.
+type pausingClient struct {
+	mockClient
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (p *pausingClient) IsConnected() bool {
+	p.entered <- struct{}{}
+	<-p.release
+	return true
+}
+
+// TestDisconnectConcurrently runs under -race to check that disconnecting from
+// another goroutine does not race a command still being run on the
+// connection, and that the command keeps the client it checked.
+func TestDisconnectConcurrently(t *testing.T) {
+	pc := &pausingClient{entered: make(chan struct{}), release: make(chan struct{})}
+	h := &Host{}
+	h.setClient(pc)
+
+	execErr := make(chan error, 1)
+	go func() { execErr <- h.Exec("true") }()
+	<-pc.entered
+	h.Disconnect()
+	close(pc.release)
+	require.NoError(t, <-execErr)
+	require.Equal(t, []string{"true"}, pc.commands, "the command runs on the client it checked")
+
+	require.False(t, h.IsConnected())
+	require.ErrorIs(t, h.Exec("true"), ErrNotConnected)
+	_, err := h.ExecStreams("true", nil, nil, nil)
+	require.ErrorIs(t, err, ErrNotConnected)
+	require.ErrorIs(t, h.ExecInteractive("true"), ErrNotConnected)
+}
+
+// TestDisconnectUnordered runs under -race with reads and disconnects that are
+// not ordered against each other, so that the synchronization itself is what
+// keeps it clean.
+func TestDisconnectUnordered(t *testing.T) {
+	h := &Host{}
+	h.setClient(&mockClient{})
+
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() {
+			for range 1000 {
+				_ = h.IsConnected()
+				_ = h.String()
+			}
+		})
+	}
+	for range 100 {
+		h.Disconnect()
+		h.setClient(&mockClient{})
+	}
+	wg.Wait()
 }
 
 func TestSudoSudo(t *testing.T) {

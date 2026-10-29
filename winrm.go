@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/k0sproject/rig/exec"
@@ -60,7 +61,9 @@ type WinRM struct {
 	key    []byte
 	cert   []byte
 
-	client *winrm.Client
+	// client is read by commands while Disconnect may clear it from another
+	// goroutine.
+	client atomic.Pointer[winrm.Client]
 }
 
 // SetDefaults sets various default values
@@ -103,7 +106,7 @@ func (c *WinRM) String() string {
 
 // IsConnected returns true if the client is connected
 func (c *WinRM) IsConnected() bool {
-	return c.client != nil
+	return c.client.Load() != nil
 }
 
 // IsWindows always returns true on winrm
@@ -199,14 +202,14 @@ func (c *WinRM) Connect() error {
 	}
 	log.Debugf("%s: test passed", c)
 
-	c.client = client
+	c.client.Store(client)
 
 	return nil
 }
 
 // Disconnect closes the WinRM connection
 func (c *WinRM) Disconnect() {
-	c.client = nil
+	c.client.Store(nil)
 }
 
 // Command implements the Waiter interface
@@ -244,7 +247,8 @@ func (c *Command) Close() error {
 // ExecStreams executes a command on the remote host and uses the passed in streams for stdin, stdout and stderr. It returns a Waiter with a .Wait() function that
 // blocks until the command finishes and returns an error if the exit code is not zero.
 func (c *WinRM) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.Writer, opts ...exec.Option) (exec.Waiter, error) {
-	if c.client == nil {
+	client := c.client.Load()
+	if client == nil {
 		return nil, ErrNotConnected
 	}
 	execOpts := exec.Build(opts...)
@@ -257,7 +261,7 @@ func (c *WinRM) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.W
 	}
 
 	execOpts.LogCmd(c.String(), cmd)
-	shell, err := c.client.CreateShell()
+	shell, err := client.CreateShell()
 	if err != nil {
 		return nil, fmt.Errorf("%w: create shell: %w", ErrCantConnect, err)
 	}
@@ -303,8 +307,12 @@ func (c *WinRM) ExecStreams(cmd string, stdin io.ReadCloser, stdout, stderr io.W
 
 // Exec executes a command on the host
 func (c *WinRM) Exec(cmd string, opts ...exec.Option) error { //nolint:cyclop
+	client := c.client.Load()
+	if client == nil {
+		return ErrNotConnected
+	}
 	execOpts := exec.Build(opts...)
-	shell, err := c.client.CreateShell()
+	shell, err := client.CreateShell()
 	if err != nil {
 		return fmt.Errorf("%w: create shell: %w", ErrCommandFailed, err)
 	}
@@ -378,7 +386,11 @@ func (c *WinRM) ExecInteractive(cmd string) error {
 	if cmd == "" {
 		cmd = "cmd"
 	}
-	_, err := c.client.RunWithContextWithInput(context.Background(), cmd, os.Stdout, os.Stderr, os.Stdin)
+	client := c.client.Load()
+	if client == nil {
+		return ErrNotConnected
+	}
+	_, err := client.RunWithContextWithInput(context.Background(), cmd, os.Stdout, os.Stderr, os.Stdin)
 	if err != nil {
 		return fmt.Errorf("execute command interactive: %w", err)
 	}
