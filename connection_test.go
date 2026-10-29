@@ -156,26 +156,35 @@ func TestSudo(t *testing.T) {
 	require.Contains(t, mc.commands, "sudo-goes-here ls /tmp")
 }
 
+// pausingClient blocks in IsConnected until released, so that a test can
+// disconnect between a command's connection check and its use of the client.
+type pausingClient struct {
+	mockClient
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (p *pausingClient) IsConnected() bool {
+	p.entered <- struct{}{}
+	<-p.release
+	return true
+}
+
 // TestDisconnectConcurrently runs under -race to check that disconnecting from
-// another goroutine does not race commands still being run on the connection.
+// another goroutine does not race a command still being run on the
+// connection, and that the command keeps the client it checked.
 func TestDisconnectConcurrently(t *testing.T) {
+	pc := &pausingClient{entered: make(chan struct{}), release: make(chan struct{})}
 	h := &Host{}
-	h.setClient(&mockClient{})
+	h.setClient(pc)
 
 	execErr := make(chan error, 1)
-	go func() {
-		for range 1000 {
-			if err := h.Exec("true"); err != nil {
-				execErr <- err
-				return
-			}
-		}
-		execErr <- nil
-	}()
+	go func() { execErr <- h.Exec("true") }()
+	<-pc.entered
 	h.Disconnect()
-	if err := <-execErr; err != nil {
-		require.ErrorIs(t, err, ErrNotConnected)
-	}
+	close(pc.release)
+	require.NoError(t, <-execErr)
+	require.Equal(t, []string{"true"}, pc.commands, "the command runs on the client it checked")
 
 	require.False(t, h.IsConnected())
 	require.ErrorIs(t, h.Exec("true"), ErrNotConnected)

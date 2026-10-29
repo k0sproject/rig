@@ -10,7 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"strings"
-	"sync/atomic"
+	"sync"
 
 	"al.essio.dev/pkg/shellescape"
 	"github.com/creasty/defaults"
@@ -84,30 +84,55 @@ type Connection struct {
 
 	OSVersion *OSVersion `yaml:"-" json:"-"`
 
-	// client holds a clientRef. It is an atomic.Value rather than a field
-	// behind a mutex so that Disconnect can be called from another goroutine
-	// without making Connection, which is embedded by value, uncopyable.
-	client   atomic.Value
+	// client is behind a pointer so that Connection, which is embedded by
+	// value, stays copyable. Copies share it. It is allocated when a client
+	// is first set, which SetDefaults or Connect does before the Connection
+	// is used.
+	client   *clientHolder
 	sudofunc sudofn
 	fsys     rigfs.Fsys
 	sudofsys rigfs.Fsys
 }
 
-// clientRef wraps the client so that every value stored in Connection.client
-// has the same concrete type, which atomic.Value requires.
-type clientRef struct {
-	c client
+// clientHolder guards the client so that Disconnect can be called from a
+// goroutine other than the one running commands.
+type clientHolder struct {
+	mu sync.Mutex
+	c  client
 }
 
 func (c *Connection) getClient() client {
-	if ref, ok := c.client.Load().(clientRef); ok {
-		return ref.c
+	if c.client == nil {
+		return nil
 	}
-	return nil
+	c.client.mu.Lock()
+	defer c.client.mu.Unlock()
+	return c.client.c
 }
 
 func (c *Connection) setClient(cl client) {
-	c.client.Store(clientRef{c: cl})
+	if c.client == nil {
+		c.client = &clientHolder{mu: sync.Mutex{}, c: cl}
+		return
+	}
+	c.client.mu.Lock()
+	defer c.client.mu.Unlock()
+	c.client.c = cl
+}
+
+// swapClient replaces the client with next if it is still old and returns
+// whether it did.
+func (c *Connection) swapClient(old, next client) bool {
+	if c.client == nil {
+		return false
+	}
+	c.client.mu.Lock()
+	defer c.client.mu.Unlock()
+	if c.client.c != old {
+		return false
+	}
+	c.client.c = next
+	return true
 }
 
 // SetDefaults sets a connection
@@ -276,7 +301,7 @@ func (c *Connection) Connect() error {
 		return fmt.Errorf("%w: no client configured", ErrNotConnected)
 	}
 	if err := cl.Connect(); err != nil {
-		c.client.CompareAndSwap(clientRef{c: cl}, clientRef{c: nil})
+		c.swapClient(cl, nil)
 		log.Debugf("%s: failed to connect: %v", c, err)
 		return fmt.Errorf("%w: client connect: %w", ErrNotConnected, err)
 	}
@@ -396,9 +421,9 @@ func (c *Connection) ExecInteractive(cmd string) error {
 // Disconnect from the host. It is safe to call from a goroutine other than the
 // one running commands on the connection, which makes those commands fail.
 func (c *Connection) Disconnect() {
-	old, _ := c.client.Swap(clientRef{c: nil}).(clientRef)
-	if old.c != nil {
-		old.c.Disconnect()
+	cl := c.getClient()
+	if cl != nil && c.swapClient(cl, nil) {
+		cl.Disconnect()
 	}
 }
 
