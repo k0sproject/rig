@@ -1604,6 +1604,21 @@ func TestSetterFinalizeLocalAndAliasTokens(t *testing.T) {
 		require.Equal(t, []string{"/tmp/node.internal"}, obj.IdentityFile)
 	})
 
+	t.Run("pointer slice fields are expanded", func(t *testing.T) {
+		identityFiles := []string{"/tmp/%h", "/tmp/plain"}
+		obj := struct {
+			Host         string
+			IdentityFile *[]string
+			ProxyJump    *[]string
+		}{Host: "node", IdentityFile: &identityFiles}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, []string{"/tmp/node", "/tmp/plain"}, *obj.IdentityFile)
+		require.Nil(t, obj.ProxyJump, "a nil pointer is left alone")
+	})
+
 	t.Run("remote hostname token keeps a literal percent in Hostname", func(t *testing.T) {
 		obj := sshconfig.Config{Host: "linklocal"}
 		setter, err := sshconfig.NewSetter(&obj)

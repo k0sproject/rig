@@ -1376,6 +1376,12 @@ func (s *Setter) ExpandSlice(key string) ([]string, error) { //nolint:cyclop
 	if !ok {
 		return nil, fmt.Errorf("%w: field %q is not found", errFieldNotFound, key)
 	}
+	if field.Kind() == reflect.Pointer {
+		if field.IsNil() {
+			return nil, nil
+		}
+		field = field.Elem()
+	}
 	if field.Kind() != reflect.Slice {
 		return nil, fmt.Errorf("%w: field %q is not a slice", errInvalidField, key)
 	}
