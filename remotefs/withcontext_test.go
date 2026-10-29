@@ -94,6 +94,16 @@ func TestWithContext(t *testing.T) {
 		})
 	}
 
+	t.Run("a done context is reported by a first posix stat", func(t *testing.T) {
+		runner := rigtest.NewMockRunner()
+		recordContexts(runner)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err := remotefs.WithContext(ctx, remotefs.NewPosixFS(runner)).Stat("file")
+		require.ErrorIs(t, err, context.Canceled, "probing which stat the host has must not hide the cancellation")
+	})
+
 	t.Run("chtimes runs on the bound copy", func(t *testing.T) {
 		runner := rigtest.NewMockRunner()
 		var seen []any

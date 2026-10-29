@@ -375,6 +375,20 @@ func TestWinFileCloseReportsASessionEndedByContext(t *testing.T) {
 	require.ErrorIs(t, s.file.Close(), context.Canceled)
 }
 
+// TestWinFileCloseAfterSessionEndedByContext verifies that a Close starting
+// after the bound context has already ended the session reports that, rather
+// than only that the file is closed.
+func TestWinFileCloseAfterSessionEndedByContext(t *testing.T) {
+	s := newRCPSession(t, time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	s.file.ended(ctx)
+
+	err := s.file.Close()
+	require.ErrorIs(t, err, context.Canceled)
+	require.ErrorIs(t, err, fs.ErrClosed)
+}
+
 // TestWinFileCloseReportsAHelperThatNeverExits covers the gap between the two:
 // the quit goes out and is even read, but the helper never exits, so the
 // session is gone even though nothing about the write said so.
