@@ -119,7 +119,7 @@ func (c *Connection) ExecInteractive(ctx context.Context, cmd string, stdin io.R
 
 	// try to cast the streams to files, if they are not files, use pipes
 	pipes := &stdioPipes{}
-	defer pipes.closeChildEnds()
+	defer pipes.release()
 	stdinR, ok := stdin.(*os.File)
 	if !ok {
 		if stdinR, err = pipes.in(stdin); err != nil {
@@ -150,7 +150,6 @@ func (c *Connection) ExecInteractive(ctx context.Context, cmd string, stdin io.R
 	}
 	pipes.startInput()
 	pipes.closeChildEnds()
-	defer pipes.wait()
 
 	// Kill the process when the context is done, but also stop watching when
 	// the function returns normally so that the goroutine does not leak.
@@ -231,6 +230,14 @@ func (p *stdioPipes) closeChildEnds() {
 		_ = p.inW.Close()
 		p.inW = nil
 	}
+}
+
+// release closes the child ends and waits for the output copiers. It is
+// deferred before any copier starts so that no return path, including a
+// failed process start, leaves a copier writing to its dst.
+func (p *stdioPipes) release() {
+	p.closeChildEnds()
+	p.wait()
 }
 
 // wait waits for the output copiers to drain, bounded by copyWaitDelay

@@ -38,3 +38,14 @@ func TestExecInteractiveCopiesAllOutput(t *testing.T) {
 	require.Equal(t, size, stdout.Len())
 	require.Equal(t, "err\n", stderr.String())
 }
+
+func TestExecInteractiveStartFailure(t *testing.T) {
+	conn, err := localhost.NewConnection()
+	require.NoError(t, err)
+
+	var stdout, stderr bytes.Buffer
+	err = conn.ExecInteractive(t.Context(), "/rig-test-no-such-binary", strings.NewReader("input"), &stdout, &stderr)
+	require.ErrorContains(t, err, "failed to start process")
+	require.Zero(t, stdout.Len())
+	require.Zero(t, stderr.Len())
+}
