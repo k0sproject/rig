@@ -138,8 +138,11 @@ func TestWithContext(t *testing.T) {
 		})
 		fsys := remotefs.NewPosixFS(runner)
 
-		require.ErrorIs(t, remotefs.WithContext(ctx, fsys).Chtimes("file", 0, 0), context.Canceled)
-		require.NoError(t, fsys.Chtimes("file", 0, 0))
+		bound := remotefs.WithContext(ctx, fsys)
+		require.ErrorIs(t, bound.Chtimes("file", 0, 0), context.Canceled)
+		// Rebinding copies what the bound filesystem has cached, so this is
+		// the cache the cancelled probe could have poisoned.
+		require.NoError(t, remotefs.WithContext(context.Background(), bound).Chtimes("file", 0, 0))
 		// One touch per timestamp: the cancelled probe's first, then the
 		// repeated probe's two and the call's own two at nanosecond precision.
 		require.Equal(t, 5, nsec, "the probe runs again and nanosecond precision is used")
