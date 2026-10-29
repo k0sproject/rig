@@ -108,8 +108,8 @@ var (
 	// implemented.
 	ErrNotImplemented = errors.New("not implemented")
 
-	// ErrFinalized is returned by a Setter that is asked to take or expand values again after
-	// Finalize.
+	// ErrFinalized is returned by Setter.Set, Setter.Reset and Setter.Finalize once Finalize has
+	// been called.
 	ErrFinalized = errors.New("setter already finalized")
 
 	username = sync.OnceValue(

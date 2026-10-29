@@ -1020,6 +1020,8 @@ func (s *Setter) Reset(key string) error {
 // Finalize is the last step: an expanded value can hold a literal percent sign or a token that a substitution
 // put there, so it cannot be expanded again. Once Finalize has been called, even if it fails, Set, Reset and
 // Finalize return ErrFinalized, and the object should not be changed through any other means either.
+// ExpandString and ExpandSlice expand whatever a field holds, so after Finalize they would expand the
+// finalized values again.
 func (s *Setter) Finalize() error {
 	if s.finalized {
 		return ErrFinalized
