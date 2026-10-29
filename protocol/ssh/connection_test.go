@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -2882,4 +2883,156 @@ func TestIsConnected(t *testing.T) {
 		defer conn.mu.Unlock()
 		require.Nil(t, conn.client, "a connection that stopped answering is closed")
 	})
+}
+
+// stallingProxy forwards TCP connections to target until stalled, after which
+// it stops reading and writing without closing anything, as a link that has
+// gone silent does. It returns the proxy's address and the stall function.
+func stallingProxy(t *testing.T, target string) (string, func()) {
+	t.Helper()
+	stalled := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	t.Cleanup(func() { close(release) })
+	gate := func(dst io.Writer, src io.Reader) {
+		buf := make([]byte, 32*1024)
+		for {
+			n, err := src.Read(buf)
+			select {
+			case <-stalled:
+				<-release
+				return
+			default:
+			}
+			if n > 0 {
+				if _, werr := dst.Write(buf[:n]); werr != nil {
+					return
+				}
+			}
+			if err != nil {
+				return
+			}
+		}
+	}
+	addr := startRawServer(t, func(c net.Conn) {
+		// A small receive buffer keeps the socket from soaking up a whole SSH
+		// channel window once stalled, so a writer blocks in the transport
+		// rather than waiting for window space.
+		if tc, ok := c.(*net.TCPConn); ok {
+			_ = tc.SetReadBuffer(4096)
+		}
+		upstream, err := net.Dial("tcp", target)
+		if err != nil {
+			return
+		}
+		defer upstream.Close()
+		go gate(upstream, c)
+		gate(c, upstream)
+	})
+	return addr, func() { once.Do(func() { close(stalled) }) }
+}
+
+// TestIsConnectedTearsDownAStalledBastion covers a connection whose bastion
+// link stalls while a write is blocked on it. Closing the tunnelled client
+// first would wait on that link forever, so the bastion has to go first.
+func TestIsConnectedTearsDownAStalledBastion(t *testing.T) {
+	withConfigParser(t, "")
+	t.Setenv("SSH_AUTH_SOCK", "")
+	original := keepaliveTimeout
+	keepaliveTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { keepaliveTimeout = original })
+
+	targetSigner := newHostSigner(t)
+	targetCfg := &ssh.ServerConfig{NoClientAuth: true, ServerVersion: "SSH-2.0-test-linux"}
+	targetCfg.AddHostKey(targetSigner)
+	targetAddr := startRawServer(t, func(c net.Conn) {
+		sconn, chans, reqs, err := ssh.NewServerConn(c, targetCfg)
+		if err != nil {
+			return
+		}
+		defer sconn.Close()
+		go ssh.DiscardRequests(reqs)
+		for newChan := range chans {
+			channel, chReqs, err := newChan.Accept()
+			if err != nil {
+				continue
+			}
+			go func() {
+				for req := range chReqs {
+					_ = req.Reply(req.Type == "exec", nil)
+				}
+			}()
+			// Read everything, so the channel window never holds the client
+			// back and it keeps writing until the link itself stops.
+			go func() { _, _ = io.Copy(io.Discard, channel) }()
+		}
+	})
+
+	bastionSigner := newHostSigner(t)
+	bastionAddr, stall := stallingProxy(t, startForwardingSSHServer(t, bastionSigner))
+
+	knownHosts := ""
+	for addr, signer := range map[string]ssh.Signer{targetAddr: targetSigner, bastionAddr: bastionSigner} {
+		knownHosts += knownhosts.Line([]string{knownhosts.Normalize(addr)}, signer.PublicKey()) + "\n"
+	}
+	knownHostsPath := filepath.Join(t.TempDir(), "known_hosts")
+	require.NoError(t, os.WriteFile(knownHostsPath, []byte(knownHosts), 0o600))
+	t.Setenv("SSH_KNOWN_HOSTS", knownHostsPath)
+
+	targetHost, targetPort := splitHostPort(t, targetAddr)
+	bastionHost, bastionPort := splitHostPort(t, bastionAddr)
+	conn, err := NewConnection(Config{
+		Address:     targetHost,
+		Port:        targetPort,
+		User:        "test",
+		AuthMethods: []ssh.AuthMethod{ssh.Password("any")},
+		Bastion: &Config{
+			Address:     bastionHost,
+			Port:        bastionPort,
+			User:        "test",
+			AuthMethods: []ssh.AuthMethod{ssh.Password("any")},
+		},
+	})
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	require.NoError(t, conn.Connect(ctx))
+
+	// Stream stdin through the tunnel, then stall the bastion link so the
+	// write in progress blocks on its transport.
+	_, err = conn.StartProcess(context.Background(), "cat", io.LimitReader(zeroReader{}, 1<<30), nil, nil)
+	require.NoError(t, err)
+	time.Sleep(100 * time.Millisecond)
+	stall()
+	// Long enough for the stream to fill the socket buffers behind the
+	// stalled proxy, so that the write blocks.
+	time.Sleep(time.Second)
+
+	done := make(chan bool, 1)
+	go func() { done <- conn.IsConnected() }()
+	select {
+	case connected := <-done:
+		require.False(t, connected)
+	case <-time.After(3 * time.Second):
+		t.Fatal("IsConnected did not tear down a connection whose bastion link stalled")
+	}
+
+	disconnected := make(chan struct{})
+	go func() {
+		conn.Disconnect()
+		close(disconnected)
+	}()
+	select {
+	case <-disconnected:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Disconnect blocked after the stalled connection was torn down")
+	}
+}
+
+// zeroReader reads an endless stream of zero bytes.
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) {
+	clear(p)
+	return len(p), nil
 }

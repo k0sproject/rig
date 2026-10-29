@@ -486,8 +486,11 @@ func (c *Connection) disconnect() {
 		close(c.done)
 		c.done = nil
 	}
-	c.client.Close()
-	c.client = nil
+	// The transport goes first. Closing the client sends a close over the
+	// proxy command or the bastion's forwarded channel, which blocks if that
+	// link has stalled; with the link already torn down it returns at once.
+	// A bastion's own Disconnect does the same, so nested bastions are torn
+	// down from the bottom up.
 	if c.proxyCmd != nil {
 		if c.proxyCmd.Process != nil {
 			buildKillFunc(c.proxyCmd)()
@@ -498,6 +501,8 @@ func (c *Connection) disconnect() {
 		c.bastion.Disconnect()
 		c.bastion = nil
 	}
+	c.client.Close()
+	c.client = nil
 }
 
 // Disconnect closes the SSH connection.
