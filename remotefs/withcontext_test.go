@@ -115,39 +115,70 @@ func TestWithContext(t *testing.T) {
 	})
 
 	// These operations start commands with an explicit context of their own
-	// rather than through the runner's context-less methods.
+	// rather than through the runner's context-less methods. Windows commands
+	// are encoded, so the mock tells them apart by order: the first is the
+	// Stat that OpenFile starts with.
 	for _, tc := range []struct {
-		name    string
-		windows bool
-		op      func(remotefs.FS) error
+		name string
+		stat string
+		op   func(remotefs.FS) error
 	}{
-		{"windows ReadDir", true, func(f remotefs.FS) error { _, err := f.ReadDir("dir"); return err }},
-		{"windows ReadFile", true, func(f remotefs.FS) error { _, err := f.ReadFile("file"); return err }},
-		{"posix DownloadURL", false, func(f remotefs.FS) error {
-			d, ok := f.(remotefs.Downloader)
-			require.True(t, ok)
-			return d.DownloadURL("https://example.com/file", "/tmp/file")
-		}},
+		{
+			"windows directory listing",
+			`{"Name":"dir","FullName":"C:\\dir","Attributes":16,"Mode":"d-----","LastWriteTime":"/Date(0)/"}`,
+			func(f remotefs.FS) error { _, err := f.ReadDir("dir"); return err },
+		},
+		{
+			"windows file daemon",
+			`{"Name":"file","FullName":"C:\\file","Attributes":32,"Mode":"-a----","LastWriteTime":"/Date(0)/"}`,
+			func(f remotefs.FS) error { _, err := f.ReadFile("file"); return err },
+		},
 	} {
 		t.Run(tc.name+" runs under the context", func(t *testing.T) {
 			runner := rigtest.NewMockRunner()
-			runner.Windows = tc.windows
-			seen := recordContexts(runner)
-			var fsys remotefs.FS = remotefs.NewPosixFS(runner)
-			if tc.windows {
-				fsys = remotefs.NewWindowsFS(runner)
-			}
+			runner.Windows = true
+			var seen []any
+			runner.AddCommand(rigtest.Match("."), func(a *rigtest.A) error {
+				seen = append(seen, a.Ctx.Value(ctxKey{}))
+				if len(seen) == 1 {
+					_, _ = a.Stdout.Write([]byte(tc.stat))
+				}
+				return nil
+			})
 
 			ctx := context.WithValue(context.Background(), ctxKey{}, "bound")
-			// The mock answers with no output, which the operations may fail
-			// to parse. Only the context the commands ran under matters here.
-			_ = tc.op(remotefs.WithContext(ctx, fsys))
-			require.NotEmpty(t, *seen)
-			for _, v := range *seen {
+			// The mock does not speak the listing or rigrcp protocol, so the
+			// operation itself may fail. What matters is which context the
+			// command after the Stat ran under.
+			_ = tc.op(remotefs.WithContext(ctx, remotefs.NewWindowsFS(runner)))
+			require.GreaterOrEqual(t, len(seen), 2, "the command after the Stat must run")
+			for _, v := range seen {
 				require.Equal(t, "bound", v)
 			}
 		})
 	}
+
+	t.Run("posix DownloadURL runs under the context", func(t *testing.T) {
+		runner := rigtest.NewMockRunner()
+		var curl []any
+		runner.AddCommandOutput(rigtest.HasPrefix("mktemp"), "/tmp/file.part\n")
+		runner.AddCommand(rigtest.HasPrefix("curl"), func(a *rigtest.A) error {
+			curl = append(curl, a.Ctx.Value(ctxKey{}))
+			return nil
+		})
+		runner.AddCommandOutput(rigtest.Contains("curl"), "/usr/bin/curl\n")
+
+		ctx := context.WithValue(context.Background(), ctxKey{}, "bound")
+		d, ok := remotefs.WithContext(ctx, remotefs.NewPosixFS(runner)).(remotefs.Downloader)
+		require.True(t, ok)
+		require.NoError(t, d.DownloadURL("https://example.com/file", "/tmp/file"))
+		require.Equal(t, []any{"bound"}, curl)
+	})
+
+	t.Run("a type embedding a rig filesystem is returned unchanged", func(t *testing.T) {
+		var fsys remotefs.FS = embeddingFS{PosixFS: remotefs.NewPosixFS(rigtest.NewMockRunner())}
+		require.Equal(t, fsys, remotefs.WithContext(context.Background(), fsys))
+	})
 
 	t.Run("other filesystems are returned unchanged", func(t *testing.T) {
 		var fsys remotefs.FS = otherFS{}
@@ -158,4 +189,9 @@ func TestWithContext(t *testing.T) {
 // otherFS is a filesystem that is not one of the package's implementations.
 type otherFS struct {
 	remotefs.FS
+}
+
+// embeddingFS wraps a PosixFS, as a caller overriding some of its methods would.
+type embeddingFS struct {
+	*remotefs.PosixFS
 }

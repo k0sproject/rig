@@ -9,27 +9,28 @@ import (
 	"github.com/k0sproject/rig/v2/protocol"
 )
 
-// contextBinder is implemented by the filesystems in this package.
-type contextBinder interface {
-	withContext(ctx context.Context) FS
-}
-
 // WithContext returns a copy of fsys whose commands run under ctx, so that a
 // caller can bound or cancel operations whose signatures have no room for a
 // context, such as Open, Stat and ReadFile from fs.FS or rig's own Remove and
 // Sha256. Functions taking fsys, such as Upload, are bounded the same way.
 //
 // Methods that take a context of their own keep using the one they are given.
-// Once ctx is done, every operation on the returned filesystem and on the
-// files opened from it fails, while fsys itself is unaffected.
+// Once ctx is done, the remote commands the returned filesystem and the files
+// opened from it run fail, while fsys itself is unaffected. Operations that
+// need no remote command, such as seeking or reading entries a directory has
+// already listed, are not affected.
 //
-// fsys is returned unchanged if it is not one of the implementations in this
-// package.
+// fsys is returned unchanged if it is not a *PosixFS or *WinFS, including a
+// type that embeds one, whose own methods a copy would lose.
 func WithContext(ctx context.Context, fsys FS) FS {
-	if binder, ok := fsys.(contextBinder); ok {
-		return binder.withContext(ctx)
+	switch f := fsys.(type) {
+	case *PosixFS:
+		return f.withContext(ctx)
+	case *WinFS:
+		return f.withContext(ctx)
+	default:
+		return fsys
 	}
-	return fsys
 }
 
 func (s *PosixFS) withContext(ctx context.Context) FS {
