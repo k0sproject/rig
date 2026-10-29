@@ -1,6 +1,7 @@
 package remotefs
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +21,12 @@ func TestCloseWithSession(t *testing.T) {
 		var err error
 		closeWithSession(stubCloser{err: sessionGone}, &err)
 		require.ErrorIs(t, err, ErrTimeout)
+	})
+
+	t.Run("reports a session ended by the context", func(t *testing.T) {
+		var err error
+		closeWithSession(stubCloser{err: fmt.Errorf("close: %w", context.Canceled)}, &err)
+		require.ErrorIs(t, err, context.Canceled)
 	})
 
 	t.Run("leaves the operation's own error alone", func(t *testing.T) {

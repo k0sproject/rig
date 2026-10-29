@@ -115,7 +115,8 @@ func (s *WinFS) ReadDir(name string) (entries []fs.DirEntry, err error) {
 // host that is no longer there, so it must not look like a success.
 func closeWithSession(f io.Closer, err *error) {
 	closeErr := f.Close()
-	if *err == nil && errors.Is(closeErr, ErrTimeout) {
+	// ErrTimeout wraps context.DeadlineExceeded, so this covers it too.
+	if *err == nil && isContextErr(closeErr) {
 		*err = closeErr
 	}
 }
