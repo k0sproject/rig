@@ -2,6 +2,8 @@ package remotefs_test
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/k0sproject/rig/v2/remotefs"
@@ -102,6 +104,45 @@ func TestWithContext(t *testing.T) {
 
 		_, err := remotefs.WithContext(ctx, remotefs.NewPosixFS(runner)).Stat("file")
 		require.ErrorIs(t, err, context.Canceled, "probing which stat the host has must not hide the cancellation")
+	})
+
+	t.Run("a cancelled touch probe is not cached", func(t *testing.T) {
+		runner := rigtest.NewMockRunner()
+		ctx, cancel := context.WithCancel(context.Background())
+		runner.AddCommandOutput(rigtest.HasPrefix("touch --help"), "touch (GNU coreutils) 9.4\n")
+		// Enough of a filesystem for the probe's temp file to be created.
+		runner.AddCommandOutput(rigtest.HasPrefix("echo ${TMPDIR"), "/tmp\n")
+		runner.AddCommandOutput(rigtest.HasPrefix("stat -c %n"), "/\n")
+		runner.AddCommandOutput(rigtest.Contains("-- /tmp 2>"), "0x41ed 4096 2024-01-01 00:00:00.000000000 +0000 ///tmp//\n")
+		statted := map[string]bool{}
+		runner.AddCommand(rigtest.Contains("stat -c '%#f"), func(a *rigtest.A) error {
+			name, _, _ := strings.Cut(a.Command[strings.Index(a.Command, "-- ")+3:], " 2>")
+			// Missing on the check before it is created, there afterwards.
+			if !statted[name] {
+				statted[name] = true
+				return nil
+			}
+			_, _ = fmt.Fprintf(a.Stdout, "0x81a4 0 2024-01-01 00:00:00.000000000 +0000 //%s//\n", name)
+			return nil
+		})
+		var nsec int
+		runner.AddCommand(rigtest.Contains("touch -"), func(a *rigtest.A) error {
+			if strings.Contains(a.Command, "T00:00:00.000000000") {
+				nsec++
+				if nsec == 1 {
+					cancel()
+					return context.Canceled
+				}
+			}
+			return nil
+		})
+		fsys := remotefs.NewPosixFS(runner)
+
+		require.ErrorIs(t, remotefs.WithContext(ctx, fsys).Chtimes("file", 0, 0), context.Canceled)
+		require.NoError(t, fsys.Chtimes("file", 0, 0))
+		// One touch per timestamp: the cancelled probe's first, then the
+		// repeated probe's two and the call's own two at nanosecond precision.
+		require.Equal(t, 5, nsec, "the probe runs again and nanosecond precision is used")
 	})
 
 	t.Run("chtimes runs on the bound copy", func(t *testing.T) {

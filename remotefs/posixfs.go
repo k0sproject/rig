@@ -169,6 +169,11 @@ func (s *PosixFS) initTouch() error {
 		return fmt.Errorf("can't close temp file for touch test: %w", err)
 	}
 	if err := s.nsecChtimes(tmpF.Name(), 0, 0); err != nil {
+		// A probe cut short by the context says nothing about touch, and
+		// caching the fallback would lose precision for good.
+		if isContextErr(err) {
+			return fmt.Errorf("probe touch: %w", err)
+		}
 		s.chtimesFn = (*PosixFS).secChtimes
 	} else {
 		s.chtimesFn = (*PosixFS).nsecChtimes
