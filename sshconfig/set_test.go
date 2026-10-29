@@ -1631,16 +1631,28 @@ func TestSetterFinalizeLocalAndAliasTokens(t *testing.T) {
 		require.Equal(t, []string{"/tmp/fe80::1%eth0"}, obj.IdentityFile)
 	})
 
-	t.Run("connection hash uses the finalized ProxyJump", func(t *testing.T) {
+	t.Run("jump host token is the last hop's hostname", func(t *testing.T) {
+		// Expected values measured with ssh -G (OpenSSH 9.8): %j is not the
+		// ProxyJump contents but the bare host of the last hop, unexpanded.
 		for _, tc := range []struct {
-			name      string
 			proxyJump string
-			hashed    string
+			want      string
 		}{
-			{"expanded", "jump-%h", "jump-node"},
-			{"none", "none", ""},
+			{"none", ""},
+			{"NONE", ""},
+			{"jump-%h", "jump-%h"},
+			{"a,b", "b"},
+			{"jump-%h,b", "b"},
+			{"b:2222,c", "c"},
+			{"alice@b:2222", "b"},
+			{"a,alice@b:2222", "b"},
+			{"a@x@b", "b"},
+			{"ssh://alice@b:2222", "b"},
+			{"ssh://alice@b:2222/", "b"},
+			{"[fe80::1]:2222", "fe80::1"},
+			{"alice@[fe80::1]", "fe80::1"},
 		} {
-			t.Run(tc.name, func(t *testing.T) {
+			t.Run(tc.proxyJump, func(t *testing.T) {
 				// Finalize walks a map, so repeat to catch an order dependency.
 				for range 20 {
 					obj := sshconfig.Config{Host: "node", Port: 22, User: "bob"}
@@ -1648,13 +1660,28 @@ func TestSetterFinalizeLocalAndAliasTokens(t *testing.T) {
 					require.NoError(t, err)
 
 					require.NoError(t, setter.Set("ProxyJump", tc.proxyJump))
-					require.NoError(t, setter.Set("ControlPath", "/tmp/%C"))
+					require.NoError(t, setter.Set("ControlPath", "/tmp/%j/%C"))
 					require.NoError(t, setter.Finalize())
-					sum := sha1.Sum([]byte(hostname + "node22bob" + tc.hashed)) //nolint:gosec // matches the OpenSSH %C definition
-					require.Equal(t, "/tmp/"+hex.EncodeToString(sum[:]), obj.ControlPath)
+					sum := sha1.Sum([]byte(hostname + "node22bob" + tc.want)) //nolint:gosec // matches the OpenSSH %C definition
+					require.Equal(t, "/tmp/"+tc.want+"/"+hex.EncodeToString(sum[:]), obj.ControlPath)
 				}
 			})
 		}
+	})
+
+	t.Run("jump host token reads a string ProxyJump", func(t *testing.T) {
+		obj := struct {
+			Host        string
+			ProxyJump   string
+			ControlPath string
+		}{Host: "node"}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("ProxyJump", "a,alice@b:2222"))
+		require.NoError(t, setter.Set("ControlPath", "/tmp/%j"))
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, "/tmp/b", obj.ControlPath)
 	})
 
 	t.Run("known hosts hostname token prefers HostKeyAlias", func(t *testing.T) {

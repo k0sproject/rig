@@ -1003,26 +1003,21 @@ func (s *Setter) Reset(key string) error {
 // It expands any tokens, environment variables or tilde-prefixed paths in the values for the keys where expansion
 // is supported.
 func (s *Setter) Finalize() error {
-	// %h in every other field is the expanded Hostname, and %C hashes %j, so
-	// ProxyJump must be expanded and any "none" cleared before %C is.
-	first := []string{keyHostnameLower, keyProxyJumpLower}
-	for _, name := range first {
-		if err := s.finalizeKey(knownKeys[name]); err != nil {
-			return err
-		}
-		if name == keyHostnameLower {
-			s.hostnameFinal = true
-		}
+	// %h in every other field is the expanded Hostname, so it goes first. %j
+	// (and so %C) is the last ProxyJump hop as written, so ProxyJump goes last.
+	if err := s.finalizeKey(knownKeys[keyHostnameLower]); err != nil {
+		return err
 	}
+	s.hostnameFinal = true
 	for name, info := range knownKeys {
-		if slices.Contains(first, name) {
+		if name == keyHostnameLower || name == keyProxyJumpLower {
 			continue
 		}
 		if err := s.finalizeKey(info); err != nil {
 			return err
 		}
 	}
-	return nil
+	return s.finalizeKey(knownKeys[keyProxyJumpLower])
 }
 
 // finalizableField returns the field for key, through a non-nil pointer, and
@@ -1232,20 +1227,7 @@ func (s *Setter) expandToken(token string) (string, error) { //nolint:cyclop
 		}
 		return "", fmt.Errorf("%w: no hostname available for token %%H expansion", errFieldNotFound)
 	case "%j":
-		if f, err := s.get("ProxyJump", reflect.String); err == nil {
-			if f.Len() > 0 {
-				return f.String(), nil
-			}
-		}
-		if f, err := s.get("ProxyJump", reflect.Slice, reflect.String); err == nil {
-			if f.Len() > 0 {
-				if slice, ok := reflect.TypeAssert[[]string](f); ok {
-					return strings.Join(slice, ","), nil
-				}
-				return "", fmt.Errorf("%w: failed to convert ProxyJump to string slice", errInvalidValue)
-			}
-		}
-		return "", nil
+		return jumpHost(s.proxyJumpSpec()), nil
 	case "%k":
 		if f, err := s.get("HostKeyAlias", reflect.String); err == nil && f.Len() > 0 {
 			return f.String(), nil
@@ -1270,6 +1252,51 @@ func (s *Setter) expandToken(token string) (string, error) { //nolint:cyclop
 		return sshConnectionHash(toExpand), nil
 	}
 	return "", fmt.Errorf("%w: unsupported token %q", errInvalidValue, token)
+}
+
+// proxyJumpSpec returns the ProxyJump value as ssh reads it: a comma
+// separated list of hops.
+func (s *Setter) proxyJumpSpec() string {
+	if f, err := s.get("ProxyJump", reflect.String); err == nil {
+		return f.String()
+	}
+	if f, err := s.get("ProxyJump", reflect.Slice, reflect.String); err == nil {
+		hops := make([]string, 0, f.Len())
+		for i := range f.Len() {
+			hops = append(hops, f.Index(i).String())
+		}
+		return strings.Join(hops, ",")
+	}
+	return ""
+}
+
+// jumpHost returns what ssh substitutes for %j, which is not the contents of
+// ProxyJump that ssh_config(5) describes but the hostname of its last hop,
+// without the ssh:// scheme, user or port. It is empty for an unset or none
+// ProxyJump, and tokens in it are left as they are, so a Match exec evaluated
+// before Finalize hashes the same %C as the fields Finalize expands.
+func jumpHost(spec string) string {
+	spec = strings.TrimSpace(spec)
+	if spec == "" || strings.EqualFold(spec, none) {
+		return ""
+	}
+	hop := spec
+	if i := strings.LastIndex(spec, ","); i >= 0 {
+		hop = spec[i+1:]
+	}
+	hop = strings.TrimSpace(hop)
+	if rest, ok := strings.CutPrefix(hop, "ssh://"); ok {
+		hop = strings.TrimSuffix(rest, "/")
+	}
+	if i := strings.LastIndex(hop, "@"); i >= 0 {
+		hop = hop[i+1:]
+	}
+	if rest, ok := strings.CutPrefix(hop, "["); ok {
+		host, _, _ := strings.Cut(rest, "]")
+		return host
+	}
+	host, _, _ := strings.Cut(hop, ":")
+	return host
 }
 
 func (s *Setter) expand(value string, info keyInfo) (string, error) { //nolint:cyclop
