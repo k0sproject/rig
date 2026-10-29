@@ -509,7 +509,7 @@ func (f *winFile) open(flags int) error {
 	f.stdoutW = stdoutW
 	f.done = make(chan struct{})
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(runnerContext(f.fs.Runner))
 	f.cancel = cancel
 	cmd, err := f.fs.Start(ctx, rigRcp, cmd.Stdin(stdinR), cmd.Stdout(stdoutW), cmd.Stderr(stderrW), cmd.LogInput(false), cmd.HideOutput())
 	if err != nil {
