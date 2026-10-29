@@ -62,10 +62,18 @@ func newSession(ctx context.Context, client *ssh.Client) (*ssh.Session, error) {
 // startSession starts cmd on session, giving up once ctx is done. The session
 // is closed if the command does not start. That happens in the background,
 // because closing writes to a connection that may no longer be accepting data.
+// A start abandoned to ctx may still have reached the server, so it is
+// interrupted first, as a command whose context ends while running is.
 func startSession(ctx context.Context, session *ssh.Session, cmd string) error {
 	_, err := await(ctx, func() (struct{}, error) { return struct{}{}, session.Start(cmd) }, nil)
 	if err != nil {
-		go func() { _ = session.Close() }()
+		abandoned := ctx.Err() != nil
+		go func() {
+			if abandoned {
+				_ = session.Signal(ssh.SIGINT)
+			}
+			_ = session.Close()
+		}()
 	}
 	return err
 }

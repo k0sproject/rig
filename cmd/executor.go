@@ -536,7 +536,13 @@ func (r *Executor) Start(ctx context.Context, command string, opts ...ExecOption
 
 	waiter, err := r.baseConnection().StartProcess(ctx, fullCmd, execOpts.Stdin(), stdout, stderr) //nolint:contextcheck // Stdin() uses trace logger which takes context
 	if err != nil {
-		closeAll(traceClosers)
+		// As in waiterWrapper.Wait: a start abandoned on its context can
+		// still complete, and its output copier be inside these writers.
+		if ctx.Err() != nil {
+			go closeAll(traceClosers)
+		} else {
+			closeAll(traceClosers)
+		}
 		log.Trace(ctx, "start process failed", log.HostAttr(r), log.KeyCommand, redactedCmd, log.KeyError, err)
 		return nil, fmt.Errorf("runner start command: %w", err)
 	}

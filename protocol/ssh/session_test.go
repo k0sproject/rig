@@ -24,7 +24,17 @@ const (
 	// sessionInterruptible runs until it is signalled or closed, then exits
 	// with status 130.
 	sessionInterruptible
+	// sessionHoldExec withholds its reply to the command until the test
+	// releases it, then writes "late" and exits with status 0.
+	sessionHoldExec
 )
+
+// execHold is how a test controls a sessionHoldExec server.
+type execHold struct {
+	release   chan struct{}
+	signalled chan struct{}
+	once      sync.Once
+}
 
 type exitStatusMsg struct {
 	Status uint32
@@ -83,6 +93,13 @@ func startFreezingProxy(t *testing.T, target string) (string, *freezingProxy) {
 // Connection connected to it through the proxy.
 func startSessionServer(t *testing.T, behavior sessionBehavior) (*Connection, *freezingProxy) {
 	t.Helper()
+	return startSessionServerWith(t, behavior, nil)
+}
+
+// startSessionServerWith is startSessionServer with the hold a
+// sessionHoldExec server waits on.
+func startSessionServerWith(t *testing.T, behavior sessionBehavior, hold *execHold) (*Connection, *freezingProxy) {
+	t.Helper()
 	withConfigParser(t, "")
 	t.Setenv("SSH_AUTH_SOCK", "")
 
@@ -98,7 +115,7 @@ func startSessionServer(t *testing.T, behavior sessionBehavior) (*Connection, *f
 		defer sconn.Close()
 		go ssh.DiscardRequests(reqs)
 		for newChan := range chans {
-			go serveSession(newChan, behavior)
+			go serveSession(newChan, behavior, hold)
 		}
 	})
 	addr, proxy := startFreezingProxy(t, serverAddr)
@@ -120,7 +137,7 @@ func startSessionServer(t *testing.T, behavior sessionBehavior) (*Connection, *f
 	return conn, proxy
 }
 
-func serveSession(newChan ssh.NewChannel, behavior sessionBehavior) {
+func serveSession(newChan ssh.NewChannel, behavior sessionBehavior, hold *execHold) {
 	channel, reqs, err := newChan.Accept()
 	if err != nil {
 		return
@@ -130,6 +147,15 @@ func serveSession(newChan ssh.NewChannel, behavior sessionBehavior) {
 	for req := range reqs {
 		switch req.Type {
 		case "exec":
+			if behavior == sessionHoldExec {
+				go func(req *ssh.Request) {
+					<-hold.release
+					_ = req.Reply(true, nil)
+					_, _ = channel.Write([]byte("late"))
+					_, _ = channel.SendRequest("exit-status", false, ssh.Marshal(exitStatusMsg{Status: 0}))
+				}(req)
+				continue
+			}
 			_ = req.Reply(true, nil)
 			if behavior == sessionRun {
 				_, _ = channel.Write([]byte("hello"))
@@ -137,6 +163,10 @@ func serveSession(newChan ssh.NewChannel, behavior sessionBehavior) {
 				return
 			}
 		case "signal":
+			if hold != nil {
+				hold.once.Do(func() { close(hold.signalled) })
+				continue
+			}
 			_, _ = channel.SendRequest("exit-status", false, ssh.Marshal(exitStatusMsg{Status: 130}))
 			return
 		default:
@@ -205,6 +235,53 @@ func TestStartProcessSessionOpenBoundedOnSilentConnection(t *testing.T) {
 	_, err := conn.StartProcess(ctx, "true", nil, nil, nil)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.Less(t, time.Since(start), 5*time.Second)
+}
+
+func TestStartProcessAbandonedStartIsInterrupted(t *testing.T) {
+	hold := &execHold{release: make(chan struct{}), signalled: make(chan struct{})}
+	conn, _ := startSessionServerWith(t, sessionHoldExec, hold)
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(hold.release) }) }
+	t.Cleanup(release)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	var stdout lockedBuffer
+	start := time.Now()
+	_, err := conn.StartProcess(ctx, "sleep 60", nil, &stdout, nil)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Less(t, time.Since(start), 5*time.Second)
+
+	select {
+	case <-hold.signalled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a start abandoned to its context was not interrupted")
+	}
+
+	// The command starts after all and writes output, which must not reach
+	// a writer the caller has been told it can reuse.
+	release()
+	time.Sleep(100 * time.Millisecond)
+	require.Empty(t, stdout.String())
+}
+
+// lockedBuffer is a bytes.Buffer safe for a writer and a reader in different
+// goroutines.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p) //nolint:wrapcheck // test pass-through
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 func TestAwait(t *testing.T) {
