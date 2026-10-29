@@ -1,9 +1,12 @@
 package sshconfig_test
 
 import (
+	"crypto/sha1" //nolint:gosec // used to verify the OpenSSH %C hash
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -1526,6 +1529,74 @@ func TestSetterFinalize(t *testing.T) {
 	require.Len(t, obj.IdentityFile, 2)
 	require.NotEqual(t, "~/foo", obj.IdentityFile[0])
 	require.Equal(t, "/tmp/22.txt", obj.IdentityFile[1])
+}
+
+func TestSetterFinalizeLocalAndAliasTokens(t *testing.T) {
+	hostname, err := os.Hostname()
+	require.NoError(t, err)
+	short, _, _ := strings.Cut(hostname, ".")
+
+	t.Run("local hostname tokens", func(t *testing.T) {
+		obj := sshconfig.Config{}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("IdentityFile", "/tmp/%l", "/tmp/%L"))
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, []string{"/tmp/" + hostname, "/tmp/" + short}, obj.IdentityFile)
+	})
+
+	t.Run("host key alias token", func(t *testing.T) {
+		obj := sshconfig.Config{HostKeyAlias: "alias"}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("IdentityFile", "/tmp/%k"))
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, []string{"/tmp/alias"}, obj.IdentityFile)
+	})
+
+	t.Run("host key alias token falls back to original host", func(t *testing.T) {
+		obj := sshconfig.Config{}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+		setter.OriginalHost = "original"
+
+		require.NoError(t, setter.Set("IdentityFile", "/tmp/%k"))
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, []string{"/tmp/original"}, obj.IdentityFile)
+	})
+
+	t.Run("remote hostname token prefers Hostname", func(t *testing.T) {
+		obj := sshconfig.Config{Host: "alias", Hostname: "real.example.com"}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("IdentityFile", "/tmp/%h"))
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, []string{"/tmp/real.example.com"}, obj.IdentityFile)
+	})
+
+	t.Run("known hosts hostname token prefers HostKeyAlias", func(t *testing.T) {
+		obj := sshconfig.Config{Host: "alias", Hostname: "real.example.com", HostKeyAlias: "keyalias"}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("KnownHostsCommand", "/bin/lookup %H"))
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, "/bin/lookup keyalias", obj.KnownHostsCommand)
+	})
+
+	t.Run("connection hash token", func(t *testing.T) {
+		obj := sshconfig.Config{Host: "example.com", Port: 22, User: "bob"}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("ControlPath", "/tmp/%C"))
+		require.NoError(t, setter.Finalize())
+		sum := sha1.Sum([]byte(hostname + "example.com22bob")) //nolint:gosec // matches the OpenSSH %C definition
+		require.Equal(t, "/tmp/"+hex.EncodeToString(sum[:]), obj.ControlPath)
+	})
 }
 
 func TestSetterFinalizeStringMaps(t *testing.T) {

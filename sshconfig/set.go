@@ -1137,7 +1137,7 @@ func (s *Setter) expandToken(token string) (string, error) { //nolint:cyclop
 	case "%d":
 		return s.home, nil
 	case "%h":
-		if f, err := s.get("hostname", reflect.String); err == nil {
+		if f, err := s.get("Hostname", reflect.String); err == nil {
 			if f.Len() > 0 {
 				return f.String(), nil
 			}
@@ -1176,7 +1176,7 @@ func (s *Setter) expandToken(token string) (string, error) { //nolint:cyclop
 		}
 		return username(), nil
 	case "%H":
-		for _, field := range []string{"HostkeyAlias", "Hostname", keyHostCanonical} {
+		for _, field := range []string{"HostKeyAlias", "Hostname", keyHostCanonical} {
 			if f, err := s.get(field, reflect.String); err == nil && f.Len() > 0 {
 				return f.String(), nil
 			}
@@ -1197,10 +1197,20 @@ func (s *Setter) expandToken(token string) (string, error) { //nolint:cyclop
 			}
 		}
 		return "", nil
-	case "%L":
+	case "%k":
+		if f, err := s.get("HostKeyAlias", reflect.String); err == nil && f.Len() > 0 {
+			return f.String(), nil
+		}
+		return s.OriginalHost, nil
+	case "%l", "%L":
+		// Like ssh, %l is the hostname as reported by the system and %L is
+		// that name cut at the first dot. No DNS lookup is made for %l.
 		h, err := os.Hostname()
 		if err != nil {
-			return "", fmt.Errorf("%w: failed to get local hostname for token %%L expansion: %w", errFieldNotFound, err)
+			return "", fmt.Errorf("%w: failed to get local hostname for token %s expansion: %w", errFieldNotFound, token, err)
+		}
+		if token == "%L" {
+			h, _, _ = strings.Cut(h, ".")
 		}
 		return h, nil
 	case "%C":
