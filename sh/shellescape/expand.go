@@ -269,12 +269,12 @@ func isValidVarNameChar(ch byte, isFirstChar bool) bool {
 }
 
 func evalCmd(input string) (string, error) {
-	if input == "" {
-		return "", nil
-	}
 	parts, err := Split(input)
 	if err != nil {
 		return "", fmt.Errorf("eval: split %q: %w", input, err)
+	}
+	if len(parts) == 0 {
+		return "", nil
 	}
 	cmd := exec.Command(parts[0], parts[1:]...) //nolint:gosec,noctx // command expansion, no context available
 	out, err := cmd.Output()

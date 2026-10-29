@@ -16,7 +16,8 @@ func Split(input string) ([]string, error) { //nolint:cyclop
 	defer builderPool.Put(currentSegment)
 	defer currentSegment.Reset()
 
-	var inDoubleQuotes, inSingleQuotes, isEscaped bool
+	// inSegment lets "" produce an empty argument while repeated spaces don't.
+	var inDoubleQuotes, inSingleQuotes, isEscaped, inSegment bool
 
 	for i := range len(input) {
 		currentChar := input[i]
@@ -30,16 +31,23 @@ func Split(input string) ([]string, error) { //nolint:cyclop
 		switch {
 		case currentChar == '\\' && !inSingleQuotes:
 			isEscaped = true
+			inSegment = true
 		case currentChar == '"' && !inSingleQuotes:
 			inDoubleQuotes = !inDoubleQuotes
+			inSegment = true
 		case currentChar == '\'' && !inDoubleQuotes:
 			inSingleQuotes = !inSingleQuotes
+			inSegment = true
 		case currentChar == ' ' && !inDoubleQuotes && !inSingleQuotes:
 			// Space outside quotes; delimiter for a new segment
-			segments = append(segments, currentSegment.String())
-			currentSegment.Reset()
+			if inSegment {
+				segments = append(segments, currentSegment.String())
+				currentSegment.Reset()
+				inSegment = false
+			}
 		default:
 			currentSegment.WriteByte(currentChar)
+			inSegment = true
 		}
 	}
 
@@ -52,7 +60,7 @@ func Split(input string) ([]string, error) { //nolint:cyclop
 	}
 
 	// Add the last segment if present
-	if currentSegment.Len() > 0 {
+	if inSegment {
 		segments = append(segments, currentSegment.String())
 	}
 

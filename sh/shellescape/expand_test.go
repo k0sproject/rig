@@ -29,6 +29,11 @@ func TestExpand(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "show me the test value.", result)
 	})
+	t.Run("whitespace-only command", func(t *testing.T) {
+		result, err := shellescape.Expand("show me the $( ).", shellescape.ExpandExec())
+		require.NoError(t, err)
+		require.Equal(t, "show me the .", result)
+	})
 	t.Run("command with curly", func(t *testing.T) {
 		result, err := shellescape.Expand("show me the $(echo $(echo ${TEST_VAR})).", shellescape.ExpandExec())
 		require.NoError(t, err)
