@@ -1772,6 +1772,24 @@ func TestSetterFinalizeLocalAndAliasTokens(t *testing.T) {
 		require.Equal(t, "/tmp/jump-node", obj.ControlPath)
 	})
 
+	t.Run("a second Finalize leaves finalized fields alone", func(t *testing.T) {
+		obj := sshconfig.Config{Host: "node"}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("ProxyJump", "jump-%h"))
+		require.NoError(t, setter.Set("ControlPath", "/tmp/%j"))
+		require.NoError(t, setter.Set("IdentityFile", "/tmp/100%%h"))
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, "/tmp/jump-%h", obj.ControlPath)
+		require.Equal(t, []string{"/tmp/100%h"}, obj.IdentityFile)
+
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, "/tmp/jump-%h", obj.ControlPath)
+		require.Equal(t, []string{"/tmp/100%h"}, obj.IdentityFile)
+		require.Equal(t, []string{"jump-node"}, obj.ProxyJump)
+	})
+
 	t.Run("jump host token reads a string ProxyJump", func(t *testing.T) {
 		obj := struct {
 			Host        string
