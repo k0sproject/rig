@@ -995,41 +995,55 @@ func (s *Setter) Reset(key string) error {
 // Finalize goes through all the string slice fields and sets them to nil if they contain a single none value.
 // It expands any tokens, environment variables or tilde-prefixed paths in the values for the keys where expansion
 // is supported.
-func (s *Setter) Finalize() error { //nolint:cyclop
-	for _, info := range knownKeys {
-		field, ok := s.fieldByName(info.key)
-		if !ok {
+func (s *Setter) Finalize() error {
+	// Hostname goes first: %h in every other field is the expanded Hostname.
+	if err := s.finalizeKey(knownKeys[keyHostnameLower]); err != nil {
+		return err
+	}
+	for name, info := range knownKeys {
+		if name == keyHostnameLower {
 			continue
 		}
-		switch field.Kind() { //nolint:exhaustive
-		case reflect.String:
-			newVal, err := s.ExpandString(info.key)
+		if err := s.finalizeKey(info); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Setter) finalizeKey(info keyInfo) error {
+	field, ok := s.fieldByName(info.key)
+	if !ok {
+		return nil
+	}
+	switch field.Kind() { //nolint:exhaustive
+	case reflect.String:
+		newVal, err := s.ExpandString(info.key)
+		if err != nil {
+			return fmt.Errorf("%w: failed to expand %q: %w", errInvalidValue, info.key, err)
+		}
+		field.SetString(newVal)
+	case reflect.Slice:
+		if field.Len() == 1 && field.Index(0).String() == none {
+			field.Set(reflect.Zero(field.Type()))
+		}
+		if field.Type().Elem().Kind() == reflect.String {
+			newVal, err := s.ExpandSlice(info.key)
 			if err != nil {
 				return fmt.Errorf("%w: failed to expand %q: %w", errInvalidValue, info.key, err)
 			}
-			field.SetString(newVal)
-		case reflect.Slice:
-			if field.Len() == 1 && field.Index(0).String() == none {
-				field.Set(reflect.Zero(field.Type()))
-			}
-			if field.Type().Elem().Kind() == reflect.String {
-				newVal, err := s.ExpandSlice(info.key)
-				if err != nil {
-					return fmt.Errorf("%w: failed to expand %q: %w", errInvalidValue, info.key, err)
-				}
-				field.Set(reflect.ValueOf(newVal))
-			}
-		case reflect.Map:
-			// Only map[string]string can be expanded. Anything else, such as
-			// ChannelTimeout's map[string]time.Duration, must not reach it. The types are
-			// compared instead of the kinds because expandStringMap indexes the map with a
-			// plain string, which a named string key type would not accept.
-			if field.Type() != reflect.TypeFor[map[string]string]() {
-				continue
-			}
-			if err := s.expandStringMap(field, info); err != nil {
-				return err
-			}
+			field.Set(reflect.ValueOf(newVal))
+		}
+	case reflect.Map:
+		// Only map[string]string can be expanded. Anything else, such as
+		// ChannelTimeout's map[string]time.Duration, must not reach it. The types are
+		// compared instead of the kinds because expandStringMap indexes the map with a
+		// plain string, which a named string key type would not accept.
+		if field.Type() != reflect.TypeFor[map[string]string]() {
+			return nil
+		}
+		if err := s.expandStringMap(field, info); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -1137,8 +1151,11 @@ func (s *Setter) expandToken(token string) (string, error) { //nolint:cyclop
 	case "%d":
 		return s.home, nil
 	case "%h":
+		// Hostname itself accepts %h, which then means Host. Finalize expands
+		// Hostname before any other field, so a Hostname that still has a
+		// token in it is the one being expanded.
 		if f, err := s.get("Hostname", reflect.String); err == nil {
-			if f.Len() > 0 {
+			if f.Len() > 0 && !strings.Contains(f.String(), "%") {
 				return f.String(), nil
 			}
 		}

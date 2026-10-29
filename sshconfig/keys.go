@@ -70,6 +70,7 @@ const (
 	keyKbdInteractiveAuth = "KbdInteractiveAuthentication"
 	keyMatchLower         = "match"
 	keyIncludeLower       = "include"
+	keyHostnameLower      = "hostname"
 )
 
 var knownKeys = map[string]keyInfo{
