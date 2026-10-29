@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"sync"
 	"testing"
 
 	"github.com/creasty/defaults"
@@ -191,6 +192,29 @@ func TestDisconnectConcurrently(t *testing.T) {
 	_, err := h.ExecStreams("true", nil, nil, nil)
 	require.ErrorIs(t, err, ErrNotConnected)
 	require.ErrorIs(t, h.ExecInteractive("true"), ErrNotConnected)
+}
+
+// TestDisconnectUnordered runs under -race with reads and disconnects that are
+// not ordered against each other, so that the synchronization itself is what
+// keeps it clean.
+func TestDisconnectUnordered(t *testing.T) {
+	h := &Host{}
+	h.setClient(&mockClient{})
+
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() {
+			for range 1000 {
+				_ = h.IsConnected()
+				_ = h.String()
+			}
+		})
+	}
+	for range 100 {
+		h.Disconnect()
+		h.setClient(&mockClient{})
+	}
+	wg.Wait()
 }
 
 func TestSudoSudo(t *testing.T) {

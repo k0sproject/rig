@@ -419,7 +419,8 @@ func (c *Connection) ExecInteractive(cmd string) error {
 }
 
 // Disconnect from the host. It is safe to call from a goroutine other than the
-// one running commands on the connection, which makes those commands fail.
+// one running commands on the connection. Commands started afterwards fail;
+// whether a command already running is interrupted depends on the transport.
 func (c *Connection) Disconnect() {
 	cl := c.getClient()
 	if cl != nil && c.swapClient(cl, nil) {
