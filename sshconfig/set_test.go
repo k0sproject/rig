@@ -1589,6 +1589,44 @@ func TestSetterFinalizeLocalAndAliasTokens(t *testing.T) {
 		require.Equal(t, []string{"/tmp/node.example.com"}, obj.IdentityFile, "other fields see the expanded Hostname")
 	})
 
+	t.Run("remote hostname token keeps a literal percent in Hostname", func(t *testing.T) {
+		obj := sshconfig.Config{Host: "linklocal"}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("Hostname", "fe80::1%%eth0"))
+		require.NoError(t, setter.Set("IdentityFile", "/tmp/%h"))
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, "fe80::1%eth0", obj.Hostname)
+		require.Equal(t, []string{"/tmp/fe80::1%eth0"}, obj.IdentityFile)
+	})
+
+	t.Run("connection hash uses the finalized ProxyJump", func(t *testing.T) {
+		for _, tc := range []struct {
+			name      string
+			proxyJump string
+			hashed    string
+		}{
+			{"expanded", "jump-%h", "jump-node"},
+			{"none", "none", ""},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				// Finalize walks a map, so repeat to catch an order dependency.
+				for range 20 {
+					obj := sshconfig.Config{Host: "node", Port: 22, User: "bob"}
+					setter, err := sshconfig.NewSetter(&obj)
+					require.NoError(t, err)
+
+					require.NoError(t, setter.Set("ProxyJump", tc.proxyJump))
+					require.NoError(t, setter.Set("ControlPath", "/tmp/%C"))
+					require.NoError(t, setter.Finalize())
+					sum := sha1.Sum([]byte(hostname + "node22bob" + tc.hashed)) //nolint:gosec // matches the OpenSSH %C definition
+					require.Equal(t, "/tmp/"+hex.EncodeToString(sum[:]), obj.ControlPath)
+				}
+			})
+		}
+	})
+
 	t.Run("known hosts hostname token prefers HostKeyAlias", func(t *testing.T) {
 		obj := sshconfig.Config{Host: "alias", Hostname: "real.example.com", HostKeyAlias: "keyalias"}
 		setter, err := sshconfig.NewSetter(&obj)

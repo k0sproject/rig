@@ -71,6 +71,8 @@ const (
 	keyMatchLower         = "match"
 	keyIncludeLower       = "include"
 	keyHostnameLower      = "hostname"
+	keyHostnameCanonical  = "Hostname"
+	keyProxyJumpLower     = "proxyjump"
 )
 
 var knownKeys = map[string]keyInfo{

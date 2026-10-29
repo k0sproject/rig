@@ -75,6 +75,10 @@ type Setter struct {
 	home string
 
 	phase parserPhase
+
+	// expanding is the canonical name of the key whose value is being
+	// expanded, which decides what %h refers to.
+	expanding string
 }
 
 // NewSetter creates a ssh config value setter for the given object. It can be used to set
@@ -996,12 +1000,16 @@ func (s *Setter) Reset(key string) error {
 // It expands any tokens, environment variables or tilde-prefixed paths in the values for the keys where expansion
 // is supported.
 func (s *Setter) Finalize() error {
-	// Hostname goes first: %h in every other field is the expanded Hostname.
-	if err := s.finalizeKey(knownKeys[keyHostnameLower]); err != nil {
-		return err
+	// %h in every other field is the expanded Hostname, and %C hashes %j, so
+	// ProxyJump must be expanded and any "none" cleared before %C is.
+	first := []string{keyHostnameLower, keyProxyJumpLower}
+	for _, name := range first {
+		if err := s.finalizeKey(knownKeys[name]); err != nil {
+			return err
+		}
 	}
 	for name, info := range knownKeys {
-		if name == keyHostnameLower {
+		if slices.Contains(first, name) {
 			continue
 		}
 		if err := s.finalizeKey(info); err != nil {
@@ -1151,11 +1159,9 @@ func (s *Setter) expandToken(token string) (string, error) { //nolint:cyclop
 	case "%d":
 		return s.home, nil
 	case "%h":
-		// Hostname itself accepts %h, which then means Host. Finalize expands
-		// Hostname before any other field, so a Hostname that still has a
-		// token in it is the one being expanded.
-		if f, err := s.get("Hostname", reflect.String); err == nil {
-			if f.Len() > 0 && !strings.Contains(f.String(), "%") {
+		// Hostname itself accepts %h, which then means Host.
+		if s.expanding != keyHostnameCanonical {
+			if f, err := s.get(keyHostnameCanonical, reflect.String); err == nil && f.Len() > 0 {
 				return f.String(), nil
 			}
 		}
@@ -1243,6 +1249,12 @@ func (s *Setter) expandToken(token string) (string, error) { //nolint:cyclop
 func (s *Setter) expand(value string, info keyInfo) (string, error) { //nolint:cyclop
 	if value == "" {
 		return "", nil
+	}
+	// %C expands its own token list without a key and keeps the outer one.
+	if info.key != "" {
+		prev := s.expanding
+		s.expanding = info.key
+		defer func() { s.expanding = prev }()
 	}
 	if len(info.tokens) == 0 && !info.tilde && !info.env {
 		return value, nil
