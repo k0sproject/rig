@@ -1,7 +1,6 @@
 package remotefs
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -78,7 +77,7 @@ func (f *winDir) ReadDir(n int) ([]fs.DirEntry, error) {
 	}
 
 	pipeR, pipeW := io.Pipe()
-	proc, err := f.fs.Start(context.Background(), fmt.Sprintf(statDirTemplate, f.path), cmd.PS(), cmd.Stdout(pipeW))
+	proc, err := f.fs.Start(runnerContext(f.fs.Runner), fmt.Sprintf(statDirTemplate, f.path), cmd.PS(), cmd.Stdout(pipeW))
 	if err != nil {
 		pipeW.Close()
 		pipeR.Close()

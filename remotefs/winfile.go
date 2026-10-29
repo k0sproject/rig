@@ -509,10 +509,12 @@ func (f *winFile) open(flags int) error {
 	f.stdoutW = stdoutW
 	f.done = make(chan struct{})
 
-	ctx, cancel := context.WithCancel(context.Background())
+	parent := runnerContext(f.fs.Runner)
+	ctx, cancel := context.WithCancel(parent)
 	f.cancel = cancel
 	cmd, err := f.fs.Start(ctx, rigRcp, cmd.Stdin(stdinR), cmd.Stdout(stdoutW), cmd.Stderr(stderrW), cmd.LogInput(false), cmd.HideOutput())
 	if err != nil {
+		cancel()
 		return f.pathErr(OpOpen, fmt.Errorf("start file daemon: %w", err))
 	}
 	go func() {
@@ -522,8 +524,7 @@ func (f *winFile) open(flags int) error {
 		log.Trace(ctx, "rigrcp started")
 		err := cmd.Wait()
 		log.Trace(ctx, "rigrcp exited", log.KeyError, err)
-		close(f.done)
-		f.closed.Store(true)
+		f.ended(parent)
 		_ = stdinR.Close()
 		_ = stdinW.Close()
 		_ = stdoutR.Close()
@@ -549,6 +550,19 @@ func (f *winFile) open(flags int) error {
 	f.writable = accessMode != os.O_RDONLY
 
 	return nil
+}
+
+// ended marks the session as over once the rigrcp command has exited. If
+// parent, the context the filesystem is bound to, is done, that is why the
+// session ended, and it is recorded so that operations report it rather than
+// a bare errEnded.
+func (f *winFile) ended(parent context.Context) {
+	if err := parent.Err(); err != nil {
+		cause := fmt.Errorf("%w: %w", errEnded, err)
+		f.abortErr.CompareAndSwap(nil, &cause)
+	}
+	close(f.done)
+	f.closed.Store(true)
 }
 
 // commandTimeout bounds how long a rigrcp session may go without making
@@ -586,6 +600,11 @@ func (f *winFile) timedOut(what string) error {
 // names itself, so that a stalled read reports "read", not "open".
 func (f *winFile) command(cmd string) (*rcpResponse, error) {
 	if f.closed.Load() {
+		// Keep why the session ended, such as the bound context, alongside
+		// the closed state.
+		if cause := f.abortCause(nil); cause != nil {
+			return nil, fmt.Errorf("%w: %w", fs.ErrClosed, cause)
+		}
 		return nil, fs.ErrClosed
 	}
 
@@ -611,7 +630,7 @@ func (f *winFile) command(cmd string) (*rcpResponse, error) {
 
 	select {
 	case <-f.done:
-		return nil, errEnded
+		return nil, f.abortCause(errEnded)
 	case <-timer.C:
 		return nil, f.timedOut(fmt.Sprintf("writing rcp command %q", cmd))
 	case err := <-writeErr:
@@ -653,12 +672,12 @@ func (f *winFile) awaitResponse(resp <-chan []byte, what string) (*rcpResponse, 
 
 	select {
 	case <-f.done:
-		return nil, errEnded
+		return nil, f.abortCause(errEnded)
 	case <-timer.C:
 		return nil, f.timedOut("waiting for " + what)
 	case data, ok := <-resp:
 		if !ok {
-			return nil, errEnded
+			return nil, f.abortCause(errEnded)
 		}
 		return parseResponse(data)
 	}
@@ -727,5 +746,15 @@ func (f *winFile) Close() error {
 		return f.pathErr(OpClose, f.timedOut("waiting for the rigrcp helper to exit"))
 	}
 
+	// The helper exiting because the filesystem's context ended is not the
+	// clean shutdown the quit asked for.
+	if cause := f.abortCause(nil); isContextErr(cause) {
+		return f.pathErr(OpClose, cause)
+	}
+
 	return nil
+}
+
+func isContextErr(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }

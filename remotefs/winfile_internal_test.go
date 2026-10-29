@@ -356,6 +356,39 @@ func TestWinFileCloseSucceedsOnACleanQuit(t *testing.T) {
 	require.True(t, s.file.closed.Load())
 }
 
+// TestWinFileCloseReportsASessionEndedByContext verifies that a helper which
+// exits because the filesystem's context ended, rather than because of the
+// quit, does not make Close report success.
+func TestWinFileCloseReportsASessionEndedByContext(t *testing.T) {
+	s := newRCPSession(t, time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	go func() {
+		if !s.answer([]string{`{"pos":-1}`}) {
+			return
+		}
+		if _, err := s.commands.ReadString('\n'); err == nil { // the quit
+			s.file.ended(ctx)
+		}
+	}()
+
+	require.ErrorIs(t, s.file.Close(), context.Canceled)
+}
+
+// TestWinFileCloseAfterSessionEndedByContext verifies that a Close starting
+// after the bound context has already ended the session reports that, rather
+// than only that the file is closed.
+func TestWinFileCloseAfterSessionEndedByContext(t *testing.T) {
+	s := newRCPSession(t, time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	s.file.ended(ctx)
+
+	err := s.file.Close()
+	require.ErrorIs(t, err, context.Canceled)
+	require.ErrorIs(t, err, fs.ErrClosed)
+}
+
 // TestWinFileCloseReportsAHelperThatNeverExits covers the gap between the two:
 // the quit goes out and is even read, but the helper never exits, so the
 // session is gone even though nothing about the write said so.
@@ -408,6 +441,34 @@ func TestWinFileCommandEndedSession(t *testing.T) {
 
 	_, err := s.file.command("r 4")
 
+	require.ErrorIs(t, err, errEnded)
+}
+
+// TestWinFileEndedByContextReportsIt verifies that a command in flight when
+// the context the filesystem is bound to ends the session reports that
+// context's error, not a bare errEnded.
+func TestWinFileEndedByContextReportsIt(t *testing.T) {
+	s := newRCPSession(t, time.Second)
+	received := make(chan struct{})
+	go func() {
+		if _, err := s.commands.ReadString('\n'); err == nil {
+			close(received)
+		}
+	}()
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := s.file.command("r 4")
+		errCh <- err
+	}()
+	<-received
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	s.file.ended(ctx)
+
+	err := <-errCh
+	require.ErrorIs(t, err, context.Canceled)
 	require.ErrorIs(t, err, errEnded)
 }
 
