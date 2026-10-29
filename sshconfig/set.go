@@ -1057,29 +1057,29 @@ func (s *Setter) markFinal(key string) {
 	s.finalized[key] = copyValue(field)
 }
 
-// copyValue returns the value of v, with a slice or a map copied so that a
-// later change to the field cannot alter the copy.
-func copyValue(v reflect.Value) any {
-	switch v.Kind() { //nolint:exhaustive
+// copyValue returns the value of field, with a slice or a map copied so that
+// a later change to the field cannot alter the copy.
+func copyValue(field reflect.Value) any {
+	switch field.Kind() { //nolint:exhaustive
 	case reflect.Slice:
-		if v.IsNil() {
-			return v.Interface()
+		if field.IsNil() {
+			return field.Interface()
 		}
-		c := reflect.MakeSlice(v.Type(), v.Len(), v.Len())
-		reflect.Copy(c, v)
-		return c.Interface()
+		copied := reflect.MakeSlice(field.Type(), field.Len(), field.Len())
+		reflect.Copy(copied, field)
+		return copied.Interface()
 	case reflect.Map:
-		if v.IsNil() {
-			return v.Interface()
+		if field.IsNil() {
+			return field.Interface()
 		}
-		c := reflect.MakeMapWithSize(v.Type(), v.Len())
-		iter := v.MapRange()
+		copied := reflect.MakeMapWithSize(field.Type(), field.Len())
+		iter := field.MapRange()
 		for iter.Next() {
-			c.SetMapIndex(iter.Key(), iter.Value())
+			copied.SetMapIndex(iter.Key(), iter.Value())
 		}
-		return c.Interface()
+		return copied.Interface()
 	}
-	return v.Interface()
+	return field.Interface()
 }
 
 // rawProxyJump returns ProxyJump as written: as it was before Finalize
