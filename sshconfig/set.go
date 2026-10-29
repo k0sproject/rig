@@ -79,16 +79,16 @@ type Setter struct {
 	// expanding is the canonical name of the key whose value is being
 	// expanded, which decides what %h refers to.
 	expanding string
-	// finalized holds a copy of what Finalize made of each field. A field
-	// that still holds it is not expanded again, because the expansion can
-	// have left a literal percent sign or a substituted token in it. Any
-	// change since, through Reset or to the object directly, makes it a
-	// template again. Set cannot change a field that has a value.
-	finalized map[string]any
-	// jumpSpec is ProxyJump as it was before Finalize expanded it. While
-	// ProxyJump is final, %j reads this, because ssh does not expand the
-	// tokens in %j.
-	jumpSpec string
+	// finalized is set once Finalize has started. After that the setter
+	// takes no more values: see Finalize.
+	finalized bool
+	// hostnameFinal is set once Finalize has expanded Hostname. Before that,
+	// such as while Match exec criteria are evaluated, it can hold tokens.
+	hostnameFinal bool
+	// jumpSpec is ProxyJump as it was before Finalize expanded it, for %j,
+	// whose tokens ssh does not expand. jumpSpecSet says it has been taken.
+	jumpSpec    string
+	jumpSpecSet bool
 }
 
 // NewSetter creates a ssh config value setter for the given object. It can be used to set
@@ -957,8 +957,11 @@ func (s *Setter) ignore(key string, _ ...string) error {
 // Set a value for a field by key name using the precedence rules of the SSH configuration file syntax.
 //
 // Note that some of the fields take their values as separate strings and some as a comma-separated list, most
-// only accept a single value.
+// only accept a single value. It returns ErrFinalized once Finalize has been called.
 func (s *Setter) Set(key string, values ...string) error {
+	if s.finalized {
+		return ErrFinalized
+	}
 	key = strings.ToLower(key)
 	info, ok := knownKeys[key]
 
@@ -988,8 +991,12 @@ func (s *Setter) Set(key string, values ...string) error {
 }
 
 // Reset clears a field. A pointer field is set to a pointer to its zero value,
-// any other field to the zero value itself. This is useful in testing.
+// any other field to the zero value itself. This is useful in testing. It returns
+// ErrFinalized once Finalize has been called.
 func (s *Setter) Reset(key string) error {
+	if s.finalized {
+		return ErrFinalized
+	}
 	info, ok := knownKeys[strings.ToLower(key)]
 	if !ok {
 		return fmt.Errorf("%w: unknown key %q", errFieldNotFound, key)
@@ -1003,21 +1010,28 @@ func (s *Setter) Reset(key string) error {
 	} else {
 		field.Set(reflect.Zero(field.Type()))
 	}
-	// A value set after a reset is new even if it reads the same as what a
-	// previous Finalize produced.
-	delete(s.finalized, info.key)
 	return nil
 }
 
 // Finalize goes through all the string slice fields and sets them to nil if they contain a single none value.
 // It expands any tokens, environment variables or tilde-prefixed paths in the values for the keys where expansion
 // is supported.
+//
+// Finalize is the last step: an expanded value can hold a literal percent sign or a token that a substitution
+// put there, so it cannot be expanded again. Once Finalize has been called, even if it fails, Set, Reset and
+// Finalize return ErrFinalized, and the object should not be changed through any other means either.
 func (s *Setter) Finalize() error {
+	if s.finalized {
+		return ErrFinalized
+	}
+	s.finalized = true
+
 	// %h in every other field is the expanded Hostname, so it goes first. %j
 	// (and so %C) is the last ProxyJump hop as written, so ProxyJump goes last.
 	if err := s.finalizeKey(knownKeys[keyHostnameLower]); err != nil {
 		return err
 	}
+	s.hostnameFinal = true
 	for name, info := range knownKeys {
 		if name == keyHostnameLower || name == keyProxyJumpLower {
 			continue
@@ -1026,66 +1040,14 @@ func (s *Setter) Finalize() error {
 			return err
 		}
 	}
-	jumpKey := knownKeys[keyProxyJumpLower].key
-	if !s.isFinal(jumpKey) {
-		s.jumpSpec = s.proxyJumpSpec()
-	}
+	s.jumpSpec, s.jumpSpecSet = s.proxyJumpSpec(), true
 	return s.finalizeKey(knownKeys[keyProxyJumpLower])
 }
 
-// isFinal reports whether the field for key still holds what Finalize made
-// of it.
-func (s *Setter) isFinal(key string) bool {
-	prev, ok := s.finalized[key]
-	if !ok {
-		return false
-	}
-	field, ok := s.finalizableField(key)
-	return ok && reflect.DeepEqual(prev, field.Interface())
-}
-
-// markFinal records what the field for key holds as finalized.
-func (s *Setter) markFinal(key string) {
-	field, ok := s.finalizableField(key)
-	if !ok {
-		delete(s.finalized, key)
-		return
-	}
-	if s.finalized == nil {
-		s.finalized = make(map[string]any)
-	}
-	s.finalized[key] = copyValue(field)
-}
-
-// copyValue returns the value of field, with a slice or a map copied so that
-// a later change to the field cannot alter the copy.
-func copyValue(field reflect.Value) any {
-	switch field.Kind() { //nolint:exhaustive
-	case reflect.Slice:
-		if field.IsNil() {
-			return field.Interface()
-		}
-		copied := reflect.MakeSlice(field.Type(), field.Len(), field.Len())
-		reflect.Copy(copied, field)
-		return copied.Interface()
-	case reflect.Map:
-		if field.IsNil() {
-			return field.Interface()
-		}
-		copied := reflect.MakeMapWithSize(field.Type(), field.Len())
-		iter := field.MapRange()
-		for iter.Next() {
-			copied.SetMapIndex(iter.Key(), iter.Value())
-		}
-		return copied.Interface()
-	}
-	return field.Interface()
-}
-
-// rawProxyJump returns ProxyJump as written: as it was before Finalize
-// expanded it, while it still holds what that produced, or else as it is.
+// rawProxyJump returns ProxyJump as written, which after Finalize is the
+// value it had before being expanded.
 func (s *Setter) rawProxyJump() string {
-	if s.isFinal(knownKeys[keyProxyJumpLower].key) {
+	if s.jumpSpecSet {
 		return s.jumpSpec
 	}
 	return s.proxyJumpSpec()
@@ -1107,20 +1069,7 @@ func (s *Setter) finalizableField(key string) (reflect.Value, bool) {
 	return field, true
 }
 
-// finalizeKey expands the field for info unless it still holds what a
-// previous Finalize made of it.
 func (s *Setter) finalizeKey(info keyInfo) error {
-	if s.isFinal(info.key) {
-		return nil
-	}
-	if err := s.expandKey(info); err != nil {
-		return err
-	}
-	s.markFinal(info.key)
-	return nil
-}
-
-func (s *Setter) expandKey(info keyInfo) error {
 	field, ok := s.finalizableField(info.key)
 	if !ok {
 		return nil
@@ -1263,7 +1212,7 @@ func (s *Setter) expandToken(token string) (string, error) { //nolint:cyclop
 		// Hostname itself accepts %h, which then means Host.
 		if s.expanding != keyHostnameCanonical {
 			if f, err := s.get(keyHostnameCanonical, reflect.String); err == nil && f.Len() > 0 {
-				if s.isFinal(keyHostnameCanonical) {
+				if s.hostnameFinal {
 					// Expanded already, and may hold a literal percent sign.
 					return f.String(), nil
 				}

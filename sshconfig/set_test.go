@@ -1521,7 +1521,9 @@ func TestSetterFinalize(t *testing.T) {
 	require.NoError(t, setter.Finalize())
 	require.Len(t, obj.CertificateFile, 0)
 
-	obj.Port = 22
+	obj = sshconfig.Config{Port: 22}
+	setter, err = sshconfig.NewSetter(&obj)
+	require.NoError(t, err)
 	require.NoError(t, setter.Set("IdentityFile", "~/foo", "/tmp/%p.txt"))
 	require.Equal(t, "~/foo", obj.IdentityFile[0])
 	require.Equal(t, "/tmp/%p.txt", obj.IdentityFile[1])
@@ -1667,127 +1669,6 @@ func TestSetterFinalizeLocalAndAliasTokens(t *testing.T) {
 				}
 			})
 		}
-	})
-
-	t.Run("jump host token survives a second Finalize", func(t *testing.T) {
-		obj := sshconfig.Config{Host: "node", Port: 22, User: "bob"}
-		setter, err := sshconfig.NewSetter(&obj)
-		require.NoError(t, err)
-
-		require.NoError(t, setter.Set("ProxyJump", "jump-%h"))
-		require.NoError(t, setter.Set("ControlPath", "/tmp/%C"))
-		require.NoError(t, setter.Finalize())
-		require.Equal(t, []string{"jump-node"}, obj.ProxyJump)
-
-		require.NoError(t, setter.Set("IdentityFile", "/tmp/%C"))
-		require.NoError(t, setter.Finalize())
-		require.Equal(t, []string{obj.ControlPath}, obj.IdentityFile)
-	})
-
-	t.Run("jump host token follows a ProxyJump replaced after Finalize", func(t *testing.T) {
-		obj := sshconfig.Config{Host: "node"}
-		setter, err := sshconfig.NewSetter(&obj)
-		require.NoError(t, err)
-
-		require.NoError(t, setter.Set("ProxyJump", "jump-%h"))
-		require.NoError(t, setter.Finalize())
-
-		require.NoError(t, setter.Reset("ProxyJump"))
-		require.NoError(t, setter.Set("ProxyJump", "a,alice@other:2222"))
-		require.NoError(t, setter.Set("ControlPath", "/tmp/%j"))
-		require.NoError(t, setter.Finalize())
-		require.Equal(t, "/tmp/other", obj.ControlPath)
-	})
-
-	t.Run("remote hostname token follows a Hostname replaced after Finalize", func(t *testing.T) {
-		obj := sshconfig.Config{Host: "node"}
-		setter, err := sshconfig.NewSetter(&obj)
-		require.NoError(t, err)
-
-		require.NoError(t, setter.Set("Hostname", "first.example.com"))
-		require.NoError(t, setter.Finalize())
-
-		require.NoError(t, setter.Reset("Hostname"))
-		require.NoError(t, setter.Set("Hostname", "%h.internal"))
-		require.NoError(t, setter.Set("ControlPath", "/tmp/%h"))
-		// Before the next Finalize, %h must expand the new Hostname, not
-		// copy it as if it were already final.
-		controlPath, err := setter.ExpandString("ControlPath")
-		require.NoError(t, err)
-		require.Equal(t, "/tmp/node.internal", controlPath)
-
-		require.NoError(t, setter.Finalize())
-		require.Equal(t, "node.internal", obj.Hostname)
-		require.Equal(t, "/tmp/node.internal", obj.ControlPath)
-	})
-
-	t.Run("tokens follow fields changed on the object after Finalize", func(t *testing.T) {
-		obj := sshconfig.Config{Host: "node"}
-		setter, err := sshconfig.NewSetter(&obj)
-		require.NoError(t, err)
-
-		require.NoError(t, setter.Set("Hostname", "first.example.com"))
-		require.NoError(t, setter.Set("ProxyJump", "jump-%h"))
-		require.NoError(t, setter.Finalize())
-
-		obj.Hostname = "%h.internal"
-		obj.ProxyJump = []string{"alice@other:2222"}
-		require.NoError(t, setter.Set("ControlPath", "/tmp/%h/%j"))
-		controlPath, err := setter.ExpandString("ControlPath")
-		require.NoError(t, err)
-		require.Equal(t, "/tmp/node.internal/other", controlPath)
-
-		require.NoError(t, setter.Finalize())
-		require.Equal(t, "node.internal", obj.Hostname)
-		require.Equal(t, "/tmp/node.internal/other", obj.ControlPath)
-	})
-
-	t.Run("a second Finalize keeps a literal percent in Hostname", func(t *testing.T) {
-		obj := sshconfig.Config{Host: "linklocal"}
-		setter, err := sshconfig.NewSetter(&obj)
-		require.NoError(t, err)
-
-		require.NoError(t, setter.Set("Hostname", "fe80::1%%eth0"))
-		require.NoError(t, setter.Finalize())
-		require.NoError(t, setter.Set("IdentityFile", "/tmp/%h"))
-		require.NoError(t, setter.Finalize())
-		require.Equal(t, "fe80::1%eth0", obj.Hostname)
-		require.Equal(t, []string{"/tmp/fe80::1%eth0"}, obj.IdentityFile)
-	})
-
-	t.Run("a reset forgets a finalized ProxyJump that reads the same", func(t *testing.T) {
-		obj := sshconfig.Config{Host: "node"}
-		setter, err := sshconfig.NewSetter(&obj)
-		require.NoError(t, err)
-
-		require.NoError(t, setter.Set("ProxyJump", "jump-%h"))
-		require.NoError(t, setter.Finalize())
-		require.Equal(t, []string{"jump-node"}, obj.ProxyJump)
-
-		// The same text as what Finalize produced, but now a new value.
-		require.NoError(t, setter.Reset("ProxyJump"))
-		require.NoError(t, setter.Set("ProxyJump", "jump-node"))
-		require.NoError(t, setter.Set("ControlPath", "/tmp/%j"))
-		require.NoError(t, setter.Finalize())
-		require.Equal(t, "/tmp/jump-node", obj.ControlPath)
-	})
-
-	t.Run("a second Finalize leaves finalized fields alone", func(t *testing.T) {
-		obj := sshconfig.Config{Host: "node"}
-		setter, err := sshconfig.NewSetter(&obj)
-		require.NoError(t, err)
-
-		require.NoError(t, setter.Set("ProxyJump", "jump-%h"))
-		require.NoError(t, setter.Set("ControlPath", "/tmp/%j"))
-		require.NoError(t, setter.Set("IdentityFile", "/tmp/100%%h"))
-		require.NoError(t, setter.Finalize())
-		require.Equal(t, "/tmp/jump-%h", obj.ControlPath)
-		require.Equal(t, []string{"/tmp/100%h"}, obj.IdentityFile)
-
-		require.NoError(t, setter.Finalize())
-		require.Equal(t, "/tmp/jump-%h", obj.ControlPath)
-		require.Equal(t, []string{"/tmp/100%h"}, obj.IdentityFile)
-		require.Equal(t, []string{"jump-node"}, obj.ProxyJump)
 	})
 
 	t.Run("jump host token reads a string ProxyJump", func(t *testing.T) {
@@ -2067,4 +1948,29 @@ func TestMatchSyntaxErrors(t *testing.T) {
 			require.ErrorIs(t, err, sshconfig.ErrSyntax)
 		})
 	}
+}
+
+func TestSetterFinalizeIsFinal(t *testing.T) {
+	obj := sshconfig.Config{Host: "node"}
+	setter, err := sshconfig.NewSetter(&obj)
+	require.NoError(t, err)
+
+	require.NoError(t, setter.Set("IdentityFile", "/tmp/100%%h"))
+	require.NoError(t, setter.Finalize())
+	require.Equal(t, []string{"/tmp/100%h"}, obj.IdentityFile)
+
+	require.ErrorIs(t, setter.Set("IdentityFile", "/tmp/%h"), sshconfig.ErrFinalized)
+	require.ErrorIs(t, setter.Reset("IdentityFile"), sshconfig.ErrFinalized)
+	require.ErrorIs(t, setter.Finalize(), sshconfig.ErrFinalized)
+	require.Equal(t, []string{"/tmp/100%h"}, obj.IdentityFile, "a rejected call must leave the object alone")
+}
+
+func TestSetterFinalizeFailureIsFinal(t *testing.T) {
+	obj := sshconfig.Config{Host: "node"}
+	setter, err := sshconfig.NewSetter(&obj)
+	require.NoError(t, err)
+
+	require.NoError(t, setter.Set("IdentityFile", "/tmp/%e"))
+	require.Error(t, setter.Finalize())
+	require.ErrorIs(t, setter.Finalize(), sshconfig.ErrFinalized)
 }

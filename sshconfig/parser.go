@@ -108,6 +108,10 @@ var (
 	// implemented.
 	ErrNotImplemented = errors.New("not implemented")
 
+	// ErrFinalized is returned by a Setter that is asked to take or expand values again after
+	// Finalize.
+	ErrFinalized = errors.New("setter already finalized")
+
 	username = sync.OnceValue(
 		func() string {
 			if user, err := user.Current(); err == nil {
