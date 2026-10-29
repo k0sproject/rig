@@ -2,6 +2,7 @@ package remotefs_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -130,8 +131,9 @@ func TestWithContext(t *testing.T) {
 			if strings.Contains(a.Command, "T00:00:00.000000000") {
 				nsec++
 				if nsec == 1 {
+					// Interrupted, a command reports how it exited, not why.
 					cancel()
-					return context.Canceled
+					return errors.New("process exited with status 130")
 				}
 			}
 			return nil
