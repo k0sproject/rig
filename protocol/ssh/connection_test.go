@@ -2813,3 +2813,73 @@ func TestPropagatePort(t *testing.T) {
 			"there are no config files to defer to when they are skipped")
 	})
 }
+
+// startKeepaliveServer starts an SSH server that answers global requests, or
+// when silent leaves them unanswered as a connection that has gone silent
+// does, and returns a Connection connected to it.
+func startKeepaliveServer(t *testing.T, silent bool) *Connection {
+	t.Helper()
+	withConfigParser(t, "")
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	hostSigner := newHostSigner(t)
+	cfg := &ssh.ServerConfig{NoClientAuth: true, ServerVersion: "SSH-2.0-test-linux"}
+	cfg.AddHostKey(hostSigner)
+	addr := startRawServer(t, func(c net.Conn) {
+		sconn, chans, reqs, err := ssh.NewServerConn(c, cfg)
+		if err != nil {
+			return
+		}
+		defer sconn.Close()
+		if !silent {
+			go ssh.DiscardRequests(reqs)
+		}
+		for newChan := range chans {
+			newChan.Reject(ssh.UnknownChannelType, "not supported") //nolint:errcheck
+		}
+	})
+	pinHostKey(t, addr, hostSigner)
+
+	host, port := splitHostPort(t, addr)
+	conn, err := NewConnection(Config{
+		Address:     host,
+		Port:        port,
+		User:        "test",
+		AuthMethods: []ssh.AuthMethod{ssh.Password("any")},
+	})
+	require.NoError(t, err)
+	t.Cleanup(conn.Disconnect)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	require.NoError(t, conn.Connect(ctx))
+	return conn
+}
+
+func TestIsConnected(t *testing.T) {
+	original := keepaliveTimeout
+	keepaliveTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { keepaliveTimeout = original })
+
+	t.Run("answered keepalive", func(t *testing.T) {
+		conn := startKeepaliveServer(t, false)
+		require.True(t, conn.IsConnected())
+	})
+
+	t.Run("unanswered keepalive", func(t *testing.T) {
+		conn := startKeepaliveServer(t, true)
+
+		done := make(chan bool, 1)
+		go func() { done <- conn.IsConnected() }()
+		select {
+		case connected := <-done:
+			require.False(t, connected)
+		case <-time.After(5 * time.Second):
+			t.Fatal("IsConnected waited for a keepalive reply that never came")
+		}
+
+		conn.mu.Lock()
+		defer conn.mu.Unlock()
+		require.Nil(t, conn.client, "a connection that stopped answering is closed")
+	})
+}
