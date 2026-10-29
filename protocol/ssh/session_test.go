@@ -233,11 +233,13 @@ func TestAwait(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		release := make(chan struct{})
 		late := make(chan int, 1)
-		go func() {
-			time.Sleep(10 * time.Millisecond)
+		_, err := await(ctx, func() (int, error) {
+			// Cancel only once the call is under way, so await takes the
+			// abandon path rather than its already-done fast path.
 			cancel()
-		}()
-		_, err := await(ctx, func() (int, error) { <-release; return 7, nil }, func(v int) { late <- v })
+			<-release
+			return 7, nil
+		}, func(v int) { late <- v })
 		require.ErrorIs(t, err, context.Canceled)
 		close(release)
 		select {

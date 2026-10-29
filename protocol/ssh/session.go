@@ -41,11 +41,15 @@ func await[T any](ctx context.Context, call func() (T, error), late func(T)) (T,
 	case r := <-res:
 		return r.value, r.err
 	case <-ctx.Done():
-		go func() {
-			if r := <-res; r.err == nil && late != nil {
-				late(r.value)
-			}
-		}()
+		// res is buffered, so call finishes without a receiver. One is only
+		// needed to hand a late result over.
+		if late != nil {
+			go func() {
+				if r := <-res; r.err == nil {
+					late(r.value)
+				}
+			}()
+		}
 		return zero, ctx.Err() //nolint:wrapcheck // callers wrap
 	}
 }

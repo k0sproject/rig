@@ -597,9 +597,9 @@ func (r *Executor) ExecOutputContext(ctx context.Context, command string, opts .
 	// to it. Wait gives up on a command whose context has expired while the
 	// host is unresponsive, and the goroutine copying that command's output
 	// can outlive it, so on that one path the buffer is dropped rather than
-	// recycled into an unrelated command. Every other outcome -- a start
-	// failure, a non-zero exit, stderr output -- means the command is done
-	// with it.
+	// recycled into an unrelated command. The same goes for a start that
+	// failed with the context done. Every other outcome -- a start failure, a
+	// non-zero exit, stderr output -- means the command is done with it.
 	recycle := true
 	defer func() {
 		if recycle && out.Cap() <= 64<<10 {
@@ -617,6 +617,8 @@ func (r *Executor) ExecOutputContext(ctx context.Context, command string, opts .
 	// (and drifting from) that canonical form.
 	proc, err := r.Start(ctx, command, opts...)
 	if err != nil {
+		// A start abandoned to ctx can still complete and write to out.
+		recycle = ctx.Err() == nil
 		return "", fmt.Errorf("start command: %w", err)
 	}
 	log.Trace(ctx, "waiting on command", log.HostAttr(r))

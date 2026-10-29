@@ -1600,6 +1600,9 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 	session.Stderr = errW
 
 	if err := startSession(ctx, session, cmd); err != nil {
+		// A start abandoned to ctx can still complete and begin copying output.
+		outW.detach()
+		errW.detach()
 		return nil, fmt.Errorf("start session: %w", err)
 	}
 
