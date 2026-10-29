@@ -2,6 +2,8 @@ package localhost_test
 
 import (
 	"bytes"
+	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 	"testing"
@@ -48,4 +50,24 @@ func TestExecInteractiveStartFailure(t *testing.T) {
 	require.ErrorContains(t, err, "failed to start process")
 	require.Zero(t, stdout.Len())
 	require.Zero(t, stderr.Len())
+}
+
+func TestExecInteractiveExitStatus(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses /usr/bin/true and /usr/bin/false")
+	}
+
+	devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = devNull.Close() })
+
+	conn, err := localhost.NewConnection()
+	require.NoError(t, err)
+
+	require.NoError(t, conn.ExecInteractive(t.Context(), "/usr/bin/true", devNull, devNull, devNull))
+
+	err = conn.ExecInteractive(t.Context(), "/usr/bin/false", devNull, devNull, devNull)
+	var exitErr *exec.ExitError
+	require.ErrorAs(t, err, &exitErr)
+	require.Equal(t, 1, exitErr.ExitCode())
 }
