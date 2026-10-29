@@ -92,6 +92,9 @@ type winFile struct {
 	stdoutW *io.PipeWriter
 	done    chan struct{}
 	cancel  context.CancelFunc
+	// bound is the context the filesystem is bound to. Once it is done the
+	// session is torn down, and nothing waits on the transport to say so.
+	bound context.Context //nolint:containedctx // file operations take no context of their own
 	// abortErr records why the session was torn down, if it was. Closing the
 	// pipes is what releases a parked transfer, but io.Pipe keeps the first
 	// close error it is given, so a transfer that raced the rigrcp command
@@ -520,10 +523,12 @@ func (f *winFile) open(flags int) error {
 	go func() {
 		_, _ = io.Copy(io.Discard, stderrR)
 	}()
+	stopAbort := f.abortWhenDone(parent)
 	go func() {
 		log.Trace(ctx, "rigrcp started")
 		err := cmd.Wait()
 		log.Trace(ctx, "rigrcp exited", log.KeyError, err)
+		stopAbort()
 		f.ended(parent)
 		_ = stdinR.Close()
 		_ = stdinW.Close()
@@ -552,13 +557,38 @@ func (f *winFile) open(flags int) error {
 	return nil
 }
 
+// abortWhenDone tears the session down as soon as ctx is done, the way the
+// watchdog does, rather than when the transport gets round to returning from
+// Wait: closing the pipes is what releases an operation parked on them. The
+// returned function stops it, once the session has ended by itself.
+func (f *winFile) abortWhenDone(ctx context.Context) func() bool {
+	f.bound = ctx
+	return context.AfterFunc(ctx, func() {
+		f.abort(boundEnded(ctx))
+	})
+}
+
+// boundEnded returns the error for a session ended by ctx, the bound context.
+func boundEnded(ctx context.Context) error {
+	return fmt.Errorf("%w: %w", errEnded, ctx.Err())
+}
+
+// boundDone returns the done channel of the bound context, or nil, which
+// never fires, if there is none.
+func (f *winFile) boundDone() <-chan struct{} {
+	if f.bound == nil {
+		return nil
+	}
+	return f.bound.Done()
+}
+
 // ended marks the session as over once the rigrcp command has exited. If
 // parent, the context the filesystem is bound to, is done, that is why the
 // session ended, and it is recorded so that operations report it rather than
 // a bare errEnded.
 func (f *winFile) ended(parent context.Context) {
-	if err := parent.Err(); err != nil {
-		cause := fmt.Errorf("%w: %w", errEnded, err)
+	if parent.Err() != nil {
+		cause := boundEnded(parent)
 		f.abortErr.CompareAndSwap(nil, &cause)
 	}
 	close(f.done)
@@ -742,6 +772,8 @@ func (f *winFile) Close() error {
 
 	select {
 	case <-f.done:
+	case <-f.boundDone():
+		return f.pathErr(OpClose, f.abortCause(boundEnded(f.bound)))
 	case <-timer.C:
 		return f.pathErr(OpClose, f.timedOut("waiting for the rigrcp helper to exit"))
 	}
