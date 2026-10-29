@@ -59,14 +59,25 @@ func newSession(ctx context.Context, client *ssh.Client) (*ssh.Session, error) {
 	return await(ctx, client.NewSession, func(s *ssh.Session) { _ = s.Close() })
 }
 
+// startableSession is the part of *ssh.Session startSession uses, so that a
+// start that never returns can be tested without a server.
+type startableSession interface {
+	Start(cmd string) error
+	Signal(sig ssh.Signal) error
+	Close() error
+}
+
 // startSession starts cmd on session, giving up once ctx is done. The session
 // is closed if the command does not start. That happens in the background,
 // because closing writes to a connection that may no longer be accepting data.
 // A start abandoned to ctx may still have reached the server, so it is
-// interrupted first, as a command whose context ends while running is.
-func startSession(ctx context.Context, session *ssh.Session, cmd string) error {
+// interrupted first, as a command whose context ends while running is, and
+// the output writers are detached, since its output copiers may start too.
+func startSession(ctx context.Context, session startableSession, cmd string, stdout, stderr *detachableWriter) error {
 	_, err := await(ctx, func() (struct{}, error) { return struct{}{}, session.Start(cmd) }, nil)
 	if err != nil {
+		stdout.detach()
+		stderr.detach()
 		abandoned := ctx.Err() != nil
 		go func() {
 			if abandoned {

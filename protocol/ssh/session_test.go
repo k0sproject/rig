@@ -212,8 +212,8 @@ func TestStartProcessWaitBoundedOnSilentConnection(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	var stdout bytes.Buffer
-	waiter, err := conn.StartProcess(ctx, "sleep 60", nil, &stdout, nil)
+	var stdout, stderr bytes.Buffer
+	waiter, err := conn.StartProcess(ctx, "sleep 60", nil, &stdout, &stderr)
 	require.NoError(t, err)
 	proxy.freeze()
 	cancel()
@@ -222,6 +222,15 @@ func TestStartProcessWaitBoundedOnSilentConnection(t *testing.T) {
 	err = waiter.Wait()
 	require.ErrorIs(t, err, context.Canceled)
 	require.Less(t, time.Since(start), cancelGrace+5*time.Second)
+
+	// The output copiers are still running, so what they write from here on
+	// must not reach the caller's writers.
+	sw, ok := waiter.(*sessionWaiter)
+	require.True(t, ok)
+	_, _ = sw.stdout.Write([]byte("late"))
+	_, _ = sw.stderr.Write([]byte("late"))
+	require.Empty(t, stdout.String())
+	require.Empty(t, stderr.String())
 }
 
 func TestStartProcessSessionOpenBoundedOnSilentConnection(t *testing.T) {
@@ -246,9 +255,8 @@ func TestStartProcessAbandonedStartIsInterrupted(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	var stdout lockedBuffer
 	start := time.Now()
-	_, err := conn.StartProcess(ctx, "sleep 60", nil, &stdout, nil)
+	_, err := conn.StartProcess(ctx, "sleep 60", nil, nil, nil)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.Less(t, time.Since(start), 5*time.Second)
 
@@ -257,31 +265,65 @@ func TestStartProcessAbandonedStartIsInterrupted(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("a start abandoned to its context was not interrupted")
 	}
+}
 
-	// The command starts after all and writes output, which must not reach
-	// a writer the caller has been told it can reuse.
-	release()
-	time.Sleep(100 * time.Millisecond)
+// hungSession is a startableSession whose Start does not return until it is
+// released, cancelling the context first, as a start that outlives its
+// context does.
+type hungSession struct {
+	cancel    context.CancelFunc
+	release   chan struct{}
+	signalled chan struct{}
+	closed    chan struct{}
+}
+
+func (h *hungSession) Start(string) error {
+	h.cancel()
+	<-h.release
+	return nil
+}
+
+func (h *hungSession) Signal(ssh.Signal) error {
+	close(h.signalled)
+	return nil
+}
+
+func (h *hungSession) Close() error {
+	close(h.closed)
+	return nil
+}
+
+func TestStartSessionAbandoned(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	session := &hungSession{
+		cancel:    cancel,
+		release:   make(chan struct{}),
+		signalled: make(chan struct{}),
+		closed:    make(chan struct{}),
+	}
+	defer close(session.release)
+	var stdout, stderr bytes.Buffer
+	outW := &detachableWriter{w: &stdout}
+	errW := &detachableWriter{w: &stderr}
+
+	err := startSession(ctx, session, "sleep 60", outW, errW)
+	require.ErrorIs(t, err, context.Canceled)
+
+	// The start can still complete and its copiers write: none of it may
+	// reach the caller's writers.
+	_, _ = outW.Write([]byte("late"))
+	_, _ = errW.Write([]byte("late"))
 	require.Empty(t, stdout.String())
-}
+	require.Empty(t, stderr.String())
 
-// lockedBuffer is a bytes.Buffer safe for a writer and a reader in different
-// goroutines.
-type lockedBuffer struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
-}
-
-func (b *lockedBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.Write(p) //nolint:wrapcheck // test pass-through
-}
-
-func (b *lockedBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.String()
+	for name, ch := range map[string]chan struct{}{"interrupted": session.signalled, "closed": session.closed} {
+		select {
+		case <-ch:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("the abandoned session was not %s", name)
+		}
+	}
 }
 
 func TestAwait(t *testing.T) {

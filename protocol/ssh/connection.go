@@ -1546,11 +1546,13 @@ func (c *Connection) pkeySigner(ctx context.Context, agentSigners []ssh.Signer, 
 // Starting the command and waiting for it are bounded by ctx even when the
 // connection has gone silent. If ctx is done before the command ends, the
 // command is interrupted, and if it has not ended after a short grace period
-// Wait returns ctx's error. On that path the goroutines copying the command's
+// Wait returns ctx's error. On that path, and when StartProcess itself
+// returns an error with ctx done, the goroutines copying the command's
 // streams can still be running: they are cut loose from stdout and stderr
 // first, and stop reading stdin at its next read, but a read or write already
 // in progress cannot be interrupted. A caller that recycles or closes any of
-// the three streams must therefore not do so when Wait reports a context error.
+// the three streams must therefore not do so after a context error from
+// either.
 func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Reader, stdout, stderr io.Writer) (protocol.Waiter, error) {
 	c.mu.Lock()
 	client := c.client
@@ -1599,10 +1601,7 @@ func (c *Connection) StartProcess(ctx context.Context, cmd string, stdin io.Read
 	session.Stdout = outW
 	session.Stderr = errW
 
-	if err := startSession(ctx, session, cmd); err != nil {
-		// A start abandoned to ctx can still complete and begin copying output.
-		outW.detach()
-		errW.detach()
+	if err := startSession(ctx, session, cmd, outW, errW); err != nil {
 		return nil, fmt.Errorf("start session: %w", err)
 	}
 
