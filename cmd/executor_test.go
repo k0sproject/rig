@@ -400,3 +400,67 @@ func TestStartAbandonedDoesNotWaitForOutput(t *testing.T) {
 		t.Fatal("Start waited for a blocked output tracer")
 	}
 }
+
+// interruptedStarter stands in for a connection whose command is interrupted
+// by its context and reports only how it exited, as an ssh session does when
+// the interrupted command ends within the grace period.
+type interruptedStarter struct {
+	cancel context.CancelFunc
+	err    error
+}
+
+func (s *interruptedStarter) StartProcess(_ context.Context, command string, _ io.Reader, _, _ io.Writer) (protocol.Waiter, error) {
+	if command == "ver.exe" {
+		return nil, errors.New("not windows")
+	}
+	return waitFunc(func() error {
+		if s.cancel != nil {
+			s.cancel()
+		}
+		return s.err
+	}), nil
+}
+
+type waitFunc func() error
+
+func (f waitFunc) Wait() error { return f() }
+
+func TestExecContextReportsInterruption(t *testing.T) {
+	exitErr := errors.New("process exited with status 130")
+
+	t.Run("interrupted", func(t *testing.T) {
+		for name, exec := range map[string]func(*cmd.Executor, context.Context) error{
+			"ExecContext": func(r *cmd.Executor, ctx context.Context) error { return r.ExecContext(ctx, "true") },
+			"ExecOutputContext": func(r *cmd.Executor, ctx context.Context) error {
+				_, err := r.ExecOutputContext(ctx, "true")
+				return err
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				runner := cmd.NewExecutor(&interruptedStarter{cancel: cancel, err: exitErr})
+
+				err := exec(runner, ctx)
+				require.ErrorIs(t, err, context.Canceled)
+				require.ErrorIs(t, err, exitErr)
+				var procErr *cmd.ProcessError
+				require.ErrorAs(t, err, &procErr)
+			})
+		}
+	})
+
+	t.Run("finished despite the context", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		runner := cmd.NewExecutor(&interruptedStarter{cancel: cancel})
+		require.NoError(t, runner.ExecContext(ctx, "true"))
+	})
+
+	t.Run("failed on its own", func(t *testing.T) {
+		runner := cmd.NewExecutor(&interruptedStarter{err: exitErr})
+		err := runner.ExecContext(context.Background(), "true")
+		require.ErrorIs(t, err, exitErr)
+		require.NotErrorIs(t, err, context.Canceled)
+	})
+}
