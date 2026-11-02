@@ -22,6 +22,10 @@ import (
 // command, such as seeking a POSIX file or reading entries a directory has
 // already listed, are not affected.
 //
+// Cleanup is a remote command too. An operation that ctx cuts short, such as
+// Upload or DownloadURL, can therefore leave its temporary file behind, as it
+// does when a session times out.
+//
 // How quickly a command gives up is up to the transport. Over WinRM, creating
 // the shell a command runs in takes no context, so a host that stops
 // answering at that point holds the command until the connection's own
