@@ -188,3 +188,52 @@ func TestClientConfigExplicitAuthMethodsAreUsedExclusively(t *testing.T) {
 	// a second (publickey) method would be added for the key file, making len > 1.
 	require.Len(t, cfg.Auth, len(c.AuthMethods), "only the caller-supplied AuthMethods should be present; no extra methods added")
 }
+
+// setX25519Available replaces x25519Available for the duration of a test.
+func setX25519Available(t *testing.T, available bool) {
+	t.Helper()
+	orig := x25519Available
+	x25519Available = func() bool { return available }
+	t.Cleanup(func() { x25519Available = orig })
+}
+
+// TestClientConfigKeyExchangesWithX25519 verifies that nothing is configured when X25519 is
+// usable, so x/crypto/ssh keeps its own defaults.
+func TestClientConfigKeyExchangesWithX25519(t *testing.T) {
+	t.Setenv("SSH_KNOWN_HOSTS", "")
+	setX25519Available(t, true)
+
+	c := &SSH{
+		Address:     "127.0.0.1",
+		User:        "root",
+		AuthMethods: []ssh.AuthMethod{ssh.Password("test-password")},
+	}
+
+	cfg, err := c.clientConfig()
+	require.NoError(t, err)
+	require.Nil(t, cfg.KeyExchanges)
+}
+
+// TestClientConfigKeyExchangesWithoutX25519 verifies that a build which refuses X25519
+// offers only supported key exchanges that do not depend on it.
+func TestClientConfigKeyExchangesWithoutX25519(t *testing.T) {
+	t.Setenv("SSH_KNOWN_HOSTS", "")
+	setX25519Available(t, false)
+
+	c := &SSH{
+		Address:     "127.0.0.1",
+		User:        "root",
+		AuthMethods: []ssh.AuthMethod{ssh.Password("test-password")},
+	}
+
+	cfg, err := c.clientConfig()
+	require.NoError(t, err)
+
+	require.NotEmpty(t, cfg.KeyExchanges)
+	require.Contains(t, cfg.KeyExchanges, "ecdh-sha2-nistp256")
+	supported := ssh.SupportedAlgorithms().KeyExchanges
+	for _, kex := range cfg.KeyExchanges {
+		require.NotContains(t, kex, "25519")
+		require.Contains(t, supported, kex)
+	}
+}
