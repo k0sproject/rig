@@ -3,6 +3,8 @@ package rig
 import (
 	"bufio"
 	"bytes"
+	"crypto/ecdh"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -496,7 +498,38 @@ func (c *SSH) clientConfig() (*ssh.ClientConfig, error) {
 		return nil, fmt.Errorf("%w: no usable authentication method found", ErrCantConnect)
 	}
 
+	if !x25519Available() {
+		config.KeyExchanges = kexWithoutX25519()
+		log.Debugf("%s: X25519 is not usable in this build, key exchanges limited to %v", c, config.KeyExchanges)
+	}
+
 	return config, nil
+}
+
+// x25519Available reports whether the X25519 curve can be used in this process. Go refuses
+// it under GODEBUG=fips140=only, and a toolchain that routes crypto through an external FIPS
+// module refuses it whenever that module is active. It is a variable so tests can simulate
+// such a build.
+var x25519Available = sync.OnceValue(func() bool {
+	_, err := ecdh.X25519().GenerateKey(rand.Reader)
+	return err == nil
+})
+
+// kexWithoutX25519 returns the key exchange algorithms x/crypto/ssh supports, in its
+// preference order, without the ones built on X25519. x/crypto/ssh keeps
+// mlkem768x25519-sha256 first in its defaults in FIPS mode too, so when X25519 is refused a
+// server that supports it negotiates it and the handshake fails even though usable
+// algorithms were offered too. ssh.Config.SetDefaults drops the entries unavailable in the
+// current mode.
+func kexWithoutX25519() []string {
+	var kexs []string
+	for _, kex := range ssh.SupportedAlgorithms().KeyExchanges {
+		if strings.Contains(kex, "25519") {
+			continue
+		}
+		kexs = append(kexs, kex)
+	}
+	return kexs
 }
 
 // Connect opens the SSH connection
