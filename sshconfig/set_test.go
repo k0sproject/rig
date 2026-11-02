@@ -474,26 +474,24 @@ func TestSetterAlgoFields(t *testing.T) {
 					require.True(t, ok)
 					require.NotContains(t, values, "dummy")
 					origLen := len(values)
-					if origLen > 3 {
-						// the ssh version on github runners has empty CASignatureAlgorithms
-						require.True(t, origLen > 3)
-						// now we can test the actual modifier
-						require.NoError(t, setter.Reset(field))
-						remove := values[2]
-						require.NoError(t, setter.Set(field, "-"+remove))
-						f = reflect.ValueOf(&obj).Elem().FieldByName(field)
-						values, ok = f.Interface().([]string)
-						require.True(t, ok)
-						require.NotContains(t, values, remove)
-						require.Equal(t, origLen-1, len(values))
-						// the op should only happen once
-						remove = values[2]
-						require.NoError(t, setter.Set(field, "-"+remove))
-						f = reflect.ValueOf(&obj).Elem().FieldByName(field)
-						values, ok = f.Interface().([]string)
-						require.True(t, ok)
-						require.Contains(t, values, remove, "removal should only happen once")
-					}
+					// The defaults come from the built-in default config, whose lists
+					// all hold more than three entries.
+					require.Greater(t, origLen, 3)
+					require.NoError(t, setter.Reset(field))
+					remove := values[2]
+					require.NoError(t, setter.Set(field, "-"+remove))
+					f = reflect.ValueOf(&obj).Elem().FieldByName(field)
+					values, ok = f.Interface().([]string)
+					require.True(t, ok)
+					require.NotContains(t, values, remove)
+					require.Equal(t, origLen-1, len(values))
+					// the op should only happen once
+					remove = values[2]
+					require.NoError(t, setter.Set(field, "-"+remove))
+					f = reflect.ValueOf(&obj).Elem().FieldByName(field)
+					values, ok = f.Interface().([]string)
+					require.True(t, ok)
+					require.Contains(t, values, remove, "removal should only happen once")
 				})
 			})
 		})
