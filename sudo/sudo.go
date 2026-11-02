@@ -9,8 +9,10 @@ import (
 )
 
 // requireTTYMessage is how sudo rejects a command when sudoers sets requiretty
-// and the session has no terminal, which rig's sessions never have. sudo
-// translates it, so the probe runs under the C locale to keep it matchable.
+// and the session has no terminal. Commands run through Exec, this probe and
+// the sudo-wrapped commands after it among them, get none; only
+// ExecInteractive asks for one. sudo translates the message, so the probe runs
+// under the C locale to keep it matchable.
 const requireTTYMessage = "must have a tty"
 
 // Sudo is a DecorateFunc that will wrap the given command in a sudo call.
@@ -35,7 +37,7 @@ func RegisterSudo(repository *Registry) {
 			// The registry has no way to carry a reason, so without this the
 			// caller only learns that no sudo method was found.
 			if strings.Contains(cmd.StderrOf(err), requireTTYMessage) {
-				log.GetLogger(runner).Warn("sudo is unusable because sudoers sets requiretty and rig runs commands without a terminal; exempt this user with 'Defaults:<user> !requiretty'", log.ErrorAttr(err))
+				log.GetLogger(runner).Warn("sudo is unusable because sudoers sets requiretty and rig runs sudo commands without a terminal; exempt this user with 'Defaults:<user> !requiretty'", log.ErrorAttr(err))
 			}
 			return nil, false
 		}
