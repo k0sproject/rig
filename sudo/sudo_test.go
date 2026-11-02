@@ -83,12 +83,13 @@ func TestTTYGolden(t *testing.T) {
 // TTY can be run without root. With RIG_TEST_INTERRUPT_SCRIPT set it first
 // interrupts the script(1) running it, as a cancelled session would, before the
 // command can report a status. Its parent is the shell script started, whose
-// parent is script.
+// parent is script. The pid is read from /proc rather than with ps, whose
+// BusyBox version lacks the options for it.
 const fakeSudo = `#!/bin/sh
 [ "$1" = -n ] && shift
 [ "$1" = -- ] && shift
 if [ -n "${RIG_TEST_INTERRUPT_SCRIPT:-}" ]; then
-	kill -INT "$(ps -o ppid= -p "$PPID" | tr -d ' ')"
+	kill -INT "$(sed -n 's/^PPid:[[:space:]]*//p' "/proc/$PPID/status")"
 	sleep 30
 fi
 exec "$@"
