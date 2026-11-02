@@ -65,8 +65,10 @@ type PosixFS struct {
 	log.LoggerInjectable
 
 	// TODO: these should probably be in some kind of "coreutils" package
-	statCmd   *string
-	chtimesFn func(name string, atime, mtime int64) error
+	statCmd *string
+	// chtimesFn is a method expression rather than a method value so that the
+	// copy WithContext makes runs it on itself, not on the original.
+	chtimesFn func(s *PosixFS, name string, atime, mtime int64) error
 }
 
 // NewPosixFS returns a fs.FS implementation for a remote filesystem that uses POSIX commands for access.
@@ -79,14 +81,24 @@ func (s *PosixFS) initStat() error {
 		return nil
 	}
 
-	if err := s.Exec("stat -c %n /"); err == nil {
+	// A probe that failed because the context ended says nothing about which
+	// stat the host has, and the caller needs to see that it was cancelled.
+	err := s.Exec("stat -c %n /")
+	if err == nil {
 		s.statCmd = &statCmdGNU
 		return nil
 	}
+	if isContextErr(err) {
+		return fmt.Errorf("probe stat: %w", err)
+	}
 
-	if err := s.Exec("stat -s /"); err == nil {
+	err = s.Exec("stat -s /")
+	if err == nil {
 		s.statCmd = &statCmdBSD
 		return nil
+	}
+	if isContextErr(err) {
+		return fmt.Errorf("probe stat: %w", err)
 	}
 
 	return errStatInitFailed
@@ -143,7 +155,7 @@ func (s *PosixFS) initTouch() error {
 		return fmt.Errorf("can't access touch command: %w", err)
 	}
 	if strings.Contains(out, "BusyBox") {
-		s.chtimesFn = s.secChtimes
+		s.chtimesFn = (*PosixFS).secChtimes
 		return nil
 	}
 	tmpF, err := CreateTemp(s, "", "rigfs-touch-test")
@@ -157,9 +169,14 @@ func (s *PosixFS) initTouch() error {
 		return fmt.Errorf("can't close temp file for touch test: %w", err)
 	}
 	if err := s.nsecChtimes(tmpF.Name(), 0, 0); err != nil {
-		s.chtimesFn = s.secChtimes
+		// A probe cut short by the context says nothing about touch, and
+		// caching the fallback would lose precision for good.
+		if isContextErr(err) {
+			return fmt.Errorf("probe touch: %w", err)
+		}
+		s.chtimesFn = (*PosixFS).secChtimes
 	} else {
-		s.chtimesFn = s.nsecChtimes
+		s.chtimesFn = (*PosixFS).nsecChtimes
 	}
 
 	return nil
@@ -343,7 +360,14 @@ const localProcessFailureExit = 255
 // nor *exec.ExitError is constructed for a successful command, so an error
 // carrying zero comes from something other than a command that ran, and the
 // safe answer for anything unrecognised here is false.
+//
+// A command its context interrupted can still exit with a positive status,
+// such as 130 after SIGINT, and the executor then adds the context error. That
+// is a cancellation, not an answer about the path.
 func commandRanAndFailed(err error) bool {
+	if isContextErr(err) {
+		return false
+	}
 	if withStatus, ok := errors.AsType[exitStatuser](err); ok {
 		// x/crypto/ssh initialises its wait message with a status of -1 and only
 		// an "exit-status" request overwrites it, so a remote command killed by a
@@ -516,7 +540,7 @@ func (s *PosixFS) Chtimes(name string, atime, mtime int64) error {
 	if err := s.initTouch(); err != nil {
 		return err
 	}
-	return s.chtimesFn(name, atime, mtime)
+	return s.chtimesFn(s, name, atime, mtime)
 }
 
 // Truncate changes the size of the named file or creates a new file if it doesn't exist.

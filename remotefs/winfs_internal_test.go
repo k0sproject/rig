@@ -1,6 +1,7 @@
 package remotefs
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -22,6 +23,12 @@ func TestCloseWithSession(t *testing.T) {
 		require.ErrorIs(t, err, ErrTimeout)
 	})
 
+	t.Run("reports a session ended by the context", func(t *testing.T) {
+		var err error
+		closeWithSession(stubCloser{err: fmt.Errorf("close: %w", context.Canceled)}, &err)
+		require.ErrorIs(t, err, context.Canceled)
+	})
+
 	t.Run("leaves the operation's own error alone", func(t *testing.T) {
 		own := errors.New("read failed")
 		err := own
@@ -33,5 +40,26 @@ func TestCloseWithSession(t *testing.T) {
 		var err error
 		closeWithSession(stubCloser{err: io.ErrClosedPipe}, &err)
 		require.NoError(t, err, "only a dead session makes an otherwise good operation a failure")
+	})
+}
+
+func TestCloseWritten(t *testing.T) {
+	t.Run("reports an ordinary close failure", func(t *testing.T) {
+		var err error
+		closeWritten(stubCloser{err: io.ErrClosedPipe}, &err)
+		require.ErrorIs(t, err, io.ErrClosedPipe, "the data may not have reached the host")
+	})
+
+	t.Run("leaves the operation's own error alone", func(t *testing.T) {
+		own := errors.New("write failed")
+		err := own
+		closeWritten(stubCloser{err: io.ErrClosedPipe}, &err)
+		require.Equal(t, own, err)
+	})
+
+	t.Run("a clean close keeps success", func(t *testing.T) {
+		var err error
+		closeWritten(stubCloser{}, &err)
+		require.NoError(t, err)
 	})
 }

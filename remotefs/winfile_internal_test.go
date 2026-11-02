@@ -356,6 +356,39 @@ func TestWinFileCloseSucceedsOnACleanQuit(t *testing.T) {
 	require.True(t, s.file.closed.Load())
 }
 
+// TestWinFileCloseReportsASessionEndedByContext verifies that a helper which
+// exits because the filesystem's context ended, rather than because of the
+// quit, does not make Close report success.
+func TestWinFileCloseReportsASessionEndedByContext(t *testing.T) {
+	s := newRCPSession(t, time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	go func() {
+		if !s.answer([]string{`{"pos":-1}`}) {
+			return
+		}
+		if _, err := s.commands.ReadString('\n'); err == nil { // the quit
+			s.file.ended(ctx)
+		}
+	}()
+
+	require.ErrorIs(t, s.file.Close(), context.Canceled)
+}
+
+// TestWinFileCloseAfterSessionEndedByContext verifies that a Close starting
+// after the bound context has already ended the session reports that, rather
+// than only that the file is closed.
+func TestWinFileCloseAfterSessionEndedByContext(t *testing.T) {
+	s := newRCPSession(t, time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	s.file.ended(ctx)
+
+	err := s.file.Close()
+	require.ErrorIs(t, err, context.Canceled)
+	require.ErrorIs(t, err, fs.ErrClosed)
+}
+
 // TestWinFileCloseReportsAHelperThatNeverExits covers the gap between the two:
 // the quit goes out and is even read, but the helper never exits, so the
 // session is gone even though nothing about the write said so.
@@ -409,6 +442,105 @@ func TestWinFileCommandEndedSession(t *testing.T) {
 	_, err := s.file.command("r 4")
 
 	require.ErrorIs(t, err, errEnded)
+}
+
+// TestWinFileEndedByContextReportsIt verifies that a command in flight when
+// the context the filesystem is bound to ends the session reports that
+// context's error, not a bare errEnded.
+func TestWinFileEndedByContextReportsIt(t *testing.T) {
+	s := newRCPSession(t, time.Second)
+	received := make(chan struct{})
+	go func() {
+		if _, err := s.commands.ReadString('\n'); err == nil {
+			close(received)
+		}
+	}()
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := s.file.command("r 4")
+		errCh <- err
+	}()
+	<-received
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	s.file.ended(ctx)
+
+	err := <-errCh
+	require.ErrorIs(t, err, context.Canceled)
+	require.ErrorIs(t, err, errEnded)
+}
+
+// TestWinFileBoundContextReleasesAParkedCommand verifies that the bound
+// context ending releases a command parked on a silent session at once,
+// without waiting for the watchdog or for the transport's Wait to return.
+func TestWinFileBoundContextReleasesAParkedCommand(t *testing.T) {
+	s := newRCPSession(t, time.Minute)
+	// The command goes out fine; nothing ever answers it.
+	received := make(chan struct{})
+	go func() {
+		if _, err := s.commands.ReadString('\n'); err == nil {
+			close(received)
+		}
+	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stop := s.file.abortWhenDone(ctx)
+	defer stop()
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := s.file.command("r 4")
+		errCh <- err
+	}()
+	// Cancel only once the command is parked on its response, so that this
+	// covers releasing it rather than refusing a command on a closed file.
+	<-received
+	cancel()
+
+	select {
+	case err := <-errCh:
+		require.ErrorIs(t, err, context.Canceled)
+		require.ErrorIs(t, err, errEnded)
+	case <-time.After(5 * time.Second):
+		t.Fatal("command stayed parked after the bound context ended")
+	}
+	select {
+	case <-s.cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("the rigrcp command was not cancelled")
+	}
+	require.True(t, s.file.closed.Load())
+}
+
+// TestWinFileCloseStopsWaitingWhenTheBoundContextEnds verifies that Close,
+// waiting for a helper that took the quit but never exits, gives up as soon
+// as the bound context ends.
+func TestWinFileCloseStopsWaitingWhenTheBoundContextEnds(t *testing.T) {
+	s := newRCPSession(t, time.Minute)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stop := s.file.abortWhenDone(ctx)
+	defer stop()
+	go func() {
+		if !s.answer([]string{`{"pos":-1}`}) {
+			return
+		}
+		if _, err := s.commands.ReadString('\n'); err == nil { // the quit
+			cancel()
+		}
+	}()
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- s.file.Close() }()
+
+	select {
+	case err := <-errCh:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close kept waiting for the helper after the bound context ended")
+	}
 }
 
 func TestWinFileOpenFlags(t *testing.T) {

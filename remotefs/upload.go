@@ -105,10 +105,13 @@ func Upload(fsys FS, src, dst string, opts ...UploadOption) error {
 	// moved tmpPath away, and only RemoveAll accepts a path that is not there.
 	// Not after a session timeout though -- the connection is gone, so the
 	// cleanup would run against it and block there, undoing the bound that
-	// timeout just established. The temp file is left for the next upload.
+	// timeout just established. Nor after the context fsys is bound to has
+	// ended, which fails every command, the cleanup included. The temp file is
+	// left for the next upload.
 	var failure error
 	defer func() {
-		if errors.Is(failure, ErrTimeout) {
+		// ErrTimeout wraps context.DeadlineExceeded, so this covers it too.
+		if isContextErr(failure) {
 			return
 		}
 		_ = fsys.RemoveAll(tmpPath)

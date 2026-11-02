@@ -209,6 +209,16 @@ func TestUploadSessionTimeoutSkipsCleanup(t *testing.T) {
 	require.Empty(t, mfs.removedPaths, "cleanup must not run on a session that timed out: the connection is gone and the command would block on it")
 }
 
+func TestUploadCancelledSkipsCleanup(t *testing.T) {
+	src := writeTempFile(t, "hello", 0o644)
+	mfs := &uploadFS{copyFromErr: fmt.Errorf("copy file to remote host: %w", context.Canceled)}
+
+	err := remotefs.Upload(mfs, src, "/remote/dst")
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.Empty(t, mfs.removedPaths, "cleanup must not run once the bound context has ended: it would only fail too")
+}
+
 func TestUploadKeepsATimedOutCloseBehindACopyFailure(t *testing.T) {
 	src := writeTempFile(t, "hello", 0o644)
 	// The copy fails for its own reasons and the close then finds the session
