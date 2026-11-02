@@ -109,6 +109,16 @@ func (s *WinFS) ReadDir(name string) (entries []fs.DirEntry, err error) {
 	return dir.ReadDir(-1)
 }
 
+// closeWritten closes a file that was written to, and reports any close
+// failure through err when the write itself had no complaint. The helper
+// finishes the write on the host when it closes the file, so unlike after a
+// read, a failed close means the data may not be there.
+func closeWritten(f io.Closer, err *error) {
+	if closeErr := f.Close(); *err == nil && closeErr != nil {
+		*err = closeErr
+	}
+}
+
 // closeWithSession closes f, and reports a close that failed because the
 // remote session timed out through err when the operation itself had no
 // complaint. Anything the caller reads or writes afterwards would go to a
@@ -335,7 +345,7 @@ func (s *WinFS) WriteFile(name string, data []byte, mode fs.FileMode) (err error
 	if err != nil {
 		return fmt.Errorf("writefile %s: %w", name, err)
 	}
-	defer closeWithSession(f, &err)
+	defer closeWritten(f, &err)
 	reader := bytes.NewReader(data)
 	_, err = io.Copy(f, reader)
 	if err != nil {
