@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -448,4 +449,53 @@ func TestSyntaxError(t *testing.T) {
 	_, err := sshconfig.NewParser(strings.NewReader("Host example.com\n  UserKnownHostsFile ~/.ssh/id_known\n  UnknownOption\n"))
 	require.Error(t, err)
 	require.ErrorIs(t, err, sshconfig.ErrSyntax)
+}
+
+func TestParserAlgorithmListModifiers(t *testing.T) {
+	apply := func(t *testing.T, kex string) []string {
+		t.Helper()
+		content := "Host node\n"
+		if kex != "" {
+			content += "  KexAlgorithms " + kex + "\n"
+		}
+		parser, err := sshconfig.NewParser(strings.NewReader(content))
+		require.NoError(t, err)
+		obj := &sshconfig.Config{}
+		require.NoError(t, parser.Apply(obj, "node"))
+		return obj.KexAlgorithms
+	}
+	defaults := apply(t, "")
+	require.Greater(t, len(defaults), 2)
+
+	t.Run("+ appends to the built-in defaults", func(t *testing.T) {
+		require.Equal(t, append(slices.Clone(defaults), "extra-kex"), apply(t, "+extra-kex"))
+	})
+
+	t.Run("^ puts the values ahead of the built-in defaults", func(t *testing.T) {
+		got := apply(t, "^"+defaults[1])
+		require.Equal(t, defaults[1], got[0])
+		require.ElementsMatch(t, defaults, got)
+	})
+
+	t.Run("- removes every default matching a pattern, once", func(t *testing.T) {
+		require.Equal(t, defaults[2:], apply(t, "-"+defaults[0]+","+defaults[1]))
+	})
+
+	t.Run("- matches wildcards against the defaults", func(t *testing.T) {
+		var want []string
+		for _, kex := range defaults {
+			if !strings.HasPrefix(kex, "ecdh-") {
+				want = append(want, kex)
+			}
+		}
+		require.Less(t, len(want), len(defaults), "the defaults must hold an ecdh- entry for this to test anything")
+		require.Equal(t, want, apply(t, "-ecdh-*"))
+	})
+
+	t.Run("- removing every default is an error", func(t *testing.T) {
+		parser, err := sshconfig.NewParser(strings.NewReader("Host node\n  KexAlgorithms -*\n"))
+		require.NoError(t, err)
+		obj := &sshconfig.Config{}
+		require.ErrorContains(t, parser.Apply(obj, "node"), "removes every default")
+	})
 }
