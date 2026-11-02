@@ -65,19 +65,19 @@ func preloadedDefaultsSetter(defaultValues string) setterFunc { //nolint:cyclop
 				}
 			}
 		case "-":
-			// - prefix removes matching values from the defaults list
+			// - prefix removes the defaults matching any of the patterns
 		defaultFor:
 			for _, v := range defaults {
-				for _, value := range values {
-					matches, err := patternMatch(value, v)
+				for _, pattern := range values {
+					matches, err := patternMatch(v, pattern)
 					if err != nil {
-						return fmt.Errorf("%w: invalid pattern %q: %w", errInvalidValue, value, err)
+						return fmt.Errorf("%w: invalid pattern %q: %w", errInvalidValue, pattern, err)
 					}
 					if matches {
 						continue defaultFor
 					}
-					newValues = append(newValues, v)
 				}
+				newValues = append(newValues, v)
 			}
 		}
 		field.Set(reflect.ValueOf(newValues))
