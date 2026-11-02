@@ -60,3 +60,11 @@ func TestSudoGolden(t *testing.T) {
 		})
 	}
 }
+
+// TestTTYGolden pins the command the TTY decorator produces: the streams set
+// aside on descriptors 3 to 5 around script and put back before sudo, and the
+// exit status relayed on descriptor 6.
+func TestTTYGolden(t *testing.T) {
+	want := `/bin/sh -c -- '{ st=$(SHELL=/bin/sh script -qec '"'"'sudo -n -- /bin/sh -c -- '"'"'"'"'"'"'"'"'id -un'"'"'"'"'"'"'"'"' <&3 >&4 2>&5 3<&- 4>&- 5>&-; echo $? >&6'"'"' /dev/null 6>&1 </dev/null >&5); } 3<&0 4>&1 5>&2; case "$st" in '"'"''"'"'|*[!0-9]*) exit 130;; esac; exit "$st"'`
+	assert.Equal(t, want, sudo.TTY("id -un"))
+}
