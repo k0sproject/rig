@@ -477,7 +477,13 @@ func TestWinFileEndedByContextReportsIt(t *testing.T) {
 // without waiting for the watchdog or for the transport's Wait to return.
 func TestWinFileBoundContextReleasesAParkedCommand(t *testing.T) {
 	s := newRCPSession(t, time.Minute)
-	s.serveAndDrain() // the command goes out fine; nothing ever answers it
+	// The command goes out fine; nothing ever answers it.
+	received := make(chan struct{})
+	go func() {
+		if _, err := s.commands.ReadString('\n'); err == nil {
+			close(received)
+		}
+	}()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	stop := s.file.abortWhenDone(ctx)
@@ -488,6 +494,9 @@ func TestWinFileBoundContextReleasesAParkedCommand(t *testing.T) {
 		_, err := s.file.command("r 4")
 		errCh <- err
 	}()
+	// Cancel only once the command is parked on its response, so that this
+	// covers releasing it rather than refusing a command on a closed file.
+	<-received
 	cancel()
 
 	select {
