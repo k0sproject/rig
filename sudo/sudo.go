@@ -82,7 +82,7 @@ func RegisterSudo(repository *Registry) {
 			log.GetLogger(runner).Warn("sudo is unusable because sudoers sets requiretty and rig runs sudo commands without a terminal, and providing one through script(1) failed; exempt this user with 'Defaults:<user> !requiretty' or install util-linux", log.ErrorAttr(err), "script_error", ttyErr)
 			return nil, false
 		}
-		log.GetLogger(runner).Warn("sudoers sets requiretty, so sudo commands run inside script(1) to get a terminal: each starts an extra process and pseudo-terminal, and a command that opens /dev/tty will find one; exempt this user with 'Defaults:<user> !requiretty' to avoid this")
+		log.GetLogger(runner).Warn("sudoers sets requiretty, so sudo commands run inside script(1) to get a terminal; a sudo command that is cancelled or loses its connection may keep running on the host; exempting this user with 'Defaults:<user> !requiretty' lets rig run sudo directly")
 		return cmd.NewExecutor(runner, TTY), true
 	})
 }
