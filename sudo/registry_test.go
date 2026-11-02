@@ -3,6 +3,7 @@ package sudo_test
 import (
 	"errors"
 	"fmt"
+	"io"
 	"testing"
 
 	"github.com/k0sproject/rig/v2/rigtest"
@@ -62,6 +63,75 @@ func TestRegisterSudo(t *testing.T) {
 		require.ErrorIs(t, err, sudo.ErrNoSudo)
 		require.True(t, logger.ReceivedSubstring("requiretty"))
 		require.NoError(t, mr.Received(rigtest.HasPrefix("env LC_ALL=C sudo -n")))
+	})
+
+	t.Run("falls back to script when sudoers requires a tty", func(t *testing.T) {
+		reg := sudo.NewRegistry()
+		sudo.RegisterSudo(reg)
+
+		mr := rigtest.NewMockRunner()
+		logger := &rigtest.MockLogger{}
+		mr.SetLogger(logger)
+		mr.AddCommand(rigtest.HasPrefix("env LC_ALL=C sudo -n"), requireTTY)
+		mr.AddCommand(rigtest.Contains("script -qec"), func(a *rigtest.A) error {
+			// Echo stdin and report uid 0, as a working wrapper does for the
+			// probe. Later commands have no stdin.
+			if a.Stdin != nil {
+				if _, err := io.Copy(a.Stdout, a.Stdin); err != nil {
+					return err
+				}
+			}
+			_, err := fmt.Fprint(a.Stdout, "\n0\n")
+			return err
+		})
+
+		runner, err := reg.Get(mr)
+		require.NoError(t, err)
+		require.True(t, logger.ReceivedSubstring("script(1)"), "choosing the fallback must be logged")
+
+		require.NoError(t, runner.Exec("whoami"))
+		// The probe already sent a script command, so only the exact wrapped
+		// command shows that later commands go through TTY.
+		require.NoError(t, mr.Received(rigtest.Contains(sudo.TTY("whoami"))))
+	})
+
+	t.Run("no fallback when script fails", func(t *testing.T) {
+		reg := sudo.NewRegistry()
+		sudo.RegisterSudo(reg)
+
+		mr := rigtest.NewMockRunner()
+		logger := &rigtest.MockLogger{}
+		mr.SetLogger(logger)
+		mr.AddCommand(rigtest.HasPrefix("env LC_ALL=C sudo -n"), requireTTY)
+		mr.AddCommand(rigtest.Contains("script -qec"), func(a *rigtest.A) error {
+			_, _ = fmt.Fprintln(a.Stderr, "/bin/sh: script: not found")
+			return errProbe
+		})
+
+		_, err := reg.Get(mr)
+		require.ErrorIs(t, err, sudo.ErrNoSudo)
+		require.True(t, logger.ReceivedSubstring("requiretty"))
+		require.True(t, logger.ReceivedSubstring("util-linux"), "the warning must say what would make the fallback work")
+	})
+
+	t.Run("no fallback when script does not run as root", func(t *testing.T) {
+		reg := sudo.NewRegistry()
+		sudo.RegisterSudo(reg)
+
+		mr := rigtest.NewMockRunner()
+		mr.AddCommand(rigtest.HasPrefix("env LC_ALL=C sudo -n"), requireTTY)
+		mr.AddCommand(rigtest.Contains("script -qec"), func(a *rigtest.A) error {
+			if a.Stdin != nil {
+				if _, err := io.Copy(a.Stdout, a.Stdin); err != nil {
+					return err
+				}
+			}
+			_, err := fmt.Fprint(a.Stdout, "\n1000\n")
+			return err
+		})
+
+		_, err := reg.Get(mr)
+		require.ErrorIs(t, err, sudo.ErrNoSudo)
 	})
 
 	t.Run("does not warn on other probe failures", func(t *testing.T) {
@@ -263,4 +333,11 @@ func TestSudoProvider(t *testing.T) {
 		// Same pointer returned both times.
 		assert.Same(t, r1, r2)
 	})
+}
+
+// requireTTY answers a sudo probe the way sudo does when sudoers sets
+// requiretty and the session has no terminal.
+func requireTTY(a *rigtest.A) error {
+	_, _ = fmt.Fprintln(a.Stderr, "sudo: sorry, you must have a tty to run sudo")
+	return errProbe
 }
