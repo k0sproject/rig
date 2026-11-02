@@ -79,10 +79,10 @@ func RegisterSudo(repository *Registry) {
 		if ttyErr := probeTTY(runner); ttyErr != nil {
 			// The registry has no way to carry a reason, so without this the
 			// caller only learns that no sudo method was found.
-			log.GetLogger(runner).Warn("sudo is unusable because sudoers sets requiretty and rig runs sudo commands without a terminal, and providing one through script(1) failed; exempt this user with 'Defaults:<user> !requiretty' or install util-linux", log.ErrorAttr(err), "script_error", ttyErr)
+			log.GetLogger(runner).Warn("sudo is unusable because sudoers sets requiretty and commands run without a terminal, and providing one through script(1) failed; exempt this user with 'Defaults:<user> !requiretty' or install util-linux", log.ErrorAttr(err), "script_error", ttyErr)
 			return nil, false
 		}
-		log.GetLogger(runner).Warn("sudoers sets requiretty, so sudo commands run inside script(1) to get a terminal; a sudo command that is cancelled or loses its connection may keep running on the host; exempting this user with 'Defaults:<user> !requiretty' lets rig run sudo directly")
+		log.GetLogger(runner).Warn("sudoers sets requiretty, so sudo commands run inside script(1) to get a terminal; a sudo command that is cancelled or loses its connection may keep running on the host; exempting this user with 'Defaults:<user> !requiretty' runs sudo directly")
 		return cmd.NewExecutor(runner, TTY), true
 	})
 }
