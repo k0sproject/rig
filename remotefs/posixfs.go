@@ -360,7 +360,14 @@ const localProcessFailureExit = 255
 // nor *exec.ExitError is constructed for a successful command, so an error
 // carrying zero comes from something other than a command that ran, and the
 // safe answer for anything unrecognised here is false.
+//
+// A command its context interrupted can still exit with a positive status,
+// such as 130 after SIGINT, and the executor then adds the context error. That
+// is a cancellation, not an answer about the path.
 func commandRanAndFailed(err error) bool {
+	if isContextErr(err) {
+		return false
+	}
 	if withStatus, ok := errors.AsType[exitStatuser](err); ok {
 		// x/crypto/ssh initialises its wait message with a status of -1 and only
 		// an "exit-status" request overwrites it, so a remote command killed by a

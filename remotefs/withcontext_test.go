@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 	"testing"
 
@@ -105,6 +106,23 @@ func TestWithContext(t *testing.T) {
 
 		_, err := remotefs.WithContext(ctx, remotefs.NewPosixFS(runner)).Stat("file")
 		require.ErrorIs(t, err, context.Canceled, "probing which stat the host has must not hide the cancellation")
+	})
+
+	t.Run("an interrupted stat is not reported as a missing file", func(t *testing.T) {
+		runner := rigtest.NewMockRunner()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		runner.AddCommandOutput(rigtest.HasPrefix("stat -c %n"), "/\n")
+		runner.AddCommand(rigtest.Contains("stat -c '%#f"), func(_ *rigtest.A) error {
+			// Interrupted, stat exits as SIGINT leaves it, which alone would
+			// read as the path not being there.
+			cancel()
+			return sshExitError{status: 130}
+		})
+
+		_, err := remotefs.WithContext(ctx, remotefs.NewPosixFS(runner)).Stat("file")
+		require.ErrorIs(t, err, context.Canceled)
+		require.NotErrorIs(t, err, fs.ErrNotExist)
 	})
 
 	t.Run("a cancelled touch probe is not cached", func(t *testing.T) {
