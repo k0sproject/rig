@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -334,6 +335,59 @@ func (s *OSSuite) TestSudoCompoundCommands() {
 		s.Require().NoError(err)
 		s.Equal("recovered", strings.TrimSpace(out))
 	})
+}
+
+// TestSudoExitStatus checks that an elevated command's exit status, and a
+// context ending while it runs, reach the caller through the sudo runner rig
+// detected. Under requiretty that runner is sudo.TTY, whose exit status is
+// relayed outside script(1), which reports 0 when it is interrupted.
+//
+// It does not check that the elevated process is gone after a cancel: over
+// native SSH a command without a terminal outlives the cancelled session, with
+// or without sudo.TTY.
+func (s *OSSuite) TestSudoExitStatus() {
+	if s.Host.IsWindows() {
+		s.T().Skip("sudo not supported on windows")
+		return
+	}
+	if _, err := s.Host.Sudo().ExecOutput("true"); err != nil {
+		s.Require().Falsef(expectSudo, "the host has passwordless privilege escalation configured but rig did not detect it: %v", err)
+		s.T().Skip("passwordless privilege escalation (sudo/doas) not configured")
+		return
+	}
+
+	s.Run("Non-zero exit status", func() {
+		err := s.Host.Sudo().Exec("exit 17")
+		s.Require().Error(err)
+		s.Equal(17, exitCodeOf(err), "error: %v", err)
+	})
+
+	s.Run("Context ends while the command runs", func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		start := time.Now()
+		err := s.Host.Sudo().ExecContext(ctx, "sleep 30")
+		s.Require().ErrorIs(err, context.DeadlineExceeded, "an interrupted command must not be reported as a success")
+		s.Less(time.Since(start), 20*time.Second)
+	})
+}
+
+// exitCodeOf returns the exit status err carries, from the native SSH
+// protocol's exit error or from a local process one, or -1.
+func exitCodeOf(err error) int {
+	if withStatus, ok := errors.AsType[interface {
+		error
+		ExitStatus() int
+	}](err); ok {
+		return withStatus.ExitStatus()
+	}
+	if withCode, ok := errors.AsType[interface {
+		error
+		ExitCode() int
+	}](err); ok {
+		return withCode.ExitCode()
+	}
+	return -1
 }
 
 func (s *OSSuite) TestStat() {
