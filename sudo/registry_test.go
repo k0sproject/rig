@@ -90,8 +90,9 @@ func TestRegisterSudo(t *testing.T) {
 		require.True(t, logger.ReceivedSubstring("script(1)"), "choosing the fallback must be logged")
 
 		require.NoError(t, runner.Exec("whoami"))
-		require.NoError(t, mr.Received(rigtest.Contains("script -qec")))
-		require.NoError(t, mr.Received(rigtest.Contains("whoami")))
+		// The probe already sent a script command, so only the exact wrapped
+		// command shows that later commands go through TTY.
+		require.NoError(t, mr.Received(rigtest.Contains(sudo.TTY("whoami"))))
 	})
 
 	t.Run("no fallback when script fails", func(t *testing.T) {
