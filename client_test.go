@@ -434,7 +434,7 @@ func TestPosixShellImposed(t *testing.T) {
 		rigtest.ReceivedEqual(t, conn, `/bin/sh -c -- 'sudo -n -- /bin/sh -c -- '"'"'echo hello'"'"''`)
 		// The sudo availability probe is the command that actually failed in
 		// k0sctl#1135, so it must be wrapped as well.
-		rigtest.ReceivedEqual(t, conn, `/bin/sh -c -- 'sudo -n -- /bin/sh -c -- true'`)
+		rigtest.ReceivedEqual(t, conn, `/bin/sh -c -- 'env LC_ALL=C sudo -n -- /bin/sh -c -- true'`)
 		// The root check is the very first command a client sends, and it is
 		// also the one that resolves the host's OS. Wrapping must not depend on
 		// a previous command having established that.
