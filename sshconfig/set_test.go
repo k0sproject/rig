@@ -1,9 +1,12 @@
 package sshconfig_test
 
 import (
+	"crypto/sha1" //nolint:gosec // used to verify the OpenSSH %C hash
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -1518,7 +1521,9 @@ func TestSetterFinalize(t *testing.T) {
 	require.NoError(t, setter.Finalize())
 	require.Len(t, obj.CertificateFile, 0)
 
-	obj.Port = 22
+	obj = sshconfig.Config{Port: 22}
+	setter, err = sshconfig.NewSetter(&obj)
+	require.NoError(t, err)
 	require.NoError(t, setter.Set("IdentityFile", "~/foo", "/tmp/%p.txt"))
 	require.Equal(t, "~/foo", obj.IdentityFile[0])
 	require.Equal(t, "/tmp/%p.txt", obj.IdentityFile[1])
@@ -1526,6 +1531,181 @@ func TestSetterFinalize(t *testing.T) {
 	require.Len(t, obj.IdentityFile, 2)
 	require.NotEqual(t, "~/foo", obj.IdentityFile[0])
 	require.Equal(t, "/tmp/22.txt", obj.IdentityFile[1])
+}
+
+func TestSetterFinalizeLocalAndAliasTokens(t *testing.T) {
+	hostname, err := os.Hostname()
+	require.NoError(t, err)
+	short, _, _ := strings.Cut(hostname, ".")
+
+	t.Run("local hostname tokens", func(t *testing.T) {
+		obj := sshconfig.Config{}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("IdentityFile", "/tmp/%l", "/tmp/%L"))
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, []string{"/tmp/" + hostname, "/tmp/" + short}, obj.IdentityFile)
+	})
+
+	t.Run("host key alias token", func(t *testing.T) {
+		obj := sshconfig.Config{HostKeyAlias: "alias"}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("IdentityFile", "/tmp/%k"))
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, []string{"/tmp/alias"}, obj.IdentityFile)
+	})
+
+	t.Run("host key alias token falls back to original host", func(t *testing.T) {
+		obj := sshconfig.Config{}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+		setter.OriginalHost = "original"
+
+		require.NoError(t, setter.Set("IdentityFile", "/tmp/%k"))
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, []string{"/tmp/original"}, obj.IdentityFile)
+	})
+
+	t.Run("remote hostname token prefers Hostname", func(t *testing.T) {
+		obj := sshconfig.Config{Host: "alias", Hostname: "real.example.com"}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("IdentityFile", "/tmp/%h"))
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, []string{"/tmp/real.example.com"}, obj.IdentityFile)
+	})
+
+	t.Run("remote hostname token inside Hostname is Host", func(t *testing.T) {
+		obj := sshconfig.Config{Host: "node"}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("Hostname", "%h.example.com"))
+		require.NoError(t, setter.Set("IdentityFile", "/tmp/%h"))
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, "node.example.com", obj.Hostname)
+		require.Equal(t, []string{"/tmp/node.example.com"}, obj.IdentityFile, "other fields see the expanded Hostname")
+	})
+
+	t.Run("remote hostname token with a pointer Hostname field", func(t *testing.T) {
+		hostnameValue := "%h.internal"
+		obj := struct {
+			Host         string
+			Hostname     *string
+			IdentityFile []string
+		}{Host: "node", Hostname: &hostnameValue, IdentityFile: []string{"/tmp/%h"}}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, "node.internal", *obj.Hostname)
+		require.Equal(t, []string{"/tmp/node.internal"}, obj.IdentityFile)
+	})
+
+	t.Run("pointer slice fields are expanded", func(t *testing.T) {
+		identityFiles := []string{"/tmp/%h", "/tmp/plain"}
+		obj := struct {
+			Host         string
+			IdentityFile *[]string
+			ProxyJump    *[]string
+		}{Host: "node", IdentityFile: &identityFiles}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, []string{"/tmp/node", "/tmp/plain"}, *obj.IdentityFile)
+		require.Nil(t, obj.ProxyJump, "a nil pointer is left alone")
+	})
+
+	t.Run("remote hostname token keeps a literal percent in Hostname", func(t *testing.T) {
+		obj := sshconfig.Config{Host: "linklocal"}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("Hostname", "fe80::1%%eth0"))
+		require.NoError(t, setter.Set("IdentityFile", "/tmp/%h"))
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, "fe80::1%eth0", obj.Hostname)
+		require.Equal(t, []string{"/tmp/fe80::1%eth0"}, obj.IdentityFile)
+	})
+
+	t.Run("jump host token is the last hop's hostname", func(t *testing.T) {
+		// Expected values measured with ssh -G (OpenSSH 9.8): %j is not the
+		// ProxyJump contents but the bare host of the last hop, unexpanded.
+		for _, tc := range []struct {
+			proxyJump string
+			want      string
+		}{
+			{"none", ""},
+			{"NONE", ""},
+			{"jump-%h", "jump-%h"},
+			{"a,b", "b"},
+			{"jump-%h,b", "b"},
+			{"b:2222,c", "c"},
+			{"alice@b:2222", "b"},
+			{"a,alice@b:2222", "b"},
+			{"a@x@b", "b"},
+			{"ssh://alice@b:2222", "b"},
+			{"ssh://alice@b:2222/", "b"},
+			{"[fe80::1]:2222", "fe80::1"},
+			{"alice@[fe80::1]", "fe80::1"},
+		} {
+			t.Run(tc.proxyJump, func(t *testing.T) {
+				// Finalize walks a map, so repeat to catch an order dependency.
+				for range 20 {
+					obj := sshconfig.Config{Host: "node", Port: 22, User: "bob"}
+					setter, err := sshconfig.NewSetter(&obj)
+					require.NoError(t, err)
+
+					require.NoError(t, setter.Set("ProxyJump", tc.proxyJump))
+					require.NoError(t, setter.Set("ControlPath", "/tmp/%j/%C"))
+					require.NoError(t, setter.Finalize())
+					sum := sha1.Sum([]byte(hostname + "node22bob" + tc.want)) //nolint:gosec // matches the OpenSSH %C definition
+					require.Equal(t, "/tmp/"+tc.want+"/"+hex.EncodeToString(sum[:]), obj.ControlPath)
+				}
+			})
+		}
+	})
+
+	t.Run("jump host token reads a string ProxyJump", func(t *testing.T) {
+		obj := struct {
+			Host        string
+			ProxyJump   string
+			ControlPath string
+		}{Host: "node"}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("ProxyJump", "a,alice@b:2222"))
+		require.NoError(t, setter.Set("ControlPath", "/tmp/%j"))
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, "/tmp/b", obj.ControlPath)
+	})
+
+	t.Run("known hosts hostname token prefers HostKeyAlias", func(t *testing.T) {
+		obj := sshconfig.Config{Host: "alias", Hostname: "real.example.com", HostKeyAlias: "keyalias"}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("KnownHostsCommand", "/bin/lookup %H"))
+		require.NoError(t, setter.Finalize())
+		require.Equal(t, "/bin/lookup keyalias", obj.KnownHostsCommand)
+	})
+
+	t.Run("connection hash token", func(t *testing.T) {
+		obj := sshconfig.Config{Host: "example.com", Port: 22, User: "bob"}
+		setter, err := sshconfig.NewSetter(&obj)
+		require.NoError(t, err)
+
+		require.NoError(t, setter.Set("ControlPath", "/tmp/%C"))
+		require.NoError(t, setter.Finalize())
+		sum := sha1.Sum([]byte(hostname + "example.com22bob")) //nolint:gosec // matches the OpenSSH %C definition
+		require.Equal(t, "/tmp/"+hex.EncodeToString(sum[:]), obj.ControlPath)
+	})
 }
 
 func TestSetterFinalizeStringMaps(t *testing.T) {
@@ -1723,6 +1903,11 @@ func TestMatchExecCommandParsing(t *testing.T) {
 			`Match exec "/usr/local/bin/on-vpn %h"`,
 			[]string{"/usr/local/bin/on-vpn", "example.com"},
 		},
+		{
+			"percent h uses a Hostname set earlier, expanded",
+			"Host *\n    Hostname %h.internal\n\n" + `Match exec "/usr/local/bin/on-vpn %h"`,
+			[]string{"/usr/local/bin/on-vpn", "example.com.internal"},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			exec := &matchExecutor{}
@@ -1763,4 +1948,29 @@ func TestMatchSyntaxErrors(t *testing.T) {
 			require.ErrorIs(t, err, sshconfig.ErrSyntax)
 		})
 	}
+}
+
+func TestSetterFinalizeIsFinal(t *testing.T) {
+	obj := sshconfig.Config{Host: "node"}
+	setter, err := sshconfig.NewSetter(&obj)
+	require.NoError(t, err)
+
+	require.NoError(t, setter.Set("IdentityFile", "/tmp/100%%h"))
+	require.NoError(t, setter.Finalize())
+	require.Equal(t, []string{"/tmp/100%h"}, obj.IdentityFile)
+
+	require.ErrorIs(t, setter.Set("IdentityFile", "/tmp/%h"), sshconfig.ErrFinalized)
+	require.ErrorIs(t, setter.Reset("IdentityFile"), sshconfig.ErrFinalized)
+	require.ErrorIs(t, setter.Finalize(), sshconfig.ErrFinalized)
+	require.Equal(t, []string{"/tmp/100%h"}, obj.IdentityFile, "a rejected call must leave the object alone")
+}
+
+func TestSetterFinalizeFailureIsFinal(t *testing.T) {
+	obj := sshconfig.Config{Host: "node"}
+	setter, err := sshconfig.NewSetter(&obj)
+	require.NoError(t, err)
+
+	require.NoError(t, setter.Set("IdentityFile", "/tmp/%e"))
+	require.Error(t, setter.Finalize())
+	require.ErrorIs(t, setter.Finalize(), sshconfig.ErrFinalized)
 }

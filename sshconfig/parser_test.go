@@ -406,6 +406,27 @@ func TestMatchConditions(t *testing.T) {
 	}
 }
 
+func TestParserConnectionHashMatchesMatchExec(t *testing.T) {
+	// Match exec is evaluated before Finalize and ControlPath during it, and
+	// ssh hashes the same %j for both.
+	for _, proxyJump := range []string{"none", "jump-%h", "a,alice@b:2222"} {
+		t.Run(proxyJump, func(t *testing.T) {
+			content := fmt.Sprintf("Host node\n  User bob\n  Port 22\n  ProxyJump %s\n  ControlPath /tmp/%%C\n  Match exec \"check %%C\"\n", proxyJump)
+			me := &mockExecutor{}
+			parser, err := sshconfig.NewParser(strings.NewReader(content), sshconfig.WithExecutor(me))
+			require.NoError(t, err)
+
+			obj := &sshconfig.Config{}
+			// The mock rejects the command, which only makes the Match block not apply.
+			require.NoError(t, parser.Apply(obj, "node"))
+			require.Len(t, me.received, 1)
+			hash, ok := strings.CutPrefix(me.received[0], "check ")
+			require.True(t, ok, me.received[0])
+			require.Equal(t, "/tmp/"+hash, obj.ControlPath)
+		})
+	}
+}
+
 type mockExecutor struct {
 	expect   map[string]bool
 	received []string
