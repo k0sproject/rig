@@ -79,6 +79,12 @@ func preloadedDefaultsSetter(defaultValues string) setterFunc { //nolint:cyclop
 				}
 				newValues = append(newValues, v)
 			}
+			// An empty field reads as unset, so the built-in defaults would
+			// fill it back in and quietly undo the removal. ssh is left with
+			// nothing to negotiate either.
+			if len(newValues) == 0 {
+				return fmt.Errorf("%w: %q removes every default", errInvalidValue, value)
+			}
 		}
 		field.Set(reflect.ValueOf(newValues))
 		return nil

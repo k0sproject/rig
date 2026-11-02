@@ -491,4 +491,11 @@ func TestParserAlgorithmListModifiers(t *testing.T) {
 		require.Less(t, len(want), len(defaults), "the defaults must hold an ecdh- entry for this to test anything")
 		require.Equal(t, want, apply(t, "-ecdh-*"))
 	})
+
+	t.Run("- removing every default is an error", func(t *testing.T) {
+		parser, err := sshconfig.NewParser(strings.NewReader("Host node\n  KexAlgorithms -*\n"))
+		require.NoError(t, err)
+		obj := &sshconfig.Config{}
+		require.ErrorContains(t, parser.Apply(obj, "node"), "removes every default")
+	})
 }
