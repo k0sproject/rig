@@ -69,6 +69,37 @@ func (c *Config) validateAuth() error {
 	return nil
 }
 
+// passwordExposure reports how the configured transport exposes Password to a
+// third party, as a message naming the remedy, or "" when a password is not
+// in use or the transport protects it.
+//
+// Two configurations hand the credential away:
+//
+//   - Plain HTTP without NTLM. The default transport authenticates with HTTP
+//     basic, so the password crosses the network base64-encoded and any
+//     observer recovers it verbatim. NTLM over plain HTTP is deliberately not
+//     reported: it encrypts at the message level, which is the documented way
+//     to run WinRM without TLS.
+//   - TLS with Insecure. Certificate verification is disabled, so whatever
+//     answers on Address is trusted with the credential. NTLM does not redeem
+//     this case, because the exchange can be relayed to the real host.
+//
+// Certificate authentication is unaffected: it is only reached when Password
+// is empty.
+func (c *Config) passwordExposure() string {
+	if c.Password == "" {
+		return ""
+	}
+	switch {
+	case !c.UseHTTPS && !c.UseNTLM:
+		return "password will be sent as cleartext HTTP basic authentication; set useHTTPS, or useNTLM for message-level encryption"
+	case c.UseHTTPS && c.Insecure:
+		return "password will be sent over TLS with certificate verification disabled, so any host answering on this address receives it; unset insecure and set caCertPath to trust a self-signed certificate"
+	default:
+		return ""
+	}
+}
+
 // Validate checks the configuration for any invalid values.
 func (c *Config) Validate() error {
 	if c.Address == "" {
