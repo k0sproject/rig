@@ -52,7 +52,7 @@ type dialFunc func(network, addr string) (net.Conn, error)
 // NewConnection creates a new WinRM connection. Error is currently always nil.
 func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
 	options := NewOptions(opts...)
-	options.InjectLoggerTo(cfg, log.KeyProtocol, "winrm-config")
+	options.InjectLoggerTo(&cfg, log.KeyProtocol, "winrm-config")
 	cfg.SetDefaults()
 
 	c := &Connection{Config: cfg}
