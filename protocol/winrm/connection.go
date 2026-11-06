@@ -34,6 +34,10 @@ type Connection struct {
 
 	name string
 
+	// warnOnce keeps the credential-exposure warning to one line per
+	// connection: the rig client retries Connect on failure.
+	warnOnce sync.Once
+
 	caCert []byte
 	key    []byte
 	cert   []byte
@@ -198,9 +202,28 @@ func (c *Connection) bastionDialer(ctx context.Context) (*ssh.Connection, dialFu
 	return bastionSSH, bastionSSH.Dial, nil
 }
 
+// warnPasswordExposure logs how the configured transport exposes the password,
+// once per connection.
+//
+// It is called from Connect rather than NewConnection or Config.Validate. A
+// Config never carries a logger -- NewConnection injects into a Config value,
+// whose method set excludes the pointer-receiver SetLogger -- and
+// ClientOptions.GetConnection builds the connection before injecting a logger
+// into it, so anything warned during construction is discarded. Validate is no
+// better: nothing in rig calls a protocol config's Validate, so a caller can
+// connect without ever reaching it.
+func (c *Connection) warnPasswordExposure() {
+	c.warnOnce.Do(func() {
+		if exposure := c.passwordExposure(); exposure != "" {
+			c.Log().Warn(exposure, log.KeyHost, c)
+		}
+	})
+}
+
 // Connect opens the WinRM connection. Any existing connection is torn down first.
 func (c *Connection) Connect(ctx context.Context) error {
 	c.Disconnect()
+	c.warnPasswordExposure()
 
 	if err := c.loadCertificates(); err != nil {
 		return fmt.Errorf("%w: failed to load certificates: %w", protocol.ErrNonRetryable, err)
