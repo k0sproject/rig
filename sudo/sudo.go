@@ -46,9 +46,11 @@ func Sudo(cmd string) string {
 // aside as descriptors 3 to 5 before script starts and put back just before
 // sudo runs, so no data passes through the terminal. Binary input, end of
 // input and separate stderr all work as they do with Sudo. The command's exit
-// status comes back on descriptor 6, through a temporary file, rather than as
-// script's own, which is 0 when script is interrupted; a command that reports
-// no status exits 130.
+// status comes back on descriptor 6 rather than as script's own, which is 0
+// when script is interrupted; a command that reports no status exits 130.
+// Descriptor 6 writes to a temporary file that the wrapper reads back through
+// descriptor 7. The file is removed as soon as both are open, so nothing the
+// command does to temporary files can lose the status.
 //
 // A signal sent to the wrapper, as one is when a command's context ends,
 // stops the command as it does with Sudo, but not on its own: script puts sudo
@@ -63,10 +65,10 @@ func Sudo(cmd string) string {
 //
 // The whole wrapper runs under sh.DefaultShell, like the command does.
 func TTY(command string) string {
-	inner := forwardSignals(Sudo(command)+" <&3 >&4 2>&5 3<&- 4>&- 5>&-") + `; echo "$s" >&6`
-	outer := `f=$(mktemp) || exit 1; exec 3<&0 4>&1 5>&2; ` +
-		forwardSignals("SHELL="+shellescape.Quote(sh.DefaultShell)+" script -qec "+shellescape.Quote(inner)+` /dev/null 6>"$f" </dev/null >&5`) +
-		`; st=$(cat "$f"); rm -f "$f"; ` +
+	inner := forwardSignals(Sudo(command)+" <&3 >&4 2>&5 3<&- 4>&- 5>&- 6>&-") + `; echo "$s" >&6`
+	outer := `f=$(mktemp) || exit 1; exec 3<&0 4>&1 5>&2 6>"$f" 7<"$f"; rm -f "$f"; ` +
+		forwardSignals("SHELL="+shellescape.Quote(sh.DefaultShell)+" script -qec "+shellescape.Quote(inner)+` /dev/null </dev/null >&5 7<&-`) +
+		`; st=$(cat <&7); ` +
 		`case "$st" in ''|*[!0-9]*) exit 130;; esac; exit "$st"`
 	return sh.Shell(outer)
 }

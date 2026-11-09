@@ -80,7 +80,7 @@ func TestSudoGolden(t *testing.T) {
 // status relayed on descriptor 6, and signals passed on by both the wrapper and
 // the shell script starts.
 func TestTTYGolden(t *testing.T) {
-	want := `/bin/sh -c -- 'f=$(mktemp) || exit 1; exec 3<&0 4>&1 5>&2; p=; c=; trap '"'"'c=1; [ -z "$p" ] || kill -TERM "$p" 2>/dev/null'"'"' INT TERM HUP; SHELL=/bin/sh script -qec '"'"'p=; c=; trap '"'"'"'"'"'"'"'"'c=1; [ -z "$p" ] || kill -TERM "$p" 2>/dev/null'"'"'"'"'"'"'"'"' INT TERM HUP; sudo -n -- /bin/sh -c -- '"'"'"'"'"'"'"'"'id -un'"'"'"'"'"'"'"'"' <&3 >&4 2>&5 3<&- 4>&- 5>&- & p=$!; [ -z "$c" ] || kill -TERM "$p" 2>/dev/null; wait "$p"; s=$?; while kill -0 "$p" 2>/dev/null; do wait "$p"; s=$?; done; echo "$s" >&6'"'"' /dev/null 6>"$f" </dev/null >&5 & p=$!; [ -z "$c" ] || kill -TERM "$p" 2>/dev/null; wait "$p"; s=$?; while kill -0 "$p" 2>/dev/null; do wait "$p"; s=$?; done; st=$(cat "$f"); rm -f "$f"; case "$st" in '"'"''"'"'|*[!0-9]*) exit 130;; esac; exit "$st"'`
+	want := `/bin/sh -c -- 'f=$(mktemp) || exit 1; exec 3<&0 4>&1 5>&2 6>"$f" 7<"$f"; rm -f "$f"; p=; c=; trap '"'"'c=1; [ -z "$p" ] || kill -TERM "$p" 2>/dev/null'"'"' INT TERM HUP; SHELL=/bin/sh script -qec '"'"'p=; c=; trap '"'"'"'"'"'"'"'"'c=1; [ -z "$p" ] || kill -TERM "$p" 2>/dev/null'"'"'"'"'"'"'"'"' INT TERM HUP; sudo -n -- /bin/sh -c -- '"'"'"'"'"'"'"'"'id -un'"'"'"'"'"'"'"'"' <&3 >&4 2>&5 3<&- 4>&- 5>&- 6>&- & p=$!; [ -z "$c" ] || kill -TERM "$p" 2>/dev/null; wait "$p"; s=$?; while kill -0 "$p" 2>/dev/null; do wait "$p"; s=$?; done; echo "$s" >&6'"'"' /dev/null </dev/null >&5 7<&- & p=$!; [ -z "$c" ] || kill -TERM "$p" 2>/dev/null; wait "$p"; s=$?; while kill -0 "$p" 2>/dev/null; do wait "$p"; s=$?; done; st=$(cat <&7); case "$st" in '"'"''"'"'|*[!0-9]*) exit 130;; esac; exit "$st"'`
 	assert.Equal(t, want, sudo.TTY("id -un"))
 }
 
@@ -142,6 +142,15 @@ func TestTTYExecution(t *testing.T) {
 		stdout, _, code := run(t, "cat", bytes.NewReader(data))
 		require.Equal(t, 0, code)
 		assert.True(t, bytes.Equal(data, []byte(stdout)), "the data must not pass through the terminal")
+	})
+
+	t.Run("removing temporary files does not lose the status", func(t *testing.T) {
+		tmp := t.TempDir()
+		_, _, code := run(t, `rm -f "$TMPDIR"/*; exit 17`, nil, "TMPDIR="+tmp)
+		assert.Equal(t, 17, code)
+		entries, err := os.ReadDir(tmp)
+		require.NoError(t, err)
+		assert.Empty(t, entries, "the status file must not be left behind")
 	})
 
 	t.Run("an interrupted command is not a success", func(t *testing.T) {
