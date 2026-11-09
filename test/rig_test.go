@@ -350,7 +350,9 @@ func (s *OSSuite) TestSudoCompoundCommands() {
 // on, as sudo runs in a session of its own. Not every server acts on the
 // request: the OpenSSH 9 servers of Debian 12 and Ubuntu 24.04 leave even an
 // unelevated command of a root login running, and the openssh protocol stops
-// only the local ssh client.
+// only the local ssh client. doas is not held to it either: it gives up the
+// user's real uid before running the command, so the server, which sends the
+// signal as the user, is not allowed to.
 func (s *OSSuite) TestSudoExitStatus() {
 	if s.Host.IsWindows() {
 		s.T().Skip("sudo not supported on windows")
@@ -369,9 +371,16 @@ func (s *OSSuite) TestSudoExitStatus() {
 	})
 
 	s.Run("Context ends while the command runs", func() {
+		sudoUser, err := s.Host.Sudo().ExecOutput(`echo "${SUDO_USER:-}"`)
+		s.Require().NoError(err)
 		stopsPlain := s.cancelledCommandStops(s.Host.Client)
 		stopsElevated := s.cancelledCommandStops(s.Host.Sudo())
-		if stopsPlain {
+		switch {
+		case !stopsPlain:
+			s.T().Log("an unelevated command outlives its context on this connection, so the elevated one is not required to stop")
+		case sudoUser == "":
+			s.T().Log("privileges are not escalated through sudo, so the elevated command is not required to stop")
+		default:
 			s.True(stopsElevated, "the elevated command outlived its context, an unelevated one does not")
 		}
 	})

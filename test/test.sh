@@ -394,7 +394,24 @@ EOF
     sudoArgs+=(-expect-sudo)
   fi
 
-  HOME="$(pwd)" go test -v ./ -args -host 127.0.0.1 -port "$sshPort" -user rigtest-user -ssh-keypath .ssh/id_ed25519 "${sudoArgs[@]}"
+  local ret=0
+  HOME="$(pwd)" go test -v ./ -args -host 127.0.0.1 -port "$sshPort" -user rigtest-user -ssh-keypath .ssh/id_ed25519 "${sudoArgs[@]}" || ret=$?
+
+  # sudo.TTY wraps every elevated command, so put it through the openssh client
+  # protocol too, which handles stdin, exit status and cancellation its own way.
+  if [ -n "$requireTTY" ]; then
+    {
+      echo "Host testhost"
+      echo "  HostName 127.0.0.1"
+      echo "  Port $sshPort"
+      echo "  User rigtest-user"
+      echo "  IdentityFile $(pwd)/.ssh/id_ed25519"
+      echo "  UserKnownHostsFile /dev/null"
+      echo "  StrictHostKeyChecking no"
+    } >.ssh/config
+    go test -v ./ -args -ssh-configpath .ssh/config -host testhost -protocol openssh -user "" "${sudoArgs[@]}" || ret=$?
+  fi
+  return "$ret"
 }
 
 rig_test_openssh_client() {
