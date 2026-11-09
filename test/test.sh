@@ -389,7 +389,7 @@ EOF
       color_echo "sudo did not refuse to run without a tty, requiretty is not in effect" >&2
       return 0
     fi
-    sudoArgs+=(-expect-sudo)
+    sudoArgs+=(-expect-sudo -expect-sudo-tty)
   elif ssh "$@" rigtest-user@127.0.0.1 'sudo -n -- true || doas -n -- true' >/dev/null 2>&1; then
     sudoArgs+=(-expect-sudo)
   fi
