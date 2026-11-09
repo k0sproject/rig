@@ -46,16 +46,42 @@ func Sudo(cmd string) string {
 // aside as descriptors 3 to 5 before script starts and put back just before
 // sudo runs, so no data passes through the terminal. Binary input, end of
 // input and separate stderr all work as they do with Sudo. The command's exit
-// status comes back on descriptor 6 rather than as script's own, which is 0
-// when script is interrupted; a command that reports no status exits 130.
+// status comes back on descriptor 6, through a temporary file, rather than as
+// script's own, which is 0 when script is interrupted; a command that reports
+// no status exits 130.
+//
+// A signal sent to the wrapper, as one is when a command's context ends,
+// stops the command as it does with Sudo, but not on its own: script puts sudo
+// in a session of its own, and sudo does not pass on the hangup it gets when
+// script exits. The wrapper passes SIGINT, SIGTERM and SIGHUP on to script as
+// SIGTERM, script passes that to the shell it starts, the shell to sudo and
+// sudo to the command. To pass signals on, the wrapper and that shell run
+// their child in the background, and a POSIX shell starts a background
+// command with SIGINT and SIGQUIT ignored, so unlike with Sudo the command
+// starts with both ignored. A command whose connection is lost without a
+// signal keeps running, as it does with Sudo.
 //
 // The whole wrapper runs under sh.DefaultShell, like the command does.
 func TTY(command string) string {
-	inner := Sudo(command) + " <&3 >&4 2>&5 3<&- 4>&- 5>&-; echo $? >&6"
-	outer := "{ st=$(SHELL=" + shellescape.Quote(sh.DefaultShell) + " script -qec " + shellescape.Quote(inner) +
-		" /dev/null 6>&1 </dev/null >&5); } 3<&0 4>&1 5>&2; " +
+	inner := forwardSignals(Sudo(command)+" <&3 >&4 2>&5 3<&- 4>&- 5>&-") + `; echo "$s" >&6`
+	outer := `f=$(mktemp) || exit 1; exec 3<&0 4>&1 5>&2; ` +
+		forwardSignals("SHELL="+shellescape.Quote(sh.DefaultShell)+" script -qec "+shellescape.Quote(inner)+` /dev/null 6>"$f" </dev/null >&5`) +
+		`; st=$(cat "$f"); rm -f "$f"; ` +
 		`case "$st" in ''|*[!0-9]*) exit 130;; esac; exit "$st"`
 	return sh.Shell(outer)
+}
+
+// forwardSignals returns a shell snippet that runs command in the background
+// and waits for it, passing SIGINT, SIGTERM and SIGHUP on to it as SIGTERM.
+// The snippet leaves the command's exit status in $s.
+//
+// A signal that arrives before the command's pid is known is recorded in c
+// and passed on once it is. wait returns early when a trap runs, so it is
+// repeated until the command is gone.
+func forwardSignals(command string) string {
+	return `p=; c=; trap 'c=1; [ -z "$p" ] || kill -TERM "$p" 2>/dev/null' INT TERM HUP; ` +
+		command + ` & p=$!; [ -z "$c" ] || kill -TERM "$p" 2>/dev/null; ` +
+		`wait "$p"; s=$?; while kill -0 "$p" 2>/dev/null; do wait "$p"; s=$?; done`
 }
 
 // RegisterSudo registers a sudo DecorateFunc with the given repository.
@@ -82,7 +108,7 @@ func RegisterSudo(repository *Registry) {
 			log.GetLogger(runner).Warn("sudo is unusable because sudoers sets requiretty and commands run without a terminal, and providing one through script(1) failed; exempt this user with 'Defaults:<user> !requiretty' or install util-linux", log.ErrorAttr(err), "script_error", ttyErr)
 			return nil, false
 		}
-		log.GetLogger(runner).Warn("sudoers sets requiretty, so sudo commands run inside script(1) to get a terminal; a sudo command that is cancelled or loses its connection may keep running on the host; exempting this user with 'Defaults:<user> !requiretty' runs sudo directly")
+		log.GetLogger(runner).Warn("sudoers sets requiretty, so sudo commands run inside script(1) to get a terminal; exempting this user with 'Defaults:<user> !requiretty' runs sudo directly")
 		return cmd.NewExecutor(runner, TTY), true
 	})
 }

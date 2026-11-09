@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +27,7 @@ import (
 	"github.com/k0sproject/rig/v2/protocol/winrm"
 	"github.com/k0sproject/rig/v2/remotefs"
 	"github.com/k0sproject/rig/v2/rigtest"
+	"github.com/k0sproject/rig/v2/sh/shellescape"
 	"github.com/k0sproject/rig/v2/sshconfig"
 	"github.com/k0sproject/rig/v2/stattime"
 
@@ -342,9 +344,11 @@ func (s *OSSuite) TestSudoCompoundCommands() {
 // detected. Under requiretty that runner is sudo.TTY, whose exit status is
 // relayed outside script(1), which reports 0 when it is interrupted.
 //
-// It does not check that the elevated process is gone after a cancel: over
-// native SSH a command without a terminal outlives the cancelled session, with
-// or without sudo.TTY.
+// Over native SSH a context ending interrupts the command with a signal, so
+// the elevated process must be gone afterwards. Under sudo.TTY that takes the
+// wrapper passing the signal on, as sudo runs in a session of its own. The
+// openssh protocol stops only the local ssh client, which leaves the remote
+// command running with or without sudo.TTY.
 func (s *OSSuite) TestSudoExitStatus() {
 	if s.Host.IsWindows() {
 		s.T().Skip("sudo not supported on windows")
@@ -365,10 +369,22 @@ func (s *OSSuite) TestSudoExitStatus() {
 	s.Run("Context ends while the command runs", func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
+		pidFile := s.TempPath()
 		start := time.Now()
-		err := s.Host.Sudo().ExecContext(ctx, "sleep 30")
+		err := s.Host.Sudo().ExecContext(ctx, "echo $$ > "+shellescape.Quote(pidFile)+"; exec sleep 30")
 		s.Require().ErrorIs(err, context.DeadlineExceeded, "an interrupted command must not be reported as a success")
 		s.Less(time.Since(start), 20*time.Second)
+
+		if proto != "ssh" {
+			return
+		}
+		out, err := s.Host.Sudo().ExecOutput("cat " + shellescape.Quote(pidFile))
+		s.Require().NoError(err)
+		pid, err := strconv.Atoi(out)
+		s.Require().NoError(err, "the command did not report its pid")
+		// A zombie counts as gone: reaping it is up to the host's init.
+		gone := fmt.Sprintf("! [ -e /proc/%[1]d ] || grep -q '^State:[[:space:]]*Z' /proc/%[1]d/status", pid)
+		s.Eventually(func() bool { return s.Host.Exec(gone) == nil }, 10*time.Second, 200*time.Millisecond, "the elevated command outlived its context")
 	})
 }
 
