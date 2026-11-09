@@ -377,6 +377,12 @@ func (s *OSSuite) TestSudoExitStatus() {
 	})
 
 	s.Run("Context ends while the command runs", func() {
+		if s.Host.Exec("test -r /proc/self/status") != nil {
+			s.Require().False(expectSudoTTY, "following the processes of a sudo.TTY command needs Linux procfs")
+			s.execCancelled(s.Host.Sudo(), "sleep 30")
+			s.T().Skip("no Linux procfs to follow the command's processes with")
+			return
+		}
 		sudoUser, err := s.Host.Sudo().ExecOutput(`echo "${SUDO_USER:-}"`)
 		s.Require().NoError(err)
 		stopsPlain, _ := s.cancelledCommandStops(s.Host.Client)
@@ -402,19 +408,14 @@ func (s *OSSuite) TestSudoExitStatus() {
 // ends and reports whether the command and every process between it and the
 // SSH server are gone afterwards, along with those processes' names, the
 // command's first. The command must still fail with the context's error either
-// way. Processes that outlive the context are killed.
+// way. Processes that outlive the context are killed. It needs Linux procfs.
 func (s *OSSuite) cancelledCommandStops(client *rig.Client) (bool, []string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
 	chainFile := s.TempPath()
 	// Each line is a pid and its name, walking up from the command until the
 	// server, which is not recorded.
 	record := `p=$$; while [ "$p" -gt 1 ]; do n=$(cat /proc/$p/comm); case $n in sshd*) break;; esac; ` +
 		`echo "$p $n"; p=$(sed -n 's/^PPid:[[:space:]]*//p' /proc/$p/status); done > ` + shellescape.Quote(chainFile)
-	start := time.Now()
-	err := client.ExecContext(ctx, record+"; exec sleep 30")
-	s.Require().ErrorIs(err, context.DeadlineExceeded, "an interrupted command must not be reported as a success")
-	s.Less(time.Since(start), 20*time.Second)
+	s.execCancelled(client, record+"; exec sleep 30")
 
 	out, err := client.ExecOutput("cat " + shellescape.Quote(chainFile))
 	s.Require().NoError(err)
@@ -445,6 +446,17 @@ func (s *OSSuite) cancelledCommandStops(client *rig.Client) (bool, []string) {
 	// the meantime makes kill fail, which is fine.
 	_ = client.Exec(fmt.Sprintf("kill %d", pids[0]))
 	return false, names
+}
+
+// execCancelled runs command through client until a short context ends and
+// checks that it fails with the context's error, promptly.
+func (s *OSSuite) execCancelled(client *rig.Client, command string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	start := time.Now()
+	err := client.ExecContext(ctx, command)
+	s.Require().ErrorIs(err, context.DeadlineExceeded, "an interrupted command must not be reported as a success")
+	s.Less(time.Since(start), 20*time.Second)
 }
 
 // exitCodeOf returns the exit status err carries, from the native SSH
