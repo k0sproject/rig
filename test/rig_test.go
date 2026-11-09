@@ -80,6 +80,12 @@ func TestMain(m *testing.M) {
 	// Parse the flags
 	flag.Parse()
 
+	// A host where rig must fall back to sudo.TTY has sudo by definition, so
+	// none of the escalation tests may skip for lack of it.
+	if expectSudoTTY {
+		expectSudo = true
+	}
+
 	if traceLog {
 		rigtest.TraceToStderr()
 	}
@@ -361,6 +367,7 @@ func (s *OSSuite) TestSudoCompoundCommands() {
 // SSH the check that it stops must not be skipped.
 func (s *OSSuite) TestSudoExitStatus() {
 	if s.Host.IsWindows() {
+		s.Require().False(expectSudoTTY, "sudo.TTY does not apply to windows")
 		s.T().Skip("sudo not supported on windows")
 		return
 	}
