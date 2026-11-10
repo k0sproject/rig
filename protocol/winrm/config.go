@@ -55,7 +55,22 @@ func (c *Config) SetDefaults() {
 	}
 }
 
-// validateAuth checks that a complete authentication method is configured.
+// validateAuth checks that a complete authentication method is configured, and
+// that the configured transport does not hand the password to a third party.
+//
+// Insecure is read as "do not refuse to expose the credential", widening it
+// from "accept invalid TLS certificates": both senses describe a caller who
+// has decided the transport does not have to protect what it carries.
+//
+// Plain HTTP is refused because the default transport authenticates with HTTP
+// basic, putting the password on the wire base64-encoded. NTLM does not earn
+// an exemption: the WinRM client authenticates with it but sends the SOAP
+// envelopes unencrypted, so the commands, their output and any credential
+// inside them stay readable.
+//
+// TLS with Insecure is permitted by the same rule that permits plain HTTP
+// with it -- the caller asked for it explicitly. Certificate authentication
+// is unaffected: it is only selected over HTTPS, which this never rejects.
 func (c *Config) validateAuth() error {
 	if c.User == "" && c.Password == "" && c.CertPath == "" && c.KeyPath == "" {
 		return fmt.Errorf("%w: no authentication method set (provide user+password or certPath+keyPath)", protocol.ErrValidationFailed)
@@ -65,6 +80,9 @@ func (c *Config) validateAuth() error {
 	}
 	if (c.User == "") != (c.Password == "") && c.CertPath == "" {
 		return fmt.Errorf("%w: user and password must both be set for password authentication", protocol.ErrValidationFailed)
+	}
+	if c.Password != "" && !c.UseHTTPS && !c.Insecure {
+		return fmt.Errorf("%w: a password would be sent over plain HTTP, where any observer recovers it; set useHTTPS, or insecure to send it anyway", protocol.ErrValidationFailed)
 	}
 	return nil
 }
