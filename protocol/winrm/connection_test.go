@@ -222,6 +222,64 @@ func TestConnect_probeClassification(t *testing.T) {
 	}
 }
 
+// Connection.Config is exported and mutable, and a Connection can be built
+// without NewConnection, so Connect must recheck the plain-HTTP password rule
+// against the configuration it is about to transmit.
+func TestConnectRefusesPasswordOverPlainHTTP(t *testing.T) {
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+
+	u, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatalf("url.Parse(%q) error = %v", srv.URL, err)
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil {
+		t.Fatalf("strconv.Atoi(%q) error = %v", u.Port(), err)
+	}
+
+	passwordAdded, err := NewConnection(Config{Address: u.Hostname(), Port: port, User: "Administrator"})
+	if err != nil {
+		t.Fatalf("NewConnection() without a password error = %v", err)
+	}
+	passwordAdded.Password = "hunter2"
+
+	for _, tc := range []struct {
+		name string
+		conn *Connection
+	}{
+		{name: "password set after NewConnection", conn: passwordAdded},
+		{
+			name: "constructed without NewConnection",
+			conn: &Connection{Config: Config{Address: u.Hostname(), Port: port, User: "Administrator", Password: "hunter2"}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.conn.Connect(context.Background())
+			if err == nil {
+				t.Fatal("Connect() error = nil, want a validation error")
+			}
+			if !errors.Is(err, protocol.ErrValidationFailed) {
+				t.Errorf("Connect() error = %v, want it to wrap protocol.ErrValidationFailed", err)
+			}
+			if !errors.Is(err, protocol.ErrNonRetryable) {
+				t.Errorf("Connect() error = %v, want it to wrap protocol.ErrNonRetryable", err)
+			}
+			if strings.Contains(err.Error(), "hunter2") {
+				t.Error("the error repeats the password")
+			}
+		})
+	}
+
+	if got := requests.Load(); got != 0 {
+		t.Errorf("server received %d requests, want 0", got)
+	}
+}
+
 type errWriter struct{ err error }
 
 func (e errWriter) Write(_ []byte) (int, error) { return 0, e.err }

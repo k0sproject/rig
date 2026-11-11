@@ -66,7 +66,7 @@ func (c *Config) validateAuth() error {
 	}
 	// The client certificate is only presented in a TLS handshake; over plain
 	// HTTP it would be silently ignored.
-	if c.CertPath != "" && !c.UseHTTPS {
+	if c.CertPath != "" && !c.usesHTTPS() {
 		return fmt.Errorf("%w: certificate authentication requires useHTTPS", protocol.ErrValidationFailed)
 	}
 	if (c.User == "") != (c.Password == "") && c.CertPath == "" {
@@ -75,9 +75,17 @@ func (c *Config) validateAuth() error {
 	return c.validatePasswordTransport()
 }
 
+// usesHTTPS reports whether the connection will use TLS. SetDefaults turns
+// UseHTTPS on for port 5986; the port is honored here too so that a Config
+// validated or connected before SetDefaults runs is judged by the transport
+// it will actually get.
+func (c *Config) usesHTTPS() bool {
+	return c.UseHTTPS || c.Port == 5986
+}
+
 // validatePasswordTransport refuses a password on plain HTTP unless Insecure
-// is set. NewConnection runs it too, because callers are not required to call
-// Validate before connecting.
+// is set. NewConnection and Connect run it too, because callers are not
+// required to call Validate and the Config of a Connection is mutable.
 //
 // Insecure is read as "do not refuse to expose the credential", widening it
 // from "accept invalid TLS certificates": both senses describe a caller who
@@ -87,7 +95,7 @@ func (c *Config) validateAuth() error {
 // sends the SOAP envelopes unencrypted, so the commands, their output and any
 // credential inside them stay readable.
 func (c *Config) validatePasswordTransport() error {
-	if c.Password != "" && !c.UseHTTPS && !c.Insecure {
+	if c.Password != "" && !c.usesHTTPS() && !c.Insecure {
 		return fmt.Errorf("%w: a password would be sent over plain HTTP, where any observer recovers it; set useHTTPS, or insecure to send it anyway", protocol.ErrValidationFailed)
 	}
 	return nil

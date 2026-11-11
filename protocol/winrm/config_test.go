@@ -13,9 +13,12 @@ import (
 // ignored.
 func TestValidateRejectsExposedPassword(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		cfg    Config
-		reject bool
+		name string
+		cfg  Config
+		// noDefaults validates without SetDefaults, as a caller validating
+		// a freshly unmarshaled config would.
+		noDefaults bool
+		reject     bool
 	}{
 		{
 			name:   "password over plain HTTP",
@@ -38,6 +41,22 @@ func TestValidateRejectsExposedPassword(t *testing.T) {
 		{
 			name: "HTTPS inferred from port 5986",
 			cfg:  Config{Address: "10.0.0.1", Port: 5986, User: "Administrator", Password: "hunter2"},
+		},
+		{
+			name:       "HTTPS inferred from port 5986 before SetDefaults",
+			cfg:        Config{Address: "10.0.0.1", Port: 5986, User: "Administrator", Password: "hunter2"},
+			noDefaults: true,
+		},
+		{
+			name:       "certificate over port 5986 before SetDefaults",
+			cfg:        Config{Address: "10.0.0.1", Port: 5986, CertPath: "/dev/null", KeyPath: "/dev/null"},
+			noDefaults: true,
+		},
+		{
+			name:       "password over port 5985 before SetDefaults",
+			cfg:        Config{Address: "10.0.0.1", Port: 5985, User: "Administrator", Password: "hunter2"},
+			noDefaults: true,
+			reject:     true,
 		},
 		{
 			name: "HTTPS without certificate verification",
@@ -64,7 +83,9 @@ func TestValidateRejectsExposedPassword(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := tc.cfg
-			cfg.SetDefaults()
+			if !tc.noDefaults {
+				cfg.SetDefaults()
+			}
 			err := cfg.Validate()
 
 			if !tc.reject {
