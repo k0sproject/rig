@@ -19,16 +19,28 @@ func TestValidateRejectsExposedPassword(t *testing.T) {
 		// a freshly unmarshaled config would.
 		noDefaults bool
 		reject     bool
+		// wantMsg, when set, must appear in the error; notMsg must not.
+		wantMsg string
+		notMsg  string
 	}{
 		{
-			name:   "password over plain HTTP",
-			cfg:    Config{Address: "10.0.0.1", User: "Administrator", Password: "hunter2"},
-			reject: true,
+			name:    "password over plain HTTP",
+			cfg:     Config{Address: "10.0.0.1", User: "Administrator", Password: "hunter2"},
+			reject:  true,
+			wantMsg: "a password would be sent over plain HTTP",
 		},
 		{
-			name:   "NTLM does not protect the body",
-			cfg:    Config{Address: "10.0.0.1", User: "Administrator", Password: "hunter2", UseNTLM: true},
-			reject: true,
+			// NTLM never sends the password itself, so the error must not
+			// claim it does.
+			name:    "NTLM does not protect the session",
+			cfg:     Config{Address: "10.0.0.1", User: "Administrator", Password: "hunter2", UseNTLM: true},
+			reject:  true,
+			wantMsg: "NTLM over plain HTTP leaves the session unencrypted",
+			notMsg:  "a password would be sent",
+		},
+		{
+			name: "NTLM over plain HTTP accepted once insecure is set",
+			cfg:  Config{Address: "10.0.0.1", User: "Administrator", Password: "hunter2", UseNTLM: true, Insecure: true},
 		},
 		{
 			name: "plain HTTP accepted once insecure is set",
@@ -103,6 +115,12 @@ func TestValidateRejectsExposedPassword(t *testing.T) {
 			}
 			if cfg.Password != "" && strings.Contains(err.Error(), cfg.Password) {
 				t.Error("the error repeats the password")
+			}
+			if tc.wantMsg != "" && !strings.Contains(err.Error(), tc.wantMsg) {
+				t.Errorf("Validate() = %v, want it to contain %q", err, tc.wantMsg)
+			}
+			if tc.notMsg != "" && strings.Contains(err.Error(), tc.notMsg) {
+				t.Errorf("Validate() = %v, want it not to contain %q", err, tc.notMsg)
 			}
 		})
 	}

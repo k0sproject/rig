@@ -87,18 +87,22 @@ func (c *Config) usesHTTPS() bool {
 // is set. NewConnection and Connect run it too, because callers are not
 // required to call Validate and the Config of a Connection is mutable.
 //
-// Insecure is read as "do not refuse to expose the credential", widening it
+// Insecure is read as "do not refuse an unprotected transport", widening it
 // from "accept invalid TLS certificates": both senses describe a caller who
 // has decided the transport does not have to protect what it carries.
 //
-// NTLM does not earn an exemption: the WinRM client authenticates with it but
-// sends the SOAP envelopes unencrypted, so the commands, their output and any
-// credential inside them stay readable.
+// NTLM does not earn an exemption. It never sends the password itself, but
+// the WinRM client does not seal the session, so the commands, their output
+// and any secret inside them stay readable, and the captured challenge
+// response can be cracked offline or relayed.
 func (c *Config) validatePasswordTransport() error {
-	if c.Password != "" && !c.usesHTTPS() && !c.Insecure {
-		return fmt.Errorf("%w: a password would be sent over plain HTTP, where any observer recovers it; set useHTTPS, or insecure to send it anyway", protocol.ErrValidationFailed)
+	if c.Password == "" || c.usesHTTPS() || c.Insecure {
+		return nil
 	}
-	return nil
+	if c.UseNTLM {
+		return fmt.Errorf("%w: NTLM over plain HTTP leaves the session unencrypted and exposes the challenge response to capture; set useHTTPS, or insecure to connect anyway", protocol.ErrValidationFailed)
+	}
+	return fmt.Errorf("%w: a password would be sent over plain HTTP, where any observer recovers it; set useHTTPS, or insecure to send it anyway", protocol.ErrValidationFailed)
 }
 
 // Validate checks the configuration for any invalid values.
