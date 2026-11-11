@@ -280,6 +280,33 @@ func TestConnectRefusesPasswordOverPlainHTTP(t *testing.T) {
 	}
 }
 
+// The validation rules treat port 5986 as HTTPS even before SetDefaults, so
+// the endpoint must too; otherwise a password accepted on that basis would
+// travel over plain HTTP.
+func TestNewEndpointScheme(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		cfg       Config
+		wantHTTPS bool
+	}{
+		{name: "port 5985", cfg: Config{Address: "10.0.0.1", Port: 5985}},
+		{name: "port 5986 without useHTTPS", cfg: Config{Address: "10.0.0.1", Port: 5986}, wantHTTPS: true},
+		{name: "custom port with useHTTPS", cfg: Config{Address: "10.0.0.1", Port: 8443, UseHTTPS: true}, wantHTTPS: true},
+		{name: "custom port without useHTTPS", cfg: Config{Address: "10.0.0.1", Port: 8080}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			conn := &Connection{Config: tc.cfg}
+			endpoint := conn.newEndpoint(context.Background())
+			if endpoint.HTTPS != tc.wantHTTPS {
+				t.Errorf("newEndpoint().HTTPS = %v, want %v", endpoint.HTTPS, tc.wantHTTPS)
+			}
+			if endpoint.Port != tc.cfg.Port {
+				t.Errorf("newEndpoint().Port = %d, want %d", endpoint.Port, tc.cfg.Port)
+			}
+		})
+	}
+}
+
 type errWriter struct{ err error }
 
 func (e errWriter) Write(_ []byte) (int, error) { return 0, e.err }
