@@ -19,7 +19,7 @@ type Config struct {
 	Port                 int         `yaml:"port" json:"port,omitempty" default:"5985" validate:"gt=0,lte=65535" jsonschema:"minimum=1,maximum=65535,description=WinRM port (default 5985; 5986 when useHTTPS is true)"`
 	Password             string      `yaml:"password,omitempty" json:"password,omitempty" jsonschema:"minLength=1,description=Password for WinRM authentication"`
 	UseHTTPS             bool        `yaml:"useHTTPS" json:"useHTTPS,omitempty" default:"false" jsonschema:"default=false,description=Use HTTPS for WinRM"`
-	Insecure             bool        `yaml:"insecure" json:"insecure,omitempty" default:"false" jsonschema:"default=false,description=Accept invalid TLS certificates"`
+	Insecure             bool        `yaml:"insecure" json:"insecure,omitempty" default:"false" jsonschema:"default=false,description=Accept invalid TLS certificates when useHTTPS is set; without useHTTPS allow sending the password over plain HTTP"`
 	UseNTLM              bool        `yaml:"useNTLM" json:"useNTLM,omitempty" default:"false" jsonschema:"default=false,description=Use NTLM authentication"`
 	CACertPath           string      `yaml:"caCertPath,omitempty" json:"caCertPath,omitempty" validate:"omitempty,file" jsonschema:"description=Path to CA certificate"`
 	CertPath             string      `yaml:"certPath,omitempty" json:"certPath,omitempty" validate:"omitempty,file" jsonschema:"minLength=1,description=Path to client certificate"`
@@ -55,22 +55,8 @@ func (c *Config) SetDefaults() {
 	}
 }
 
-// validateAuth checks that a complete authentication method is configured, and
-// that the configured transport does not hand the password to a third party.
-//
-// Insecure is read as "do not refuse to expose the credential", widening it
-// from "accept invalid TLS certificates": both senses describe a caller who
-// has decided the transport does not have to protect what it carries.
-//
-// Plain HTTP is refused because the default transport authenticates with HTTP
-// basic, putting the password on the wire base64-encoded. NTLM does not earn
-// an exemption: the WinRM client authenticates with it but sends the SOAP
-// envelopes unencrypted, so the commands, their output and any credential
-// inside them stay readable.
-//
-// TLS with Insecure is permitted by the same rule that permits plain HTTP
-// with it -- the caller asked for it explicitly. Certificate authentication
-// is unaffected: it is only selected over HTTPS, which this never rejects.
+// validateAuth checks that a complete authentication method is configured and
+// that the transport can carry it.
 func (c *Config) validateAuth() error {
 	if c.User == "" && c.Password == "" && c.CertPath == "" && c.KeyPath == "" {
 		return fmt.Errorf("%w: no authentication method set (provide user+password or certPath+keyPath)", protocol.ErrValidationFailed)
@@ -78,9 +64,29 @@ func (c *Config) validateAuth() error {
 	if (c.CertPath == "") != (c.KeyPath == "") {
 		return fmt.Errorf("%w: certPath and keyPath must both be set for certificate authentication", protocol.ErrValidationFailed)
 	}
+	// The client certificate is only presented in a TLS handshake; over plain
+	// HTTP it would be silently ignored.
+	if c.CertPath != "" && !c.UseHTTPS {
+		return fmt.Errorf("%w: certificate authentication requires useHTTPS", protocol.ErrValidationFailed)
+	}
 	if (c.User == "") != (c.Password == "") && c.CertPath == "" {
 		return fmt.Errorf("%w: user and password must both be set for password authentication", protocol.ErrValidationFailed)
 	}
+	return c.validatePasswordTransport()
+}
+
+// validatePasswordTransport refuses a password on plain HTTP unless Insecure
+// is set. NewConnection runs it too, because callers are not required to call
+// Validate before connecting.
+//
+// Insecure is read as "do not refuse to expose the credential", widening it
+// from "accept invalid TLS certificates": both senses describe a caller who
+// has decided the transport does not have to protect what it carries.
+//
+// NTLM does not earn an exemption: the WinRM client authenticates with it but
+// sends the SOAP envelopes unencrypted, so the commands, their output and any
+// credential inside them stay readable.
+func (c *Config) validatePasswordTransport() error {
 	if c.Password != "" && !c.UseHTTPS && !c.Insecure {
 		return fmt.Errorf("%w: a password would be sent over plain HTTP, where any observer recovers it; set useHTTPS, or insecure to send it anyway", protocol.ErrValidationFailed)
 	}
@@ -109,7 +115,10 @@ func (c *Config) Validate() error {
 // Connection returns a new WinRM Connection based on the configuration.
 func (c *Config) Connection() (protocol.Connection, error) {
 	conn, err := NewConnection(*c, WithLogger(c.Log()))
-	return conn, err
+	if err != nil {
+		return nil, err
+	}
+	return conn, nil
 }
 
 // String returns a string representation of the configuration.

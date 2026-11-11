@@ -192,6 +192,7 @@ func TestConnect_probeClassification(t *testing.T) {
 				Port:     port,
 				User:     "user",
 				Password: "pass",
+				Insecure: true,
 			})
 			if err != nil {
 				t.Fatalf("NewConnection() error = %v", err)
