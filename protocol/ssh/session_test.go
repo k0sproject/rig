@@ -27,6 +27,9 @@ const (
 	// sessionHoldExec withholds its reply to the command until the test
 	// releases it, then writes "late" and exits with status 0.
 	sessionHoldExec
+	// sessionNotFound exits with status 127, as a shell does for a missing
+	// command.
+	sessionNotFound
 )
 
 // execHold is how a test controls a sessionHoldExec server.
@@ -157,6 +160,10 @@ func serveSession(newChan ssh.NewChannel, behavior sessionBehavior, hold *execHo
 				continue
 			}
 			_ = req.Reply(true, nil)
+			if behavior == sessionNotFound {
+				_, _ = channel.SendRequest("exit-status", false, ssh.Marshal(exitStatusMsg{Status: 127}))
+				return
+			}
 			if behavior == sessionRun {
 				_, _ = channel.Write([]byte("hello"))
 				_, _ = channel.SendRequest("exit-status", false, ssh.Marshal(exitStatusMsg{Status: 0}))
@@ -185,6 +192,18 @@ func TestStartProcessRunsCommand(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, waiter.Wait())
 	require.Equal(t, "hello", stdout.String())
+}
+
+func TestStartProcessReportsExitStatus(t *testing.T) {
+	conn, _ := startSessionServer(t, sessionNotFound)
+
+	waiter, err := conn.StartProcess(context.Background(), "missing", nil, nil, nil)
+	require.NoError(t, err)
+
+	// cmd.ExitCodeOf reads the status through this method.
+	var withStatus interface{ ExitStatus() int }
+	require.ErrorAs(t, waiter.Wait(), &withStatus)
+	require.Equal(t, 127, withStatus.ExitStatus())
 }
 
 func TestStartProcessCancelReportsCommandResult(t *testing.T) {

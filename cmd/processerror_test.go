@@ -3,10 +3,12 @@ package cmd_test
 import (
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/k0sproject/rig/v2/cmd"
+	"github.com/k0sproject/rig/v2/protocol/localhost"
 	"github.com/k0sproject/rig/v2/rigtest"
 	"github.com/stretchr/testify/require"
 )
@@ -72,4 +74,67 @@ func TestProcessErrorStderr(t *testing.T) {
 		require.Equal(t, "boom", procErr.Stderr())
 		require.EqualError(t, procErr.Unwrap(), "exit status 1")
 	})
+}
+
+// statusErr reports its status the way x/crypto/ssh's ExitError does.
+type statusErr struct{ status int }
+
+func (e statusErr) Error() string   { return fmt.Sprintf("exit status %d", e.status) }
+func (e statusErr) ExitStatus() int { return e.status }
+
+// codeErr reports its status the way os/exec's ExitError does.
+type codeErr struct{ code int }
+
+func (e codeErr) Error() string { return fmt.Sprintf("exit code %d", e.code) }
+func (e codeErr) ExitCode() int { return e.code }
+
+func execFailingWith(t *testing.T, failure error) error {
+	t.Helper()
+	mr := rigtest.NewMockRunner()
+	mr.AddCommandFailure(rigtest.Equal("foo"), failure)
+	err := mr.Exec("foo")
+	require.Error(t, err)
+	return err
+}
+
+func TestProcessErrorExitCode(t *testing.T) {
+	t.Run("ExitStatus", func(t *testing.T) {
+		err := execFailingWith(t, fmt.Errorf("wait: %w", statusErr{status: 127}))
+		require.Equal(t, 127, cmd.ExitCodeOf(err))
+
+		var procErr *cmd.ProcessError
+		require.ErrorAs(t, err, &procErr)
+		require.Equal(t, 127, procErr.ExitCode())
+	})
+
+	t.Run("ExitCode", func(t *testing.T) {
+		err := execFailingWith(t, fmt.Errorf("wait: %w", codeErr{code: 126}))
+		require.Equal(t, 126, cmd.ExitCodeOf(err))
+	})
+
+	t.Run("no status on the error", func(t *testing.T) {
+		err := execFailingWith(t, errors.New("connection lost"))
+		require.Equal(t, -1, cmd.ExitCodeOf(err))
+	})
+
+	t.Run("not a command error", func(t *testing.T) {
+		require.Equal(t, -1, cmd.ExitCodeOf(codeErr{code: 2}), "only a command's own status counts")
+		require.Equal(t, -1, cmd.ExitCodeOf(nil))
+	})
+}
+
+func TestProcessErrorExitCodeLocalhost(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a POSIX shell")
+	}
+	conn, err := localhost.NewConnection()
+	require.NoError(t, err)
+	executor := cmd.NewExecutor(conn)
+
+	err = executor.ExecContext(t.Context(), "exit 3")
+	require.Equal(t, 3, cmd.ExitCodeOf(err))
+
+	// The shell's wording for a missing command varies, the status does not.
+	err = executor.ExecContext(t.Context(), "rig-no-such-command-for-test")
+	require.Equal(t, 127, cmd.ExitCodeOf(err), "stderr: %s", cmd.StderrOf(err))
 }

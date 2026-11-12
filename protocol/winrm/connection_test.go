@@ -492,6 +492,10 @@ func TestCommandWait(t *testing.T) {
 		if !strings.Contains(err.Error(), "3") {
 			t.Errorf("Wait() error = %q, want it to name exit code 3", err)
 		}
+		var withCode interface{ ExitCode() int }
+		if !errors.As(err, &withCode) || withCode.ExitCode() != 3 {
+			t.Errorf("Wait() error = %v, want it to carry exit code 3", err)
+		}
 	})
 
 	t.Run("gives up when the deadline passes first", func(t *testing.T) {
