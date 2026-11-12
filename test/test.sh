@@ -272,13 +272,21 @@ rig_test_regular_user_fish_login_shell() {
   run_suite_as_rigtest_user fish
 }
 
+rig_test_regular_user_requiretty() {
+  color_echo "- Testing regular user with sudoers requiretty"
+  REQUIRE_TTY=1 run_suite_as_rigtest_user
+}
+
 # run_suite_as_rigtest_user provisions an unprivileged rigtest-user with
 # passwordless privilege escalation on node0 and runs the suite as that user.
 # $1 is an optional package name for a login shell to install and assign to the
 # user; sshd runs every command through that shell, so a non-POSIX one puts the
 # shell imposition of cmd.Executor.SetShell and the sudo decorators to the test.
+# With REQUIRE_TTY set, escalation is sudo alone under Defaults requiretty, so
+# rig has to fall back to sudo.TTY.
 run_suite_as_rigtest_user() {
   local shellPkg="${1:-}"
+  local requireTTY="${REQUIRE_TTY:-}"
   make create-host
   local sshPort
   sshPort=$(ssh_port node0)
@@ -291,7 +299,22 @@ run_suite_as_rigtest_user() {
   }
 
   # shellcheck disable=SC2029 # the package name is meant to expand on this side
-  ssh "$@" root@127.0.0.1 "LOGIN_SHELL_PKG='$shellPkg' sh -euxC -" <<'EOF'
+  ssh "$@" root@127.0.0.1 "LOGIN_SHELL_PKG='$shellPkg' REQUIRE_TTY='$requireTTY' sh -euxC -" <<'EOF'
+    # requiretty needs sudo, and the fallback needs script from util-linux, which
+    # BusyBox-based images do not ship.
+    if [ -n "${REQUIRE_TTY:-}" ]; then
+      if command -v apk >/dev/null 2>&1; then
+        apk add --no-cache sudo util-linux-misc
+      else
+        DEBIAN_FRONTEND=noninteractive apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y sudo bsdutils
+      fi
+      # sudo-rs, the default sudo on newer Ubuntu, does not know requiretty and
+      # only warns about it. Use the original sudo where it is an alternative.
+      if [ -x /usr/bin/sudo.ws ] && command -v update-alternatives >/dev/null 2>&1; then
+        update-alternatives --set sudo /usr/bin/sudo.ws
+      fi
+    fi
     # The login shell, when one was requested, has to exist before the user that
     # gets it. command -v fails the script if the package did not deliver it.
     if [ -n "${LOGIN_SHELL_PKG:-}" ]; then
@@ -319,10 +342,14 @@ run_suite_as_rigtest_user() {
     cp -r /root/.ssh /var/lib/rigtest-user/.
     chown -R rigtest-user:rigtest-user /var/lib/rigtest-user/
     [ ! -d /etc/sudoers.d/ ] || {
-      echo '%rig-wheel ALL=(ALL)NOPASSWD:ALL' >/etc/sudoers.d/rig-wheel
+      if [ -n "${REQUIRE_TTY:-}" ]; then
+        echo 'Defaults:%rig-wheel requiretty' >/etc/sudoers.d/rig-wheel
+      fi
+      echo '%rig-wheel ALL=(ALL)NOPASSWD:ALL' >>/etc/sudoers.d/rig-wheel
       chmod 0440 /etc/sudoers.d/rig-wheel
     }
-    [ ! -d /etc/doas.d/ ] || {
+    # doas has no requiretty, so leave it out: rig would take it instead.
+    [ -n "${REQUIRE_TTY:-}" ] || [ ! -d /etc/doas.d/ ] || {
       echo 'permit nopass :rig-wheel' >/etc/doas.d/rig-wheel.conf
       chmod 0440 /etc/doas.d/rig-wheel.conf
     }
@@ -355,11 +382,36 @@ EOF
   # rig has to find it, and -expect-sudo makes the suite say so instead of skipping the
   # escalation tests - the failure mode a mangled detection command leads to.
   local -a sudoArgs=()
-  if ssh "$@" rigtest-user@127.0.0.1 'sudo -n -- true || doas -n -- true' >/dev/null 2>&1; then
+  if [ -n "$requireTTY" ]; then
+    # Plain sudo must be refused, or this run tests nothing the others do not.
+    if ! ssh "$@" rigtest-user@127.0.0.1 'LC_ALL=C sudo -n -- true' 2>&1 | grep -q 'must have a tty'; then
+      RET=1
+      color_echo "sudo did not refuse to run without a tty, requiretty is not in effect" >&2
+      return 0
+    fi
+    sudoArgs+=(-expect-sudo -expect-sudo-tty)
+  elif ssh "$@" rigtest-user@127.0.0.1 'sudo -n -- true || doas -n -- true' >/dev/null 2>&1; then
     sudoArgs+=(-expect-sudo)
   fi
 
-  HOME="$(pwd)" go test -v ./ -args -host 127.0.0.1 -port "$sshPort" -user rigtest-user -ssh-keypath .ssh/id_ed25519 "${sudoArgs[@]}"
+  local ret=0
+  HOME="$(pwd)" go test -v ./ -args -host 127.0.0.1 -port "$sshPort" -user rigtest-user -ssh-keypath .ssh/id_ed25519 "${sudoArgs[@]}" || ret=$?
+
+  # sudo.TTY wraps every elevated command, so put it through the openssh client
+  # protocol too, which handles stdin, exit status and cancellation its own way.
+  if [ -n "$requireTTY" ]; then
+    {
+      echo "Host testhost"
+      echo "  HostName 127.0.0.1"
+      echo "  Port $sshPort"
+      echo "  User rigtest-user"
+      echo "  IdentityFile $(pwd)/.ssh/id_ed25519"
+      echo "  UserKnownHostsFile /dev/null"
+      echo "  StrictHostKeyChecking no"
+    } >.ssh/config
+    go test -v ./ -args -ssh-configpath .ssh/config -host testhost -protocol openssh -user "" "${sudoArgs[@]}" || ret=$?
+  fi
+  return "$ret"
 }
 
 rig_test_openssh_client() {

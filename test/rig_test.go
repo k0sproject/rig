@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"log/slog"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +27,7 @@ import (
 	"github.com/k0sproject/rig/v2/protocol/winrm"
 	"github.com/k0sproject/rig/v2/remotefs"
 	"github.com/k0sproject/rig/v2/rigtest"
+	"github.com/k0sproject/rig/v2/sh/shellescape"
 	"github.com/k0sproject/rig/v2/sshconfig"
 	"github.com/k0sproject/rig/v2/stattime"
 
@@ -47,6 +50,7 @@ var (
 	enableMultiplex bool
 	traceLog        bool
 	expectSudo      bool
+	expectSudoTTY   bool
 )
 
 func pathBase(p string) string {
@@ -70,10 +74,17 @@ func TestMain(m *testing.M) {
 	flag.BoolVar(&enableMultiplex, "openssh-multiplex", true, "use ssh multiplexing")
 	flag.BoolVar(&onlyConnect, "connect", false, "only connect to host, dont run other tests")
 	flag.BoolVar(&expectSudo, "expect-sudo", false, "the host has passwordless privilege escalation configured, fail instead of skipping when rig does not detect it")
+	flag.BoolVar(&expectSudoTTY, "expect-sudo-tty", false, "sudoers sets requiretty, so rig must fall back to sudo.TTY; fail instead of skipping the checks that depend on it")
 	flag.BoolVar(&traceLog, "trace", false, "turn on trace logging")
 
 	// Parse the flags
 	flag.Parse()
+
+	// A host where rig must fall back to sudo.TTY has sudo by definition, so
+	// none of the escalation tests may skip for lack of it.
+	if expectSudoTTY {
+		expectSudo = true
+	}
 
 	if traceLog {
 		rigtest.TraceToStderr()
@@ -334,6 +345,143 @@ func (s *OSSuite) TestSudoCompoundCommands() {
 		s.Require().NoError(err)
 		s.Equal("recovered", strings.TrimSpace(out))
 	})
+}
+
+// TestSudoExitStatus checks that an elevated command's exit status, and a
+// context ending while it runs, reach the caller through the sudo runner rig
+// detected. Under requiretty that runner is sudo.TTY, whose exit status is
+// relayed outside script(1), which reports 0 when it is interrupted.
+//
+// A context ending over native SSH asks the server to interrupt the command
+// with a signal, so the elevated command and every process between it and the
+// server must be gone afterwards whenever an unelevated command is. Under
+// sudo.TTY that takes the wrapper and the shell script starts passing the
+// signal on, as sudo runs in a session of its own. Not every server acts on
+// the request: the OpenSSH 9 servers of Debian 12 and Ubuntu 24.04 leave even
+// an unelevated command of a root login running, and the openssh protocol
+// stops only the local ssh client. doas is not held to it either: it gives up
+// the user's real uid before running the command, so the server, which sends
+// the signal as the user, is not allowed to.
+//
+// With -expect-sudo-tty the command must run under script(1), and over native
+// SSH the check that it stops must not be skipped.
+func (s *OSSuite) TestSudoExitStatus() {
+	if s.Host.IsWindows() {
+		s.Require().False(expectSudoTTY, "sudo.TTY does not apply to windows")
+		s.T().Skip("sudo not supported on windows")
+		return
+	}
+	if _, err := s.Host.Sudo().ExecOutput("true"); err != nil {
+		s.Require().Falsef(expectSudo, "the host has passwordless privilege escalation configured but rig did not detect it: %v", err)
+		s.T().Skip("passwordless privilege escalation (sudo/doas) not configured")
+		return
+	}
+
+	s.Run("Non-zero exit status", func() {
+		err := s.Host.Sudo().Exec("exit 17")
+		s.Require().Error(err)
+		s.Equal(17, exitCodeOf(err), "error: %v", err)
+	})
+
+	s.Run("Context ends while the command runs", func() {
+		if s.Host.Exec("test -r /proc/self/status") != nil {
+			s.Require().False(expectSudoTTY, "following the processes of a sudo.TTY command needs Linux procfs")
+			s.execCancelled(s.Host.Sudo(), "sleep 30")
+			s.T().Skip("no Linux procfs to follow the command's processes with")
+			return
+		}
+		sudoUser, err := s.Host.Sudo().ExecOutput(`echo "${SUDO_USER:-}"`)
+		s.Require().NoError(err)
+		stopsPlain, _ := s.cancelledCommandStops(s.Host.Client)
+		stopsElevated, chain := s.cancelledCommandStops(s.Host.Sudo())
+		if expectSudoTTY {
+			s.Contains(chain, "script", "the elevated command did not run under script(1), so sudo.TTY was not used")
+			if proto == "ssh" {
+				s.Require().True(stopsPlain, "an unelevated command outlived its context, so the elevated one could not be checked")
+			}
+		}
+		switch {
+		case !stopsPlain:
+			s.T().Log("an unelevated command outlives its context on this connection, so the elevated one is not required to stop")
+		case sudoUser == "":
+			s.T().Log("privileges are not escalated through sudo, so the elevated command is not required to stop")
+		default:
+			s.True(stopsElevated, "the elevated command or a process running it outlived its context, an unelevated one does not: %v", chain)
+		}
+	})
+}
+
+// cancelledCommandStops runs a command through client until a short context
+// ends and reports whether the command and every process between it and the
+// SSH server are gone afterwards, along with those processes' names, the
+// command's first. The command must still fail with the context's error either
+// way. Processes that outlive the context are killed. It needs Linux procfs.
+func (s *OSSuite) cancelledCommandStops(client *rig.Client) (bool, []string) {
+	chainFile := s.TempPath()
+	// Each line is a pid and its name, walking up from the command until the
+	// server, which is not recorded.
+	record := `p=$$; while [ "$p" -gt 1 ]; do n=$(cat /proc/$p/comm); case $n in sshd*) break;; esac; ` +
+		`echo "$p $n"; p=$(sed -n 's/^PPid:[[:space:]]*//p' /proc/$p/status); done > ` + shellescape.Quote(chainFile)
+	s.execCancelled(client, record+"; exec sleep 30")
+
+	out, err := client.ExecOutput("cat " + shellescape.Quote(chainFile))
+	s.Require().NoError(err)
+	var pids []int
+	var names []string
+	for line := range strings.Lines(out) {
+		pidField, name, ok := strings.Cut(strings.TrimSpace(line), " ")
+		s.Require().True(ok, "malformed process chain line %q", line)
+		pid, err := strconv.Atoi(pidField)
+		s.Require().NoError(err, "malformed process chain line %q", line)
+		pids = append(pids, pid)
+		names = append(names, name)
+	}
+	s.Require().NotEmpty(pids, "the command did not report its processes")
+
+	// A zombie counts as gone: reaping it is up to the host's init.
+	var gone strings.Builder
+	for _, pid := range pids {
+		fmt.Fprintf(&gone, "{ ! [ -e /proc/%[1]d ] || grep -q '^State:[[:space:]]*Z' /proc/%[1]d/status; } && ", pid)
+	}
+	gone.WriteString("true")
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
+		if s.Host.Exec(gone.String()) == nil {
+			return true, names
+		}
+	}
+	// The command is first and killing it ends the rest; a process gone in
+	// the meantime makes kill fail, which is fine.
+	_ = client.Exec(fmt.Sprintf("kill %d", pids[0]))
+	return false, names
+}
+
+// execCancelled runs command through client until a short context ends and
+// checks that it fails with the context's error, promptly.
+func (s *OSSuite) execCancelled(client *rig.Client, command string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	start := time.Now()
+	err := client.ExecContext(ctx, command)
+	s.Require().ErrorIs(err, context.DeadlineExceeded, "an interrupted command must not be reported as a success")
+	s.Less(time.Since(start), 20*time.Second)
+}
+
+// exitCodeOf returns the exit status err carries, from the native SSH
+// protocol's exit error or from a local process one, or -1.
+func exitCodeOf(err error) int {
+	if withStatus, ok := errors.AsType[interface {
+		error
+		ExitStatus() int
+	}](err); ok {
+		return withStatus.ExitStatus()
+	}
+	if withCode, ok := errors.AsType[interface {
+		error
+		ExitCode() int
+	}](err); ok {
+		return withCode.ExitCode()
+	}
+	return -1
 }
 
 func (s *OSSuite) TestStat() {
