@@ -423,11 +423,30 @@ func (c *command) Wait() error {
 
 	log.Trace(context.Background(), "command finished", log.KeyExitCode, c.cmd.ExitCode())
 
-	if c.cmd.ExitCode() != 0 {
-		return fmt.Errorf("%w: exit code %d", errExitCode, c.cmd.ExitCode())
+	if code := c.cmd.ExitCode(); code != 0 {
+		return &exitCodeError{code: code}
 	}
 
 	return nil
+}
+
+// exitCodeError reports a command that exited with a non-zero status. Its
+// ExitCode method is how callers further up read the status back.
+type exitCodeError struct {
+	code int
+}
+
+func (e *exitCodeError) Error() string {
+	return fmt.Sprintf("%v: exit code %d", errExitCode, e.code)
+}
+
+func (e *exitCodeError) Unwrap() error {
+	return errExitCode
+}
+
+// ExitCode returns the status the command exited with.
+func (e *exitCodeError) ExitCode() int {
+	return e.code
 }
 
 // Close terminates the command.

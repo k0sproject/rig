@@ -27,6 +27,12 @@ const (
 	// sessionHoldExec withholds its reply to the command until the test
 	// releases it, then writes "late" and exits with status 0.
 	sessionHoldExec
+	// sessionNotFound exits with status 127, as a shell does for a missing
+	// command.
+	sessionNotFound
+	// sessionKilled reports the command as killed by TERM, sending
+	// exit-signal and no exit-status.
+	sessionKilled
 )
 
 // execHold is how a test controls a sessionHoldExec server.
@@ -38,6 +44,13 @@ type execHold struct {
 
 type exitStatusMsg struct {
 	Status uint32
+}
+
+type exitSignalMsg struct {
+	Signal     string
+	CoreDumped bool
+	Error      string
+	Lang       string
 }
 
 // freezingProxy forwards a TCP connection until it is frozen, after which it
@@ -157,6 +170,14 @@ func serveSession(newChan ssh.NewChannel, behavior sessionBehavior, hold *execHo
 				continue
 			}
 			_ = req.Reply(true, nil)
+			if behavior == sessionKilled {
+				_, _ = channel.SendRequest("exit-signal", false, ssh.Marshal(exitSignalMsg{Signal: "TERM"}))
+				return
+			}
+			if behavior == sessionNotFound {
+				_, _ = channel.SendRequest("exit-status", false, ssh.Marshal(exitStatusMsg{Status: 127}))
+				return
+			}
 			if behavior == sessionRun {
 				_, _ = channel.Write([]byte("hello"))
 				_, _ = channel.SendRequest("exit-status", false, ssh.Marshal(exitStatusMsg{Status: 0}))
@@ -185,6 +206,32 @@ func TestStartProcessRunsCommand(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, waiter.Wait())
 	require.Equal(t, "hello", stdout.String())
+}
+
+func TestStartProcessReportsExitStatus(t *testing.T) {
+	conn, _ := startSessionServer(t, sessionNotFound)
+
+	waiter, err := conn.StartProcess(context.Background(), "missing", nil, nil, nil)
+	require.NoError(t, err)
+
+	// cmd.ExitCodeOf reads the status through this method.
+	var withStatus interface{ ExitStatus() int }
+	require.ErrorAs(t, waiter.Wait(), &withStatus)
+	require.Equal(t, 127, withStatus.ExitStatus())
+}
+
+func TestStartProcessReportsExitSignal(t *testing.T) {
+	conn, _ := startSessionServer(t, sessionKilled)
+
+	waiter, err := conn.StartProcess(context.Background(), "sleep 60", nil, nil, nil)
+	require.NoError(t, err)
+
+	// x/crypto makes up a status of 128+15 for this, so cmd.ExitCodeOf has
+	// to look at the signal before trusting it.
+	var exitErr *ssh.ExitError
+	require.ErrorAs(t, waiter.Wait(), &exitErr)
+	require.Equal(t, "TERM", exitErr.Signal())
+	require.Equal(t, 143, exitErr.ExitStatus())
 }
 
 func TestStartProcessCancelReportsCommandResult(t *testing.T) {
