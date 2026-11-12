@@ -77,10 +77,14 @@ func TestProcessErrorStderr(t *testing.T) {
 }
 
 // statusErr reports its status the way x/crypto/ssh's ExitError does.
-type statusErr struct{ status int }
+type statusErr struct {
+	status int
+	signal string
+}
 
 func (e statusErr) Error() string   { return fmt.Sprintf("exit status %d", e.status) }
 func (e statusErr) ExitStatus() int { return e.status }
+func (e statusErr) Signal() string  { return e.signal }
 
 // codeErr reports its status the way os/exec's ExitError does.
 type codeErr struct{ code int }
@@ -105,6 +109,13 @@ func TestProcessErrorExitCode(t *testing.T) {
 		var procErr *cmd.ProcessError
 		require.ErrorAs(t, err, &procErr)
 		require.Equal(t, 127, procErr.ExitCode())
+	})
+
+	t.Run("ExitStatus of a signalled command", func(t *testing.T) {
+		// x/crypto/ssh reports 128+15 for a command killed by TERM, a status
+		// the command never exited with.
+		err := execFailingWith(t, statusErr{status: 143, signal: "TERM"})
+		require.Equal(t, -1, cmd.ExitCodeOf(err))
 	})
 
 	t.Run("ExitCode", func(t *testing.T) {

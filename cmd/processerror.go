@@ -69,10 +69,13 @@ func ExitCodeOf(err error) int {
 	return -1
 }
 
-// exitStatusError is how x/crypto/ssh's ExitError reports a status.
+// exitStatusError is how x/crypto/ssh's ExitError reports a status. It also
+// has Signal, because for a command the server reports as killed by a signal
+// it makes up a status of 128 plus the signal number.
 type exitStatusError interface {
 	error
 	ExitStatus() int
+	Signal() string
 }
 
 // exitCodeError is how os/exec's ExitError and the winrm protocol's error
@@ -86,6 +89,9 @@ type exitCodeError interface {
 // use -1 for a command that ended without one.
 func exitCode(err error) int {
 	if withStatus, ok := errors.AsType[exitStatusError](err); ok {
+		if withStatus.Signal() != "" {
+			return -1
+		}
 		return withStatus.ExitStatus()
 	}
 	if withCode, ok := errors.AsType[exitCodeError](err); ok {
