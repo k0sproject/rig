@@ -4,8 +4,13 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/k0sproject/rig/v2"
@@ -13,6 +18,7 @@ import (
 	"github.com/k0sproject/rig/v2/os"
 	"github.com/k0sproject/rig/v2/packagemanager"
 	"github.com/k0sproject/rig/v2/protocol"
+	"github.com/k0sproject/rig/v2/protocol/winrm"
 	"github.com/k0sproject/rig/v2/remotefs"
 	"github.com/k0sproject/rig/v2/rigtest"
 	"github.com/stretchr/testify/assert"
@@ -35,6 +41,34 @@ func TestClientWithConnectionFactory(t *testing.T) {
 	out, err := conn.ExecOutput("echo hello")
 	require.NoError(t, err)
 	require.Equal(t, "hello", out)
+}
+
+func TestClientWithConnectionFactoryRefusesWinRMPasswordOverHTTP(t *testing.T) {
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+
+	u, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+	port, err := strconv.Atoi(u.Port())
+	require.NoError(t, err)
+
+	cc := &rig.CompositeConfig{
+		WinRM: &winrm.Config{
+			Address:  u.Hostname(),
+			Port:     port,
+			User:     "Administrator",
+			Password: "hunter2",
+		},
+	}
+	client, err := rig.NewClient(rig.WithConnectionFactory(cc))
+	require.ErrorIs(t, err, protocol.ErrValidationFailed)
+	require.Nil(t, client)
+	require.NotContains(t, err.Error(), "hunter2")
+	require.Zero(t, requests.Load(), "a rejected configuration must not reach the host")
 }
 
 func TestClient(t *testing.T) {

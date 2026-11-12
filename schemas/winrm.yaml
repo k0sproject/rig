@@ -80,7 +80,7 @@ $defs:
         default: false
       insecure:
         type: boolean
-        description: Accept invalid TLS certificates
+        description: Accept invalid TLS certificates when useHTTPS is set; without useHTTPS allow sending the password over plain HTTP
         default: false
       useNTLM:
         type: boolean

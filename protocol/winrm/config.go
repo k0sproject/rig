@@ -19,7 +19,7 @@ type Config struct {
 	Port                 int         `yaml:"port" json:"port,omitempty" default:"5985" validate:"gt=0,lte=65535" jsonschema:"minimum=1,maximum=65535,description=WinRM port (default 5985; 5986 when useHTTPS is true)"`
 	Password             string      `yaml:"password,omitempty" json:"password,omitempty" jsonschema:"minLength=1,description=Password for WinRM authentication"`
 	UseHTTPS             bool        `yaml:"useHTTPS" json:"useHTTPS,omitempty" default:"false" jsonschema:"default=false,description=Use HTTPS for WinRM"`
-	Insecure             bool        `yaml:"insecure" json:"insecure,omitempty" default:"false" jsonschema:"default=false,description=Accept invalid TLS certificates"`
+	Insecure             bool        `yaml:"insecure" json:"insecure,omitempty" default:"false" jsonschema:"default=false,description=Accept invalid TLS certificates when useHTTPS is set; without useHTTPS allow sending the password over plain HTTP"`
 	UseNTLM              bool        `yaml:"useNTLM" json:"useNTLM,omitempty" default:"false" jsonschema:"default=false,description=Use NTLM authentication"`
 	CACertPath           string      `yaml:"caCertPath,omitempty" json:"caCertPath,omitempty" validate:"omitempty,file" jsonschema:"description=Path to CA certificate"`
 	CertPath             string      `yaml:"certPath,omitempty" json:"certPath,omitempty" validate:"omitempty,file" jsonschema:"minLength=1,description=Path to client certificate"`
@@ -55,7 +55,8 @@ func (c *Config) SetDefaults() {
 	}
 }
 
-// validateAuth checks that a complete authentication method is configured.
+// validateAuth checks that a complete authentication method is configured and
+// that the transport can carry it.
 func (c *Config) validateAuth() error {
 	if c.User == "" && c.Password == "" && c.CertPath == "" && c.KeyPath == "" {
 		return fmt.Errorf("%w: no authentication method set (provide user+password or certPath+keyPath)", protocol.ErrValidationFailed)
@@ -63,10 +64,45 @@ func (c *Config) validateAuth() error {
 	if (c.CertPath == "") != (c.KeyPath == "") {
 		return fmt.Errorf("%w: certPath and keyPath must both be set for certificate authentication", protocol.ErrValidationFailed)
 	}
+	// The client certificate is only presented in a TLS handshake; over plain
+	// HTTP it would be silently ignored.
+	if c.CertPath != "" && !c.usesHTTPS() {
+		return fmt.Errorf("%w: certificate authentication requires useHTTPS", protocol.ErrValidationFailed)
+	}
 	if (c.User == "") != (c.Password == "") && c.CertPath == "" {
 		return fmt.Errorf("%w: user and password must both be set for password authentication", protocol.ErrValidationFailed)
 	}
-	return nil
+	return c.validatePasswordTransport()
+}
+
+// usesHTTPS reports whether the connection will use TLS. SetDefaults turns
+// UseHTTPS on for port 5986; the port is honored here too so that a Config
+// validated or connected before SetDefaults runs is judged by the transport
+// it will actually get.
+func (c *Config) usesHTTPS() bool {
+	return c.UseHTTPS || c.Port == 5986
+}
+
+// validatePasswordTransport refuses a password on plain HTTP unless Insecure
+// is set. NewConnection and Connect run it too, because callers are not
+// required to call Validate and the Config of a Connection is mutable.
+//
+// Insecure is read as "do not refuse an unprotected transport", widening it
+// from "accept invalid TLS certificates": both senses describe a caller who
+// has decided the transport does not have to protect what it carries.
+//
+// NTLM does not earn an exemption. It never sends the password itself, but
+// the WinRM client does not seal the session, so the commands, their output
+// and any secret inside them stay readable, and the captured challenge
+// response can be cracked offline or relayed.
+func (c *Config) validatePasswordTransport() error {
+	if c.Password == "" || c.usesHTTPS() || c.Insecure {
+		return nil
+	}
+	if c.UseNTLM {
+		return fmt.Errorf("%w: NTLM over plain HTTP leaves the session unencrypted and exposes the challenge response to capture; set useHTTPS, or insecure to connect anyway", protocol.ErrValidationFailed)
+	}
+	return fmt.Errorf("%w: a password would be sent over plain HTTP, where any observer recovers it; set useHTTPS, or insecure to send it anyway", protocol.ErrValidationFailed)
 }
 
 // Validate checks the configuration for any invalid values.
@@ -91,7 +127,10 @@ func (c *Config) Validate() error {
 // Connection returns a new WinRM Connection based on the configuration.
 func (c *Config) Connection() (protocol.Connection, error) {
 	conn, err := NewConnection(*c, WithLogger(c.Log()))
-	return conn, err
+	if err != nil {
+		return nil, err
+	}
+	return conn, nil
 }
 
 // String returns a string representation of the configuration.

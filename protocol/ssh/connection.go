@@ -218,7 +218,7 @@ func (c *Connection) configureKeepalive(options *Options) {
 // returns has not yet contacted the host.
 func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
 	options := NewOptions(opts...)
-	options.InjectLoggerTo(cfg, log.KeyProtocol, "ssh-config")
+	options.InjectLoggerTo(&cfg, log.KeyProtocol, "ssh-config")
 	if options.IgnoreSSHConfig {
 		cfg.IgnoreSSHConfig = true
 	}

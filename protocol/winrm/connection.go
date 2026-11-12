@@ -45,11 +45,17 @@ type Connection struct {
 
 type dialFunc func(network, addr string) (net.Conn, error)
 
-// NewConnection creates a new WinRM connection. Error is currently always nil.
+// NewConnection creates a new WinRM connection. It does not contact the host.
+// The error wraps [protocol.ErrValidationFailed] and [protocol.ErrNonRetryable]
+// when the configuration would send a password over plain HTTP without
+// [Config.Insecure] set.
 func NewConnection(cfg Config, opts ...Option) (*Connection, error) {
 	options := NewOptions(opts...)
-	options.InjectLoggerTo(cfg, log.KeyProtocol, "winrm-config")
+	options.InjectLoggerTo(&cfg, log.KeyProtocol, "winrm-config")
 	cfg.SetDefaults()
+	if err := cfg.validatePasswordTransport(); err != nil {
+		return nil, fmt.Errorf("%w: %w", protocol.ErrNonRetryable, err)
+	}
 
 	c := &Connection{Config: cfg}
 	options.InjectLoggerTo(c, log.KeyProtocol, "winrm")
@@ -198,18 +204,13 @@ func (c *Connection) bastionDialer(ctx context.Context) (*ssh.Connection, dialFu
 	return bastionSSH, bastionSSH.Dial, nil
 }
 
-// Connect opens the WinRM connection. Any existing connection is torn down first.
-func (c *Connection) Connect(ctx context.Context) error {
-	c.Disconnect()
-
-	if err := c.loadCertificates(); err != nil {
-		return fmt.Errorf("%w: failed to load certificates: %w", protocol.ErrNonRetryable, err)
-	}
-
+// newEndpoint builds the WinRM endpoint from the configuration and the
+// certificates loaded by loadCertificates.
+func (c *Connection) newEndpoint(ctx context.Context) *winrm.Endpoint {
 	endpoint := &winrm.Endpoint{
 		Host:          c.Address,
 		Port:          c.Port,
-		HTTPS:         c.UseHTTPS,
+		HTTPS:         c.usesHTTPS(),
 		Insecure:      c.Insecure,
 		TLSServerName: c.TLSServerName,
 		Timeout:       endpointTimeout(ctx),
@@ -227,6 +228,22 @@ func (c *Connection) Connect(ctx context.Context) error {
 		endpoint.Key = c.key
 	}
 
+	return endpoint
+}
+
+// Connect opens the WinRM connection. Any existing connection is torn down first.
+func (c *Connection) Connect(ctx context.Context) error {
+	c.Disconnect()
+
+	if err := c.validatePasswordTransport(); err != nil {
+		return fmt.Errorf("%w: %w", protocol.ErrNonRetryable, err)
+	}
+
+	if err := c.loadCertificates(); err != nil {
+		return fmt.Errorf("%w: failed to load certificates: %w", protocol.ErrNonRetryable, err)
+	}
+
+	endpoint := c.newEndpoint(ctx)
 	params := winrm.DefaultParameters
 
 	if c.Bastion != nil {
@@ -244,7 +261,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 		params.TransportDecorator = func() winrm.Transporter { return &winrm.ClientNTLM{} }
 	}
 
-	if c.UseHTTPS && len(c.cert) > 0 {
+	if c.usesHTTPS() && len(c.cert) > 0 {
 		params.TransportDecorator = func() winrm.Transporter { return &winrm.ClientAuthRequest{} }
 	}
 

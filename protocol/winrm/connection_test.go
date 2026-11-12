@@ -192,6 +192,7 @@ func TestConnect_probeClassification(t *testing.T) {
 				Port:     port,
 				User:     "user",
 				Password: "pass",
+				Insecure: true,
 			})
 			if err != nil {
 				t.Fatalf("NewConnection() error = %v", err)
@@ -216,6 +217,91 @@ func TestConnect_probeClassification(t *testing.T) {
 
 			if conn.IsConnected() {
 				t.Error("IsConnected() = true after failed Connect, want false")
+			}
+		})
+	}
+}
+
+// Connection.Config is exported and mutable, and a Connection can be built
+// without NewConnection, so Connect must recheck the plain-HTTP password rule
+// against the configuration it is about to transmit.
+func TestConnectRefusesPasswordOverPlainHTTP(t *testing.T) {
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+
+	u, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatalf("url.Parse(%q) error = %v", srv.URL, err)
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil {
+		t.Fatalf("strconv.Atoi(%q) error = %v", u.Port(), err)
+	}
+
+	passwordAdded, err := NewConnection(Config{Address: u.Hostname(), Port: port, User: "Administrator"})
+	if err != nil {
+		t.Fatalf("NewConnection() without a password error = %v", err)
+	}
+	passwordAdded.Password = "hunter2"
+
+	for _, tc := range []struct {
+		name string
+		conn *Connection
+	}{
+		{name: "password set after NewConnection", conn: passwordAdded},
+		{
+			name: "constructed without NewConnection",
+			conn: &Connection{Config: Config{Address: u.Hostname(), Port: port, User: "Administrator", Password: "hunter2"}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.conn.Connect(context.Background())
+			if err == nil {
+				t.Fatal("Connect() error = nil, want a validation error")
+			}
+			if !errors.Is(err, protocol.ErrValidationFailed) {
+				t.Errorf("Connect() error = %v, want it to wrap protocol.ErrValidationFailed", err)
+			}
+			if !errors.Is(err, protocol.ErrNonRetryable) {
+				t.Errorf("Connect() error = %v, want it to wrap protocol.ErrNonRetryable", err)
+			}
+			if strings.Contains(err.Error(), "hunter2") {
+				t.Error("the error repeats the password")
+			}
+		})
+	}
+
+	if got := requests.Load(); got != 0 {
+		t.Errorf("server received %d requests, want 0", got)
+	}
+}
+
+// The validation rules treat port 5986 as HTTPS even before SetDefaults, so
+// the endpoint must too; otherwise a password accepted on that basis would
+// travel over plain HTTP.
+func TestNewEndpointScheme(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		cfg       Config
+		wantHTTPS bool
+	}{
+		{name: "port 5985", cfg: Config{Address: "10.0.0.1", Port: 5985}},
+		{name: "port 5986 without useHTTPS", cfg: Config{Address: "10.0.0.1", Port: 5986}, wantHTTPS: true},
+		{name: "custom port with useHTTPS", cfg: Config{Address: "10.0.0.1", Port: 8443, UseHTTPS: true}, wantHTTPS: true},
+		{name: "custom port without useHTTPS", cfg: Config{Address: "10.0.0.1", Port: 8080}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			conn := &Connection{Config: tc.cfg}
+			endpoint := conn.newEndpoint(context.Background())
+			if endpoint.HTTPS != tc.wantHTTPS {
+				t.Errorf("newEndpoint().HTTPS = %v, want %v", endpoint.HTTPS, tc.wantHTTPS)
+			}
+			if endpoint.Port != tc.cfg.Port {
+				t.Errorf("newEndpoint().Port = %d, want %d", endpoint.Port, tc.cfg.Port)
 			}
 		})
 	}
