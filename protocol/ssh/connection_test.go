@@ -2290,11 +2290,12 @@ func makeCertForSigner(t *testing.T, signer ssh.Signer) *ssh.Certificate {
 	caSigner, err := ssh.NewSignerFromKey(caPriv)
 	require.NoError(t, err)
 	cert := &ssh.Certificate{
-		Key:         signer.PublicKey(),
-		CertType:    ssh.UserCert,
-		KeyId:       "test",
-		ValidAfter:  0,
-		ValidBefore: ssh.CertTimeInfinity,
+		Key:             signer.PublicKey(),
+		CertType:        ssh.UserCert,
+		KeyId:           "test",
+		ValidPrincipals: []string{"test"},
+		ValidAfter:      0,
+		ValidBefore:     ssh.CertTimeInfinity,
 	}
 	require.NoError(t, cert.SignCert(rand.Reader, caSigner))
 	return cert
@@ -2455,11 +2456,12 @@ func TestCertSignerForSignerSkipsHostCert(t *testing.T) {
 	require.NoError(t, err)
 
 	hostCert := &ssh.Certificate{
-		Key:         signer.PublicKey(),
-		CertType:    ssh.HostCert,
-		KeyId:       "host",
-		ValidAfter:  0,
-		ValidBefore: ssh.CertTimeInfinity,
+		Key:             signer.PublicKey(),
+		CertType:        ssh.HostCert,
+		KeyId:           "host",
+		ValidPrincipals: []string{"host.example.com"},
+		ValidAfter:      0,
+		ValidBefore:     ssh.CertTimeInfinity,
 	}
 	require.NoError(t, hostCert.SignCert(rand.Reader, caSigner))
 
