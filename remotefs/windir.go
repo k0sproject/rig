@@ -51,7 +51,7 @@ func (f *winDir) Close() error {
 }
 
 var statDirTemplate = `
-$items = Get-ChildItem -LiteralPath %s | Select-Object Name, FullName, LastWriteTime, Attributes, Mode, Length | ForEach-Object {
+$items = Get-ChildItem -LiteralPath %s | Select-Object Name, FullName, LastWriteTime, Attributes, Mode, Length, LinkType | ForEach-Object {
     $isReadOnly = [bool]($_.Attributes -band [System.IO.FileAttributes]::ReadOnly)
     $_ | Add-Member -NotePropertyName IsReadOnly -NotePropertyValue $isReadOnly -PassThru 
 }

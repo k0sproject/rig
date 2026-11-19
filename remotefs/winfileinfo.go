@@ -37,6 +37,7 @@ type winFileInfo struct {
 	LastWriteTime windowsFileInfoTime `json:"LastWriteTime"`
 	Attributes    int                 `json:"Attributes"`
 	FMode         string              `json:"Mode"`
+	LinkType      string              `json:"LinkType"`
 	Err           string              `json:"Err"`
 	fs            *WinFS
 }
@@ -52,11 +53,17 @@ func (fi *winFileInfo) Size() int64 {
 	return fi.Length
 }
 
-// Mode returns the file mode bits, including fs.ModeDir for directories.
+// Mode returns the file mode bits, including fs.ModeDir for directories and
+// fs.ModeSymlink for symbolic links. A symbolic link to a directory keeps
+// fs.ModeDir as well, so walking a tree is unchanged. Other reparse points,
+// such as junctions or cloud placeholders, are not reported as links.
 func (fi *winFileInfo) Mode() fs.FileMode {
 	var mode fs.FileMode
 	if fi.IsDir() {
 		mode |= fs.ModeDir
+	}
+	if fi.LinkType == "SymbolicLink" {
+		mode |= fs.ModeSymlink
 	}
 	if fi.IsReadOnly {
 		return mode | 0o555

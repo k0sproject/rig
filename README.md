@@ -115,11 +115,12 @@ err = fs.WalkDir(fsys, "/var/log", func(p string, d fs.DirEntry, err error) erro
 
 It also exposes a richer, `os`-like surface — `WriteFile`, `MkdirAll`, `Rename`,
 `Chmod`, `Stat`, `OpenFile` (honouring `os.O_EXCL` & friends), plus OS-aware
-`NativePath`/`ShellQuote` so the same code is correct on Windows and Linux targets. The function signatures mimic those found in stdlib. Atomic uploads with checksum verification come built in:
+`NativePath`/`ShellQuote` so the same code is correct on Windows and Linux targets. The function signatures mimic those found in stdlib. Atomic uploads and downloads with checksum verification come built in:
 
 ```go
 err = remotefs.Upload(client.FS(), "local/binary", "/usr/local/bin/tool",
 	remotefs.WithPermissions(0o755))
+err = remotefs.DownloadFile(client.FS(), "/var/lib/app/backup.tar.gz", "backup.tar.gz")
 ```
 
 ### Sudo is just another client

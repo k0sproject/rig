@@ -10,6 +10,8 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -260,4 +262,234 @@ type corruptUploadFS struct {
 
 func (f *corruptUploadFS) Sha256(_ string) (string, error) {
 	return "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef", nil
+}
+
+// downloadFS is a minimal FS stub for DownloadFile tests. It reuses uploadFS
+// for the methods DownloadFile never calls.
+type downloadFS struct {
+	uploadFS
+
+	content []byte
+	mode    fs.FileMode
+	modTime time.Time
+
+	statErr      error
+	copyToErr    error
+	closeErr     error
+	sum          string // overrides the computed checksum when set
+	opened       int
+	closed       int
+	sumWhileOpen bool
+}
+
+func (f *downloadFS) Stat(name string) (fs.FileInfo, error) {
+	if f.statErr != nil {
+		return nil, f.statErr
+	}
+	return fileInfo{name: filepath.Base(name), size: int64(len(f.content)), mode: f.mode, modTime: f.modTime}, nil
+}
+
+func (f *downloadFS) OpenFile(_ string, _ int, _ fs.FileMode) (remotefs.File, error) {
+	f.opened++
+	return &downloadFile{fs: f, content: f.content, copyToErr: f.copyToErr}, nil
+}
+
+// Sha256 fails while the file is still open, as WinFS does: the rigrcp daemon
+// opens files without sharing, so a second open is a sharing violation.
+func (f *downloadFS) Sha256(_ string) (string, error) {
+	if f.opened > f.closed {
+		f.sumWhileOpen = true
+		return "", errors.New("the process cannot access the file because it is being used by another process")
+	}
+	if f.sum != "" {
+		return f.sum, nil
+	}
+	h := sha256.Sum256(f.content)
+	return hex.EncodeToString(h[:]), nil
+}
+
+type downloadFile struct {
+	uploadFile
+
+	fs        *downloadFS
+	content   []byte
+	copyToErr error
+}
+
+func (f *downloadFile) CopyTo(dst io.Writer) (int64, error) {
+	if f.copyToErr != nil {
+		// Write part of the content first, as a transfer cut short would.
+		n, _ := dst.Write(f.content[:len(f.content)/2])
+		return int64(n), f.copyToErr
+	}
+	n, err := dst.Write(f.content)
+	return int64(n), err
+}
+
+func (f *downloadFile) Close() error {
+	f.fs.closed++
+	return f.fs.closeErr
+}
+
+type fileInfo struct {
+	name    string
+	size    int64
+	mode    fs.FileMode
+	modTime time.Time
+}
+
+func (fi fileInfo) Name() string       { return fi.name }
+func (fi fileInfo) Size() int64        { return fi.size }
+func (fi fileInfo) Mode() fs.FileMode  { return fi.mode }
+func (fi fileInfo) ModTime() time.Time { return fi.modTime }
+func (fi fileInfo) IsDir() bool        { return fi.mode.IsDir() }
+func (fi fileInfo) Sys() any           { return nil }
+
+func newDownloadFS(content string) *downloadFS {
+	return &downloadFS{
+		content: []byte(content),
+		mode:    0o640,
+		modTime: time.Date(2024, 5, 4, 12, 30, 15, 0, time.UTC),
+	}
+}
+
+// requireOnlyFile asserts that dir holds dst and nothing else, so no
+// temporary file was left behind.
+func requireOnlyFile(t *testing.T, dst string) {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Dir(dst))
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "only the destination file may remain in the directory")
+	require.Equal(t, filepath.Base(dst), entries[0].Name())
+}
+
+func TestDownloadFile(t *testing.T) {
+	mfs := newDownloadFS("hello world")
+	dst := filepath.Join(t.TempDir(), "dst")
+
+	require.NoError(t, remotefs.DownloadFile(mfs, "/remote/src", dst))
+
+	got, err := os.ReadFile(dst)
+	require.NoError(t, err)
+	require.Equal(t, "hello world", string(got))
+	stat, err := os.Stat(dst)
+	require.NoError(t, err)
+	require.True(t, stat.ModTime().Equal(mfs.modTime), "local mtime %s must match the remote %s", stat.ModTime(), mfs.modTime)
+	if runtime.GOOS != "windows" {
+		require.Equal(t, fs.FileMode(0o640), stat.Mode().Perm(), "local mode must match the remote file's")
+	}
+	requireOnlyFile(t, dst)
+	require.False(t, mfs.sumWhileOpen, "the remote file must be closed before its checksum is taken")
+	require.Equal(t, 1, mfs.closed, "the remote file must be closed exactly once")
+}
+
+func TestDownloadFileRemoteCloseFailure(t *testing.T) {
+	mfs := newDownloadFS("hello")
+	mfs.closeErr = errors.New("daemon gone")
+	dst := filepath.Join(t.TempDir(), "dst")
+
+	err := remotefs.DownloadFile(mfs, "/remote/src", dst)
+
+	require.ErrorIs(t, err, mfs.closeErr)
+	require.Equal(t, 1, mfs.closed, "a failed close must not be retried by the deferred cleanup")
+	require.NoFileExists(t, dst)
+	entries, readErr := os.ReadDir(filepath.Dir(dst))
+	require.NoError(t, readErr)
+	require.Empty(t, entries, "the temp file must be removed")
+}
+
+func TestDownloadFileCopyFailureClosesRemote(t *testing.T) {
+	mfs := newDownloadFS("hello")
+	mfs.copyToErr = errors.New("connection reset")
+
+	require.Error(t, remotefs.DownloadFile(mfs, "/remote/src", filepath.Join(t.TempDir(), "dst")))
+	require.Equal(t, 1, mfs.closed, "the remote file must be closed on an early failure too")
+}
+
+func TestDownloadFileWithPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows only keeps a read-only flag")
+	}
+	mfs := newDownloadFS("hello")
+	dst := filepath.Join(t.TempDir(), "dst")
+
+	require.NoError(t, remotefs.DownloadFile(mfs, "/remote/src", dst, remotefs.WithPermissions(0o600)))
+
+	stat, err := os.Stat(dst)
+	require.NoError(t, err)
+	require.Equal(t, fs.FileMode(0o600), stat.Mode().Perm())
+}
+
+func TestDownloadFileReplacesExisting(t *testing.T) {
+	mfs := newDownloadFS("new content")
+	dst := filepath.Join(t.TempDir(), "dst")
+	require.NoError(t, os.WriteFile(dst, []byte("old"), 0o600))
+
+	require.NoError(t, remotefs.DownloadFile(mfs, "/remote/src", dst))
+
+	got, err := os.ReadFile(dst)
+	require.NoError(t, err)
+	require.Equal(t, "new content", string(got))
+	requireOnlyFile(t, dst)
+}
+
+func TestDownloadFileChecksumMismatch(t *testing.T) {
+	mfs := newDownloadFS("hello")
+	mfs.sum = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+	dst := filepath.Join(t.TempDir(), "dst")
+	require.NoError(t, os.WriteFile(dst, []byte("old"), 0o600))
+
+	err := remotefs.DownloadFile(mfs, "/remote/src", dst)
+
+	require.ErrorIs(t, err, remotefs.ErrChecksumMismatch)
+	got, readErr := os.ReadFile(dst)
+	require.NoError(t, readErr)
+	require.Equal(t, "old", string(got), "dst must be left as it was")
+	requireOnlyFile(t, dst)
+}
+
+func TestDownloadFileCopyFailure(t *testing.T) {
+	mfs := newDownloadFS("hello world")
+	mfs.copyToErr = errors.New("connection reset")
+	dst := filepath.Join(t.TempDir(), "dst")
+	require.NoError(t, os.WriteFile(dst, []byte("old"), 0o600))
+
+	err := remotefs.DownloadFile(mfs, "/remote/src", dst)
+
+	require.ErrorIs(t, err, mfs.copyToErr)
+	got, readErr := os.ReadFile(dst)
+	require.NoError(t, readErr)
+	require.Equal(t, "old", string(got), "a partial transfer must not reach dst")
+	requireOnlyFile(t, dst)
+}
+
+func TestDownloadFileStatFailure(t *testing.T) {
+	mfs := newDownloadFS("hello")
+	mfs.statErr = &fs.PathError{Op: "stat", Path: "/remote/src", Err: fs.ErrNotExist}
+	dst := filepath.Join(t.TempDir(), "dst")
+
+	err := remotefs.DownloadFile(mfs, "/remote/src", dst)
+
+	require.ErrorIs(t, err, fs.ErrNotExist)
+	require.Zero(t, mfs.opened)
+	require.NoFileExists(t, dst)
+}
+
+func TestDownloadFileRejectsNonRegular(t *testing.T) {
+	for name, mode := range map[string]fs.FileMode{
+		"directory": fs.ModeDir | 0o755,
+		"symlink":   fs.ModeSymlink | 0o777,
+	} {
+		t.Run(name, func(t *testing.T) {
+			mfs := newDownloadFS("")
+			mfs.mode = mode
+			dst := filepath.Join(t.TempDir(), "dst")
+
+			err := remotefs.DownloadFile(mfs, "/remote/src", dst)
+
+			require.ErrorIs(t, err, fs.ErrInvalid)
+			require.Zero(t, mfs.opened, "a non-regular file must not be opened")
+			require.NoFileExists(t, dst)
+		})
+	}
 }
