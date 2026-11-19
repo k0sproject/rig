@@ -8,9 +8,12 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
+	"time"
 )
 
-// ErrChecksumMismatch is returned when the checksum of the uploaded file does not match the local checksum.
+// ErrChecksumMismatch is returned by Upload and DownloadFile when the checksum
+// of the transferred file does not match the checksum of its source.
 var ErrChecksumMismatch = errors.New("checksum mismatch")
 
 // UploadOption is a functional option for Upload.
@@ -128,4 +131,148 @@ func Upload(fsys FS, src, dst string, opts ...UploadOption) error {
 		return fmt.Errorf("rename uploaded file into place: %w", failure)
 	}
 	return nil
+}
+
+// DownloadFileOption is a functional option for DownloadFile.
+type DownloadFileOption func(*downloadFileOptions)
+
+type downloadFileOptions struct {
+	perm          fs.FileMode
+	hasPerm       bool
+	skipUnchanged bool
+}
+
+// WithDownloadPermissions sets the file mode for the downloaded local file. If
+// not set, the remote file's mode is used.
+func WithDownloadPermissions(mode fs.FileMode) DownloadFileOption {
+	return func(o *downloadFileOptions) {
+		o.perm = mode
+		o.hasPerm = true
+	}
+}
+
+// WithSkipUnchanged makes DownloadFile return without transferring anything
+// when dst is already a regular file with the same size and modification time
+// (to the second) as the remote file. DownloadFile sets the local
+// modification time to the remote one, so a file it downloaded earlier is
+// recognized.
+func WithSkipUnchanged() DownloadFileOption {
+	return func(o *downloadFileOptions) {
+		o.skipUnchanged = true
+	}
+}
+
+// DownloadFile copies the remote file src to the local path dst atomically:
+// the content is written to a temporary file in the same directory as dst,
+// verified against the remote file's SHA-256, and then renamed into place.
+// The temporary file is removed on failure, so dst is either left as it was
+// or fully replaced.
+//
+// The local file gets the remote file's modification time and, unless
+// WithDownloadPermissions is given, its mode. Windows hosts only report a
+// read-only flag, which maps to 0o555 or 0o777, so pass an explicit mode when
+// downloading from one.
+//
+// src must be a regular file. Symlinks are not followed, as the remote stat
+// describes the link itself, and are rejected along with directories.
+func DownloadFile(fsys FS, src, dst string, opts ...DownloadFileOption) error {
+	options := &downloadFileOptions{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(options)
+		}
+	}
+
+	stat, err := fsys.Stat(src)
+	if err != nil {
+		return fmt.Errorf("stat remote file for download: %w", err)
+	}
+	if !stat.Mode().IsRegular() {
+		return fmt.Errorf("download %s: %w: not a regular file (mode %s)", src, fs.ErrInvalid, stat.Mode())
+	}
+
+	if options.skipUnchanged && localFileMatches(dst, stat) {
+		return nil
+	}
+
+	perm := stat.Mode().Perm()
+	if options.hasPerm {
+		perm = options.perm
+	}
+
+	remote, err := fsys.OpenFile(src, os.O_RDONLY, 0)
+	if err != nil {
+		return fmt.Errorf("open remote file for download: %w", err)
+	}
+	defer remote.Close()
+
+	return writeDownload(fsys, src, remote, dst, perm, stat.ModTime())
+}
+
+// writeDownload copies remote into a temporary file next to dst, verifies it,
+// applies perm and modTime, and renames it into place. The temporary file is
+// removed if any step fails.
+func writeDownload(fsys FS, src string, remote File, dst string, perm fs.FileMode, modTime time.Time) error {
+	tmp, err := os.CreateTemp(filepath.Dir(dst), ".download-*")
+	if err != nil {
+		return fmt.Errorf("create temp file for download: %w", err)
+	}
+	tmpPath := tmp.Name()
+	keep := false
+	defer func() {
+		if !keep {
+			_ = tmp.Close()
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if err := copyAndVerifyDownload(fsys, src, remote, tmp); err != nil {
+		return err
+	}
+
+	if err := os.Chmod(tmpPath, perm); err != nil {
+		return fmt.Errorf("chmod downloaded file: %w", err)
+	}
+	// A zero access time leaves it unchanged.
+	if err := os.Chtimes(tmpPath, time.Time{}, modTime); err != nil {
+		return fmt.Errorf("set modification time of downloaded file: %w", err)
+	}
+	if err := os.Rename(tmpPath, dst); err != nil {
+		return fmt.Errorf("rename downloaded file into place: %w", err)
+	}
+	keep = true
+	return nil
+}
+
+// copyAndVerifyDownload copies remote into the local file tmp, closes it, and
+// compares the copied bytes against the checksum of src on the remote host.
+func copyAndVerifyDownload(fsys FS, src string, remote File, tmp *os.File) error {
+	localHash := sha256.New()
+	if _, err := remote.CopyTo(io.MultiWriter(tmp, localHash)); err != nil {
+		return fmt.Errorf("copy file from remote host: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp file after download: %w", err)
+	}
+
+	remoteSum, err := fsys.Sha256(src)
+	if err != nil {
+		return fmt.Errorf("get checksum of remote file: %w", err)
+	}
+	if remoteSum != hex.EncodeToString(localHash.Sum(nil)) {
+		return fmt.Errorf("download %s: %w", src, ErrChecksumMismatch)
+	}
+	return nil
+}
+
+// localFileMatches reports whether dst is a regular file with the size and
+// modification time of remote. Times are compared to the second, the coarsest
+// precision common local filesystems keep.
+func localFileMatches(dst string, remote fs.FileInfo) bool {
+	local, err := os.Stat(dst)
+	if err != nil || !local.Mode().IsRegular() {
+		return false
+	}
+	return local.Size() == remote.Size() &&
+		local.ModTime().Truncate(time.Second).Equal(remote.ModTime().Truncate(time.Second))
 }
