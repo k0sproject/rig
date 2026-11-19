@@ -47,7 +47,7 @@ func NewWindowsFS(conn cmd.Runner) *WinFS {
 }
 
 var statCmdTemplate = `if (Test-Path -LiteralPath %[1]s) {
-		$item = Get-Item -LiteralPath %[1]s | Select-Object Name, FullName, LastWriteTime, Attributes, Mode, Length | ForEach-Object {
+		$item = Get-Item -LiteralPath %[1]s | Select-Object Name, FullName, LastWriteTime, Attributes, Mode, Length, LinkType | ForEach-Object {
 			$isReadOnly = [bool]($_.Attributes -band [System.IO.FileAttributes]::ReadOnly)
 			$_ | Add-Member -NotePropertyName IsReadOnly -NotePropertyValue $isReadOnly -PassThru 
 		}

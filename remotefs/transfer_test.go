@@ -273,10 +273,13 @@ type downloadFS struct {
 	mode    fs.FileMode
 	modTime time.Time
 
-	statErr   error
-	copyToErr error
-	sum       string // overrides the computed checksum when set
-	opened    int
+	statErr      error
+	copyToErr    error
+	closeErr     error
+	sum          string // overrides the computed checksum when set
+	opened       int
+	closed       int
+	sumWhileOpen bool
 }
 
 func (f *downloadFS) Stat(name string) (fs.FileInfo, error) {
@@ -288,10 +291,16 @@ func (f *downloadFS) Stat(name string) (fs.FileInfo, error) {
 
 func (f *downloadFS) OpenFile(_ string, _ int, _ fs.FileMode) (remotefs.File, error) {
 	f.opened++
-	return &downloadFile{content: f.content, copyToErr: f.copyToErr}, nil
+	return &downloadFile{fs: f, content: f.content, copyToErr: f.copyToErr}, nil
 }
 
+// Sha256 fails while the file is still open, as WinFS does: the rigrcp daemon
+// opens files without sharing, so a second open is a sharing violation.
 func (f *downloadFS) Sha256(_ string) (string, error) {
+	if f.opened > f.closed {
+		f.sumWhileOpen = true
+		return "", errors.New("the process cannot access the file because it is being used by another process")
+	}
 	if f.sum != "" {
 		return f.sum, nil
 	}
@@ -302,6 +311,7 @@ func (f *downloadFS) Sha256(_ string) (string, error) {
 type downloadFile struct {
 	uploadFile
 
+	fs        *downloadFS
 	content   []byte
 	copyToErr error
 }
@@ -316,7 +326,10 @@ func (f *downloadFile) CopyTo(dst io.Writer) (int64, error) {
 	return int64(n), err
 }
 
-func (f *downloadFile) Close() error { return nil }
+func (f *downloadFile) Close() error {
+	f.fs.closed++
+	return f.fs.closeErr
+}
 
 type fileInfo struct {
 	name    string
@@ -366,6 +379,31 @@ func TestDownloadFile(t *testing.T) {
 		require.Equal(t, fs.FileMode(0o640), stat.Mode().Perm(), "local mode must match the remote file's")
 	}
 	requireOnlyFile(t, dst)
+	require.False(t, mfs.sumWhileOpen, "the remote file must be closed before its checksum is taken")
+	require.Equal(t, 1, mfs.closed, "the remote file must be closed exactly once")
+}
+
+func TestDownloadFileRemoteCloseFailure(t *testing.T) {
+	mfs := newDownloadFS("hello")
+	mfs.closeErr = errors.New("daemon gone")
+	dst := filepath.Join(t.TempDir(), "dst")
+
+	err := remotefs.DownloadFile(mfs, "/remote/src", dst)
+
+	require.ErrorIs(t, err, mfs.closeErr)
+	require.Equal(t, 1, mfs.closed, "a failed close must not be retried by the deferred cleanup")
+	require.NoFileExists(t, dst)
+	entries, readErr := os.ReadDir(filepath.Dir(dst))
+	require.NoError(t, readErr)
+	require.Empty(t, entries, "the temp file must be removed")
+}
+
+func TestDownloadFileCopyFailureClosesRemote(t *testing.T) {
+	mfs := newDownloadFS("hello")
+	mfs.copyToErr = errors.New("connection reset")
+
+	require.Error(t, remotefs.DownloadFile(mfs, "/remote/src", filepath.Join(t.TempDir(), "dst")))
+	require.Equal(t, 1, mfs.closed, "the remote file must be closed on an early failure too")
 }
 
 func TestDownloadFileWithPermissions(t *testing.T) {
@@ -375,7 +413,7 @@ func TestDownloadFileWithPermissions(t *testing.T) {
 	mfs := newDownloadFS("hello")
 	dst := filepath.Join(t.TempDir(), "dst")
 
-	require.NoError(t, remotefs.DownloadFile(mfs, "/remote/src", dst, remotefs.WithDownloadPermissions(0o600)))
+	require.NoError(t, remotefs.DownloadFile(mfs, "/remote/src", dst, remotefs.WithPermissions(0o600)))
 
 	stat, err := os.Stat(dst)
 	require.NoError(t, err)
@@ -454,56 +492,4 @@ func TestDownloadFileRejectsNonRegular(t *testing.T) {
 			require.NoFileExists(t, dst)
 		})
 	}
-}
-
-func TestDownloadFileSkipUnchanged(t *testing.T) {
-	t.Run("matching file is not transferred", func(t *testing.T) {
-		mfs := newDownloadFS("hello")
-		dst := filepath.Join(t.TempDir(), "dst")
-		require.NoError(t, os.WriteFile(dst, []byte("HELLO"), 0o600))
-		// Sub-second difference: only whole seconds are compared.
-		require.NoError(t, os.Chtimes(dst, time.Time{}, mfs.modTime.Add(300*time.Millisecond)))
-
-		require.NoError(t, remotefs.DownloadFile(mfs, "/remote/src", dst, remotefs.WithSkipUnchanged()))
-
-		require.Zero(t, mfs.opened)
-		got, err := os.ReadFile(dst)
-		require.NoError(t, err)
-		require.Equal(t, "HELLO", string(got), "a matching dst must be left alone")
-	})
-
-	t.Run("different size is transferred", func(t *testing.T) {
-		mfs := newDownloadFS("hello")
-		dst := filepath.Join(t.TempDir(), "dst")
-		require.NoError(t, os.WriteFile(dst, []byte("hi"), 0o600))
-		require.NoError(t, os.Chtimes(dst, time.Time{}, mfs.modTime))
-
-		require.NoError(t, remotefs.DownloadFile(mfs, "/remote/src", dst, remotefs.WithSkipUnchanged()))
-
-		require.Equal(t, 1, mfs.opened)
-		got, err := os.ReadFile(dst)
-		require.NoError(t, err)
-		require.Equal(t, "hello", string(got))
-	})
-
-	t.Run("different mtime is transferred", func(t *testing.T) {
-		mfs := newDownloadFS("hello")
-		dst := filepath.Join(t.TempDir(), "dst")
-		require.NoError(t, os.WriteFile(dst, []byte("HELLO"), 0o600))
-		require.NoError(t, os.Chtimes(dst, time.Time{}, mfs.modTime.Add(time.Hour)))
-
-		require.NoError(t, remotefs.DownloadFile(mfs, "/remote/src", dst, remotefs.WithSkipUnchanged()))
-
-		require.Equal(t, 1, mfs.opened)
-	})
-
-	t.Run("a fresh download is skipped the second time", func(t *testing.T) {
-		mfs := newDownloadFS("hello")
-		dst := filepath.Join(t.TempDir(), "dst")
-
-		require.NoError(t, remotefs.DownloadFile(mfs, "/remote/src", dst, remotefs.WithSkipUnchanged()))
-		require.NoError(t, remotefs.DownloadFile(mfs, "/remote/src", dst, remotefs.WithSkipUnchanged()))
-
-		require.Equal(t, 1, mfs.opened)
-	})
 }

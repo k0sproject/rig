@@ -120,8 +120,7 @@ It also exposes a richer, `os`-like surface — `WriteFile`, `MkdirAll`, `Rename
 ```go
 err = remotefs.Upload(client.FS(), "local/binary", "/usr/local/bin/tool",
 	remotefs.WithPermissions(0o755))
-err = remotefs.DownloadFile(client.FS(), "/var/lib/app/backup.tar.gz", "backup.tar.gz",
-	remotefs.WithSkipUnchanged())
+err = remotefs.DownloadFile(client.FS(), "/var/lib/app/backup.tar.gz", "backup.tar.gz")
 ```
 
 ### Sudo is just another client
