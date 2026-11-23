@@ -116,11 +116,13 @@ func (i OpenRC) ServiceEnvironmentContent(env map[string]string) string {
 //
 // For supervise-daemon and start-stop-daemon the arguments go through eval like
 // in OpenRC's supervisor modules, so quoting inside them works, and the last
-// --stdout, --stderr or --chroot wins. Log paths are inside the chroot.
-// supervise-daemon falls back to start_stop_daemon_args only when
-// supervise_daemon_args is unset. s6 redirects to output_log and error_log
-// before it enters the chroot, unless a logger command replaces them. runit
-// uses neither setting, so it prints nothing.
+// --stdout, --stderr, --chroot or --chdir wins. The daemons open the log files
+// after they change root and directory, so log paths are inside the chroot and
+// relative ones start from the service directory. supervise-daemon falls back
+// to start_stop_daemon_args only when supervise_daemon_args is unset. s6
+// redirects to output_log and error_log from its service directory before it
+// enters the chroot, unless a logger command replaces them. runit uses neither
+// setting, so it prints nothing.
 const openrcLogFilesScript = `_rig_script=$(rc-service -r "$_rig_svc" 2>/dev/null) || _rig_script=$_rig_root/etc/init.d/$_rig_svc
 [ -r "$_rig_script" ] || { echo "service script for $_rig_svc not found" >&2; exit 1; }
 [ -n "$_rig_runlevel" ] || _rig_runlevel=$(rc-status -r 2>/dev/null)
@@ -156,13 +158,15 @@ const openrcLogFilesScript = `_rig_script=$(rc-service -r "$_rig_svc" 2>/dev/nul
 		fi
 	done
 	_rig_load "$_rig_script"
-	_rig_out= _rig_err= _rig_chroot=
+	_rig_out= _rig_err= _rig_chroot= _rig_dir=
 	case $supervisor in
 		runit) exit 0 ;;
 		s6)
 			if [ -n "$output_logger" ] && [ -n "$error_logger" ]; then output_logger=; fi
 			if [ -z "$output_logger" ]; then _rig_out=$output_log; fi
 			if [ -z "$error_logger" ]; then _rig_err=$error_log; fi
+			_rig_abs=
+			_rig_rel=${RC_SVCDIR:-/run/openrc}/s6-services/${name:-$_rig_svc}
 			;;
 		*)
 			if [ "$supervisor" = supervise-daemon ]; then
@@ -170,27 +174,36 @@ const openrcLogFilesScript = `_rig_script=$(rc-service -r "$_rig_svc" 2>/dev/nul
 			else
 				_rig_args=$start_stop_daemon_args
 			fi
-			eval set -- ${chroot:+--chroot} ${chroot} ${output_log:+--stdout} ${output_log} ${error_log:+--stderr} ${error_log} $_rig_args
+			eval set -- ${chroot:+--chroot} ${chroot} ${directory:+--chdir} ${directory} ${output_log:+--stdout} ${output_log} ${error_log:+--stderr} ${error_log} $_rig_args
 			while [ $# -gt 0 ]; do
 				case $1 in
 					--stdout|-1) [ $# -ge 2 ] || break; _rig_out=$2; shift ;;
 					--stderr|-2) [ $# -ge 2 ] || break; _rig_err=$2; shift ;;
 					--chroot|-r) [ $# -ge 2 ] || break; _rig_chroot=$2; shift ;;
+					--chdir|-d) [ $# -ge 2 ] || break; _rig_dir=$2; shift ;;
 					--stdout=*) _rig_out=${1#*=} ;;
 					--stderr=*) _rig_err=${1#*=} ;;
 					--chroot=*) _rig_chroot=${1#*=} ;;
+					--chdir=*) _rig_dir=${1#*=} ;;
 					-1?*) _rig_out=${1#-1} ;;
 					-2?*) _rig_err=${1#-2} ;;
 					-r?*) _rig_chroot=${1#-r} ;;
+					-d?*) _rig_dir=${1#-d} ;;
 					--) break ;;
 				esac
 				shift
 			done
+			case $_rig_dir in /*) ;; *) _rig_dir=/$_rig_dir ;; esac
+			_rig_abs=${_rig_chroot%/}
+			_rig_rel=$_rig_abs$_rig_dir
 			;;
 	esac
 	for _rig_f in "$_rig_out" "$_rig_err"; do
 		if [ -z "$_rig_f" ] || [ "$_rig_f" = /dev/null ]; then continue; fi
-		if [ -n "$_rig_chroot" ]; then _rig_f=${_rig_chroot%/}$_rig_f; fi
+		case $_rig_f in
+			/*) _rig_f=$_rig_abs$_rig_f ;;
+			*) _rig_f=${_rig_rel%/}/$_rig_f ;;
+		esac
 		if [ -f "$_rig_f" ]; then printf '%s\n' "$_rig_f"; fi
 	done
 )`

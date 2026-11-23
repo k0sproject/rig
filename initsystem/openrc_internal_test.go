@@ -185,6 +185,38 @@ start_stop_daemon_args="-r$ROOT/log/new"
 			want: []string{"new/svc.log"},
 		},
 		{
+			name: "relative log paths start from the service directory",
+			svc:  "reldir",
+			files: []file{{"etc/init.d/reldir", `supervisor=supervise-daemon
+directory=$ROOT/log/old
+output_log=svc.log
+supervise_daemon_args="--chdir $ROOT/log/work"
+`}},
+			logs: []string{"old/svc.log", "work/svc.log"},
+			want: []string{"work/svc.log"},
+		},
+		{
+			name: "relative log paths are inside the chroot",
+			svc:  "reljail",
+			files: []file{{"etc/init.d/reljail", `chroot=$ROOT/log/jail
+start_stop_daemon_args="-d/work -2err.log"
+`}},
+			logs: []string{"jail/work/err.log", "jailerr.log"},
+			want: []string{"jail/work/err.log"},
+		},
+		{
+			name: "s6 relative log paths start from its service directory",
+			svc:  "s6rel",
+			files: []file{{"etc/init.d/s6rel", `supervisor=s6
+name=s6name
+directory=/elsewhere
+chroot=/jail
+output_log=out.log
+`}},
+			logs: []string{"svc/s6-services/s6name/out.log"},
+			want: []string{"svc/s6-services/s6name/out.log"},
+		},
+		{
 			name:  "an empty output_log does not swallow error_log",
 			svc:   "emptyout",
 			files: []file{{"etc/init.d/emptyout", "output_log=\"\"\nerror_log=$ROOT/log/emptyout.err\n"}},
@@ -275,6 +307,6 @@ func openrcStubBin(t *testing.T) string {
 // stubs from bin first in PATH.
 func openrcTestLookup(bin, root, svc, runlevel string) *exec.Cmd {
 	c := exec.Command("sh", "-c", openrcLogFilesCommand(svc, root, runlevel))
-	c.Env = append(os.Environ(), "ROOT="+root, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	c.Env = append(os.Environ(), "ROOT="+root, "RC_SVCDIR="+filepath.Join(root, "log", "svc"), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return c
 }
