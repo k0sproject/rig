@@ -17,6 +17,7 @@ func TestOpenRCLogFilesScript(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the lookup runs on OpenRC hosts only")
 	}
+	bin := openrcStubBin(t)
 
 	type file struct{ path, content string }
 	cases := []struct {
@@ -32,7 +33,7 @@ func TestOpenRCLogFilesScript(t *testing.T) {
 			svc:  "k0scontroller",
 			files: []file{
 				{"bin/k0s", ""},
-				{"init.d/k0scontroller", `supervisor=supervise-daemon
+				{"etc/init.d/k0scontroller", `supervisor=supervise-daemon
 command=$ROOT/bin/k0s
 name=$(basename $(readlink -f $command))
 supervise_daemon_args="--stdout $ROOT/log/${name}.log --stderr $ROOT/log/${name}.err"
@@ -45,7 +46,7 @@ echo noise
 		{
 			name: "quoted path with a space",
 			svc:  "quoted",
-			files: []file{{"init.d/quoted", `supervisor=supervise-daemon
+			files: []file{{"etc/init.d/quoted", `supervisor=supervise-daemon
 supervise_daemon_args="--stdout \"$ROOT/log/my svc.log\""
 `}},
 			logs: []string{"my svc.log"},
@@ -54,7 +55,7 @@ supervise_daemon_args="--stdout \"$ROOT/log/my svc.log\""
 		{
 			name: "stdout comes first regardless of flag order",
 			svc:  "order",
-			files: []file{{"init.d/order", `supervisor=supervise-daemon
+			files: []file{{"etc/init.d/order", `supervisor=supervise-daemon
 supervise_daemon_args="--stderr=$ROOT/log/order.err -1 $ROOT/log/order.log"
 `}},
 			logs: []string{"order.log", "order.err"},
@@ -63,7 +64,7 @@ supervise_daemon_args="--stderr=$ROOT/log/order.err -1 $ROOT/log/order.log"
 		{
 			name: "supervise-daemon ignores start_stop_daemon_args when its own are set",
 			svc:  "sd",
-			files: []file{{"init.d/sd", `supervisor=supervise-daemon
+			files: []file{{"etc/init.d/sd", `supervisor=supervise-daemon
 supervise_daemon_args=""
 start_stop_daemon_args="--stdout $ROOT/log/stale.log"
 `}},
@@ -72,7 +73,7 @@ start_stop_daemon_args="--stdout $ROOT/log/stale.log"
 		{
 			name: "supervise-daemon falls back to start_stop_daemon_args when unset",
 			svc:  "sdfb",
-			files: []file{{"init.d/sdfb", `supervisor=supervise-daemon
+			files: []file{{"etc/init.d/sdfb", `supervisor=supervise-daemon
 start_stop_daemon_args="--stdout $ROOT/log/fb.log"
 `}},
 			logs: []string{"fb.log"},
@@ -81,7 +82,7 @@ start_stop_daemon_args="--stdout $ROOT/log/fb.log"
 		{
 			name: "start-stop-daemon ignores supervise_daemon_args and the last flag wins",
 			svc:  "ssd",
-			files: []file{{"init.d/ssd", `output_log=$ROOT/log/first.log
+			files: []file{{"etc/init.d/ssd", `output_log=$ROOT/log/first.log
 error_log=$ROOT/log/ssd.err
 supervise_daemon_args="--stdout $ROOT/log/other.log"
 start_stop_daemon_args="--stdout $ROOT/log/last.log"
@@ -93,8 +94,8 @@ start_stop_daemon_args="--stdout $ROOT/log/last.log"
 			name: "instance inherits the base conf.d",
 			svc:  "worker.one",
 			files: []file{
-				{"init.d/worker.one", "command=/bin/true\n"},
-				{"conf.d/worker", "output_log=$ROOT/log/worker.log\n"},
+				{"etc/init.d/worker.one", "command=/bin/true\n"},
+				{"etc/conf.d/worker", "output_log=$ROOT/log/worker.log\n"},
 			},
 			logs: []string{"worker.log"},
 			want: []string{"worker.log"},
@@ -104,9 +105,9 @@ start_stop_daemon_args="--stdout $ROOT/log/last.log"
 			svc:      "rl",
 			runlevel: "default",
 			files: []file{
-				{"init.d/rl", "command=/bin/true\n"},
-				{"conf.d/rl", "output_log=$ROOT/log/plain.log\n"},
-				{"conf.d/rl.default", "error_log=$ROOT/log/rl.err\n"},
+				{"etc/init.d/rl", "command=/bin/true\n"},
+				{"etc/conf.d/rl", "output_log=$ROOT/log/plain.log\n"},
+				{"etc/conf.d/rl.default", "error_log=$ROOT/log/rl.err\n[ \"$MODE\" = debug ] && debug=yes\n"},
 			},
 			logs: []string{"plain.log", "rl.err"},
 			want: []string{"rl.err"},
@@ -115,8 +116,8 @@ start_stop_daemon_args="--stdout $ROOT/log/last.log"
 			name: "rc.conf applies to every service",
 			svc:  "global",
 			files: []file{
-				{"init.d/global", "command=/bin/true\n"},
-				{"rc.conf", "error_log=$ROOT/log/global.err\n"},
+				{"etc/init.d/global", "command=/bin/true\n"},
+				{"etc/rc.conf", "error_log=$ROOT/log/global.err\n"},
 			},
 			logs: []string{"global.err"},
 			want: []string{"global.err"},
@@ -124,15 +125,46 @@ start_stop_daemon_args="--stdout $ROOT/log/last.log"
 		{
 			name: "s6 supervisor keeps its own logs",
 			svc:  "s6svc",
-			files: []file{{"init.d/s6svc", `supervisor=s6
+			files: []file{{"etc/init.d/s6svc", `supervisor=s6
 output_log=$ROOT/log/s6.log
 `}},
 			logs: []string{"s6.log"},
 		},
 		{
+			name:  "an empty output_log does not swallow error_log",
+			svc:   "emptyout",
+			files: []file{{"etc/init.d/emptyout", "output_log=\"\"\nerror_log=$ROOT/log/emptyout.err\n"}},
+			logs:  []string{"emptyout.err"},
+			want:  []string{"emptyout.err"},
+		},
+		{
+			name: "yesno works without the OpenRC helper library",
+			svc:  "cond",
+			files: []file{
+				{"etc/conf.d/cond", "log_enabled=yes\n"},
+				{"etc/init.d/cond", `if yesno "$log_enabled"; then output_log=$ROOT/log/cond.log; fi
+yesno log_enabled && error_log=$ROOT/log/cond.err
+yesno "no" && output_log=$ROOT/log/wrong.log
+`},
+			},
+			logs: []string{"cond.log", "cond.err", "wrong.log"},
+			want: []string{"cond.log", "cond.err"},
+		},
+		{
+			name: "OpenRC helper library is loaded before configuration",
+			svc:  "helper",
+			files: []file{
+				{"lib/rc/sh/functions.sh", "log_dir() { echo \"$ROOT/log\"; }\n"},
+				{"etc/conf.d/helper", "output_log=$(log_dir)/helper.log\n"},
+				{"etc/init.d/helper", "command=/bin/true\n"},
+			},
+			logs: []string{"helper.log"},
+			want: []string{"helper.log"},
+		},
+		{
 			name:  "missing and /dev/null files are skipped",
 			svc:   "nolog",
-			files: []file{{"init.d/nolog", "output_log=/dev/null\nerror_log=$ROOT/log/absent.err\n"}},
+			files: []file{{"etc/init.d/nolog", "output_log=/dev/null\nerror_log=$ROOT/log/absent.err\n"}},
 		},
 	}
 
@@ -149,9 +181,7 @@ output_log=$ROOT/log/s6.log
 				require.NoError(t, os.WriteFile(filepath.Join(root, "log", l), nil, 0o600))
 			}
 
-			c := exec.Command("sh", "-c", openrcLogFilesCommand(tc.svc, root, tc.runlevel))
-			c.Env = append(os.Environ(), "ROOT="+root)
-			out, err := c.Output()
+			out, err := openrcTestLookup(bin, root, tc.svc, tc.runlevel).Output()
 			require.NoError(t, err)
 
 			var want []string
@@ -167,9 +197,28 @@ output_log=$ROOT/log/s6.log
 	}
 
 	t.Run("missing service script is an error", func(t *testing.T) {
-		c := exec.Command("sh", "-c", openrcLogFilesCommand("absent", t.TempDir(), ""))
-		out, err := c.CombinedOutput()
+		out, err := openrcTestLookup(bin, t.TempDir(), "absent", "").CombinedOutput()
 		require.Error(t, err)
 		require.Contains(t, string(out), "service script for absent not found")
 	})
+}
+
+// openrcStubBin writes failing rc-service and rc-status commands into a new
+// directory. Putting it first in PATH keeps the lookup away from the OpenRC
+// installation of the host running the test.
+func openrcStubBin(t *testing.T) string {
+	t.Helper()
+	bin := t.TempDir()
+	for _, name := range []string{"rc-service", "rc-status"} {
+		require.NoError(t, os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\nexit 1\n"), 0o755)) //nolint:gosec // the stub must be executable
+	}
+	return bin
+}
+
+// openrcTestLookup prepares the lookup for service svc under root, with the
+// stubs from bin first in PATH.
+func openrcTestLookup(bin, root, svc, runlevel string) *exec.Cmd {
+	c := exec.Command("sh", "-c", openrcLogFilesCommand(svc, root, runlevel))
+	c.Env = append(os.Environ(), "ROOT="+root, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return c
 }
