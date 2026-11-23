@@ -2,9 +2,12 @@ package initsystem
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/k0sproject/rig/v2/cmd"
@@ -97,6 +100,91 @@ func (i OpenRC) ServiceEnvironmentContent(env map[string]string) string {
 		b.WriteByte('\n')
 	}
 	return b.String()
+}
+
+// openrcLogFilesScript prints the existing log files of the service named by
+// $svc, one per line. OpenRC has no log location of its own: each service script
+// sets one with output_log/error_log or with --stdout/--stderr in the supervisor
+// arguments. The conf.d file and the service script are sourced in a subshell
+// the way openrc-run does it, so values derived at load time, such as the
+// binary name in the k0s script, resolve the same way.
+const openrcLogFilesScript = `script=$(rc-service -r "$svc" 2>/dev/null) || script=/etc/init.d/$svc
+[ -r "$script" ] || { echo "service script for $svc not found" >&2; exit 1; }
+(
+	RC_SVCNAME=$svc
+	SVCNAME=$svc
+	if [ -r "/etc/conf.d/$svc" ]; then . "/etc/conf.d/$svc" >/dev/null 2>&1 </dev/null; fi
+	. "$script" >/dev/null 2>&1 </dev/null
+	set -f
+	{
+		printf '%s\n' "$output_log" "$error_log"
+		next=
+		for a in $supervise_daemon_args $start_stop_daemon_args; do
+			if [ -n "$next" ]; then printf '%s\n' "$a"; next=; continue; fi
+			case $a in
+				--stdout|--stderr|-1|-2) next=1 ;;
+				--stdout=*|--stderr=*) printf '%s\n' "${a#*=}" ;;
+			esac
+		done
+	} | while IFS= read -r f; do
+		if [ -n "$f" ] && [ "$f" != /dev/null ] && [ -f "$f" ]; then printf '%s\n' "$f"; fi
+	done
+)`
+
+// logFiles returns the log files of service s in the order the service script
+// declares them, stdout before stderr, without duplicates.
+func (i OpenRC) logFiles(ctx context.Context, h cmd.ContextRunner, s string) ([]string, error) {
+	out, err := h.ExecOutputContext(ctx, "svc="+shellescape.Quote(s)+"\n"+openrcLogFilesScript)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find log files for service %s: %w", s, err)
+	}
+	var files []string
+	seen := make(map[string]struct{})
+	for f := range strings.SplitSeq(out, "\n") {
+		f = strings.TrimSpace(f)
+		if f == "" {
+			continue
+		}
+		if _, ok := seen[f]; ok {
+			continue
+		}
+		seen[f] = struct{}{}
+		files = append(files, f)
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("service %s does not log to a file: %w", s, errors.ErrUnsupported)
+	}
+	return files, nil
+}
+
+// ServiceLogs returns the latest log lines of a service. The log files come from
+// the service script. When the script sends stdout and stderr to separate files,
+// the result holds that many lines from each file, stdout first. Services that
+// log only to syslog return an error that wraps [errors.ErrUnsupported].
+func (i OpenRC) ServiceLogs(ctx context.Context, h cmd.ContextRunner, s string, lines int) ([]string, error) {
+	files, err := i.logFiles(ctx, h, s)
+	if err != nil {
+		return nil, err
+	}
+	args := append([]string{"-q", "-n", strconv.Itoa(lines), "--"}, files...)
+	out, err := h.ExecOutputContext(ctx, sh.Command("tail", args...))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get logs for service %s: %w", s, err)
+	}
+	return strings.Split(out, "\n"), nil
+}
+
+// StreamServiceLogs streams new lines from the log files of a service to w until
+// ctx is cancelled. The log files come from the service script, as in
+// [OpenRC.ServiceLogs]. Lines from separate stdout and stderr files are written
+// as they arrive, so their relative order is approximate.
+func (i OpenRC) StreamServiceLogs(ctx context.Context, h cmd.ContextRunner, s string, w io.Writer) error {
+	files, err := i.logFiles(ctx, h, s)
+	if err != nil {
+		return err
+	}
+	args := append([]string{"-q", "-n", "0", "-F", "--"}, files...)
+	return streamToWriter(ctx, h, s, sh.Command("tail", args...), w)
 }
 
 // RegisterOpenRC registers OpenRC to a repository.
