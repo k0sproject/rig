@@ -102,46 +102,76 @@ func (i OpenRC) ServiceEnvironmentContent(env map[string]string) string {
 	return b.String()
 }
 
-// openrcLogFilesScript prints the existing log files of the service named by
-// $svc, one per line. OpenRC has no log location of its own: each service script
-// sets one with output_log/error_log or with --stdout/--stderr in the supervisor
-// arguments. The conf.d file and the service script are sourced in a subshell
-// the way openrc-run does it, so values derived at load time, such as the
-// binary name in the k0s script, resolve the same way.
-const openrcLogFilesScript = `script=$(rc-service -r "$svc" 2>/dev/null) || script=/etc/init.d/$svc
-[ -r "$script" ] || { echo "service script for $svc not found" >&2; exit 1; }
+// openrcLogFilesScript prints the existing stdout and stderr log files of the
+// service named by $svc, stdout first. OpenRC has no log location of its own:
+// each service script sets one with output_log/error_log or with --stdout and
+// --stderr in the supervisor arguments.
+//
+// The script follows openrc-run so that the result matches what the supervisor
+// gets: rc.conf, then conf.d for the base and instance names with runlevel
+// overrides, then the service script, all in a subshell. The arguments go
+// through eval like in OpenRC's supervisor modules, so quoting inside them
+// works, and the last --stdout or --stderr wins. supervise-daemon falls back to
+// start_stop_daemon_args only when supervise_daemon_args is unset. The s6 and
+// runit supervisors keep their own logs, so they print nothing.
+const openrcLogFilesScript = `_rig_script=$(rc-service -r "$_rig_svc" 2>/dev/null) || _rig_script=$_rig_etc/init.d/$_rig_svc
+[ -r "$_rig_script" ] || { echo "service script for $_rig_svc not found" >&2; exit 1; }
+[ -n "$_rig_runlevel" ] || _rig_runlevel=$(rc-status -r 2>/dev/null)
 (
-	RC_SVCNAME=$svc
-	SVCNAME=$svc
-	if [ -r "/etc/conf.d/$svc" ]; then . "/etc/conf.d/$svc" >/dev/null 2>&1 </dev/null; fi
-	. "$script" >/dev/null 2>&1 </dev/null
-	set -f
-	{
-		printf '%s\n' "$output_log" "$error_log"
-		next=
-		for a in $supervise_daemon_args $start_stop_daemon_args; do
-			if [ -n "$next" ]; then printf '%s\n' "$a"; next=; continue; fi
-			case $a in
-				--stdout|--stderr|-1|-2) next=1 ;;
-				--stdout=*|--stderr=*) printf '%s\n' "${a#*=}" ;;
-			esac
-		done
-	} | while IFS= read -r f; do
-		if [ -n "$f" ] && [ "$f" != /dev/null ] && [ -f "$f" ]; then printf '%s\n' "$f"; fi
+	RC_SVCNAME=$_rig_svc SVCNAME=$_rig_svc RC_SERVICE=$_rig_script RC_RUNLEVEL=$_rig_runlevel
+	_rig_load() { [ -r "$1" ] && . "$1" >/dev/null 2>&1 </dev/null; }
+	_rig_confd=${_rig_script%/*}/../conf.d
+	_rig_names=$_rig_svc
+	if [ "${_rig_svc%%.*}" != "$_rig_svc" ]; then _rig_names="${_rig_svc%%.*} $_rig_svc"; fi
+	_rig_load "$_rig_etc/rc.conf"
+	for _rig_f in "$_rig_etc"/rc.conf.d/*.conf; do _rig_load "$_rig_f"; done
+	for _rig_n in $_rig_names; do
+		if [ -z "$_rig_runlevel" ] || ! _rig_load "$_rig_confd/$_rig_n.$_rig_runlevel"; then
+			_rig_load "$_rig_confd/$_rig_n"
+		fi
+	done
+	_rig_load "$_rig_script"
+	case $supervisor in
+		supervise-daemon) _rig_args=${supervise_daemon_args-${start_stop_daemon_args}} ;;
+		s6|runit) exit 0 ;;
+		*) _rig_args=$start_stop_daemon_args ;;
+	esac
+	eval set -- ${output_log+--stdout} ${output_log} ${error_log+--stderr} ${error_log} $_rig_args
+	_rig_out= _rig_err=
+	while [ $# -gt 0 ]; do
+		case $1 in
+			--stdout|-1) [ $# -ge 2 ] || break; _rig_out=$2; shift ;;
+			--stderr|-2) [ $# -ge 2 ] || break; _rig_err=$2; shift ;;
+			--stdout=*) _rig_out=${1#*=} ;;
+			--stderr=*) _rig_err=${1#*=} ;;
+			--) break ;;
+		esac
+		shift
+	done
+	for _rig_f in "$_rig_out" "$_rig_err"; do
+		if [ -n "$_rig_f" ] && [ "$_rig_f" != /dev/null ] && [ -f "$_rig_f" ]; then printf '%s\n' "$_rig_f"; fi
 	done
 )`
 
-// logFiles returns the log files of service s in the order the service script
-// declares them, stdout before stderr, without duplicates.
+// openrcLogFilesCommand builds the log file lookup for service s. etcDir is the
+// OpenRC configuration root. An empty runlevel is read from rc-status.
+func openrcLogFilesCommand(s, etcDir, runlevel string) string {
+	return "_rig_svc=" + shellescape.Quote(s) +
+		" _rig_etc=" + shellescape.Quote(etcDir) +
+		" _rig_runlevel=" + shellescape.Quote(runlevel) + "\n" +
+		openrcLogFilesScript
+}
+
+// logFiles returns the log files of service s, stdout before stderr, without
+// duplicates.
 func (i OpenRC) logFiles(ctx context.Context, h cmd.ContextRunner, s string) ([]string, error) {
-	out, err := h.ExecOutputContext(ctx, "svc="+shellescape.Quote(s)+"\n"+openrcLogFilesScript)
+	out, err := h.ExecOutputContext(ctx, openrcLogFilesCommand(s, "/etc", ""))
 	if err != nil {
 		return nil, fmt.Errorf("failed to find log files for service %s: %w", s, err)
 	}
 	var files []string
 	seen := make(map[string]struct{})
 	for f := range strings.SplitSeq(out, "\n") {
-		f = strings.TrimSpace(f)
 		if f == "" {
 			continue
 		}
@@ -181,6 +211,9 @@ func (i OpenRC) ServiceLogs(ctx context.Context, h cmd.ContextRunner, s string, 
 func (i OpenRC) StreamServiceLogs(ctx context.Context, h cmd.ContextRunner, s string, w io.Writer) error {
 	files, err := i.logFiles(ctx, h, s)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil //nolint:nilerr // context cancellation is the expected stop signal
+		}
 		return err
 	}
 	args := append([]string{"-q", "-n", "0", "-F", "--"}, files...)

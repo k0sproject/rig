@@ -35,7 +35,7 @@ func TestOpenRCServiceLogs(t *testing.T) {
 		lines, err := initsystem.OpenRC{}.ServiceLogs(ctx, mr, "k0scontroller", 10)
 		require.NoError(t, err)
 		require.Equal(t, []string{"out", "err"}, lines)
-		require.NoError(t, mr.Received(rigtest.Contains("svc=k0scontroller")))
+		require.NoError(t, mr.Received(rigtest.Contains("_rig_svc=k0scontroller")))
 		require.NoError(t, mr.Received(rigtest.Equal("tail -q -n 10 -- /var/log/k0s.log /var/log/k0s.err")))
 	})
 
@@ -46,7 +46,7 @@ func TestOpenRCServiceLogs(t *testing.T) {
 
 		_, err := initsystem.OpenRC{}.ServiceLogs(ctx, mr, "a b;c", 1)
 		require.NoError(t, err)
-		require.NoError(t, mr.Received(rigtest.Contains(`svc='a b;c'`)))
+		require.NoError(t, mr.Received(rigtest.Contains(`_rig_svc='a b;c'`)))
 	})
 
 	t.Run("no log file is unsupported", func(t *testing.T) {
@@ -101,6 +101,18 @@ func TestOpenRCStreamServiceLogs(t *testing.T) {
 		})
 
 		require.NoError(t, initsystem.OpenRC{}.StreamServiceLogs(ctx, mr, "k0scontroller", io.Discard))
+	})
+
+	t.Run("context cancellation during discovery is not an error", func(t *testing.T) {
+		mr := rigtest.NewMockRunner()
+		ctx, cancel := context.WithCancel(context.Background())
+		mr.AddCommand(openrcResolve, func(_ *rigtest.A) error {
+			cancel()
+			return context.Canceled
+		})
+
+		require.NoError(t, initsystem.OpenRC{}.StreamServiceLogs(ctx, mr, "k0scontroller", io.Discard))
+		require.Error(t, mr.Received(openrcTail))
 	})
 
 	t.Run("no log file is unsupported", func(t *testing.T) {
