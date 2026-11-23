@@ -123,12 +123,66 @@ start_stop_daemon_args="--stdout $ROOT/log/last.log"
 			want: []string{"global.err"},
 		},
 		{
-			name: "s6 supervisor keeps its own logs",
+			name: "s6 redirects to output_log and error_log",
 			svc:  "s6svc",
 			files: []file{{"etc/init.d/s6svc", `supervisor=s6
+chroot=$ROOT/jail
 output_log=$ROOT/log/s6.log
+error_log=$ROOT/log/s6.err
+s6_args="--stdout $ROOT/log/ignored.log"
 `}},
-			logs: []string{"s6.log"},
+			logs: []string{"s6.log", "s6.err", "ignored.log"},
+			want: []string{"s6.log", "s6.err"},
+		},
+		{
+			name: "s6 loggers replace the log files",
+			svc:  "s6logger",
+			files: []file{{"etc/init.d/s6logger", `supervisor=s6
+output_logger="logger -t s6"
+error_logger="logger -t s6"
+output_log=$ROOT/log/s6out.log
+error_log=$ROOT/log/s6err.log
+`}},
+			logs: []string{"s6out.log", "s6err.log"},
+			want: []string{"s6out.log"},
+		},
+		{
+			name: "runit does not use output_log",
+			svc:  "runitsvc",
+			files: []file{{"etc/init.d/runitsvc", `supervisor=runit
+output_log=$ROOT/log/runit.log
+`}},
+			logs: []string{"runit.log"},
+		},
+		{
+			name: "attached short option values",
+			svc:  "attached",
+			files: []file{{"etc/init.d/attached", `supervisor=supervise-daemon
+supervise_daemon_args="-1$ROOT/log/att.log -2$ROOT/log/att.err"
+`}},
+			logs: []string{"att.log", "att.err"},
+			want: []string{"att.log", "att.err"},
+		},
+		{
+			name: "log paths are inside the chroot variable",
+			svc:  "jailed",
+			files: []file{{"etc/init.d/jailed", `supervisor=supervise-daemon
+chroot=$ROOT/log/jail/
+output_log=/svc.log
+error_log=/dev/null
+`}},
+			logs: []string{"svc.log", "jail/svc.log"},
+			want: []string{"jail/svc.log"},
+		},
+		{
+			name: "chroot in the supervisor arguments overrides the variable",
+			svc:  "rejailed",
+			files: []file{{"etc/init.d/rejailed", `chroot=$ROOT/log/old
+output_log=/svc.log
+start_stop_daemon_args="-r$ROOT/log/new"
+`}},
+			logs: []string{"old/svc.log", "new/svc.log"},
+			want: []string{"new/svc.log"},
 		},
 		{
 			name:  "an empty output_log does not swallow error_log",
@@ -178,7 +232,9 @@ yesno "no" && output_log=$ROOT/log/wrong.log
 				require.NoError(t, os.WriteFile(p, []byte(f.content), 0o600))
 			}
 			for _, l := range tc.logs {
-				require.NoError(t, os.WriteFile(filepath.Join(root, "log", l), nil, 0o600))
+				p := filepath.Join(root, "log", l)
+				require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+				require.NoError(t, os.WriteFile(p, nil, 0o600))
 			}
 
 			out, err := openrcTestLookup(bin, root, tc.svc, tc.runlevel).Output()

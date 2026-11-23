@@ -107,14 +107,20 @@ func (i OpenRC) ServiceEnvironmentContent(env map[string]string) string {
 // each service script sets one with output_log/error_log or with --stdout and
 // --stderr in the supervisor arguments.
 //
-// The script follows openrc-run so that the result matches what the supervisor
-// gets, all in a subshell: the OpenRC helper functions, rc.conf, conf.d for the
-// base and instance names, then the service script. A runlevel conf.d file
-// replaces the plain one when it exists. The arguments go through eval like in
-// OpenRC's supervisor modules, so quoting inside them works, and the last
-// --stdout or --stderr wins. supervise-daemon falls back to
-// start_stop_daemon_args only when supervise_daemon_args is unset. The s6 and
-// runit supervisors keep their own logs, so they print nothing.
+// The script follows openrc-run of OpenRC 0.63 so that the result matches what
+// the supervisor gets, all in a subshell: the OpenRC helper functions, rc.conf,
+// conf.d beside the service script for the base and instance names, then the
+// service script. A runlevel conf.d file replaces the plain one when it exists.
+// OpenRC 0.64 also reads configuration from the RC_PATH roots, which this
+// script does not.
+//
+// For supervise-daemon and start-stop-daemon the arguments go through eval like
+// in OpenRC's supervisor modules, so quoting inside them works, and the last
+// --stdout, --stderr or --chroot wins. Log paths are inside the chroot.
+// supervise-daemon falls back to start_stop_daemon_args only when
+// supervise_daemon_args is unset. s6 redirects to output_log and error_log
+// before it enters the chroot, unless a logger command replaces them. runit
+// uses neither setting, so it prints nothing.
 const openrcLogFilesScript = `_rig_script=$(rc-service -r "$_rig_svc" 2>/dev/null) || _rig_script=$_rig_root/etc/init.d/$_rig_svc
 [ -r "$_rig_script" ] || { echo "service script for $_rig_svc not found" >&2; exit 1; }
 [ -n "$_rig_runlevel" ] || _rig_runlevel=$(rc-status -r 2>/dev/null)
@@ -150,25 +156,42 @@ const openrcLogFilesScript = `_rig_script=$(rc-service -r "$_rig_svc" 2>/dev/nul
 		fi
 	done
 	_rig_load "$_rig_script"
+	_rig_out= _rig_err= _rig_chroot=
 	case $supervisor in
-		supervise-daemon) _rig_args=${supervise_daemon_args-${start_stop_daemon_args}} ;;
-		s6|runit) exit 0 ;;
-		*) _rig_args=$start_stop_daemon_args ;;
+		runit) exit 0 ;;
+		s6)
+			if [ -n "$output_logger" ] && [ -n "$error_logger" ]; then output_logger=; fi
+			if [ -z "$output_logger" ]; then _rig_out=$output_log; fi
+			if [ -z "$error_logger" ]; then _rig_err=$error_log; fi
+			;;
+		*)
+			if [ "$supervisor" = supervise-daemon ]; then
+				_rig_args=${supervise_daemon_args-${start_stop_daemon_args}}
+			else
+				_rig_args=$start_stop_daemon_args
+			fi
+			eval set -- ${chroot:+--chroot} ${chroot} ${output_log:+--stdout} ${output_log} ${error_log:+--stderr} ${error_log} $_rig_args
+			while [ $# -gt 0 ]; do
+				case $1 in
+					--stdout|-1) [ $# -ge 2 ] || break; _rig_out=$2; shift ;;
+					--stderr|-2) [ $# -ge 2 ] || break; _rig_err=$2; shift ;;
+					--chroot|-r) [ $# -ge 2 ] || break; _rig_chroot=$2; shift ;;
+					--stdout=*) _rig_out=${1#*=} ;;
+					--stderr=*) _rig_err=${1#*=} ;;
+					--chroot=*) _rig_chroot=${1#*=} ;;
+					-1?*) _rig_out=${1#-1} ;;
+					-2?*) _rig_err=${1#-2} ;;
+					-r?*) _rig_chroot=${1#-r} ;;
+					--) break ;;
+				esac
+				shift
+			done
+			;;
 	esac
-	eval set -- ${output_log:+--stdout} ${output_log} ${error_log:+--stderr} ${error_log} $_rig_args
-	_rig_out= _rig_err=
-	while [ $# -gt 0 ]; do
-		case $1 in
-			--stdout|-1) [ $# -ge 2 ] || break; _rig_out=$2; shift ;;
-			--stderr|-2) [ $# -ge 2 ] || break; _rig_err=$2; shift ;;
-			--stdout=*) _rig_out=${1#*=} ;;
-			--stderr=*) _rig_err=${1#*=} ;;
-			--) break ;;
-		esac
-		shift
-	done
 	for _rig_f in "$_rig_out" "$_rig_err"; do
-		if [ -n "$_rig_f" ] && [ "$_rig_f" != /dev/null ] && [ -f "$_rig_f" ]; then printf '%s\n' "$_rig_f"; fi
+		if [ -z "$_rig_f" ] || [ "$_rig_f" = /dev/null ]; then continue; fi
+		if [ -n "$_rig_chroot" ]; then _rig_f=${_rig_chroot%/}$_rig_f; fi
+		if [ -f "$_rig_f" ]; then printf '%s\n' "$_rig_f"; fi
 	done
 )`
 
