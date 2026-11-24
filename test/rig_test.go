@@ -540,18 +540,13 @@ func (s *OSSuite) TestService() {
 		return
 	}
 
-	fsys := h.FS()
-	s.Require().NoError(fsys.MkdirAll(pathDir(binary), 0o755))
-	s.Require().NoError(fsys.WriteFile(binary, []byte(fmt.Sprintf(testServiceProgram, state)), 0o755))
-	// openrc-run scripts must be executable, unit files need not be.
-	s.Require().NoError(fsys.WriteFile(unitPath, []byte(unit), 0o755))
-
 	svc, err := h.Service(name)
 	s.Require().NoError(err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
+	fsys := h.FS()
 	defer func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanupCancel()
@@ -569,6 +564,11 @@ func (s *OSSuite) TestService() {
 			_ = fsys.RemoveAll(p)
 		}
 	}()
+
+	s.Require().NoError(fsys.MkdirAll(pathDir(binary), 0o755))
+	s.Require().NoError(fsys.WriteFile(binary, []byte(fmt.Sprintf(testServiceProgram, state)), 0o755))
+	// openrc-run scripts must be executable, unit files need not be.
+	s.Require().NoError(fsys.WriteFile(unitPath, []byte(unit), 0o755))
 
 	if !s.Run("Enable", func() {
 		s.Require().NoError(svc.Enable(ctx))
