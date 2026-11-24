@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/k0sproject/rig/v2"
+	"github.com/k0sproject/rig/v2/initsystem"
 	"github.com/k0sproject/rig/v2/protocol"
 	"github.com/k0sproject/rig/v2/protocol/localhost"
 	"github.com/k0sproject/rig/v2/protocol/openssh"
@@ -522,21 +523,28 @@ func (s *OSSuite) TestService() {
 	binary := "/usr/local/bin/" + name
 	state := "/tmp/" + name + ".greeting"
 
+	// The service definition follows the init system rig detects, so the test
+	// and the provider cannot disagree about it.
+	sm, err := h.ServiceManager()
+	if err != nil {
+		s.T().Skipf("no supported init system detected: %v", err)
+		return
+	}
 	var unitPath, unit string
-	switch {
-	case h.Exec("test -d /run/systemd/system") == nil:
+	switch sm.(type) {
+	case initsystem.Systemd, *initsystem.Systemd:
 		unitPath = "/etc/systemd/system/" + name + ".service"
 		unit = "[Unit]\nDescription=rig integration test service\n\n" +
 			"[Service]\nExecStart=" + binary + "\n\n" +
 			"[Install]\nWantedBy=multi-user.target\n"
-	case h.Exec("command -v openrc-run") == nil:
+	case initsystem.OpenRC, *initsystem.OpenRC:
 		unitPath = "/etc/init.d/" + name
 		unit = "#!/sbin/openrc-run\nsupervisor=supervise-daemon\n" +
 			"command=" + binary + "\n" +
 			"output_log=/var/log/" + name + ".log\n" +
 			"error_log=/var/log/" + name + ".err\n"
 	default:
-		s.T().Skip("the host runs neither systemd nor OpenRC")
+		s.T().Skipf("the test has no service definition for %T", sm)
 		return
 	}
 
