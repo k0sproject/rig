@@ -485,21 +485,18 @@ func exitCodeOf(err error) int {
 	return -1
 }
 
-const (
-	testServiceName    = "rigtest-logsvc"
-	testServiceBinary  = "/usr/local/bin/" + testServiceName
-	testServiceState   = "/tmp/" + testServiceName + ".greeting"
-	testServiceProgram = `#!/bin/sh
+// testServiceProgram is the service TestService installs. Its %s is the file
+// that the service writes the value of RIGTEST_GREETING to.
+const testServiceProgram = `#!/bin/sh
 i=0
 while :; do
   i=$((i + 1))
   echo "rigtest out ${RIGTEST_GREETING:-none} $i"
   echo "rigtest err ${RIGTEST_GREETING:-none} $i" >&2
-  echo "${RIGTEST_GREETING:-none}" > ` + testServiceState + `
+  echo "${RIGTEST_GREETING:-none}" > %s
   sleep 1
 done
 `
-)
 
 // TestService installs a service and puts it through the Service API of the
 // init system rig detects. The service writes a line to stdout and a line to
@@ -520,31 +517,36 @@ func (s *OSSuite) TestService() {
 		return
 	}
 
+	// A random name keeps the test away from anything already on the host.
+	name := "rigtest-logsvc-" + strings.ToLower(rand.Text()[:8])
+	binary := "/usr/local/bin/" + name
+	state := "/tmp/" + name + ".greeting"
+
 	var unitPath, unit string
 	switch {
 	case h.Exec("test -d /run/systemd/system") == nil:
-		unitPath = "/etc/systemd/system/" + testServiceName + ".service"
+		unitPath = "/etc/systemd/system/" + name + ".service"
 		unit = "[Unit]\nDescription=rig integration test service\n\n" +
-			"[Service]\nExecStart=" + testServiceBinary + "\n\n" +
+			"[Service]\nExecStart=" + binary + "\n\n" +
 			"[Install]\nWantedBy=multi-user.target\n"
 	case h.Exec("command -v openrc-run") == nil:
-		unitPath = "/etc/init.d/" + testServiceName
+		unitPath = "/etc/init.d/" + name
 		unit = "#!/sbin/openrc-run\nsupervisor=supervise-daemon\n" +
-			"command=" + testServiceBinary + "\n" +
-			"output_log=/var/log/" + testServiceName + ".log\n" +
-			"error_log=/var/log/" + testServiceName + ".err\n"
+			"command=" + binary + "\n" +
+			"output_log=/var/log/" + name + ".log\n" +
+			"error_log=/var/log/" + name + ".err\n"
 	default:
 		s.T().Skip("the host runs neither systemd nor OpenRC")
 		return
 	}
 
 	fsys := h.FS()
-	s.Require().NoError(fsys.MkdirAll(pathDir(testServiceBinary), 0o755))
-	s.Require().NoError(fsys.WriteFile(testServiceBinary, []byte(testServiceProgram), 0o755))
+	s.Require().NoError(fsys.MkdirAll(pathDir(binary), 0o755))
+	s.Require().NoError(fsys.WriteFile(binary, []byte(fmt.Sprintf(testServiceProgram, state)), 0o755))
 	// openrc-run scripts must be executable, unit files need not be.
 	s.Require().NoError(fsys.WriteFile(unitPath, []byte(unit), 0o755))
 
-	svc, err := h.Service(testServiceName)
+	svc, err := h.Service(name)
 	s.Require().NoError(err)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
@@ -558,11 +560,11 @@ func (s *OSSuite) TestService() {
 		for _, p := range []string{
 			unitPath,
 			unitPath + ".d",
-			"/etc/conf.d/" + testServiceName,
-			"/var/log/" + testServiceName + ".log",
-			"/var/log/" + testServiceName + ".err",
-			testServiceBinary,
-			testServiceState,
+			"/etc/conf.d/" + name,
+			"/var/log/" + name + ".log",
+			"/var/log/" + name + ".err",
+			binary,
+			state,
 		} {
 			_ = fsys.RemoveAll(p)
 		}
@@ -607,13 +609,14 @@ func (s *OSSuite) TestService() {
 		defer streamCancel()
 		s.Require().NoError(svc.StreamLogs(streamCtx, &buf))
 		s.Contains(buf.String(), "rigtest out none")
+		s.Contains(buf.String(), "rigtest err none")
 	})
 
 	s.Run("SetEnvironment and Restart", func() {
 		s.Require().NoError(svc.SetEnvironment(ctx, map[string]string{"RIGTEST_GREETING": "hello"}))
 		s.Require().NoError(svc.Restart(ctx))
 		s.Require().EventuallyWithT(func(c *assert.CollectT) {
-			data, err := fsys.ReadFile(testServiceState)
+			data, err := fsys.ReadFile(state)
 			if assert.NoError(c, err) {
 				assert.Equal(c, "hello", strings.TrimSpace(string(data)))
 			}
