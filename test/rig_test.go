@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/k0sproject/rig/v2"
+	"github.com/k0sproject/rig/v2/initsystem"
 	"github.com/k0sproject/rig/v2/protocol"
 	"github.com/k0sproject/rig/v2/protocol/localhost"
 	"github.com/k0sproject/rig/v2/protocol/openssh"
@@ -31,6 +32,7 @@ import (
 	"github.com/k0sproject/rig/v2/sshconfig"
 	"github.com/k0sproject/rig/v2/stattime"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
@@ -482,6 +484,162 @@ func exitCodeOf(err error) int {
 		return withCode.ExitCode()
 	}
 	return -1
+}
+
+// testServiceProgram is the service TestService installs. Its %s is the file
+// that the service writes the value of RIGTEST_GREETING to.
+const testServiceProgram = `#!/bin/sh
+i=0
+while :; do
+  i=$((i + 1))
+  echo "rigtest out ${RIGTEST_GREETING:-none} $i"
+  echo "rigtest err ${RIGTEST_GREETING:-none} $i" >&2
+  echo "${RIGTEST_GREETING:-none}" > %s
+  sleep 1
+done
+`
+
+// TestService installs a service and puts it through the Service API of the
+// init system rig detects. The service writes a line to stdout and a line to
+// stderr every second. Under systemd they go to the journal. Under OpenRC the
+// script sends them to files with supervise-daemon.
+//
+// The service also writes the value of RIGTEST_GREETING to a state file, so
+// SetEnvironment is checked without reading the logs.
+func (s *OSSuite) TestService() {
+	if s.Host.IsWindows() {
+		s.T().Skip("windows services are not covered")
+		return
+	}
+	h := s.Host.Sudo()
+	if _, err := h.ExecOutput("true"); err != nil {
+		s.Require().Falsef(expectSudo, "the host has passwordless privilege escalation configured but rig did not detect it: %v", err)
+		s.T().Skip("passwordless privilege escalation (sudo/doas) not configured")
+		return
+	}
+
+	// A random name keeps the test away from anything already on the host.
+	name := "rigtest-logsvc-" + strings.ToLower(rand.Text()[:8])
+	binary := "/usr/local/bin/" + name
+	state := "/tmp/" + name + ".greeting"
+
+	// The service definition follows the init system rig detects, so the test
+	// and the provider cannot disagree about it.
+	sm, err := h.ServiceManager()
+	if err != nil {
+		s.T().Skipf("no supported init system detected: %v", err)
+		return
+	}
+	var unitPath, unit string
+	switch sm.(type) {
+	case initsystem.Systemd, *initsystem.Systemd:
+		unitPath = "/etc/systemd/system/" + name + ".service"
+		unit = "[Unit]\nDescription=rig integration test service\n\n" +
+			"[Service]\nExecStart=" + binary + "\n\n" +
+			"[Install]\nWantedBy=multi-user.target\n"
+	case initsystem.OpenRC, *initsystem.OpenRC:
+		unitPath = "/etc/init.d/" + name
+		unit = "#!/sbin/openrc-run\nsupervisor=supervise-daemon\n" +
+			"command=" + binary + "\n" +
+			"output_log=/var/log/" + name + ".log\n" +
+			"error_log=/var/log/" + name + ".err\n"
+	default:
+		s.T().Skipf("the test has no service definition for %T", sm)
+		return
+	}
+
+	svc, err := h.Service(name)
+	s.Require().NoError(err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	fsys := h.FS()
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cleanupCancel()
+		_ = svc.Stop(cleanupCtx)
+		_ = svc.Disable(cleanupCtx)
+		for _, p := range []string{
+			unitPath,
+			unitPath + ".d",
+			"/etc/conf.d/" + name,
+			"/var/log/" + name + ".log",
+			"/var/log/" + name + ".err",
+			binary,
+			state,
+		} {
+			_ = fsys.RemoveAll(p)
+		}
+	}()
+
+	s.Require().NoError(fsys.MkdirAll(pathDir(binary), 0o755))
+	s.Require().NoError(fsys.WriteFile(binary, []byte(fmt.Sprintf(testServiceProgram, state)), 0o755))
+	// openrc-run scripts must be executable, unit files need not be.
+	s.Require().NoError(fsys.WriteFile(unitPath, []byte(unit), 0o755))
+
+	if !s.Run("Enable", func() {
+		s.Require().NoError(svc.Enable(ctx))
+	}) {
+		return
+	}
+
+	if !s.Run("Start", func() {
+		s.Require().NoError(svc.Start(ctx))
+		s.Require().Eventually(func() bool { return svc.IsRunning(ctx) }, 30*time.Second, 500*time.Millisecond)
+	}) {
+		return
+	}
+
+	s.Run("ScriptPath", func() {
+		p, err := svc.ScriptPath(ctx)
+		s.Require().NoError(err)
+		s.Equal(unitPath, p)
+	})
+
+	s.Run("Logs", func() {
+		s.Require().EventuallyWithT(func(c *assert.CollectT) {
+			lines, err := svc.Logs(ctx, 20)
+			if !assert.NoError(c, err) {
+				return
+			}
+			joined := strings.Join(lines, "\n")
+			assert.Contains(c, joined, "rigtest out none")
+			assert.Contains(c, joined, "rigtest err none")
+		}, 30*time.Second, time.Second)
+	})
+
+	s.Run("StreamLogs", func() {
+		// StreamLogs starts from the current end of the log, so the lines it
+		// returns are written while it runs. The context ending is a clean stop.
+		var buf bytes.Buffer
+		streamCtx, streamCancel := context.WithTimeout(ctx, 5*time.Second)
+		defer streamCancel()
+		s.Require().NoError(svc.StreamLogs(streamCtx, &buf))
+		s.Contains(buf.String(), "rigtest out none")
+		s.Contains(buf.String(), "rigtest err none")
+	})
+
+	s.Run("SetEnvironment and Restart", func() {
+		s.Require().NoError(svc.SetEnvironment(ctx, map[string]string{"RIGTEST_GREETING": "hello"}))
+		s.Require().NoError(svc.Restart(ctx))
+		s.Require().EventuallyWithT(func(c *assert.CollectT) {
+			data, err := fsys.ReadFile(state)
+			if assert.NoError(c, err) {
+				assert.Equal(c, "hello", strings.TrimSpace(string(data)))
+			}
+		}, 30*time.Second, time.Second)
+		s.True(svc.IsRunning(ctx))
+	})
+
+	s.Run("Stop", func() {
+		s.Require().NoError(svc.Stop(ctx))
+		s.Require().Eventually(func() bool { return !svc.IsRunning(ctx) }, 30*time.Second, 500*time.Millisecond)
+	})
+
+	s.Run("Disable", func() {
+		s.Require().NoError(svc.Disable(ctx))
+	})
 }
 
 func (s *OSSuite) TestStat() {
